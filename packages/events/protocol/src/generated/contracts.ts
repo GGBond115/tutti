@@ -114,6 +114,10 @@ export interface PreferencesDesktopPreferencesV1 {
     openclaw?: boolean;
     opencode?: boolean;
   };
+  agentSessionLaunchModesByWorkspace?: Record<
+    string,
+    Record<string, "local" | "worktree">
+  >;
   agentConversationDetailMode: "coding" | "general";
   agentDockLayout: "legacySplit" | "unified";
   appCatalogChannel: "production" | "staging";

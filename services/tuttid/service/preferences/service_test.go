@@ -154,6 +154,25 @@ func TestServicePutNotifiesChangeObserversWithPreviousAndCurrentPreferences(t *t
 	}
 }
 
+func TestServicePutPreservesAgentSessionLaunchModesWhenFieldIsOmitted(t *testing.T) {
+	t.Parallel()
+
+	storedLaunchModes := map[string]map[string]string{
+		"workspace-a": {"project:/alpha": "worktree"},
+	}
+	store := &preferencesStoreStub{getResult: preferencesbiz.DesktopPreferences{
+		AgentSessionLaunchModesByWorkspace: storedLaunchModes,
+	}}
+	service := Service{Store: store}
+
+	if _, err := service.Put(context.Background(), PutInput{}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	if got := store.putInput.AgentSessionLaunchModesByWorkspace["workspace-a"]["project:/alpha"]; got != "worktree" {
+		t.Fatalf("stored Agent Session launch mode = %q, want worktree", got)
+	}
+}
+
 func TestServicePutTrimsDesktopPreferences(t *testing.T) {
 	t.Parallel()
 

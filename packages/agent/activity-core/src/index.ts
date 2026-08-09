@@ -387,6 +387,7 @@ export type {
   AgentActivityCollaborationTriggerSource,
   AgentActivityCollaborationUsage,
   AgentActivityCreateSessionInput,
+  AgentActivitySessionIsolation,
   AgentActivityDeleteSessionInput,
   AgentActivityDeleteSessionResult,
   AgentActivityDeleteSessionsInput,

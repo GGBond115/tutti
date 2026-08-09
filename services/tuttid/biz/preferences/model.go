@@ -56,6 +56,7 @@ type DesktopPreferences struct {
 	AgentComposerDefaultsByProvider             map[string]AgentComposerDefaults
 	AgentComposerDefaultsByAgentTarget          map[string]AgentComposerDefaults
 	AgentGUIConversationRailCollapsedByProvider map[string]bool
+	AgentSessionLaunchModesByWorkspace          map[string]map[string]string
 	AgentConversationDetailMode                 string
 	AgentDockLayout                             string
 	AppCatalogChannel                           string
@@ -128,6 +129,7 @@ func DefaultDesktopPreferences() DesktopPreferences {
 		AgentComposerDefaultsByProvider:             map[string]AgentComposerDefaults{},
 		AgentComposerDefaultsByAgentTarget:          map[string]AgentComposerDefaults{},
 		AgentGUIConversationRailCollapsedByProvider: map[string]bool{},
+		AgentSessionLaunchModesByWorkspace:          map[string]map[string]string{},
 		AgentConversationDetailMode:                 DefaultDesktopAgentConversationDetailMode,
 		AgentDockLayout:                             DefaultDesktopAgentDockLayout,
 		AppCatalogChannel:                           DefaultDesktopAppCatalogChannel,

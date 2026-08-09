@@ -20,6 +20,7 @@ func GeneratedDesktopPreferencesFromBiz(value preferencesbiz.DesktopPreferences)
 		AgentComposerDefaultsByProvider:             generatedAgentComposerDefaultsByProvider(value.AgentComposerDefaultsByProvider),
 		AgentComposerDefaultsByAgentTarget:          generatedAgentComposerDefaultsByAgentTarget(value.AgentComposerDefaultsByAgentTarget),
 		AgentGuiConversationRailCollapsedByProvider: generatedAgentGUIConversationRailCollapsedByProvider(value.AgentGUIConversationRailCollapsedByProvider),
+		AgentSessionLaunchModesByWorkspace:          generatedAgentSessionLaunchModesByWorkspace(value.AgentSessionLaunchModesByWorkspace),
 		AgentConversationDetailMode:                 tuttigenerated.DesktopAgentConversationDetailMode(preferencesbiz.NormalizeDesktopAgentConversationDetailMode(value.AgentConversationDetailMode)),
 		AgentDockLayout:                             tuttigenerated.DesktopAgentDockLayout(preferencesbiz.NormalizeDesktopAgentDockLayout(value.AgentDockLayout)),
 		AppCatalogChannel:                           tuttigenerated.DesktopAppCatalogChannel(value.AppCatalogChannel),
@@ -40,6 +41,18 @@ func GeneratedDesktopPreferencesFromBiz(value preferencesbiz.DesktopPreferences)
 		UpdatePolicy:                                tuttigenerated.DesktopUpdatePolicy(value.UpdatePolicy),
 		WorkbenchWindowSnapping:                     &windowSnapping,
 	}
+}
+
+func generatedAgentSessionLaunchModesByWorkspace(value map[string]map[string]string) *tuttigenerated.DesktopAgentSessionLaunchModesByWorkspace {
+	result := tuttigenerated.DesktopAgentSessionLaunchModesByWorkspace{}
+	for workspaceID, byProject := range value {
+		projects := tuttigenerated.DesktopAgentSessionLaunchModesByProject{}
+		for sectionKey, mode := range byProject {
+			projects[sectionKey] = tuttigenerated.DesktopAgentSessionLaunchMode(mode)
+		}
+		result[workspaceID] = projects
+	}
+	return &result
 }
 
 func generatedFileDefaultOpenersByExtension(value map[string]string) tuttigenerated.DesktopFileDefaultOpenersByExtension {

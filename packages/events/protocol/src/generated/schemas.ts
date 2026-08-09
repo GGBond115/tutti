@@ -213,6 +213,22 @@ export const preferencesDesktopPreferencesSchema = {
         }
       }
     },
+    agentSessionLaunchModesByWorkspace: {
+      type: "object",
+      propertyNames: {
+        minLength: 1
+      },
+      additionalProperties: {
+        type: "object",
+        propertyNames: {
+          minLength: 1
+        },
+        additionalProperties: {
+          type: "string",
+          enum: ["local", "worktree"]
+        }
+      }
+    },
     agentConversationDetailMode: {
       type: "string",
       enum: ["coding", "general"]
@@ -2106,6 +2122,22 @@ export const preferencesDesktopUpdateRequestedPayloadSchema = {
             }
           }
         },
+        agentSessionLaunchModesByWorkspace: {
+          type: "object",
+          propertyNames: {
+            minLength: 1
+          },
+          additionalProperties: {
+            type: "object",
+            propertyNames: {
+              minLength: 1
+            },
+            additionalProperties: {
+              type: "string",
+              enum: ["local", "worktree"]
+            }
+          }
+        },
         agentConversationDetailMode: {
           type: "string",
           enum: ["coding", "general"]
@@ -2455,6 +2487,22 @@ export const preferencesDesktopUpdatedPayloadSchema = {
             },
             opencode: {
               type: "boolean"
+            }
+          }
+        },
+        agentSessionLaunchModesByWorkspace: {
+          type: "object",
+          propertyNames: {
+            minLength: 1
+          },
+          additionalProperties: {
+            type: "object",
+            propertyNames: {
+              minLength: 1
+            },
+            additionalProperties: {
+              type: "string",
+              enum: ["local", "worktree"]
             }
           }
         },

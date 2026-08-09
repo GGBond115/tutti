@@ -57,6 +57,7 @@ type PutInput struct {
 	AgentComposerDefaultsByProvider             map[string]preferencesbiz.AgentComposerDefaults
 	AgentComposerDefaultsByAgentTarget          map[string]preferencesbiz.AgentComposerDefaults
 	AgentGUIConversationRailCollapsedByProvider map[string]bool
+	AgentSessionLaunchModesByWorkspace          *map[string]map[string]string
 	AgentConversationDetailMode                 string
 	AgentDockLayout                             string
 	AppCatalogChannel                           string
@@ -150,6 +151,12 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 	}
 
 	windowSnapping := resolveWindowSnapping(stored, input.WindowSnapping)
+	agentSessionLaunchModesByWorkspace := stored.AgentSessionLaunchModesByWorkspace
+	if input.AgentSessionLaunchModesByWorkspace != nil {
+		agentSessionLaunchModesByWorkspace = normalizeAgentSessionLaunchModesByWorkspace(
+			*input.AgentSessionLaunchModesByWorkspace,
+		)
+	}
 
 	preferences, err := s.Store.PutDesktopPreferences(ctx, preferencesbiz.DesktopPreferences{
 		AgentCLIUpdateCheckEnabled: input.AgentCLIUpdateCheckEnabled,
@@ -162,6 +169,7 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 		// dedicated daemon-side field patch may change this map.
 		AgentComposerDefaultsByAgentTarget:          stored.AgentComposerDefaultsByAgentTarget,
 		AgentGUIConversationRailCollapsedByProvider: normalizeAgentGUIConversationRailCollapsedByProvider(input.AgentGUIConversationRailCollapsedByProvider),
+		AgentSessionLaunchModesByWorkspace:          agentSessionLaunchModesByWorkspace,
 		AgentConversationDetailMode:                 preferencesbiz.NormalizeDesktopAgentConversationDetailMode(input.AgentConversationDetailMode),
 		AgentDockLayout:                             normalizeAgentDockLayout(input.AgentDockLayout),
 		AppCatalogChannel:                           normalizeAppCatalogChannel(input.AppCatalogChannel),
@@ -331,6 +339,29 @@ func normalizeAgentGUIConversationRailCollapsedByProvider(input map[string]bool)
 			continue
 		}
 		result[normalizedProvider] = collapsed
+	}
+	return result
+}
+
+func normalizeAgentSessionLaunchModesByWorkspace(input map[string]map[string]string) map[string]map[string]string {
+	result := map[string]map[string]string{}
+	for workspaceID, byProject := range input {
+		workspaceID = strings.TrimSpace(workspaceID)
+		if workspaceID == "" {
+			continue
+		}
+		normalizedProjects := map[string]string{}
+		for sectionKey, mode := range byProject {
+			sectionKey = strings.TrimSpace(sectionKey)
+			mode = strings.TrimSpace(mode)
+			if sectionKey == "" || (mode != "local" && mode != "worktree") {
+				continue
+			}
+			normalizedProjects[sectionKey] = mode
+		}
+		if len(normalizedProjects) > 0 {
+			result[workspaceID] = normalizedProjects
+		}
 	}
 	return result
 }

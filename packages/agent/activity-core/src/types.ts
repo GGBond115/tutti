@@ -69,6 +69,13 @@ export interface AgentActivitySessionForkLineage {
   forkedAtUnixMs: number;
 }
 
+export interface AgentActivitySessionIsolation {
+  mode: "worktree";
+  worktreePath: string;
+  branch: string;
+  baseCommit: string;
+}
+
 export interface AgentActivitySession {
   workspaceId: string;
   agentSessionId: string;
@@ -85,6 +92,7 @@ export interface AgentActivitySession {
   model?: string | null;
   noProject?: boolean | null;
   cwd: string;
+  isolation?: AgentActivitySessionIsolation | null;
   /** Backend-owned conversation-rail membership; absent for non-rail runtimes. */
   railSectionKey?: string;
   title: string;
@@ -374,6 +382,7 @@ export interface AgentActivityCreateSessionInput {
   agentSessionId?: string | null;
   agentTargetId: string;
   cwd?: string | null;
+  isolation?: AgentActivitySessionIsolation["mode"] | null;
   noProject?: boolean | null;
   capabilityRefs?: readonly AgentActivityCapabilityReference[] | null;
   initialGoalControl?: AgentActivityInitialGoalControl | null;

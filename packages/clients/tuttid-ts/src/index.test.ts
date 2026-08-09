@@ -18,6 +18,7 @@ import {
   type ListAgentTargetsResponse,
   type ListWorkspacesResponse,
   type WorkspaceFilePreviewResponse,
+  type WorkspaceAgentSessionWorktreeSupportResponse,
   type WorkspaceGitPatchSupportResponse,
   type WorkspaceGitPatchResponse
 } from "./index.ts";
@@ -1775,6 +1776,30 @@ test("shared tuttid client resolves workspace git patch support", async () => {
   assert.deepEqual(response, {
     root: "/workspace",
     supported: true
+  });
+});
+
+test("shared tuttid client carries the exact Agent target into worktree support", async () => {
+  const response = {
+    root: "/workspace",
+    supported: true
+  } satisfies WorkspaceAgentSessionWorktreeSupportResponse;
+  const { client, requests } = captureClient(jsonResponse(response));
+
+  assert.deepEqual(
+    await client.resolveWorkspaceAgentSessionWorktreeSupport(
+      "ws-1",
+      "local:codex",
+      "/workspace"
+    ),
+    response
+  );
+  assertRequest(requests[0]!, {
+    authorization: null,
+    body: null,
+    method: "GET",
+    path: "/v1/workspaces/ws-1/agent-session-worktree-support",
+    query: { agentTargetId: "local:codex", cwd: "/workspace" }
   });
 });
 

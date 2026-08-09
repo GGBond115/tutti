@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
 
@@ -33,6 +34,28 @@ var (
 type WorktreeIsolationError struct {
 	Kind   error
 	Detail string
+}
+
+type SessionWorktreeSupportErrorCode string
+
+const (
+	SessionWorktreeSupportGitUnavailable        SessionWorktreeSupportErrorCode = "git-unavailable"
+	SessionWorktreeSupportNotGitRepo            SessionWorktreeSupportErrorCode = "not-git-repo"
+	SessionWorktreeSupportTargetUnsupported     SessionWorktreeSupportErrorCode = "agent-target-unsupported"
+	SessionWorktreeSupportUnsupportedRepoLayout SessionWorktreeSupportErrorCode = "unsupported-repo-layout"
+)
+
+type SessionWorktreeSupport struct {
+	Supported bool
+	Root      string
+	ErrorCode SessionWorktreeSupportErrorCode
+}
+
+type sessionWorktreeSource struct {
+	Cwd          string
+	RepoRoot     string
+	GitCommonDir string
+	BaseCommit   string
 }
 
 func (e *WorktreeIsolationError) Error() string {
@@ -103,6 +126,67 @@ func (s *Service) createSessionWorktree(
 	return createSessionWorktree(ctx, s.worktreeStateDir(), workspaceID, cwd, sessionID)
 }
 
+func (s *Service) ResolveSessionWorktreeSupport(
+	ctx context.Context,
+	workspaceID string,
+	agentTargetID string,
+	cwd string,
+) (SessionWorktreeSupport, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	agentTargetID = strings.TrimSpace(agentTargetID)
+	if workspaceID == "" || agentTargetID == "" || strings.TrimSpace(cwd) == "" {
+		return SessionWorktreeSupport{}, ErrInvalidArgument
+	}
+	if strings.HasPrefix(agentTargetID, "shared-agent:") {
+		return SessionWorktreeSupport{ErrorCode: SessionWorktreeSupportTargetUnsupported}, nil
+	}
+	input := CreateSessionInput{AgentTargetID: agentTargetID}
+	launch, err := s.resolveCreateSessionLaunch(ctx, workspaceID, &input)
+	if err != nil {
+		return SessionWorktreeSupport{}, err
+	}
+	if !sessionWorktreeTargetSupported(agentTargetID, launch.ProviderTargetRef) {
+		return SessionWorktreeSupport{ErrorCode: SessionWorktreeSupportTargetUnsupported}, nil
+	}
+	return s.ResolveSessionWorktreeSupportForPath(ctx, workspaceID, cwd)
+}
+
+func sessionWorktreeTargetSupported(agentTargetID string, providerTargetRef map[string]any) bool {
+	if strings.HasPrefix(strings.TrimSpace(agentTargetID), "shared-agent:") {
+		return false
+	}
+	switch providerTargetRefKind(providerTargetRef) {
+	case agenttargetbiz.LaunchRefTypeBuiltinLocal, agenttargetbiz.LaunchRefTypeAgentExtension:
+		return true
+	default:
+		return false
+	}
+}
+
+func (*Service) ResolveSessionWorktreeSupportForPath(
+	ctx context.Context,
+	workspaceID string,
+	cwd string,
+) (SessionWorktreeSupport, error) {
+	if strings.TrimSpace(workspaceID) == "" || strings.TrimSpace(cwd) == "" {
+		return SessionWorktreeSupport{}, ErrInvalidArgument
+	}
+	source, err := resolveSessionWorktreeSource(ctx, cwd)
+	if err == nil {
+		return SessionWorktreeSupport{Supported: true, Root: source.RepoRoot}, nil
+	}
+	support := SessionWorktreeSupport{Supported: false}
+	switch {
+	case errors.Is(err, ErrGitUnavailable):
+		support.ErrorCode = SessionWorktreeSupportGitUnavailable
+	case errors.Is(err, ErrNotAGitRepo):
+		support.ErrorCode = SessionWorktreeSupportNotGitRepo
+	default:
+		support.ErrorCode = SessionWorktreeSupportUnsupportedRepoLayout
+	}
+	return support, nil
+}
+
 func createSessionWorktree(
 	ctx context.Context,
 	stateDir string,
@@ -110,51 +194,14 @@ func createSessionWorktree(
 	cwd string,
 	sessionID string,
 ) (SessionIsolation, []SessionWarning, error) {
-	if _, err := exec.LookPath("git"); err != nil {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrGitUnavailable, Detail: err.Error()}
-	}
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrNotAGitRepo}
-	}
-	absCwd, err := filepath.Abs(cwd)
+	source, err := resolveSessionWorktreeSource(ctx, cwd)
 	if err != nil {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrNotAGitRepo, Detail: err.Error()}
+		return SessionIsolation{}, nil, err
 	}
-	if resolved, resolveErr := filepath.EvalSymlinks(absCwd); resolveErr == nil {
-		absCwd = resolved
-	}
-	repoRoot, err := gitOutput(ctx, absCwd, "rev-parse", "--show-toplevel")
-	if err != nil || strings.TrimSpace(repoRoot) == "" {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrNotAGitRepo, Detail: gitErrorDetail(err)}
-	}
-	repoRoot = filepath.Clean(strings.TrimSpace(repoRoot))
-	if resolved, resolveErr := filepath.EvalSymlinks(repoRoot); resolveErr == nil {
-		repoRoot = resolved
-	}
-	if superproject, superErr := gitOutput(ctx, repoRoot, "rev-parse", "--show-superproject-working-tree"); superErr == nil && strings.TrimSpace(superproject) != "" {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrUnsupportedRepoLayout, Detail: "git submodules are not supported for worktree isolation"}
-	}
-	if outerRoot, outerErr := gitOutput(ctx, filepath.Dir(repoRoot), "rev-parse", "--show-toplevel"); outerErr == nil && strings.TrimSpace(outerRoot) != "" && filepath.Clean(strings.TrimSpace(outerRoot)) != repoRoot {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrUnsupportedRepoLayout, Detail: "nested git repositories are not supported for worktree isolation"}
-	}
-	commonDirOut, err := gitOutput(ctx, absCwd, "rev-parse", "--git-common-dir")
-	if err != nil || strings.TrimSpace(commonDirOut) == "" {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrWorktreeCreateFailed, Detail: gitErrorDetail(err)}
-	}
-	gitCommonDir := strings.TrimSpace(commonDirOut)
-	if !filepath.IsAbs(gitCommonDir) {
-		gitCommonDir = filepath.Join(absCwd, gitCommonDir)
-	}
-	gitCommonDir = filepath.Clean(gitCommonDir)
-	if resolved, resolveErr := filepath.EvalSymlinks(gitCommonDir); resolveErr == nil {
-		gitCommonDir = resolved
-	}
-	baseCommit, err := gitOutput(ctx, repoRoot, "rev-parse", "HEAD")
-	if err != nil || strings.TrimSpace(baseCommit) == "" {
-		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrWorktreeCreateFailed, Detail: gitErrorDetail(err)}
-	}
-	baseCommit = strings.TrimSpace(baseCommit)
+	repoRoot := source.RepoRoot
+	gitCommonDir := source.GitCommonDir
+	baseCommit := source.BaseCommit
+
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" || filepath.Base(sessionID) != sessionID || strings.ContainsAny(sessionID, `/\\`) {
 		return SessionIsolation{}, nil, &WorktreeIsolationError{Kind: ErrWorktreeCreateFailed, Detail: "agent session id is unsafe for a worktree path"}
@@ -198,6 +245,59 @@ func createSessionWorktree(
 		})
 	}
 	return info, warnings, nil
+}
+
+func resolveSessionWorktreeSource(ctx context.Context, cwd string) (sessionWorktreeSource, error) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrGitUnavailable, Detail: err.Error()}
+	}
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrNotAGitRepo}
+	}
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrNotAGitRepo, Detail: err.Error()}
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(absCwd); resolveErr == nil {
+		absCwd = resolved
+	}
+	repoRoot, err := gitOutput(ctx, absCwd, "rev-parse", "--show-toplevel")
+	if err != nil || strings.TrimSpace(repoRoot) == "" {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrNotAGitRepo, Detail: gitErrorDetail(err)}
+	}
+	repoRoot = filepath.Clean(strings.TrimSpace(repoRoot))
+	if resolved, resolveErr := filepath.EvalSymlinks(repoRoot); resolveErr == nil {
+		repoRoot = resolved
+	}
+	if superproject, superErr := gitOutput(ctx, repoRoot, "rev-parse", "--show-superproject-working-tree"); superErr == nil && strings.TrimSpace(superproject) != "" {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrUnsupportedRepoLayout, Detail: "git submodules are not supported for worktree isolation"}
+	}
+	if outerRoot, outerErr := gitOutput(ctx, filepath.Dir(repoRoot), "rev-parse", "--show-toplevel"); outerErr == nil && strings.TrimSpace(outerRoot) != "" && filepath.Clean(strings.TrimSpace(outerRoot)) != repoRoot {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrUnsupportedRepoLayout, Detail: "nested git repositories are not supported for worktree isolation"}
+	}
+	commonDirOut, err := gitOutput(ctx, absCwd, "rev-parse", "--git-common-dir")
+	if err != nil || strings.TrimSpace(commonDirOut) == "" {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrWorktreeCreateFailed, Detail: gitErrorDetail(err)}
+	}
+	gitCommonDir := strings.TrimSpace(commonDirOut)
+	if !filepath.IsAbs(gitCommonDir) {
+		gitCommonDir = filepath.Join(absCwd, gitCommonDir)
+	}
+	gitCommonDir = filepath.Clean(gitCommonDir)
+	if resolved, resolveErr := filepath.EvalSymlinks(gitCommonDir); resolveErr == nil {
+		gitCommonDir = resolved
+	}
+	baseCommit, err := gitOutput(ctx, repoRoot, "rev-parse", "HEAD")
+	if err != nil || strings.TrimSpace(baseCommit) == "" {
+		return sessionWorktreeSource{}, &WorktreeIsolationError{Kind: ErrWorktreeCreateFailed, Detail: gitErrorDetail(err)}
+	}
+	return sessionWorktreeSource{
+		Cwd:          absCwd,
+		RepoRoot:     repoRoot,
+		GitCommonDir: gitCommonDir,
+		BaseCommit:   strings.TrimSpace(baseCommit),
+	}, nil
 }
 
 type gitCommandError struct {

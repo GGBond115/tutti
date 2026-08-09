@@ -18,6 +18,7 @@ import { agentGUIProviderManagerLabels } from "./view/agentGUIProviderManagerLab
 import { agentGUIUsageStatusLabels } from "./view/agentGUIUsageStatusLabels";
 import { agentQuickPromptLabels } from "./composer/quickPrompts/agentQuickPromptLabels";
 import { agentSlashPaletteLabels } from "./composer/agentSlashPaletteLabels";
+import { agentGUIProjectLaunchLabels } from "./composer/agentGUIProjectLaunchLabels";
 import { agentGUITuttiModeLabels } from "./view/agentGUITuttiModeLabels";
 
 export { buildAgentHomeSuggestions };
@@ -587,10 +588,7 @@ export function useAgentGUIViewLabels(input: {
       syncPending: t("agentHost.agentGui.syncPending"),
       syncSynced: t("agentHost.agentGui.syncSynced"),
       syncFailed: t("agentHost.agentGui.syncFailed"),
-      projectLocked: t("agentHost.agentGui.projectLocked"),
-      projectMissingDescription: t(
-        "agentHost.agentGui.projectMissingDescription"
-      ),
+      ...agentGUIProjectLaunchLabels(t),
       promptTipsPrefix: t("agentHost.agentGui.promptTipsPrefix"),
       reviewPicker: {
         title: t("agentHost.agentGui.reviewPicker.title"),

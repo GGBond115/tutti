@@ -266,6 +266,9 @@ type ServerInterface interface {
 	// List pinned agent session page for one workspace
 	// (GET /v1/workspaces/{workspaceID}/agent-session-sections/pinned-page)
 	ListWorkspaceAgentPinnedSessionPage(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ListWorkspaceAgentPinnedSessionPageParams)
+	// Resolve whether a local Agent Session can launch in an isolated git worktree
+	// (GET /v1/workspaces/{workspaceID}/agent-session-worktree-support)
+	ResolveWorkspaceAgentSessionWorktreeSupport(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ResolveWorkspaceAgentSessionWorktreeSupportParams)
 	// Hard-delete all agent sessions for one workspace
 	// (DELETE /v1/workspaces/{workspaceID}/agent-sessions)
 	ClearWorkspaceAgentSessions(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
@@ -3498,6 +3501,67 @@ func (siw *ServerInterfaceWrapper) ListWorkspaceAgentPinnedSessionPage(w http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListWorkspaceAgentPinnedSessionPage(w, r, workspaceID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveWorkspaceAgentSessionWorktreeSupport operation middleware
+func (siw *ServerInterfaceWrapper) ResolveWorkspaceAgentSessionWorktreeSupport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResolveWorkspaceAgentSessionWorktreeSupportParams
+
+	// ------------- Required query parameter "agentTargetId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "agentTargetId", r.URL.Query(), &params.AgentTargetId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agentTargetId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentTargetId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "cwd" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "cwd", r.URL.Query(), &params.Cwd, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cwd"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cwd", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveWorkspaceAgentSessionWorktreeSupport(w, r, workspaceID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11264,6 +11328,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-sections/deletion-candidates", wrapper.ListWorkspaceAgentSessionSectionDeletionCandidates)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-sections/page", wrapper.ListWorkspaceAgentSessionSectionPage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-sections/pinned-page", wrapper.ListWorkspaceAgentPinnedSessionPage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-worktree-support", wrapper.ResolveWorkspaceAgentSessionWorktreeSupport)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-sessions", wrapper.ClearWorkspaceAgentSessions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-sessions", wrapper.ListWorkspaceAgentSessions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-sessions", wrapper.CreateWorkspaceAgentSession)
@@ -18598,6 +18663,123 @@ type ListWorkspaceAgentPinnedSessionPage503JSONResponse struct {
 }
 
 func (response ListWorkspaceAgentPinnedSessionPage503JSONResponse) VisitListWorkspaceAgentPinnedSessionPageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupportRequestObject struct {
+	WorkspaceID WorkspaceID `json:"workspaceID"`
+	Params      ResolveWorkspaceAgentSessionWorktreeSupportParams
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupportResponseObject interface {
+	VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupport200JSONResponse WorkspaceAgentSessionWorktreeSupportResponse
+
+func (response ResolveWorkspaceAgentSessionWorktreeSupport200JSONResponse) VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupport400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response ResolveWorkspaceAgentSessionWorktreeSupport400JSONResponse) VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupport401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response ResolveWorkspaceAgentSessionWorktreeSupport401JSONResponse) VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupport404JSONResponse struct {
+	WorkspaceNotFoundErrorJSONResponse
+}
+
+func (response ResolveWorkspaceAgentSessionWorktreeSupport404JSONResponse) VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupport405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response ResolveWorkspaceAgentSessionWorktreeSupport405JSONResponse) VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupport502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response ResolveWorkspaceAgentSessionWorktreeSupport502JSONResponse) VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveWorkspaceAgentSessionWorktreeSupport503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response ResolveWorkspaceAgentSessionWorktreeSupport503JSONResponse) VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -39130,6 +39312,9 @@ type StrictServerInterface interface {
 	// List pinned agent session page for one workspace
 	// (GET /v1/workspaces/{workspaceID}/agent-session-sections/pinned-page)
 	ListWorkspaceAgentPinnedSessionPage(ctx context.Context, request ListWorkspaceAgentPinnedSessionPageRequestObject) (ListWorkspaceAgentPinnedSessionPageResponseObject, error)
+	// Resolve whether a local Agent Session can launch in an isolated git worktree
+	// (GET /v1/workspaces/{workspaceID}/agent-session-worktree-support)
+	ResolveWorkspaceAgentSessionWorktreeSupport(ctx context.Context, request ResolveWorkspaceAgentSessionWorktreeSupportRequestObject) (ResolveWorkspaceAgentSessionWorktreeSupportResponseObject, error)
 	// Hard-delete all agent sessions for one workspace
 	// (DELETE /v1/workspaces/{workspaceID}/agent-sessions)
 	ClearWorkspaceAgentSessions(ctx context.Context, request ClearWorkspaceAgentSessionsRequestObject) (ClearWorkspaceAgentSessionsResponseObject, error)
@@ -42030,6 +42215,33 @@ func (sh *strictHandler) ListWorkspaceAgentPinnedSessionPage(w http.ResponseWrit
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListWorkspaceAgentPinnedSessionPageResponseObject); ok {
 		if err := validResponse.VisitListWorkspaceAgentPinnedSessionPageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveWorkspaceAgentSessionWorktreeSupport operation middleware
+func (sh *strictHandler) ResolveWorkspaceAgentSessionWorktreeSupport(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ResolveWorkspaceAgentSessionWorktreeSupportParams) {
+	var request ResolveWorkspaceAgentSessionWorktreeSupportRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveWorkspaceAgentSessionWorktreeSupport(ctx, request.(ResolveWorkspaceAgentSessionWorktreeSupportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveWorkspaceAgentSessionWorktreeSupport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveWorkspaceAgentSessionWorktreeSupportResponseObject); ok {
+		if err := validResponse.VisitResolveWorkspaceAgentSessionWorktreeSupportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

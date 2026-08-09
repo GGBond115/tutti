@@ -28,8 +28,7 @@ import type {
   AgentComposerProps,
   AgentComposerReferenceProvenanceFilters,
   AgentComposerPromptTip,
-  AgentComposerSlashStatusLimit,
-  WorkspaceReferencePickResult
+  AgentComposerSlashStatusLimit
 } from "../AgentComposer";
 import type { AgentContextMentionItem } from "../agentRichText/agentFileMentionExtension";
 import type {
@@ -37,11 +36,7 @@ import type {
   AgentHomeSuggestionCategory,
   AgentGUINodeViewModel
 } from "../model/agentGuiNodeTypes";
-import type {
-  AgentGUIComposerEngagement,
-  AgentGUIEngagementEventSink
-} from "../engagement/agentGUIEngagement.types";
-import type { AgentGUIManagedHomeTargetProjection } from "../model/agentGuiProviderRailOrder";
+import type { AgentGUIEngagementEventSink } from "../engagement/agentGUIEngagement.types";
 import type { AgentGUIProviderReadinessLabels } from "../model/agentGuiProviderReadiness";
 import type { OpenAgentEnvPanelInput } from "../../../shared/agentEnv";
 import type {
@@ -50,6 +45,7 @@ import type {
 } from "../../../workspaceWorkflow";
 import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
+import type { AgentGUISessionLaunchMode } from "../model/agentSessionLaunchMode";
 export type AgentMentionReferenceTargetResolver = (
   item: AgentContextMentionItem
 ) => ReferenceLocateTarget | null;
@@ -443,6 +439,9 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   handoffTargetSelf: string;
   handoffTargetShared: string;
   projectLocked: string;
+  sessionLaunchModeLabel?: string;
+  sessionLaunchModeLocal?: string;
+  sessionLaunchModeWorktree?: string;
   projectMissingDescription: string;
   syncPending: string;
   syncSynced: string;
@@ -571,6 +570,14 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   referenceProvenanceFilters?: AgentComposerReferenceProvenanceFilters | null;
   sessionInputHistoryEnabled?: boolean;
   sessionForkEnabled?: boolean;
+  sessionWorktreeEnabled?: boolean;
+  sessionLaunchModesByProjectSectionKey?: Readonly<
+    Record<string, AgentGUISessionLaunchMode>
+  >;
+  onSessionLaunchModePreferenceChange?: (input: {
+    mode: AgentGUISessionLaunchMode;
+    projectSectionKey: string;
+  }) => void | Promise<void>;
   /** Host-owned presentation for exact Agent targets; tooltip behavior stays AgentGUI-owned. */
   renderAgentTargetInfo?: AgentGUIAgentTargetInfoRenderer;
   renderProjectDirectoryPickerHeaderActions?: ReferenceSourcePickerProps["renderHeaderActions"];
@@ -742,52 +749,7 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   renderComposerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
 }
-export interface AgentGUIDetailPaneProps extends AgentGUIComposerExternalPromptProps {
-  shell: AgentGUINodeViewModel["shell"];
-  rail: AgentGUINodeViewModel["rail"];
-  detail: AgentGUINodeViewModel["detail"];
-  composer: AgentGUINodeViewModel["composer"];
-  interaction: AgentGUINodeViewModel["interaction"];
-  readiness: AgentGUINodeViewModel["readiness"];
-  operations: AgentGUINodeViewModel["operations"];
-  homeTargetProjection: AgentGUIManagedHomeTargetProjection;
-  referenceProvenanceFilters?: AgentComposerProps["referenceProvenanceFilters"];
-  sessionInputHistoryEnabled?: boolean;
-  sessionForkEnabled?: boolean;
-  composerEngagement?: AgentGUIComposerEngagement;
-  actions: AgentGUINodeViewProps["actions"];
-  labels: AgentGUIViewLabels;
-  workspaceUserProjectI18n: WorkspaceUserProjectI18nRuntime;
-  uiLanguage: UiLanguage;
-  isActive: boolean;
-  isVisible: boolean;
-  workspaceReferencePickerOpen: boolean;
-  composerFocusRequestSequence: number | null;
-  slashStatusLimits: readonly AgentComposerSlashStatusLimit[];
-  slashStatusLimitsLoading: boolean;
-  slashStatusLimitsUnavailable: boolean;
-  slashStatusOverride?: AgentComposerProps["slashStatus"];
-  onSlashStatusOpen?: AgentComposerProps["onSlashStatusOpen"];
-  onSlashStatusClose?: AgentComposerProps["onSlashStatusClose"];
-  onSlashStatusRefresh?: AgentComposerProps["onSlashStatusRefresh"];
-  onLinkAction?: (action: WorkspaceLinkAction) => void;
-  onHandoffConversation?: AgentGUINodeViewProps["onHandoffConversation"];
-  showHandoffTargetOwnershipLabels?: boolean;
-  capabilityMenuState?: AgentComposerProps["capabilityMenuState"];
-  capabilityControlsReadOnly?: AgentComposerProps["capabilityControlsReadOnly"];
-  onCapabilitySettingsRequest?: AgentComposerProps["onCapabilitySettingsRequest"];
-  onAgentProviderLogin?: (provider?: string | null) => void;
-  onRequestWorkspaceReferences?:
-    | ((
-        entity?: AgentContextMentionItem | null
-      ) => Promise<WorkspaceReferencePickResult>)
-    | null;
-  selectProjectDirectory?: () => Promise<{ path: string } | null>;
-  onRequestGitBranches?: AgentComposerGitBranchLoader | null;
-  onRequestComposerFocus: () => void;
-  workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
-  renderComposerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
-}
+export type { AgentGUIDetailPaneProps } from "./AgentGUIDetailPane.types";
 
 export interface AgentGUISidebarFooterContext {
   currentUserId?: string | null;

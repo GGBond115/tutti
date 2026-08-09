@@ -79,6 +79,7 @@ export function AgentProjectDropdown({
         trigger: cn(
           "w-auto max-w-full",
           styles.composerMenuTrigger,
+          styles.composerProjectTrigger,
           "text-[var(--agent-gui-text-tertiary)]",
           "disabled:cursor-not-allowed disabled:text-[var(--agent-gui-text-tertiary)] disabled:opacity-60 disabled:hover:text-[var(--agent-gui-text-tertiary)]"
         )

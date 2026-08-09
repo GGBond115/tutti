@@ -4914,6 +4914,46 @@ paths:
           $ref: "#/components/responses/WorkspaceOperationError"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-worktree-support:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: resolveWorkspaceAgentSessionWorktreeSupport
+      tags:
+        - agent-session
+      summary: Resolve whether a local Agent Session can launch in an isolated git worktree
+      parameters:
+        - in: query
+          name: agentTargetId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: cwd
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "200":
+          description: Worktree launch support status for the working directory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceAgentSessionWorktreeSupportResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "404":
+          $ref: "#/components/responses/WorkspaceNotFoundError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "502":
+          $ref: "#/components/responses/WorkspaceOperationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
   /v1/workspaces/{workspaceID}/git-patch:
     parameters:
       - $ref: "#/components/parameters/WorkspaceID"
@@ -8027,6 +8067,8 @@ components:
           $ref: "#/components/schemas/DesktopAgentComposerDefaultsByAgentTarget"
         agentGuiConversationRailCollapsedByProvider:
           $ref: "#/components/schemas/DesktopAgentGuiConversationRailCollapsedByProvider"
+        agentSessionLaunchModesByWorkspace:
+          $ref: "#/components/schemas/DesktopAgentSessionLaunchModesByWorkspace"
         agentConversationDetailMode:
           $ref: "#/components/schemas/DesktopAgentConversationDetailMode"
         agentDockLayout:
@@ -8185,6 +8227,19 @@ components:
           type: boolean
         opencode:
           type: boolean
+    DesktopAgentSessionLaunchMode:
+      type: string
+      enum:
+        - local
+        - worktree
+    DesktopAgentSessionLaunchModesByProject:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/DesktopAgentSessionLaunchMode"
+    DesktopAgentSessionLaunchModesByWorkspace:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/DesktopAgentSessionLaunchModesByProject"
     DesktopFileDefaultOpener:
       type: string
       enum:
@@ -12669,6 +12724,11 @@ components:
         cwd:
           type: string
           nullable: true
+        isolation:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceAgentSessionIsolation"
+          nullable: true
+          description: Durable launch isolation metadata. Null for sessions launched in the selected checkout.
         railSectionKey:
           type: string
           minLength: 1
@@ -14340,6 +14400,11 @@ components:
         cwd:
           type: string
           nullable: true
+        isolation:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceAgentSessionIsolationMode"
+          nullable: true
+          description: Optional create-only isolation mode. Omit or set null to launch in the selected checkout.
         permissionModeId:
           type: string
           nullable: true
@@ -15038,6 +15103,49 @@ components:
           type: string
         errorCode:
           $ref: "#/components/schemas/WorkspaceGitPatchErrorCode"
+    WorkspaceAgentSessionIsolationMode:
+      type: string
+      enum:
+        - worktree
+    WorkspaceAgentSessionIsolation:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+        - worktreePath
+        - branch
+        - baseCommit
+      properties:
+        mode:
+          $ref: "#/components/schemas/WorkspaceAgentSessionIsolationMode"
+        worktreePath:
+          type: string
+          minLength: 1
+        branch:
+          type: string
+          minLength: 1
+        baseCommit:
+          type: string
+          minLength: 1
+    WorkspaceAgentSessionWorktreeSupportErrorCode:
+      type: string
+      enum:
+        - agent-target-unsupported
+        - git-unavailable
+        - not-git-repo
+        - unsupported-repo-layout
+    WorkspaceAgentSessionWorktreeSupportResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - supported
+      properties:
+        supported:
+          type: boolean
+        root:
+          type: string
+        errorCode:
+          $ref: "#/components/schemas/WorkspaceAgentSessionWorktreeSupportErrorCode"
     WorkspaceGitPatchExecOutput:
       type: object
       additionalProperties: false

@@ -55,6 +55,8 @@ import type { useComposerPresentation } from "./useComposerPresentation";
 import type { useComposerProviderTargets } from "./useComposerProviderTargets";
 import type { useComposerSlashActions } from "./useComposerSlashActions";
 import type { useMentionPaletteFrame } from "./useMentionPaletteFrame";
+import { AgentSessionLaunchModeSelect } from "./AgentSessionLaunchModeSelect";
+import type { SessionWorktreeLaunchState } from "./useSessionWorktreeLaunch";
 import { AgentQuickPromptPopover } from "./quickPrompts/AgentQuickPromptPopover";
 import type { useAgentQuickPromptLibrary } from "./quickPrompts/useAgentQuickPromptLibrary";
 import {
@@ -111,6 +113,7 @@ interface Props {
   onTuttiModeSpeedChange: (value: number) => void;
   isPromptTipOverflowing: boolean;
   onHistoryNavigation: (direction: "older" | "newer") => boolean;
+  sessionWorktreeLaunch: SessionWorktreeLaunchState;
 }
 
 export function AgentComposerView(input: Props): React.JSX.Element {
@@ -262,6 +265,28 @@ export function AgentComposerView(input: Props): React.JSX.Element {
         onProjectMissingChange={input.setIsSelectedProjectMissing}
         onProjectPathChange={onProjectPathChange}
       />
+    ) : null;
+  const sessionLaunchModeNode =
+    input.sessionWorktreeLaunch.visible &&
+    input.props.labels.sessionLaunchModeLabel &&
+    input.props.labels.sessionLaunchModeLocal &&
+    input.props.labels.sessionLaunchModeWorktree ? (
+      <AgentSessionLaunchModeSelect
+        labels={{
+          launchMode: input.props.labels.sessionLaunchModeLabel,
+          local: input.props.labels.sessionLaunchModeLocal,
+          worktree: input.props.labels.sessionLaunchModeWorktree
+        }}
+        mode={input.sessionWorktreeLaunch.mode}
+        onModeChange={input.sessionWorktreeLaunch.onModeChange}
+      />
+    ) : null;
+  const projectControlsNode =
+    projectSelectorNode || sessionLaunchModeNode ? (
+      <div className={styles.composerProjectControls}>
+        {projectSelectorNode}
+        {sessionLaunchModeNode}
+      </div>
     ) : null;
 
   return (
@@ -688,7 +713,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             onClearPlanMode={input.onClearPlanMode}
             composerAction={composerActionNode}
             projectControl={
-              showProjectSelectorInFooter ? projectSelectorNode : null
+              showProjectSelectorInFooter ? projectControlsNode : null
             }
             quickPromptControl={
               <AgentQuickPromptPopover
@@ -736,7 +761,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
               input.isSelectedProjectMissing ? "true" : undefined
             }
           >
-            {showHeroProjectSelector ? projectSelectorNode : null}
+            {showHeroProjectSelector ? projectControlsNode : null}
             {activePromptTip ? (
               <div
                 className={styles.composerPromptTips}

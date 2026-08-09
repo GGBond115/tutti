@@ -1774,6 +1774,24 @@ func (e DesktopAgentDockLayout) Valid() bool {
 	}
 }
 
+// Defines values for DesktopAgentSessionLaunchMode.
+const (
+	DesktopAgentSessionLaunchModeLocal    DesktopAgentSessionLaunchMode = "local"
+	DesktopAgentSessionLaunchModeWorktree DesktopAgentSessionLaunchMode = "worktree"
+)
+
+// Valid indicates whether the value is a known member of the DesktopAgentSessionLaunchMode enum.
+func (e DesktopAgentSessionLaunchMode) Valid() bool {
+	switch e {
+	case DesktopAgentSessionLaunchModeLocal:
+		return true
+	case DesktopAgentSessionLaunchModeWorktree:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DesktopAppCatalogChannel.
 const (
 	Production DesktopAppCatalogChannel = "production"
@@ -3622,6 +3640,21 @@ func (e WorkspaceAgentSessionGoalStateSyncStatus) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceAgentSessionIsolationMode.
+const (
+	WorkspaceAgentSessionIsolationModeWorktree WorkspaceAgentSessionIsolationMode = "worktree"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceAgentSessionIsolationMode enum.
+func (e WorkspaceAgentSessionIsolationMode) Valid() bool {
+	switch e {
+	case WorkspaceAgentSessionIsolationModeWorktree:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkspaceAgentSessionKind.
 const (
 	Child WorkspaceAgentSessionKind = "child"
@@ -3652,6 +3685,30 @@ func (e WorkspaceAgentSessionSectionKind) Valid() bool {
 	case WorkspaceAgentSessionSectionKindConversations:
 		return true
 	case WorkspaceAgentSessionSectionKindProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WorkspaceAgentSessionWorktreeSupportErrorCode.
+const (
+	WorkspaceAgentSessionWorktreeSupportErrorCodeAgentTargetUnsupported WorkspaceAgentSessionWorktreeSupportErrorCode = "agent-target-unsupported"
+	WorkspaceAgentSessionWorktreeSupportErrorCodeGitUnavailable         WorkspaceAgentSessionWorktreeSupportErrorCode = "git-unavailable"
+	WorkspaceAgentSessionWorktreeSupportErrorCodeNotGitRepo             WorkspaceAgentSessionWorktreeSupportErrorCode = "not-git-repo"
+	WorkspaceAgentSessionWorktreeSupportErrorCodeUnsupportedRepoLayout  WorkspaceAgentSessionWorktreeSupportErrorCode = "unsupported-repo-layout"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceAgentSessionWorktreeSupportErrorCode enum.
+func (e WorkspaceAgentSessionWorktreeSupportErrorCode) Valid() bool {
+	switch e {
+	case WorkspaceAgentSessionWorktreeSupportErrorCodeAgentTargetUnsupported:
+		return true
+	case WorkspaceAgentSessionWorktreeSupportErrorCodeGitUnavailable:
+		return true
+	case WorkspaceAgentSessionWorktreeSupportErrorCodeNotGitRepo:
+		return true
+	case WorkspaceAgentSessionWorktreeSupportErrorCodeUnsupportedRepoLayout:
 		return true
 	default:
 		return false
@@ -4191,19 +4248,19 @@ func (e WorkspaceFileUploadConflictKind) Valid() bool {
 
 // Defines values for WorkspaceGitPatchErrorCode.
 const (
-	InvalidPatch      WorkspaceGitPatchErrorCode = "invalid-patch"
-	NotGitRepo        WorkspaceGitPatchErrorCode = "not-git-repo"
-	PatchDoesNotApply WorkspaceGitPatchErrorCode = "patch-does-not-apply"
+	WorkspaceGitPatchErrorCodeInvalidPatch      WorkspaceGitPatchErrorCode = "invalid-patch"
+	WorkspaceGitPatchErrorCodeNotGitRepo        WorkspaceGitPatchErrorCode = "not-git-repo"
+	WorkspaceGitPatchErrorCodePatchDoesNotApply WorkspaceGitPatchErrorCode = "patch-does-not-apply"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceGitPatchErrorCode enum.
 func (e WorkspaceGitPatchErrorCode) Valid() bool {
 	switch e {
-	case InvalidPatch:
+	case WorkspaceGitPatchErrorCodeInvalidPatch:
 		return true
-	case NotGitRepo:
+	case WorkspaceGitPatchErrorCodeNotGitRepo:
 		return true
-	case PatchDoesNotApply:
+	case WorkspaceGitPatchErrorCodePatchDoesNotApply:
 		return true
 	default:
 		return false
@@ -6406,7 +6463,10 @@ type CreateWorkspaceAgentSessionRequest struct {
 
 	// InitialTuttiModeActivation Optional independent Tutti mode activation intent applied before the first turn starts.
 	InitialTuttiModeActivation *TuttiModeActivationIntent `json:"initialTuttiModeActivation,omitempty"`
-	Model                      *string                    `json:"model,omitempty"`
+
+	// Isolation Optional create-only isolation mode. Omit or set null to launch in the selected checkout.
+	Isolation *WorkspaceAgentSessionIsolationMode `json:"isolation,omitempty"`
+	Model     *string                             `json:"model,omitempty"`
 
 	// NoProject Classifies a session that is intentionally not attached to a workspace project.
 	NoProject        *bool                        `json:"noProject,omitempty"`
@@ -6617,6 +6677,15 @@ type DesktopAgentGuiConversationRailCollapsedByProvider struct {
 	TuttiAgent *bool `json:"tutti-agent,omitempty"`
 }
 
+// DesktopAgentSessionLaunchMode defines model for DesktopAgentSessionLaunchMode.
+type DesktopAgentSessionLaunchMode string
+
+// DesktopAgentSessionLaunchModesByProject defines model for DesktopAgentSessionLaunchModesByProject.
+type DesktopAgentSessionLaunchModesByProject map[string]DesktopAgentSessionLaunchMode
+
+// DesktopAgentSessionLaunchModesByWorkspace defines model for DesktopAgentSessionLaunchModesByWorkspace.
+type DesktopAgentSessionLaunchModesByWorkspace map[string]DesktopAgentSessionLaunchModesByProject
+
 // DesktopAppCatalogChannel defines model for DesktopAppCatalogChannel.
 type DesktopAppCatalogChannel string
 
@@ -6656,6 +6725,7 @@ type DesktopPreferences struct {
 	AgentConversationDetailMode                 DesktopAgentConversationDetailMode                 `json:"agentConversationDetailMode"`
 	AgentDockLayout                             DesktopAgentDockLayout                             `json:"agentDockLayout"`
 	AgentGuiConversationRailCollapsedByProvider DesktopAgentGuiConversationRailCollapsedByProvider `json:"agentGuiConversationRailCollapsedByProvider"`
+	AgentSessionLaunchModesByWorkspace          *DesktopAgentSessionLaunchModesByWorkspace         `json:"agentSessionLaunchModesByWorkspace,omitempty"`
 	AppCatalogChannel                           DesktopAppCatalogChannel                           `json:"appCatalogChannel"`
 	BrowserUseConnectionMode                    *DesktopBrowserUseConnectionMode                   `json:"browserUseConnectionMode,omitempty"`
 	DefaultAgentProvider                        DesktopDefaultAgentProvider                        `json:"defaultAgentProvider"`
@@ -8674,6 +8744,9 @@ type WorkspaceAgentSession struct {
 	// Imported Protocol v2. True when the session was imported from external provider history. Explicit field extracted from runtimeContext.
 	Imported bool `json:"imported"`
 
+	// Isolation Durable launch isolation metadata. Null for sessions launched in the selected checkout.
+	Isolation *WorkspaceAgentSessionIsolation `json:"isolation,omitempty"`
+
 	// Kind Root sessions are user-visible conversations. Child sessions are provider-native agents reached through their immutable parent fields.
 	Kind WorkspaceAgentSessionKind `json:"kind"`
 
@@ -8894,6 +8967,17 @@ type WorkspaceAgentSessionGoalStateResponse struct {
 	State   WorkspaceAgentSessionGoalState `json:"state"`
 }
 
+// WorkspaceAgentSessionIsolation defines model for WorkspaceAgentSessionIsolation.
+type WorkspaceAgentSessionIsolation struct {
+	BaseCommit   string                             `json:"baseCommit"`
+	Branch       string                             `json:"branch"`
+	Mode         WorkspaceAgentSessionIsolationMode `json:"mode"`
+	WorktreePath string                             `json:"worktreePath"`
+}
+
+// WorkspaceAgentSessionIsolationMode defines model for WorkspaceAgentSessionIsolationMode.
+type WorkspaceAgentSessionIsolationMode string
+
 // WorkspaceAgentSessionKind Root sessions are user-visible conversations. Child sessions are provider-native agents reached through their immutable parent fields.
 type WorkspaceAgentSessionKind string
 
@@ -9014,6 +9098,16 @@ type WorkspaceAgentSessionSectionsResponse struct {
 	Pinned      WorkspaceAgentSessionPage      `json:"pinned"`
 	Sections    []WorkspaceAgentSessionSection `json:"sections"`
 	WorkspaceId string                         `json:"workspaceId"`
+}
+
+// WorkspaceAgentSessionWorktreeSupportErrorCode defines model for WorkspaceAgentSessionWorktreeSupportErrorCode.
+type WorkspaceAgentSessionWorktreeSupportErrorCode string
+
+// WorkspaceAgentSessionWorktreeSupportResponse defines model for WorkspaceAgentSessionWorktreeSupportResponse.
+type WorkspaceAgentSessionWorktreeSupportResponse struct {
+	ErrorCode *WorkspaceAgentSessionWorktreeSupportErrorCode `json:"errorCode,omitempty"`
+	Root      *string                                        `json:"root,omitempty"`
+	Supported bool                                           `json:"supported"`
 }
 
 // WorkspaceAgentSource Origin of the workspace Agent configuration. legacy_binding rows were migrated from the former fixed-target binding model.
@@ -10083,6 +10177,12 @@ type ListWorkspaceAgentPinnedSessionPageParams struct {
 
 	// AgentTargetId Optional agent target filter applied before pinned pagination and hasMore calculation.
 	AgentTargetId *string `form:"agentTargetId,omitempty" json:"agentTargetId,omitempty"`
+}
+
+// ResolveWorkspaceAgentSessionWorktreeSupportParams defines parameters for ResolveWorkspaceAgentSessionWorktreeSupport.
+type ResolveWorkspaceAgentSessionWorktreeSupportParams struct {
+	AgentTargetId string `form:"agentTargetId" json:"agentTargetId"`
+	Cwd           string `form:"cwd" json:"cwd"`
 }
 
 // ListWorkspaceAgentSessionsParams defines parameters for ListWorkspaceAgentSessions.

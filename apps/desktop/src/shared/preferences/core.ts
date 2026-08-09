@@ -284,6 +284,24 @@ export type DesktopAgentGuiConversationRailCollapsedByProvider = Partial<
   Record<DesktopAgentProvider, boolean>
 >;
 
+export const desktopAgentSessionLaunchModes = ["local", "worktree"] as const;
+
+export type DesktopAgentSessionLaunchMode =
+  (typeof desktopAgentSessionLaunchModes)[number];
+
+export type DesktopAgentSessionLaunchModesByProjectSectionKey = Record<
+  string,
+  DesktopAgentSessionLaunchMode
+>;
+
+export type DesktopAgentSessionLaunchModesByWorkspace = Record<
+  string,
+  DesktopAgentSessionLaunchModesByProjectSectionKey
+>;
+
+export const defaultDesktopAgentSessionLaunchModesByWorkspace: DesktopAgentSessionLaunchModesByWorkspace =
+  {};
+
 export const desktopFileDefaultOpeners = [
   "appBrowser",
   "defaultBrowser",
@@ -658,6 +676,97 @@ export function normalizeDesktopAgentGuiConversationRailCollapsedByProvider(
     }
   }
   return collapsedByProvider;
+}
+
+export function isDesktopAgentSessionLaunchMode(
+  value: unknown
+): value is DesktopAgentSessionLaunchMode {
+  return (
+    typeof value === "string" &&
+    desktopAgentSessionLaunchModes.includes(
+      value as DesktopAgentSessionLaunchMode
+    )
+  );
+}
+
+export function normalizeDesktopAgentSessionLaunchModesByWorkspace(
+  value: unknown
+): DesktopAgentSessionLaunchModesByWorkspace {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const result: DesktopAgentSessionLaunchModesByWorkspace = {};
+  for (const [workspaceId, projectModesValue] of Object.entries(value)) {
+    const normalizedWorkspaceId = workspaceId.trim();
+    if (!normalizedWorkspaceId || !isRecord(projectModesValue)) {
+      continue;
+    }
+    const projectModes: DesktopAgentSessionLaunchModesByProjectSectionKey = {};
+    for (const [projectSectionKey, mode] of Object.entries(projectModesValue)) {
+      const normalizedProjectSectionKey = projectSectionKey.trim();
+      if (
+        normalizedProjectSectionKey &&
+        isDesktopAgentSessionLaunchMode(mode)
+      ) {
+        projectModes[normalizedProjectSectionKey] = mode;
+      }
+    }
+    if (Object.keys(projectModes).length > 0) {
+      result[normalizedWorkspaceId] = projectModes;
+    }
+  }
+  return result;
+}
+
+export function mergeDesktopAgentSessionLaunchMode(
+  current: DesktopAgentSessionLaunchModesByWorkspace | null | undefined,
+  workspaceId: string,
+  projectSectionKey: string,
+  mode: DesktopAgentSessionLaunchMode
+): DesktopAgentSessionLaunchModesByWorkspace {
+  const normalizedCurrent =
+    normalizeDesktopAgentSessionLaunchModesByWorkspace(current);
+  const normalizedWorkspaceId = workspaceId.trim();
+  const normalizedProjectSectionKey = projectSectionKey.trim();
+  if (!normalizedWorkspaceId || !normalizedProjectSectionKey) {
+    return normalizedCurrent;
+  }
+  return {
+    ...normalizedCurrent,
+    [normalizedWorkspaceId]: {
+      ...normalizedCurrent[normalizedWorkspaceId],
+      [normalizedProjectSectionKey]: mode
+    }
+  };
+}
+
+export function desktopAgentSessionLaunchModesByWorkspaceEqual(
+  left: DesktopAgentSessionLaunchModesByWorkspace | null | undefined,
+  right: DesktopAgentSessionLaunchModesByWorkspace | null | undefined
+): boolean {
+  const normalizedLeft =
+    normalizeDesktopAgentSessionLaunchModesByWorkspace(left);
+  const normalizedRight =
+    normalizeDesktopAgentSessionLaunchModesByWorkspace(right);
+  const workspaceIds = new Set([
+    ...Object.keys(normalizedLeft),
+    ...Object.keys(normalizedRight)
+  ]);
+  for (const workspaceId of workspaceIds) {
+    const leftModes = normalizedLeft[workspaceId] ?? {};
+    const rightModes = normalizedRight[workspaceId] ?? {};
+    const projectKeys = new Set([
+      ...Object.keys(leftModes),
+      ...Object.keys(rightModes)
+    ]);
+    for (const projectKey of projectKeys) {
+      if (leftModes[projectKey] !== rightModes[projectKey]) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 export function mergeDesktopAgentGuiConversationRailCollapsedByProvider(

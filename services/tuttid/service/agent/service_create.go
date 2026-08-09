@@ -37,6 +37,16 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	}
 	input.Provider = provider
 	input.ProviderTargetRef = launch.ProviderTargetRef
+	isolationMode := strings.TrimSpace(input.Isolation)
+	if isolationMode != "" && isolationMode != WorktreeIsolationMode {
+		return createSessionFailureResult(input, fmt.Errorf("%w: unsupported session isolation mode %q", ErrInvalidArgument, isolationMode))
+	}
+	if isolationMode == WorktreeIsolationMode && !sessionWorktreeTargetSupported(input.AgentTargetID, launch.ProviderTargetRef) {
+		return createSessionFailureResult(input, fmt.Errorf("%w: worktree isolation is unavailable for agent target", ErrInvalidArgument))
+	}
+	if isolationMode == WorktreeIsolationMode && !worktreeProjectRailPlacement(input.RailPlacement) {
+		return createSessionFailureResult(input, fmt.Errorf("%w: worktree isolation requires project rail placement", ErrInvalidArgument))
+	}
 	if valueBool(input.CodexSaverMode) && (!input.CodexSaverModeAllowed || !composerProviderSupportsSaverSubagentMode(provider)) {
 		return createSessionFailureResult(input, fmt.Errorf("%w: Codex saver mode is unavailable", ErrInvalidArgument))
 	}
@@ -119,10 +129,6 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		value(input.Model),
 		input.ReasoningEffort,
 	)
-	isolationMode := strings.TrimSpace(input.Isolation)
-	if isolationMode != "" && isolationMode != WorktreeIsolationMode {
-		return createSessionFailureResult(input, fmt.Errorf("%w: unsupported session isolation mode %q", ErrInvalidArgument, isolationMode))
-	}
 	worktreeLock := s.worktreeLock()
 	worktreeLock.RLock()
 	defer worktreeLock.RUnlock()
@@ -370,6 +376,12 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		SessionStatus:     hostResult.SessionStatus,
 		InitialGoalStatus: hostResult.InitialGoalStatus,
 	}, err
+}
+
+func worktreeProjectRailPlacement(placement *agenthost.RailPlacement) bool {
+	return placement != nil &&
+		agenthost.RailPlacementKind(strings.TrimSpace(string(placement.Kind))) == agenthost.RailPlacementKindProject &&
+		strings.TrimSpace(placement.ProjectPath) != ""
 }
 
 func createSessionFailureResult(input CreateSessionInput, err error) (CreateSessionResult, error) {

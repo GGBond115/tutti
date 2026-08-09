@@ -84,6 +84,7 @@ func (p DesktopPreferencesPublisher) PublishDesktopPreferencesUpdated(ctx contex
 			AgentGUIConversationRailCollapsedByProvider: agentGUIConversationRailCollapsedByProviderPayloadFromBiz(
 				preferences.AgentGUIConversationRailCollapsedByProvider,
 			),
+			AgentSessionLaunchModesByWorkspace:    desktopAgentSessionLaunchModesByWorkspacePayload(preferences.AgentSessionLaunchModesByWorkspace),
 			AgentConversationDetailMode:           preferencesbiz.NormalizeDesktopAgentConversationDetailMode(preferences.AgentConversationDetailMode),
 			AgentDockLayout:                       preferencesbiz.NormalizeDesktopAgentDockLayout(preferences.AgentDockLayout),
 			AppCatalogChannel:                     preferences.AppCatalogChannel,
@@ -170,6 +171,7 @@ func NewPreferencesDesktopUpdateRequestedHandler(mutator PreferencesMutator) Int
 			AgentComposerDefaultsByProvider:             decoded.AgentComposerDefaultsByProvider,
 			AgentComposerDefaultsByAgentTarget:          decoded.AgentComposerDefaultsByAgentTarget,
 			AgentGUIConversationRailCollapsedByProvider: decoded.AgentGUIConversationRailCollapsedByProvider,
+			AgentSessionLaunchModesByWorkspace:          decoded.AgentSessionLaunchModesByWorkspace,
 			AgentConversationDetailMode:                 decoded.AgentConversationDetailMode,
 			AgentDockLayout:                             decoded.AgentDockLayout,
 			AppCatalogChannel:                           decoded.AppCatalogChannel,
@@ -202,6 +204,7 @@ type decodedDesktopPreferencesMutationPayload struct {
 	AgentComposerDefaultsByProvider             map[string]preferencesbiz.AgentComposerDefaults
 	AgentComposerDefaultsByAgentTarget          map[string]preferencesbiz.AgentComposerDefaults
 	AgentGUIConversationRailCollapsedByProvider map[string]bool
+	AgentSessionLaunchModesByWorkspace          *map[string]map[string]string
 	AgentConversationDetailMode                 string
 	AgentDockLayout                             string
 	AppCatalogChannel                           string
@@ -251,6 +254,7 @@ func decodeDesktopPreferencesMutationPayload(payload []byte) (decodedDesktopPref
 		AgentGUIConversationRailCollapsedByProvider: agentGUIConversationRailCollapsedByProviderFromPayload(
 			decoded.Preferences.AgentGUIConversationRailCollapsedByProvider,
 		),
+		AgentSessionLaunchModesByWorkspace:    agentSessionLaunchModesByWorkspaceFromPayload(decoded.Preferences.AgentSessionLaunchModesByWorkspace),
 		AgentConversationDetailMode:           decoded.Preferences.AgentConversationDetailMode,
 		AgentDockLayout:                       decoded.Preferences.AgentDockLayout,
 		AppCatalogChannel:                     decoded.Preferences.AppCatalogChannel,
@@ -277,6 +281,16 @@ func decodeDesktopPreferencesMutationPayload(payload []byte) (decodedDesktopPref
 		UpdatePolicy:            decoded.Preferences.UpdatePolicy,
 		WindowSnapping:          windowSnapping,
 	}, nil
+}
+
+func agentSessionLaunchModesByWorkspaceFromPayload(
+	value desktopAgentSessionLaunchModesByWorkspacePayload,
+) *map[string]map[string]string {
+	if value == nil {
+		return nil
+	}
+	result := map[string]map[string]string(value)
+	return &result
 }
 
 func fileDefaultOpenersByExtensionPayloadFromBiz(

@@ -9,6 +9,7 @@ import { zhCNAgentGuiSessionActions } from "./zh-CN.agentGuiSessionActions.ts";
 import { zhCNAgentGuiCollaboration } from "./zh-CN.agentGuiCollaboration.ts";
 import { zhCNTuttiModePlan } from "./zh-CN.tuttiModePlan.ts";
 import { zhCNAgentGuiComposer } from "./zh-CN.agentGuiComposer.ts";
+import { zhCNAgentGuiProjectLaunch } from "./zh-CN.agentGuiProjectLaunch.ts";
 export const zhCNAgentGui = {
   imageDownloaded: "图片已下载",
   imageLoadFailed: "图片加载失败",
@@ -733,8 +734,7 @@ export const zhCNAgentGui = {
   quickPrompts: zhCNAgentGuiQuickPrompts,
   referenceWorkspaceFiles: "引用空间文件",
   ...zhCNAgentGuiReferencePicker,
-  projectLocked: "会话开始后项目不可更改",
-  projectMissingDescription: "此对话的工作目录已不存在",
+  ...zhCNAgentGuiProjectLaunch,
   fileMentionEnterFolder: "进入文件夹",
   fileMentionSwitchCategory: "切换分类",
   fileMentionNavigateHierarchy: "进入/返回文件夹",

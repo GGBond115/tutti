@@ -695,6 +695,42 @@ test("DesktopPreferencesService merges conversation rail collapsed state per pro
   cleanup();
 });
 
+test("DesktopPreferencesService remembers launch mode by workspace and project section", async () => {
+  const requests: Preferences[] = [];
+  const client = createDesktopPreferencesClient({
+    updateDesktopPreferences: async (request) => {
+      requests.push(request.preferences);
+      return request.preferences;
+    }
+  });
+  const { service, cleanup } = await createServiceHarness({ client });
+
+  await service.rememberAgentSessionLaunchMode(
+    "workspace-a",
+    "project:/alpha",
+    "worktree"
+  );
+  await service.rememberAgentSessionLaunchMode(
+    "workspace-a",
+    "project:/beta",
+    "local"
+  );
+
+  assert.deepEqual(requests.at(-1)?.agentSessionLaunchModesByWorkspace, {
+    "workspace-a": {
+      "project:/alpha": "worktree",
+      "project:/beta": "local"
+    }
+  });
+  assert.deepEqual(service.store.agentSessionLaunchModesByWorkspace, {
+    "workspace-a": {
+      "project:/alpha": "worktree",
+      "project:/beta": "local"
+    }
+  });
+  cleanup();
+});
+
 interface FakeDesktopPreferencesClient extends DesktopPreferencesClient {
   emitDesktopPreferencesUpdated(preferences: Preferences): void;
   updatedRequests: Preferences[];

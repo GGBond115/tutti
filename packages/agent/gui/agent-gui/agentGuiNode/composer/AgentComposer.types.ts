@@ -35,6 +35,7 @@ import type {
 import type { AgentQuickPromptLabels } from "./quickPrompts/agentQuickPromptLabels";
 import type { AgentMentionFilterId } from "../AgentMentionSearchContracts";
 import type { AgentComposerInputHistoryEntry } from "../model/agentComposerInputHistory";
+import type { AgentGUISessionLaunchMode } from "../model/agentSessionLaunchMode";
 
 export interface AgentComposerReferenceProvenanceFilter {
   snapshot: ReferenceProvenanceFilterSnapshot;
@@ -52,6 +53,7 @@ export interface AgentComposerReferenceProvenanceFilters {
 }
 
 export interface AgentComposerSubmitOptions {
+  isolation?: "worktree";
   requiredSettingsPatch?: AgentActivitySubmitSettingsPatch;
   capabilityRefs?: readonly AgentComposerCapabilityReference[];
   /** Exact canonical active Turn captured for native guidance. */
@@ -115,6 +117,11 @@ export interface AgentComposerProps {
   drainingQueuedPromptId: string | null;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   selectedAgentTarget?: AgentGUIAgentTarget | null;
+  sessionWorktreeEnabled?: boolean;
+  sessionLaunchMode?: AgentGUISessionLaunchMode;
+  onSessionLaunchModeChange?: (
+    mode: AgentGUISessionLaunchMode
+  ) => void | Promise<void>;
   /** Content rendered immediately before the primary non-hero action. */
   composerActionAccessory?: ReactNode;
   /** Places the primary action cluster in the prompt row or Composer footer. */
@@ -368,6 +375,9 @@ export interface AgentComposerProps {
     handoffTargetShared: string;
     providerSwitchLabel: string;
     projectLocked: string;
+    sessionLaunchModeLabel?: string;
+    sessionLaunchModeLocal?: string;
+    sessionLaunchModeWorktree?: string;
     projectMissingDescription: string;
     promptTipsPrefix: string;
     reviewPicker: {

@@ -12,6 +12,7 @@ import {
 import { AgentGUI } from "@tutti-os/agent-gui/agent-gui";
 import {
   type AgentGUIProps,
+  type AgentGUISessionLaunchMode,
   type AgentHostInputApi,
   type AgentVisibleErrorOverrides
 } from "@tutti-os/agent-gui";
@@ -79,6 +80,7 @@ import {
   useDesktopAgentGUIConversationRailPreference,
   useDesktopAgentGUIConversationRailToggle
 } from "./useDesktopAgentGUIConversationRailPreference.ts";
+import { useDesktopAgentGUISessionLaunchModePreference } from "./useDesktopAgentGUISessionLaunchModePreference.ts";
 import { IAgentEnvService } from "../services/agentEnvService.interface.ts";
 import { preloadDesktopAgentGuiMentionBrowse } from "../services/preloadDesktopAgentGuiMentionBrowse.ts";
 import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "../services/desktopAgentGuiIdentity.ts";
@@ -91,6 +93,10 @@ import {
   LAB_CODEX_SAVER_MODE_FLAG,
   LAB_CONNECTORS_FLAG
 } from "../../../../../shared/featureFlags/catalog.ts";
+
+const EMPTY_AGENT_SESSION_LAUNCH_MODES_BY_PROJECT_SECTION_KEY: Readonly<
+  Record<string, AgentGUISessionLaunchMode>
+> = Object.freeze({});
 
 const AgentSessionReplayNodeReadiness = lazy(() =>
   import("../../agent-session-replay/ui/AgentSessionReplayNodeReadiness.tsx").then(
@@ -324,6 +330,14 @@ function DesktopAgentGUISurfaceImpl({
     useDesktopAgentGUIConversationRailPreference({
       desktopPreferencesService,
       runtimeApi,
+      workspaceId
+    });
+  const sessionLaunchModesByProjectSectionKey =
+    desktopPreferencesState.agentSessionLaunchModesByWorkspace[workspaceId] ??
+    EMPTY_AGENT_SESSION_LAUNCH_MODES_BY_PROJECT_SECTION_KEY;
+  const handleSessionLaunchModePreferenceChange =
+    useDesktopAgentGUISessionLaunchModePreference({
+      desktopPreferencesService,
       workspaceId
     });
   // The only writer persists when the projected workbench state changes.
@@ -652,6 +666,8 @@ function DesktopAgentGUISurfaceImpl({
       referenceProvenanceFilterEnabled,
       sessionInputHistoryEnabled,
       sessionForkEnabled,
+      sessionWorktreeEnabled: true,
+      sessionLaunchModesByProjectSectionKey,
       codexSaverModeEntryEnabled,
       capabilityMenuState,
       visibleErrorPresentationOverrides,
@@ -677,6 +693,8 @@ function DesktopAgentGUISurfaceImpl({
       onShowMessage: handleDesktopAgentGUIShowMessage,
       onUpdateNode: handleUpdateNode,
       onRememberComposerDefaults: handleRememberComposerDefaults,
+      onSessionLaunchModePreferenceChange:
+        handleSessionLaunchModePreferenceChange,
       onEngagementEvent: onEngagementEvent,
       onConversationRailLayoutChange,
       onOpenConversationWindow: !onOpenAgentConversationWindow

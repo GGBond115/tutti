@@ -157,6 +157,7 @@ import type {
   WorkspaceAgentGeneratedFileListResponse,
   WorkspaceAgentSessionGitBranchesResponse,
   WorkspaceGitPatchSupportResponse,
+  WorkspaceAgentSessionWorktreeSupportResponse,
   WorkspaceAgentSessionPageResponse,
   WorkspaceAgentSessionSectionDeletionCandidatesResponse,
   WorkspaceAgentSessionSectionPageResponse,
@@ -999,6 +1000,11 @@ export interface TuttidClient
     workspaceID: string,
     cwd: string
   ): Promise<WorkspaceGitPatchSupportResponse>;
+  resolveWorkspaceAgentSessionWorktreeSupport(
+    workspaceID: string,
+    agentTargetId: string,
+    cwd: string
+  ): Promise<WorkspaceAgentSessionWorktreeSupportResponse>;
   applyWorkspaceGitPatch(
     workspaceID: string,
     request: WorkspaceGitPatchRequest

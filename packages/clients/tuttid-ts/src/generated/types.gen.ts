@@ -475,6 +475,7 @@ export type DesktopPreferences = {
   agentComposerDefaultsByProvider: DesktopAgentComposerDefaultsByProvider;
   agentComposerDefaultsByAgentTarget?: DesktopAgentComposerDefaultsByAgentTarget;
   agentGuiConversationRailCollapsedByProvider: DesktopAgentGuiConversationRailCollapsedByProvider;
+  agentSessionLaunchModesByWorkspace?: DesktopAgentSessionLaunchModesByWorkspace;
   agentConversationDetailMode: DesktopAgentConversationDetailMode;
   agentDockLayout: DesktopAgentDockLayout;
   appCatalogChannel: DesktopAppCatalogChannel;
@@ -565,6 +566,16 @@ export type DesktopAgentGuiConversationRailCollapsedByProvider = {
   nexight?: boolean;
   openclaw?: boolean;
   opencode?: boolean;
+};
+
+export type DesktopAgentSessionLaunchMode = "local" | "worktree";
+
+export type DesktopAgentSessionLaunchModesByProject = {
+  [key: string]: DesktopAgentSessionLaunchMode;
+};
+
+export type DesktopAgentSessionLaunchModesByWorkspace = {
+  [key: string]: DesktopAgentSessionLaunchModesByProject;
 };
 
 export type DesktopFileDefaultOpener =
@@ -2500,6 +2511,10 @@ export type WorkspaceAgentSession = {
   messageVersion: WorkspaceAgentMessageCursor;
   cwd: string | null;
   /**
+   * Durable launch isolation metadata. Null for sessions launched in the selected checkout.
+   */
+  isolation?: WorkspaceAgentSessionIsolation | null;
+  /**
    * Persisted conversation-rail membership key. Clients must use this exact key for section placement and must not infer membership from cwd or project paths.
    */
   railSectionKey: string;
@@ -3205,6 +3220,10 @@ export type CreateWorkspaceAgentSessionRequest = {
   initialDisplayPrompt?: string | null;
   title?: string | null;
   cwd?: string | null;
+  /**
+   * Optional create-only isolation mode. Omit or set null to launch in the selected checkout.
+   */
+  isolation?: WorkspaceAgentSessionIsolationMode | null;
   permissionModeId?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
@@ -3484,6 +3503,27 @@ export type WorkspaceGitPatchSupportResponse = {
   supported: boolean;
   root?: string;
   errorCode?: WorkspaceGitPatchErrorCode;
+};
+
+export type WorkspaceAgentSessionIsolationMode = "worktree";
+
+export type WorkspaceAgentSessionIsolation = {
+  mode: WorkspaceAgentSessionIsolationMode;
+  worktreePath: string;
+  branch: string;
+  baseCommit: string;
+};
+
+export type WorkspaceAgentSessionWorktreeSupportErrorCode =
+  | "agent-target-unsupported"
+  | "git-unavailable"
+  | "not-git-repo"
+  | "unsupported-repo-layout";
+
+export type WorkspaceAgentSessionWorktreeSupportResponse = {
+  supported: boolean;
+  root?: string;
+  errorCode?: WorkspaceAgentSessionWorktreeSupportErrorCode;
 };
 
 export type WorkspaceGitPatchExecOutput = {
@@ -4949,6 +4989,14 @@ export type MobileRemotePairingConfirmResponse = {
 
 export type MobileRemotePairingListResponse = {
   pairings: Array<MobileRemoteDevicePairing>;
+};
+
+export type DesktopAgentSessionLaunchModesByProjectWritable = {
+  [key: string]: DesktopAgentSessionLaunchMode;
+};
+
+export type DesktopAgentSessionLaunchModesByWorkspaceWritable = {
+  [key: string]: DesktopAgentSessionLaunchModesByProjectWritable;
 };
 
 export type DesktopFileDefaultOpenersByExtensionWritable = {
@@ -12261,6 +12309,58 @@ export type ResolveWorkspaceGitPatchSupportResponses = {
 
 export type ResolveWorkspaceGitPatchSupportResponse =
   ResolveWorkspaceGitPatchSupportResponses[keyof ResolveWorkspaceGitPatchSupportResponses];
+
+export type ResolveWorkspaceAgentSessionWorktreeSupportData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+  };
+  query: {
+    agentTargetId: string;
+    cwd: string;
+  };
+  url: "/v1/workspaces/{workspaceID}/agent-session-worktree-support";
+};
+
+export type ResolveWorkspaceAgentSessionWorktreeSupportErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ResolveWorkspaceAgentSessionWorktreeSupportError =
+  ResolveWorkspaceAgentSessionWorktreeSupportErrors[keyof ResolveWorkspaceAgentSessionWorktreeSupportErrors];
+
+export type ResolveWorkspaceAgentSessionWorktreeSupportResponses = {
+  /**
+   * Worktree launch support status for the working directory
+   */
+  200: WorkspaceAgentSessionWorktreeSupportResponse;
+};
+
+export type ResolveWorkspaceAgentSessionWorktreeSupportResponse =
+  ResolveWorkspaceAgentSessionWorktreeSupportResponses[keyof ResolveWorkspaceAgentSessionWorktreeSupportResponses];
 
 export type ApplyWorkspaceGitPatchData = {
   body: WorkspaceGitPatchRequest;

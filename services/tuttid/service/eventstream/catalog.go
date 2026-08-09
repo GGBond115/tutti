@@ -365,6 +365,11 @@ func validateDesktopPreferencesUpdateRequestedPayload(payload []byte) error {
 	if err != nil {
 		return err
 	}
+	if decoded.AgentSessionLaunchModesByWorkspace != nil {
+		if err := validateDesktopAgentSessionLaunchModesByWorkspace(*decoded.AgentSessionLaunchModesByWorkspace); err != nil {
+			return err
+		}
+	}
 	if decoded.DockPlacement == "" {
 		return fmt.Errorf("preferences.dockPlacement is required")
 	}
@@ -453,6 +458,9 @@ func validateDesktopPreferencesUpdatedPayload(payload []byte) error {
 	var decoded desktopPreferencesUpdatedPayload
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return fmt.Errorf("decode payload: %w", err)
+	}
+	if err := validateDesktopAgentSessionLaunchModesByWorkspace(decoded.Preferences.AgentSessionLaunchModesByWorkspace); err != nil {
+		return err
 	}
 	if decoded.Preferences.DockPlacement == "" {
 		return fmt.Errorf("preferences.dockPlacement is required")

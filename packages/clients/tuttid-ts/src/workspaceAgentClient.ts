@@ -40,6 +40,7 @@ import {
   reconcileWorkspaceAgentSessionGoal,
   prepareAgentSessionReplayWorkspace,
   resolveWorkspaceGitPatchSupport,
+  resolveWorkspaceAgentSessionWorktreeSupport,
   scanWorkspaceExternalAgentSessionImports,
   sendWorkspaceAgentSessionInput,
   startAgentSessionRecording,
@@ -101,6 +102,7 @@ type WorkspaceAgentClient = Pick<
   | "reconcileWorkspaceAgentSessionGoal"
   | "prepareAgentSessionReplayWorkspace"
   | "resolveWorkspaceGitPatchSupport"
+  | "resolveWorkspaceAgentSessionWorktreeSupport"
   | "scanWorkspaceExternalAgentSessionImports"
   | "sendWorkspaceAgentSessionInput"
   | "startAgentSessionRecording"
@@ -688,6 +690,20 @@ export function createWorkspaceAgentClient(
           query: { cwd }
         }),
         "Resolve workspace git patch support failed."
+      );
+    },
+    async resolveWorkspaceAgentSessionWorktreeSupport(
+      workspaceID,
+      agentTargetId,
+      cwd
+    ) {
+      return unwrapData(
+        await resolveWorkspaceAgentSessionWorktreeSupport({
+          client,
+          path: { workspaceID },
+          query: { agentTargetId, cwd }
+        }),
+        "Resolve workspace Agent Session worktree support failed."
       );
     },
     async applyWorkspaceGitPatch(workspaceID, request) {

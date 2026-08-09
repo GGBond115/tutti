@@ -601,6 +601,9 @@ import type {
   ResizeWorkspaceTerminalData,
   ResizeWorkspaceTerminalErrors,
   ResizeWorkspaceTerminalResponses,
+  ResolveWorkspaceAgentSessionWorktreeSupportData,
+  ResolveWorkspaceAgentSessionWorktreeSupportErrors,
+  ResolveWorkspaceAgentSessionWorktreeSupportResponses,
   ResolveWorkspaceGitPatchSupportData,
   ResolveWorkspaceGitPatchSupportErrors,
   ResolveWorkspaceGitPatchSupportResponses,
@@ -3747,6 +3750,27 @@ export const resolveWorkspaceGitPatchSupport = <
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/workspaces/{workspaceID}/git-patch-support",
+    ...options
+  });
+
+/**
+ * Resolve whether a local Agent Session can launch in an isolated git worktree
+ */
+export const resolveWorkspaceAgentSessionWorktreeSupport = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<
+    ResolveWorkspaceAgentSessionWorktreeSupportData,
+    ThrowOnError
+  >
+) =>
+  (options.client ?? client).get<
+    ResolveWorkspaceAgentSessionWorktreeSupportResponses,
+    ResolveWorkspaceAgentSessionWorktreeSupportErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-worktree-support",
     ...options
   });
 

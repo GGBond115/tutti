@@ -7,6 +7,7 @@ import type {
 import {
   defaultDesktopMinimizeAnimation,
   desktopFeatureFlagsEqual,
+  normalizeDesktopAgentSessionLaunchModesByWorkspace,
   desktopWorkbenchShortcutsEqual,
   desktopWorkbenchWindowSnappingEqual,
   normalizeDesktopAgentConversationDetailMode,
@@ -253,6 +254,9 @@ function createPreferencesKey(
     stableAgentGuiConversationRailCollapsedByProviderKey(
       preferences.agentGuiConversationRailCollapsedByProvider
     ),
+    stableAgentSessionLaunchModesByWorkspaceKey(
+      preferences.agentSessionLaunchModesByWorkspace
+    ),
     normalizeDesktopAgentConversationDetailMode(
       preferences.agentConversationDetailMode
     ),
@@ -292,6 +296,12 @@ function preferencesEqual(
     ) ===
       stableAgentGuiConversationRailCollapsedByProviderKey(
         right.agentGuiConversationRailCollapsedByProvider
+      ) &&
+    stableAgentSessionLaunchModesByWorkspaceKey(
+      left.agentSessionLaunchModesByWorkspace
+    ) ===
+      stableAgentSessionLaunchModesByWorkspaceKey(
+        right.agentSessionLaunchModesByWorkspace
       ) &&
     normalizeDesktopAgentConversationDetailMode(
       left.agentConversationDetailMode
@@ -376,6 +386,18 @@ function stableFileDefaultOpenersByExtensionKey(value: unknown): string {
       typeof opener === "string"
     ) {
       output[normalizedExtension] = opener;
+    }
+  }
+  return JSON.stringify(output);
+}
+
+function stableAgentSessionLaunchModesByWorkspaceKey(value: unknown): string {
+  const normalized = normalizeDesktopAgentSessionLaunchModesByWorkspace(value);
+  const output: Record<string, Record<string, string>> = {};
+  for (const workspaceId of Object.keys(normalized).sort()) {
+    output[workspaceId] = {};
+    for (const projectKey of Object.keys(normalized[workspaceId]!).sort()) {
+      output[workspaceId]![projectKey] = normalized[workspaceId]![projectKey]!;
     }
   }
   return JSON.stringify(output);

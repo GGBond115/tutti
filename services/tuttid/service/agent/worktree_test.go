@@ -60,6 +60,15 @@ func initSessionWorktreeRepo(t *testing.T) string {
 	return repo
 }
 
+func projectRailPlacement(projectPath string) *agenthost.RailPlacement {
+	return &agenthost.RailPlacement{
+		Version:     1,
+		Kind:        agenthost.RailPlacementKindProject,
+		ProjectPath: projectPath,
+		SectionKey:  agentactivitybiz.RailSectionKeyForProject(projectPath),
+	}
+}
+
 func createWorktreeFixture(t *testing.T, sessionID string) (string, string, SessionIsolation) {
 	t.Helper()
 	stateDir := t.TempDir()
@@ -127,6 +136,159 @@ func TestCreateSessionWorktreeRejectsNonGitDirectory(t *testing.T) {
 	}
 }
 
+func TestResolveSessionWorktreeSupportForPath(t *testing.T) {
+	repo := initSessionWorktreeRepo(t)
+	nested := filepath.Join(repo, "packages", "agent")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := (&Service{}).ResolveSessionWorktreeSupportForPath(
+		context.Background(),
+		"workspace-1",
+		nested,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRepo, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Supported || result.Root != resolvedRepo || result.ErrorCode != "" {
+		t.Fatalf("support = %#v", result)
+	}
+}
+
+func TestResolveSessionWorktreeSupportForPathHidesNonGitDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	result, err := (&Service{}).ResolveSessionWorktreeSupportForPath(
+		context.Background(),
+		"workspace-1",
+		t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Supported || result.ErrorCode != SessionWorktreeSupportNotGitRepo {
+		t.Fatalf("support = %#v", result)
+	}
+}
+
+func TestResolveSessionWorktreeSupportRejectsSharedAgentTarget(t *testing.T) {
+	result, err := (&Service{}).ResolveSessionWorktreeSupport(
+		context.Background(),
+		"workspace-1",
+		"shared-agent:agent-1",
+		t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Supported || result.ErrorCode != SessionWorktreeSupportTargetUnsupported {
+		t.Fatalf("support = %#v", result)
+	}
+}
+
+func TestResolveSessionWorktreeSupportAdmitsLocalAgentTarget(t *testing.T) {
+	repo := initSessionWorktreeRepo(t)
+	service := &Service{AgentTargetStore: fakeAgentTargetStore{targets: map[string]agenttargetbiz.Target{
+		agenttargetbiz.IDLocalCodex: {
+			ID:            agenttargetbiz.IDLocalCodex,
+			Provider:      "codex",
+			LaunchRefJSON: agenttargetbiz.MustLocalCLILaunchRefJSON("codex"),
+			Name:          "Codex",
+			Enabled:       true,
+			Source:        agenttargetbiz.SourceSystem,
+		},
+	}}}
+
+	result, err := service.ResolveSessionWorktreeSupport(
+		context.Background(),
+		"workspace-1",
+		agenttargetbiz.IDLocalCodex,
+		repo,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Supported || result.Root == "" || result.ErrorCode != "" {
+		t.Fatalf("support = %#v", result)
+	}
+}
+
+func TestCreateSessionWorktreeRejectsSharedAgentTarget(t *testing.T) {
+	runtime := newFakeRuntime()
+	service := newIsolatedAgentService(runtime)
+	service.AgentTargetStore = fakeAgentTargetStore{targets: map[string]agenttargetbiz.Target{
+		"shared-agent:agent-1": {
+			ID:            "shared-agent:agent-1",
+			Provider:      "codex",
+			LaunchRefJSON: agenttargetbiz.MustLocalCLILaunchRefJSON("codex"),
+			Name:          "Shared Agent",
+			Enabled:       true,
+			Source:        agenttargetbiz.SourceUser,
+		},
+	}}
+
+	_, err := service.Create(context.Background(), "workspace-1", CreateSessionInput{
+		AgentSessionID: "session-shared-worktree",
+		AgentTargetID:  "shared-agent:agent-1",
+		Cwd:            stringPointer(t.TempDir()),
+		Isolation:      WorktreeIsolationMode,
+		RailPlacement:  projectRailPlacement(t.TempDir()),
+	})
+	if !errors.Is(err, ErrInvalidArgument) || !strings.Contains(err.Error(), "worktree isolation is unavailable") {
+		t.Fatalf("Create error = %v, want worktree target rejection", err)
+	}
+	if len(runtime.startCalls) != 0 {
+		t.Fatalf("start calls = %d, want 0", len(runtime.startCalls))
+	}
+}
+
+func TestServiceCreateWorktreeIsolationRequiresProjectRailPlacement(t *testing.T) {
+	repo := initSessionWorktreeRepo(t)
+	for _, test := range []struct {
+		name      string
+		placement *agenthost.RailPlacement
+	}{
+		{name: "missing"},
+		{
+			name: "conversations",
+			placement: &agenthost.RailPlacement{
+				Version:    1,
+				Kind:       agenthost.RailPlacementKindConversations,
+				SectionKey: agentactivitybiz.RailSectionKeyConversations,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			runtime := newFakeRuntime()
+			service := newTestService(runtime)
+			service.WorktreeStateDir = stateDir
+			_, err := service.Create(context.Background(), "workspace-1", CreateSessionInput{
+				AgentSessionID: "session-" + test.name,
+				AgentTargetID:  agenttargetbiz.IDLocalCodex,
+				Cwd:            stringPointer(repo),
+				Isolation:      WorktreeIsolationMode,
+				RailPlacement:  test.placement,
+			})
+			if !errors.Is(err, ErrInvalidArgument) || !strings.Contains(err.Error(), "requires project rail placement") {
+				t.Fatalf("Create error = %v, want project rail placement rejection", err)
+			}
+			if len(runtime.startCalls) != 0 {
+				t.Fatalf("start calls = %d, want 0", len(runtime.startCalls))
+			}
+			if _, statErr := os.Stat(filepath.Join(stateDir, "agent")); !os.IsNotExist(statErr) {
+				t.Fatalf("rejected create left agent state behind: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestCreateSessionWorktreeRejectsUnavailableGit(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	_, _, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", t.TempDir(), "session-no-git")
@@ -184,6 +346,7 @@ func TestServiceCreateUsesIsolatedWorktreeAndRuntimeContext(t *testing.T) {
 	session, err := service.Create(context.Background(), "workspace-1", CreateSessionInput{
 		AgentSessionID: "session-service-create", AgentTargetID: agenttargetbiz.IDLocalCodex,
 		Cwd: stringPointer(repo), Isolation: WorktreeIsolationMode, InitialContent: TextPromptContent("work"),
+		RailPlacement: projectRailPlacement(repo),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -212,6 +375,7 @@ func TestServiceCreateWorktreeIsolationRejectsEmptyCwdBeforeAllocation(t *testin
 	_, err := service.Create(context.Background(), "workspace-1", CreateSessionInput{
 		AgentSessionID: "session-empty-cwd", AgentTargetID: agenttargetbiz.IDLocalCodex,
 		Isolation: WorktreeIsolationMode, InitialContent: TextPromptContent("work"),
+		RailPlacement: projectRailPlacement(t.TempDir()),
 	})
 	if !errors.Is(err, ErrNotAGitRepo) {
 		t.Fatalf("Create error = %v, want ErrNotAGitRepo", err)
@@ -238,6 +402,7 @@ func TestServiceCreateRollsBackWorktreeWhenHostStartFails(t *testing.T) {
 	_, err := service.Create(context.Background(), "workspace-1", CreateSessionInput{
 		AgentSessionID: "session-service-fail", AgentTargetID: agenttargetbiz.IDLocalCodex,
 		Cwd: stringPointer(repo), Isolation: WorktreeIsolationMode, InitialContent: TextPromptContent("work"),
+		RailPlacement: projectRailPlacement(repo),
 	})
 	if !errors.Is(err, startErr) {
 		t.Fatalf("Create error = %v, want %v", err, startErr)
@@ -281,6 +446,7 @@ func TestServiceCreateSerializesWorktreeWithSweep(t *testing.T) {
 		created, createErr = service.Create(context.Background(), "workspace-1", CreateSessionInput{
 			AgentSessionID: "session-concurrent-create", AgentTargetID: agenttargetbiz.IDLocalCodex,
 			Cwd: stringPointer(repo), Isolation: WorktreeIsolationMode, InitialContent: TextPromptContent("work"),
+			RailPlacement: projectRailPlacement(repo),
 		})
 	}()
 	select {

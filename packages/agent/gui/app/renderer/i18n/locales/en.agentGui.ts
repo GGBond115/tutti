@@ -10,6 +10,7 @@ import { enAgentGuiSessionActions } from "./en.agentGuiSessionActions.ts";
 import { enAgentGuiCollaboration } from "./en.agentGuiCollaboration.ts";
 import { enAgentGuiUsageStatus } from "./en.agentGuiUsageStatus.ts";
 import { enAgentGuiComposer } from "./en.agentGuiComposer.ts";
+import { enAgentGuiProjectLaunch } from "./en.agentGuiProjectLaunch.ts";
 
 export const enAgentGui = {
   imageDownloaded: "Image downloaded",
@@ -724,9 +725,7 @@ export const enAgentGui = {
   quickPrompts: enAgentGuiQuickPrompts,
   referenceWorkspaceFiles: "Reference workspace files",
   ...enAgentGuiReferencePicker,
-  projectLocked: "Project cannot be changed after the session starts",
-  projectMissingDescription:
-    "This conversation's working directory no longer exists",
+  ...enAgentGuiProjectLaunch,
   fileMentionEnterFolder: "Enter folder",
   fileMentionSwitchCategory: "Switch category",
   fileMentionNavigateHierarchy: "Enter/leave folder",

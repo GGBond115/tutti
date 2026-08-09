@@ -204,6 +204,7 @@ export function conversationDetailSessionsEqual(
     left.createdAtUnixMs === right.createdAtUnixMs &&
     left.updatedAtUnixMs === right.updatedAtUnixMs &&
     left.cwd === right.cwd &&
+    left.isolation?.mode === right.isolation?.mode &&
     left.activeTurnId === right.activeTurnId &&
     left.activeTurn?.updatedAtUnixMs === right.activeTurn?.updatedAtUnixMs &&
     left.latestTurn?.updatedAtUnixMs === right.latestTurn?.updatedAtUnixMs &&

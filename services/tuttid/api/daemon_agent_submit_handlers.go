@@ -55,6 +55,10 @@ func (api DaemonAPI) CreateWorkspaceAgentSession(ctx context.Context, request tu
 	initialGoalControl := initialGoalControlFromGenerated(request.Body.InitialGoalControl)
 	clientSubmitID := strings.TrimSpace(request.Body.ClientSubmitId)
 	metadata := agentSubmitMetadata(request.Body.SubmitDiagnostics)
+	isolation := ""
+	if request.Body.Isolation != nil {
+		isolation = string(*request.Body.Isolation)
+	}
 	var recordingID string
 	if request.Body.RecordingId != nil {
 		if api.AgentSessionRecordingService == nil {
@@ -85,6 +89,7 @@ func (api DaemonAPI) CreateWorkspaceAgentSession(ctx context.Context, request tu
 		InitialTuttiModeActivation: initialTuttiModeActivation,
 		CapabilityRefs:             capabilityRefs,
 		Cwd:                        request.Body.Cwd,
+		Isolation:                  isolation,
 		InitialContent:             agentPromptContentFromGenerated(request.Body.InitialContent),
 		InitialDisplayPrompt:       stringPtrValue(request.Body.InitialDisplayPrompt),
 		Metadata:                   metadata,

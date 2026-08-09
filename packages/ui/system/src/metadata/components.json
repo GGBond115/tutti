@@ -1861,6 +1861,34 @@
       "iconVariant": "lined"
     },
     {
+      "id": "worktree-lined-icon",
+      "layer": "base",
+      "name": "WorktreeLinedIcon",
+      "export": "WorktreeLinedIcon",
+      "from": "@tutti-os/ui-system/icons",
+      "category": "icon",
+      "status": "stable",
+      "source": "src/icons/system-icons.tsx",
+      "description": "System icon for an isolated Git worktree.",
+      "useCases": ["Worktree launch controls", "Worktree session indicators"],
+      "migrationHints": [],
+      "iconVariant": "lined"
+    },
+    {
+      "id": "local-computer-lined-icon",
+      "layer": "base",
+      "name": "LocalComputerLinedIcon",
+      "export": "LocalComputerLinedIcon",
+      "from": "@tutti-os/ui-system/icons",
+      "category": "icon",
+      "status": "stable",
+      "source": "src/icons/system-icons.tsx",
+      "description": "System icon for work performed in the local project directory.",
+      "useCases": ["Local launch controls", "Local processing indicators"],
+      "migrationHints": [],
+      "iconVariant": "lined"
+    },
+    {
       "id": "folder-lined-icon",
       "layer": "base",
       "name": "FolderIcon",

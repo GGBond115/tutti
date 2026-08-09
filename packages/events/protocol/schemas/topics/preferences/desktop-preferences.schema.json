@@ -61,6 +61,18 @@
         "opencode": { "type": "boolean" }
       }
     },
+    "agentSessionLaunchModesByWorkspace": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "minLength": 1 },
+        "additionalProperties": {
+          "type": "string",
+          "enum": ["local", "worktree"]
+        }
+      }
+    },
     "agentConversationDetailMode": {
       "type": "string",
       "enum": ["coding", "general"]

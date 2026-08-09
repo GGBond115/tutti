@@ -6,7 +6,7 @@ import "encoding/json"
 
 const (
 	BusinessEventProtocolVersion = 1
-	BusinessEventCatalogRevision = "sha256:0fc3b84756b1e447"
+	BusinessEventCatalogRevision = "sha256:6d0a2c9af449fae1"
 )
 
 type Topic string
@@ -130,16 +130,17 @@ type PreferencesDesktopPreferences struct {
 		Openclaw   *bool `json:"openclaw,omitempty"`
 		Opencode   *bool `json:"opencode,omitempty"`
 	} `json:"agentGuiConversationRailCollapsedByProvider"`
-	AgentConversationDetailMode           string            `json:"agentConversationDetailMode"`
-	AgentDockLayout                       string            `json:"agentDockLayout"`
-	AppCatalogChannel                     string            `json:"appCatalogChannel"`
-	BrowserUseConnectionMode              *string           `json:"browserUseConnectionMode,omitempty"`
-	DefaultAgentProvider                  string            `json:"defaultAgentProvider"`
-	DockIconStyle                         string            `json:"dockIconStyle"`
-	DockPlacement                         string            `json:"dockPlacement"`
-	DeletedAgentConversationRetentionDays int               `json:"deletedAgentConversationRetentionDays"`
-	FileDefaultOpenersByExtension         map[string]string `json:"fileDefaultOpenersByExtension"`
-	FeatureFlags                          map[string]bool   `json:"featureFlags"`
+	AgentSessionLaunchModesByWorkspace    *map[string]map[string]string `json:"agentSessionLaunchModesByWorkspace,omitempty"`
+	AgentConversationDetailMode           string                        `json:"agentConversationDetailMode"`
+	AgentDockLayout                       string                        `json:"agentDockLayout"`
+	AppCatalogChannel                     string                        `json:"appCatalogChannel"`
+	BrowserUseConnectionMode              *string                       `json:"browserUseConnectionMode,omitempty"`
+	DefaultAgentProvider                  string                        `json:"defaultAgentProvider"`
+	DockIconStyle                         string                        `json:"dockIconStyle"`
+	DockPlacement                         string                        `json:"dockPlacement"`
+	DeletedAgentConversationRetentionDays int                           `json:"deletedAgentConversationRetentionDays"`
+	FileDefaultOpenersByExtension         map[string]string             `json:"fileDefaultOpenersByExtension"`
+	FeatureFlags                          map[string]bool               `json:"featureFlags"`
 	WorkbenchShortcuts                    struct {
 		NewAgentConversation *string `json:"newAgentConversation"`
 		NewSameTypeWindow    *string `json:"newSameTypeWindow"`

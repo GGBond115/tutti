@@ -1167,6 +1167,7 @@ function createDesktopPreferencesService(input: {
       supersededFields: []
     }),
     rememberAgentGuiConversationRailCollapsed: async () => {},
+    rememberAgentSessionLaunchMode: async () => {},
     setAppCatalogChannel:
       input.onSetAppCatalogChannel ?? (async (channel) => channel),
     setAgentConversationDetailMode:
@@ -1210,6 +1211,7 @@ function createPreferencesState(
     agentComposerDefaultsByProvider: {},
     agentComposerDefaultsByAgentTarget: {},
     agentGuiConversationRailCollapsedByProvider: {},
+    agentSessionLaunchModesByWorkspace: {},
     agentConversationDetailMode: "coding",
     appCatalogChannel: "production",
     browserUseConnectionMode: "isolated",

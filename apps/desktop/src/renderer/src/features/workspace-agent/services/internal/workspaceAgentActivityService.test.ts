@@ -553,6 +553,7 @@ test("WorkspaceAgentActivityService confirms engine activation from the realtime
     clientSubmitId: "submit-1",
     expiresAtUnixMs: requestedAtUnixMs + 45_000,
     initialGoalControl: { action: "set", objective: "ship it" },
+    isolation: "worktree",
     mode: "new",
     initialTuttiModeActivation: {
       effect: 73,
@@ -572,6 +573,7 @@ test("WorkspaceAgentActivityService confirms engine activation from the realtime
     capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
     clientSubmitId: "submit-1",
     cwd: null,
+    isolation: "worktree",
     initialContent: [],
     initialDisplayPrompt: null,
     initialGoalControl: { action: "set", objective: "ship it" },

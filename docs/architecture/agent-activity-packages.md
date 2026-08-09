@@ -328,6 +328,23 @@ product-local integration and observability, but must not dispatch Session
 state before returning. The effect executor marks activation results with the
 versioned `activation-v1` result contract; commands whose result shape is not
 authoritative remain opaque.
+An admitted new-Session activation may additionally carry the provider-neutral
+`isolation: "worktree"` launch request. Activity Core preserves that field
+through pending intent and typed effect projection; the tuttid adapter maps it
+through the generated Create Session contract. It does not allocate a worktree
+or choose a repository. Before allocation, the tuttid product adapter resolves
+the exact Agent Target and rejects shared/remote target identities; the same
+target-aware rule protects its worktree-support probe, so a caller cannot
+bypass the AgentGUI visibility gate through the public daemon API. Agent Host
+resolves the selected `cwd`, creates the
+worktree from the current `HEAD` even when the checkout is dirty, and returns
+the authoritative Session with durable isolation metadata. The canonical
+Session projection carries `mode`, `worktreePath`, `branch`, and `baseCommit`
+through list/detail/event flows so renderers do not infer isolation from `cwd`.
+The transport and published core field remain optional for compatibility;
+canonical normalizers map omission to `null`. Omitting the create field retains
+the existing local-checkout behavior, preserving older hosts and external
+AgentGUI consumers.
 New-Session Goal Control uses the same activation path. The Engine carries a
 typed `initialGoalControl`; Desktop and Mobile send it through the typed Create
 contract with empty initial content. Agent Host creates the Session and durable

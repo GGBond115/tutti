@@ -992,6 +992,7 @@ const noopDesktopPreferencesStore: DesktopPreferencesReadableStoreState = {
   agentComposerDefaultsByProvider: {},
   agentComposerDefaultsByAgentTarget: {},
   agentGuiConversationRailCollapsedByProvider: {},
+  agentSessionLaunchModesByWorkspace: {},
   agentConversationDetailMode: "coding",
   appCatalogChannel: "production",
   browserUseConnectionMode: "isolated",
@@ -1099,6 +1100,9 @@ const noopDesktopPreferences: DesktopPreferencesService = {
     });
   },
   rememberAgentGuiConversationRailCollapsed() {
+    return Promise.resolve();
+  },
+  rememberAgentSessionLaunchMode() {
     return Promise.resolve();
   }
 };

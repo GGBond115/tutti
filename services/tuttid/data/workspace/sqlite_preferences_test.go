@@ -59,6 +59,9 @@ func TestSQLiteStoreGetDesktopPreferencesDefaultsWhenUnset(t *testing.T) {
 	if len(preferences.AgentGUIConversationRailCollapsedByProvider) != 0 {
 		t.Fatalf("GetDesktopPreferences() rail collapsed preferences = %#v, want empty", preferences.AgentGUIConversationRailCollapsedByProvider)
 	}
+	if len(preferences.AgentSessionLaunchModesByWorkspace) != 0 {
+		t.Fatalf("GetDesktopPreferences() agent session launch modes = %#v, want empty", preferences.AgentSessionLaunchModesByWorkspace)
+	}
 	if preferences.UpdatePolicy != "prompt" {
 		t.Fatalf("GetDesktopPreferences() updatePolicy = %q, want prompt", preferences.UpdatePolicy)
 	}
@@ -85,6 +88,12 @@ func TestSQLiteStorePutDesktopPreferencesPersistsValue(t *testing.T) {
 		AgentGUIConversationRailCollapsedByProvider: map[string]bool{
 			"codex":       true,
 			"claude-code": false,
+		},
+		AgentSessionLaunchModesByWorkspace: map[string]map[string]string{
+			"workspace-1": {
+				"project-1": "worktree",
+				"project-2": "local",
+			},
 		},
 		AgentConversationDetailMode: "general",
 		AgentDockLayout:             "unified",
@@ -165,6 +174,10 @@ func TestSQLiteStorePutDesktopPreferencesPersistsValue(t *testing.T) {
 	}
 	if collapsed, ok := reloaded.AgentGUIConversationRailCollapsedByProvider["claude-code"]; !ok || collapsed {
 		t.Fatalf("GetDesktopPreferences() claude rail collapsed = %v/%v, want present false", collapsed, ok)
+	}
+	workspaceLaunchModes := reloaded.AgentSessionLaunchModesByWorkspace["workspace-1"]
+	if workspaceLaunchModes["project-1"] != "worktree" || workspaceLaunchModes["project-2"] != "local" {
+		t.Fatalf("GetDesktopPreferences() agent session launch modes = %#v, want project-1/worktree and project-2/local", reloaded.AgentSessionLaunchModesByWorkspace)
 	}
 	if reloaded.UpdatePolicy != "auto" {
 		t.Fatalf("GetDesktopPreferences() updatePolicy = %q, want auto", reloaded.UpdatePolicy)

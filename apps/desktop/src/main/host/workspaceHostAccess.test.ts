@@ -527,6 +527,9 @@ function createTransportClient(
     async resolveWorkspaceGitPatchSupport() {
       throw new Error("not used");
     },
+    async resolveWorkspaceAgentSessionWorktreeSupport() {
+      return { supported: false };
+    },
     async updateWorkspaceAgentSessionSettings() {
       throw new Error("not used");
     },

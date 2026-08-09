@@ -7027,6 +7027,7 @@ button.agent-gui-node__conversation-section-toggle:hover
   align-items: center;
   justify-content: flex-end;
   min-width: 28px;
+  gap: 4px;
 }
 
 .agent-gui-node__conversation-meta[data-kind="loading"],
@@ -7036,6 +7037,11 @@ button.agent-gui-node__conversation-section-toggle:hover
   width: 28px;
   min-width: 28px;
   justify-content: center;
+}
+
+.agent-gui-node__conversation-meta[data-worktree="true"] {
+  width: auto;
+  min-width: max-content;
 }
 
 .agent-gui-node__conversation-meta[data-kind="time"] {
@@ -7330,6 +7336,14 @@ button.agent-gui-node__conversation-section-toggle:hover
   width: 14px;
   height: 14px;
   transform-origin: center;
+}
+
+.agent-gui-node__conversation-worktree-glyph {
+  display: block;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--text-tertiary);
 }
 
 .agent-gui-node__conversation-meta[data-kind="loading"] {
@@ -9457,9 +9471,32 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   padding: 2px 8px;
 }
 
-.agent-gui-node__composer-project-row .agent-gui-node__composer-menu-trigger {
+.agent-gui-node__composer-project-controls {
+  display: grid;
+  grid-template-columns: fit-content(240px);
   flex: 0 1 auto;
-  max-width: min(42%, 180px);
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 0;
+}
+
+.agent-gui-node__composer-project-controls:has(
+  [data-testid="agent-gui-session-launch-mode"]
+) {
+  grid-template-columns: fit-content(240px) max-content;
+}
+
+.agent-gui-node__composer-project-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 240px;
+}
+
+.agent-gui-node__composer-project-controls
+  [data-testid="agent-gui-session-launch-mode"] {
+  flex: 0 0 auto;
+  max-width: none;
 }
 
 .agent-gui-node__composer-provider-select {

@@ -113,6 +113,32 @@ accepted for host capabilities that are not agent activity data:
 - user-project selection
 - local file picking/reading and batch export helpers
 
+## Worktree Session Launch
+
+New-Session worktree launch is an opt-in host contract. A host enables it with
+`hostCapabilities.sessionWorktreeEnabled`, supplies the current workspace's
+durable `sessionLaunchModesByProjectSectionKey` projection, handles
+`hostActions.onSessionLaunchModePreferenceChange`, and implements
+`AgentHostApi.workspace.resolveSessionWorktreeSupport`. Omitting any part fails
+closed and preserves the existing local-checkout launch behavior, so published
+AgentGUI consumers do not acquire the feature until they opt in.
+
+AgentGUI exposes the selector only for a new Session whose exact selected Agent
+Target is self-owned and whose selected registered project passes the host
+probe. Shared or remote targets, existing Sessions, missing projects, and
+unsupported repositories show no selector. The stored preference is not
+rewritten when current support disappears: the effective launch falls back to
+`local`, and the saved `worktree` choice becomes effective again if the same
+workspace and project section later regain support. Opening an existing
+Session never changes the launch preference.
+
+The preference is launch intent, keyed by workspace id and canonical project
+`sectionKey`; it is separate from a Session's durable `isolation` fact. A
+worktree launch sends `isolation: "worktree"` through the semantic activation
+path. Rail summaries may render the package worktree glyph from the resulting
+canonical Session isolation metadata, next to relative time in the unhovered
+row; they must not infer isolation from `cwd`.
+
 AgentGUI has no host-API activity fallback. A host must inject the runtime and
 the grouped `AgentGUINodeProps` responsibility objects.
 
