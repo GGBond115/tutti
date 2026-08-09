@@ -73,18 +73,18 @@ func createWorktreeFixture(t *testing.T, sessionID string) (string, string, Sess
 	t.Helper()
 	stateDir := t.TempDir()
 	repo := initSessionWorktreeRepo(t)
-	isolation, _, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, sessionID)
+	launch, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, sessionID)
 	if err != nil {
 		t.Fatalf("createSessionWorktree() error = %v", err)
 	}
 	record := sessionWorktreeRecord{
-		SessionIsolation: isolation,
+		SessionIsolation: launch.Isolation,
 		SessionID:        sessionID, WorkspaceID: "workspace-1", RepoRoot: repo,
 	}
 	t.Cleanup(func() {
 		rollbackSessionWorktree(context.Background(), filepath.Join(stateDir, "agent", "worktrees"), record)
 	})
-	return stateDir, repo, isolation
+	return stateDir, repo, launch.Isolation
 }
 
 func TestCreateSessionWorktree(t *testing.T) {
@@ -104,22 +104,104 @@ func TestCreateSessionWorktree(t *testing.T) {
 	}
 }
 
+func TestCreateSessionWorktreeReusesMatchingSessionLaunch(t *testing.T) {
+	stateDir := t.TempDir()
+	repo := initSessionWorktreeRepo(t)
+	first, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, "session-retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		rollbackSessionWorktree(context.Background(), filepath.Join(stateDir, "agent", "worktrees"), sessionWorktreeRecord{
+			SessionIsolation: first.Isolation,
+			SessionID:        "session-retry",
+			WorkspaceID:      "workspace-1",
+			RepoRoot:         repo,
+		})
+	})
+	second, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, "session-retry")
+	if err != nil {
+		t.Fatalf("retry createSessionWorktree() error = %v", err)
+	}
+	if second.Created {
+		t.Fatal("retried launch created a second worktree")
+	}
+	if second.Isolation != first.Isolation || second.Cwd != first.Cwd {
+		t.Fatalf("retried launch = %#v, want %#v", second, first)
+	}
+}
+
+func TestCreateSessionWorktreeRejectsRetryFromDifferentWorkspace(t *testing.T) {
+	stateDir := t.TempDir()
+	repo := initSessionWorktreeRepo(t)
+	first, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, "session-scope-mismatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		rollbackSessionWorktree(context.Background(), filepath.Join(stateDir, "agent", "worktrees"), sessionWorktreeRecord{
+			SessionIsolation: first.Isolation,
+			SessionID:        "session-scope-mismatch",
+			WorkspaceID:      "workspace-1",
+			RepoRoot:         repo,
+		})
+	})
+	if _, err := createSessionWorktree(context.Background(), stateDir, "workspace-2", repo, "session-scope-mismatch"); !errors.Is(err, ErrWorktreeCreateFailed) {
+		t.Fatalf("retry error = %v, want ErrWorktreeCreateFailed", err)
+	}
+}
+
+func TestCreateSessionWorktreePreservesSelectedRepositorySubdirectory(t *testing.T) {
+	stateDir := t.TempDir()
+	repo := initSessionWorktreeRepo(t)
+	projectDir := filepath.Join(repo, "packages", "foo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "project.txt"), []byte("project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForTest(t, repo, "add", "packages/foo/project.txt")
+	runGitForTest(t, repo, "commit", "-q", "-m", "add nested project")
+
+	launch, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", projectDir, "session-subdirectory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		rollbackSessionWorktree(context.Background(), filepath.Join(stateDir, "agent", "worktrees"), sessionWorktreeRecord{
+			SessionIsolation: launch.Isolation,
+			SessionID:        "session-subdirectory",
+			WorkspaceID:      "workspace-1",
+			RepoRoot:         repo,
+		})
+	})
+	wantCwd := filepath.Join(launch.Isolation.WorktreePath, "packages", "foo")
+	if launch.Cwd != wantCwd {
+		t.Fatalf("runtime cwd = %q, want %q", launch.Cwd, wantCwd)
+	}
+	if _, err := os.Stat(filepath.Join(launch.Cwd, "project.txt")); err != nil {
+		t.Fatalf("nested project file: %v", err)
+	}
+}
+
 func TestCreateSessionWorktreeReportsDirtySourceWarning(t *testing.T) {
 	stateDir := t.TempDir()
 	repo := initSessionWorktreeRepo(t)
 	if err := os.WriteFile(filepath.Join(repo, "dirty.txt"), []byte("dirty\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	isolation, warnings, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, "session-dirty-source")
+	launch, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, "session-dirty-source")
 	if err != nil {
 		t.Fatal(err)
 	}
+	isolation := launch.Isolation
 	record := sessionWorktreeRecord{SessionIsolation: isolation, SessionID: "session-dirty-source", WorkspaceID: "workspace-1", RepoRoot: repo}
 	t.Cleanup(func() {
 		rollbackSessionWorktree(context.Background(), filepath.Join(stateDir, "agent", "worktrees"), record)
 	})
-	if len(warnings) != 1 || warnings[0].Code != worktreeDirtyBaseWarningCode {
-		t.Fatalf("warnings = %#v", warnings)
+	if len(launch.Warnings) != 1 || launch.Warnings[0].Code != worktreeDirtyBaseWarningCode {
+		t.Fatalf("warnings = %#v", launch.Warnings)
 	}
 	if _, statErr := os.Stat(filepath.Join(isolation.WorktreePath, "dirty.txt")); !os.IsNotExist(statErr) {
 		t.Fatalf("dirty source file is visible in worktree, stat error = %v", statErr)
@@ -130,7 +212,7 @@ func TestCreateSessionWorktreeRejectsNonGitDirectory(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
-	_, _, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", t.TempDir(), "session-not-git")
+	_, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", t.TempDir(), "session-not-git")
 	if !errors.Is(err, ErrNotAGitRepo) {
 		t.Fatalf("error = %v, want ErrNotAGitRepo", err)
 	}
@@ -291,7 +373,7 @@ func TestServiceCreateWorktreeIsolationRequiresProjectRailPlacement(t *testing.T
 
 func TestCreateSessionWorktreeRejectsUnavailableGit(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	_, _, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", t.TempDir(), "session-no-git")
+	_, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", t.TempDir(), "session-no-git")
 	if !errors.Is(err, ErrGitUnavailable) {
 		t.Fatalf("error = %v, want ErrGitUnavailable", err)
 	}
@@ -302,7 +384,7 @@ func TestCreateSessionWorktreeRejectsSubmodule(t *testing.T) {
 	submoduleSource := initSessionWorktreeRepo(t)
 	runGitForTest(t, parent, "-c", "protocol.file.allow=always", "submodule", "add", "-q", submoduleSource, "nested")
 	runGitForTest(t, parent, "commit", "-q", "-am", "add submodule")
-	_, _, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", filepath.Join(parent, "nested"), "session-submodule")
+	_, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", filepath.Join(parent, "nested"), "session-submodule")
 	if !errors.Is(err, ErrUnsupportedRepoLayout) {
 		t.Fatalf("error = %v, want ErrUnsupportedRepoLayout", err)
 	}
@@ -316,7 +398,7 @@ func TestCreateSessionWorktreeRejectsNestedRepository(t *testing.T) {
 	}
 	runGitForTest(t, nested, "init", "-q", "-b", "main")
 	runGitForTest(t, nested, "commit", "-q", "--allow-empty", "-m", "nested")
-	_, _, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", nested, "session-nested")
+	_, err := createSessionWorktree(context.Background(), t.TempDir(), "workspace-1", nested, "session-nested")
 	if !errors.Is(err, ErrUnsupportedRepoLayout) {
 		t.Fatalf("error = %v, want ErrUnsupportedRepoLayout", err)
 	}
@@ -496,6 +578,75 @@ func TestServiceCreateSerializesWorktreeWithSweep(t *testing.T) {
 	}
 	t.Cleanup(func() { service.rollbackSessionWorktree(context.Background(), *created.Isolation) })
 	assertWorktreeExists(t, created.Isolation.WorktreePath)
+}
+
+func TestServiceCreateWorktreeRetryReusesExistingCheckout(t *testing.T) {
+	stateDir := t.TempDir()
+	repo := initSessionWorktreeRepo(t)
+	runtime := newFakeRuntime()
+	service := newTestService(runtime)
+	service.WorktreeStateDir = stateDir
+	input := CreateSessionInput{
+		AgentSessionID: "session-create-retry",
+		ClientSubmitID: "submit-create-retry",
+		AgentTargetID:  agenttargetbiz.IDLocalCodex,
+		Cwd:            stringPointer(repo),
+		Isolation:      WorktreeIsolationMode,
+		InitialContent: TextPromptContent("hello"),
+		RailPlacement:  projectRailPlacement(repo),
+	}
+	first, err := service.Create(context.Background(), "workspace-1", input)
+	if err != nil {
+		t.Fatalf("first Create() error = %v", err)
+	}
+	if first.Isolation == nil {
+		t.Fatal("first Create() did not return worktree isolation")
+	}
+	t.Cleanup(func() { service.rollbackSessionWorktree(context.Background(), *first.Isolation) })
+	second, err := service.Create(context.Background(), "workspace-1", input)
+	if err != nil {
+		t.Fatalf("retried Create() error = %v", err)
+	}
+	if second.Isolation == nil || *second.Isolation != *first.Isolation || second.Cwd != first.Cwd {
+		t.Fatalf("retried session = %#v, want isolation/cwd from %#v", second, first)
+	}
+}
+
+func TestServiceCreateWorktreeUsesSelectedRepositorySubdirectory(t *testing.T) {
+	stateDir := t.TempDir()
+	repo := initSessionWorktreeRepo(t)
+	projectDir := filepath.Join(repo, "packages", "foo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "project.txt"), []byte("project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForTest(t, repo, "add", "packages/foo/project.txt")
+	runGitForTest(t, repo, "commit", "-q", "-m", "add nested project")
+
+	runtime := newFakeRuntime()
+	service := newTestService(runtime)
+	service.WorktreeStateDir = stateDir
+	created, err := service.Create(context.Background(), "workspace-1", CreateSessionInput{
+		AgentSessionID: "session-create-subdirectory",
+		ClientSubmitID: "submit-create-subdirectory",
+		AgentTargetID:  agenttargetbiz.IDLocalCodex,
+		Cwd:            stringPointer(projectDir),
+		Isolation:      WorktreeIsolationMode,
+		RailPlacement:  projectRailPlacement(projectDir),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Isolation == nil {
+		t.Fatal("Create() did not return worktree isolation")
+	}
+	t.Cleanup(func() { service.rollbackSessionWorktree(context.Background(), *created.Isolation) })
+	wantCwd := filepath.Join(created.Isolation.WorktreePath, "packages", "foo")
+	if created.Cwd != wantCwd || len(runtime.startCalls) != 1 || runtime.startCalls[0].Cwd != wantCwd {
+		t.Fatalf("created cwd = %q, runtime starts = %#v, want %q", created.Cwd, runtime.startCalls, wantCwd)
+	}
 }
 
 func TestServiceCreateSerializesManagedCwdReferenceWithSweep(t *testing.T) {
@@ -684,14 +835,16 @@ func TestSweepSessionWorktreesDeletesCleanOrphanAndBranch(t *testing.T) {
 func TestSweepSessionWorktreesCleansChildAfterParentWorktreeRemoved(t *testing.T) {
 	stateDir := t.TempDir()
 	repo := initSessionWorktreeRepo(t)
-	parent, _, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, "session-gc-parent")
+	parentLaunch, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", repo, "session-gc-parent")
 	if err != nil {
 		t.Fatalf("create parent worktree: %v", err)
 	}
-	child, _, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", parent.WorktreePath, "session-gc-child")
+	parent := parentLaunch.Isolation
+	childLaunch, err := createSessionWorktree(context.Background(), stateDir, "workspace-1", parent.WorktreePath, "session-gc-child")
 	if err != nil {
 		t.Fatalf("create child worktree from parent cwd: %v", err)
 	}
+	child := childLaunch.Isolation
 	worktreesRoot := filepath.Join(stateDir, "agent", "worktrees")
 	childRecord, err := readSessionWorktreeRecord(worktreeRecordPath(worktreesRoot, "session-gc-child"))
 	if err != nil {

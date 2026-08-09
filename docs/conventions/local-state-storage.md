@@ -378,13 +378,15 @@ failed attempt does not roll back the committed purge.
 worktree-isolated agent session. The tuttid agent adapter owns the corresponding
 `.metadata/<agent-session-id>.json` record used for enumeration, failed-create
 rollback, and orphan recovery; it records the repository root, branch, base
-commit, and session scope. Canonical isolation coordinates remain in the
-session's existing runtime-context/metadata JSON, so this layout does not add a
-SQLite schema. Host startup recovery and the periodic Host worker only schedule
-cleanup through the adapter port. A tree is deleted only when it is clean with
-no commits ahead of its base, its creator is absent or not resumable, and no
-session cwd is inside the tree. Turn/runtime completion and session end times
-must never trigger this cleanup.
+commit, session scope, and selected repository-relative working directory. An
+exact retried launch may reuse that checkout; a Workspace, repository, Session,
+or relative-directory mismatch fails closed. Canonical isolation coordinates
+remain in the session's existing runtime-context/metadata JSON, so this layout
+does not add a SQLite schema. Host startup recovery and the periodic Host worker
+only schedule cleanup through the adapter port. A tree is deleted only when it
+is clean with no commits ahead of its base, its creator is absent or not
+resumable, and no session cwd is inside the tree. Turn/runtime completion and
+session end times must never trigger this cleanup.
 
 `agent/extensions` is daemon-owned verified Agent Extension state. Version
 directories are immutable after installation; `active.json` selects the

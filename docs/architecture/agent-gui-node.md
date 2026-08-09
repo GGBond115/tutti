@@ -1971,6 +1971,11 @@ worktree and also requires a project `railPlacement` with a non-empty logical
 project path. An unscoped `conversations` Session therefore cannot acquire
 worktree isolation even through a direct API request, so React visibility is
 presentation defense rather than the business authorization boundary.
+The adapter records the selected repository-relative cwd and remaps it under
+the isolated checkout, so a registered project below the repository root keeps
+the same working-directory scope. A retry with the same Workspace, Session,
+repository, and relative cwd reuses its exact metadata-backed checkout before
+entering Host idempotency; a mismatched identity fails closed.
 
 The stored `local | worktree` value records future launch intent; canonical
 Session `isolation` records what actually launched. Probe failure, temporary
@@ -1978,10 +1983,17 @@ repository incompatibility, or a missing host capability makes the effective
 mode `local` without overwriting a saved `worktree` intent. Visiting an old
 Session also cannot write that preference. Tutti Desktop persists the nested
 `workspaceId -> project.sectionKey -> mode` map in daemon-backed desktop
-preferences and enables the capability. Published AgentGUI defaults it off so
-other hosts may opt in independently. Worktree creation still belongs to Agent
-Host: the composer only adds `isolation: "worktree"` to the admitted activation
-input. The canonical Session projection later carries the created worktree
+preferences and enables the capability. Each change uses the daemon-owned
+`preferences.agent.session.launch.mode.patch.requested` workspace/project patch;
+its SQLite transaction merges against the latest map, and full
+desktop-preference updates preserve that field, so concurrent windows cannot
+replace one another's choices. Renderer write failures roll back only
+the still-current optimistic value and are consumed through the Workbench
+diagnostic path. Published AgentGUI defaults the capability off so other hosts
+may opt in independently. The composer only adds `isolation: "worktree"` to the
+admitted activation input. Tutti's daemon adapter owns the filesystem checkout
+and provider-preparation cwd, while Host continues to own the idempotent Session
+create. The canonical Session projection later carries the created worktree
 path, branch, and base commit. Rail rows render the worktree glyph from that
 canonical isolation projection next to relative time in the unhovered row and
 never infer it from `cwd`.

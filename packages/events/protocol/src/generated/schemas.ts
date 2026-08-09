@@ -1904,6 +1904,28 @@ export const preferencesAgentComposerDefaultsPatchRequestedPayloadSchema = {
   }
 } as const;
 
+export const preferencesAgentSessionLaunchModePatchRequestedPayloadSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["workspaceId", "projectSectionKey", "mode"],
+  properties: {
+    workspaceId: {
+      type: "string",
+      minLength: 1,
+      maxLength: 128
+    },
+    projectSectionKey: {
+      type: "string",
+      minLength: 1,
+      maxLength: 4096
+    },
+    mode: {
+      type: "string",
+      enum: ["local", "worktree"]
+    }
+  }
+} as const;
+
 export const preferencesDesktopUpdateRequestedPayloadSchema = {
   type: "object",
   additionalProperties: false,
@@ -3524,6 +3546,8 @@ export const businessEventPayloadSchemas = {
     preferencesAgentComposerDefaultsChangedPayloadSchema,
   "preferences.agent.composer.defaults.patch.requested":
     preferencesAgentComposerDefaultsPatchRequestedPayloadSchema,
+  "preferences.agent.session.launch.mode.patch.requested":
+    preferencesAgentSessionLaunchModePatchRequestedPayloadSchema,
   "preferences.desktop.update.requested":
     preferencesDesktopUpdateRequestedPayloadSchema,
   "preferences.desktop.updated": preferencesDesktopUpdatedPayloadSchema,

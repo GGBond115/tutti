@@ -338,6 +338,7 @@ function DesktopAgentGUISurfaceImpl({
   const handleSessionLaunchModePreferenceChange =
     useDesktopAgentGUISessionLaunchModePreference({
       desktopPreferencesService,
+      runtimeApi,
       workspaceId
     });
   // The only writer persists when the projected workbench state changes.

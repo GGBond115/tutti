@@ -18,6 +18,10 @@ type AgentComposerDefaultsPatcher interface {
 	PatchAgentComposerDefaultsForTarget(context.Context, preferencesservice.PatchAgentComposerDefaultsForTargetInput) (preferencesbiz.AgentComposerDefaults, error)
 }
 
+type AgentSessionLaunchModePatcher interface {
+	PatchAgentSessionLaunchMode(context.Context, preferencesservice.PatchAgentSessionLaunchModeInput) (preferencesbiz.DesktopPreferences, error)
+}
+
 func preferencesTopicDefinitions() []TopicDefinition {
 	return []TopicDefinition{
 		{
@@ -38,6 +42,16 @@ func preferencesTopicDefinitions() []TopicDefinition {
 			directions:         []Direction{DirectionClientToServer},
 			validators: map[Direction]PayloadValidator{
 				DirectionClientToServer: validateAgentComposerDefaultsPatchRequestedPayload,
+			},
+		},
+		{
+			Name:               TopicPreferencesAgentSessionLaunchModePatchRequested,
+			ClientCanPublish:   true,
+			ClientCanSubscribe: false,
+			Version:            1,
+			directions:         []Direction{DirectionClientToServer},
+			validators: map[Direction]PayloadValidator{
+				DirectionClientToServer: validateAgentSessionLaunchModePatchRequestedPayload,
 			},
 		},
 		{
@@ -150,6 +164,28 @@ func NewPreferencesAgentComposerDefaultsPatchRequestedHandler(
 			Patch:         decoded.Patch,
 		}); err != nil {
 			return fmt.Errorf("patch agent composer defaults: %w", err)
+		}
+		return nil
+	}
+}
+
+func NewPreferencesAgentSessionLaunchModePatchRequestedHandler(
+	patcher AgentSessionLaunchModePatcher,
+) IntentHandler {
+	return func(ctx context.Context, event ClientEvent) error {
+		if patcher == nil {
+			return fmt.Errorf("agent session launch mode patcher is not configured")
+		}
+		var decoded agentSessionLaunchModePatchRequestedPayload
+		if err := json.Unmarshal(event.Payload, &decoded); err != nil {
+			return fmt.Errorf("decode payload: %w", err)
+		}
+		if _, err := patcher.PatchAgentSessionLaunchMode(ctx, preferencesservice.PatchAgentSessionLaunchModeInput{
+			WorkspaceID:       decoded.WorkspaceID,
+			ProjectSectionKey: decoded.ProjectSectionKey,
+			Mode:              decoded.Mode,
+		}); err != nil {
+			return fmt.Errorf("patch agent session launch mode: %w", err)
 		}
 		return nil
 	}

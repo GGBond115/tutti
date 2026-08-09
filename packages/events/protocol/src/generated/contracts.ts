@@ -17,6 +17,7 @@ export type BusinessEventTopic =
   | "connector.market.changed"
   | "preferences.agent.composer.defaults.changed"
   | "preferences.agent.composer.defaults.patch.requested"
+  | "preferences.agent.session.launch.mode.patch.requested"
   | "preferences.desktop.update.requested"
   | "preferences.desktop.updated"
   | "user.project.updated"
@@ -513,6 +514,12 @@ export interface PreferencesAgentComposerDefaultsPatchRequestedPayloadV1 {
   clientMutationId?: string;
 }
 
+export interface PreferencesAgentSessionLaunchModePatchRequestedPayloadV1 {
+  workspaceId: string;
+  projectSectionKey: string;
+  mode: "local" | "worktree";
+}
+
 export interface PreferencesDesktopUpdateRequestedPayloadV1 {
   preferences: PreferencesDesktopPreferencesV1;
 }
@@ -643,6 +650,13 @@ export type PreferencesAgentComposerDefaultsPatchRequestedEventV1 =
     1
   >;
 
+export type PreferencesAgentSessionLaunchModePatchRequestedEventV1 =
+  BusinessEventEnvelopeV1<
+    "preferences.agent.session.launch.mode.patch.requested",
+    PreferencesAgentSessionLaunchModePatchRequestedPayloadV1,
+    1
+  >;
+
 export type PreferencesDesktopUpdateRequestedEventV1 = BusinessEventEnvelopeV1<
   "preferences.desktop.update.requested",
   PreferencesDesktopUpdateRequestedPayloadV1,
@@ -700,6 +714,7 @@ export type WorkspaceWorkflowUpdatedEventV1 = BusinessEventEnvelopeV1<
 
 export type ClientToServerEventTopic =
   | "preferences.agent.composer.defaults.patch.requested"
+  | "preferences.agent.session.launch.mode.patch.requested"
   | "preferences.desktop.update.requested";
 
 export type ServerToClientEventTopic =
@@ -723,6 +738,7 @@ export type ServerToClientEventTopic =
 
 export type ClientToServerEventV1 =
   | PreferencesAgentComposerDefaultsPatchRequestedEventV1
+  | PreferencesAgentSessionLaunchModePatchRequestedEventV1
   | PreferencesDesktopUpdateRequestedEventV1;
 
 export type ServerToClientEventV1 =

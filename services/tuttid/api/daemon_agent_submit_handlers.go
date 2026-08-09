@@ -134,6 +134,7 @@ func (api DaemonAPI) CreateWorkspaceAgentSession(ctx context.Context, request tu
 			"displayPrompt":              request.Body.InitialDisplayPrompt,
 			"initialGoalControl":         request.Body.InitialGoalControl,
 			"initialTuttiModeActivation": request.Body.InitialTuttiModeActivation,
+			"isolation":                  request.Body.Isolation,
 			"model":                      request.Body.Model,
 			"noProject":                  request.Body.NoProject,
 			"permissionModeId":           request.Body.PermissionModeId,
@@ -165,6 +166,9 @@ func applyEffectiveCreateSessionLaunch(payload map[string]any, session agentserv
 	}
 	if cwd := strings.TrimSpace(session.Cwd); cwd != "" {
 		payload["cwd"] = cwd
+	}
+	if session.Isolation != nil && strings.TrimSpace(session.Isolation.Mode) != "" {
+		payload["isolation"] = strings.TrimSpace(session.Isolation.Mode)
 	}
 	if session.Settings == nil {
 		return

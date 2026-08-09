@@ -192,7 +192,6 @@ ON CONFLICT(id) DO UPDATE SET
   update_policy = excluded.update_policy,
   agent_composer_defaults_by_provider_json = excluded.agent_composer_defaults_by_provider_json,
   agent_gui_conversation_rail_collapsed_by_provider_json = excluded.agent_gui_conversation_rail_collapsed_by_provider_json,
-  agent_session_launch_modes_by_workspace_json = excluded.agent_session_launch_modes_by_workspace_json,
   file_default_openers_by_extension_json = excluded.file_default_openers_by_extension_json,
   app_catalog_channel = excluded.app_catalog_channel,
   browser_use_connection_mode = excluded.browser_use_connection_mode,
@@ -208,10 +207,10 @@ ON CONFLICT(id) DO UPDATE SET
 		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("put desktop preferences: %w", err)
 	}
 
-	// Re-read after the write because the dedicated target-defaults patch may
-	// have committed between a full preferences caller's read and this update.
-	// The conflict clause deliberately preserves that column, so returning the
-	// input object here would publish a stale defaults snapshot.
+	// Re-read after the write because the dedicated target-defaults or launch-mode
+	// patch may have committed between a full preferences caller's read and this
+	// update. The conflict clause deliberately preserves those columns, so
+	// returning the input object here would publish a stale snapshot.
 	return s.GetDesktopPreferences(ctx)
 }
 
@@ -308,6 +307,84 @@ WHERE id = ?
 		return preferencesbiz.AgentComposerDefaults{}, fmt.Errorf("commit agent composer defaults patch: %w", err)
 	}
 	return defaults, nil
+}
+
+func (s *SQLiteStore) PatchAgentSessionLaunchMode(
+	ctx context.Context,
+	workspaceID string,
+	projectSectionKey string,
+	mode string,
+) (preferencesbiz.DesktopPreferences, error) {
+	if s == nil || s.writeDB == nil {
+		return preferencesbiz.DesktopPreferences{}, errors.New("workspace database is not initialized")
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	projectSectionKey = strings.TrimSpace(projectSectionKey)
+	mode = strings.TrimSpace(mode)
+	if workspaceID == "" || projectSectionKey == "" || (mode != "local" && mode != "worktree") {
+		return preferencesbiz.DesktopPreferences{}, errors.New("agent session launch mode patch is invalid")
+	}
+
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("begin agent session launch mode patch: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	defaultPreferences := preferencesbiz.DefaultDesktopPreferences()
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO desktop_preferences (
+  id, locale, theme_source, dock_icon_style, updated_at_unix_ms
+)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(id) DO NOTHING
+`, desktopPreferencesRowID, defaultPreferences.Locale, defaultPreferences.ThemeSource, defaultPreferences.DockIconStyle, unixMs(time.Now().UTC())); err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("initialize desktop preferences for agent session launch mode patch: %w", err)
+	}
+
+	var raw string
+	if err := tx.QueryRowContext(ctx, `
+SELECT agent_session_launch_modes_by_workspace_json
+FROM desktop_preferences
+WHERE id = ?
+`, desktopPreferencesRowID).Scan(&raw); err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("read agent session launch modes for patch: %w", err)
+	}
+	modesByWorkspace, err := decodeAgentSessionLaunchModesByWorkspace(raw)
+	if err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("decode agent session launch modes for patch: %w", err)
+	}
+	if modesByWorkspace == nil {
+		modesByWorkspace = map[string]map[string]string{}
+	}
+	modesByProject := modesByWorkspace[workspaceID]
+	if modesByProject == nil {
+		modesByProject = map[string]string{}
+	}
+	modesByProject[projectSectionKey] = mode
+	modesByWorkspace[workspaceID] = modesByProject
+	encoded, err := encodeAgentSessionLaunchModesByWorkspace(modesByWorkspace)
+	if err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("encode agent session launch modes patch: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
+UPDATE desktop_preferences
+SET agent_session_launch_modes_by_workspace_json = ?, updated_at_unix_ms = ?
+WHERE id = ?
+`, encoded, unixMs(time.Now().UTC()), desktopPreferencesRowID)
+	if err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("write agent session launch mode patch: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("count agent session launch mode patch rows: %w", err)
+	}
+	if rows != 1 {
+		return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences row is not initialized")
+	}
+	if err := tx.Commit(); err != nil {
+		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("commit agent session launch mode patch: %w", err)
+	}
+	return s.GetDesktopPreferences(ctx)
 }
 
 func agentComposerDefaultsTextPatchValue(value any) (string, error) {

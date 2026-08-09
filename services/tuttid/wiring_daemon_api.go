@@ -194,6 +194,10 @@ func buildDaemonAPI(
 		eventstreamservice.TopicPreferencesAgentComposerDefaultsPatchRequested,
 		eventstreamservice.NewPreferencesAgentComposerDefaultsPatchRequestedHandler(preferences),
 	)
+	events.RegisterIntentHandler(
+		eventstreamservice.TopicPreferencesAgentSessionLaunchModePatchRequested,
+		eventstreamservice.NewPreferencesAgentSessionLaunchModePatchRequestedHandler(preferences),
+	)
 	agentActivityProjection := agentservice.NewActivityProjection(agentActivityRepo)
 	modelPolicies.Sessions = modelPolicySessionTargetResolver{projection: agentActivityProjection}
 	collabRuns.Timeline = agentservice.CollaborationTimelineReporter{Projection: agentActivityProjection}

@@ -795,13 +795,20 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
 
     this.store.agentSessionLaunchModesByWorkspace = nextModes;
     try {
-      await this.dependencies.client.updateDesktopPreferences({
-        preferences: this.currentPreferences({
-          agentSessionLaunchModesByWorkspace: nextModes
-        })
+      await this.dependencies.client.patchAgentSessionLaunchMode({
+        workspaceId,
+        projectSectionKey,
+        mode
       });
     } catch (error) {
-      this.store.agentSessionLaunchModesByWorkspace = previousModes;
+      if (
+        desktopAgentSessionLaunchModesByWorkspaceEqual(
+          this.store.agentSessionLaunchModesByWorkspace,
+          nextModes
+        )
+      ) {
+        this.store.agentSessionLaunchModesByWorkspace = previousModes;
+      }
       throw error;
     }
   }

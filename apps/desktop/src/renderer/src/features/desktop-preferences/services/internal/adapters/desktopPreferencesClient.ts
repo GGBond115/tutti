@@ -15,7 +15,10 @@ import {
   normalizeDesktopWorkbenchShortcuts,
   normalizeDesktopWorkbenchWindowSnapping
 } from "../../../../../../../shared/preferences/index.ts";
-import type { DesktopAgentComposerDefaultsPatch } from "../../../../../../../shared/preferences/index.ts";
+import type {
+  DesktopAgentComposerDefaultsPatch,
+  DesktopAgentSessionLaunchMode
+} from "../../../../../../../shared/preferences/index.ts";
 
 export interface DesktopPreferencesClient {
   connect(): Promise<void>;
@@ -25,6 +28,11 @@ export interface DesktopPreferencesClient {
     agentTargetId: string;
     clientMutationId: string;
     patch: DesktopAgentComposerDefaultsPatch;
+  }): Promise<void>;
+  patchAgentSessionLaunchMode(input: {
+    workspaceId: string;
+    projectSectionKey: string;
+    mode: DesktopAgentSessionLaunchMode;
   }): Promise<void>;
   updateDesktopPreferences(
     request: PutDesktopPreferencesRequest
@@ -85,6 +93,12 @@ export function createDesktopPreferencesClient(
     patchAgentComposerDefaultsForTarget(input) {
       return eventStreamClient.publishIntent(
         "preferences.agent.composer.defaults.patch.requested",
+        input
+      );
+    },
+    patchAgentSessionLaunchMode(input) {
+      return eventStreamClient.publishIntent(
+        "preferences.agent.session.launch.mode.patch.requested",
         input
       );
     },

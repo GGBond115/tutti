@@ -49,6 +49,12 @@ type PatchAgentComposerDefaultsForTargetInput struct {
 	Patch         preferencesbiz.AgentComposerDefaultsPatch
 }
 
+type PatchAgentSessionLaunchModeInput struct {
+	WorkspaceID       string
+	ProjectSectionKey string
+	Mode              string
+}
+
 type PutInput struct {
 	AgentCLIUpdateCheckEnabled bool
 	// AgentComposerDefaultsByProvider is accepted for wire compatibility but
@@ -57,26 +63,29 @@ type PutInput struct {
 	AgentComposerDefaultsByProvider             map[string]preferencesbiz.AgentComposerDefaults
 	AgentComposerDefaultsByAgentTarget          map[string]preferencesbiz.AgentComposerDefaults
 	AgentGUIConversationRailCollapsedByProvider map[string]bool
-	AgentSessionLaunchModesByWorkspace          *map[string]map[string]string
-	AgentConversationDetailMode                 string
-	AgentDockLayout                             string
-	AppCatalogChannel                           string
-	BrowserUseConnectionMode                    string
-	DefaultAgentProvider                        string
-	DockIconStyle                               string
-	DockPlacement                               string
-	DeletedAgentConversationRetentionDays       int
-	FileDefaultOpenersByExtension               map[string]string
-	FeatureFlags                                map[string]bool
-	WorkbenchShortcuts                          preferencesbiz.DesktopWorkbenchShortcuts
-	Locale                                      string
-	MinimizeAnimation                           string
-	SleepPreventionMode                         string
-	ShowAppDeveloperSources                     bool
-	ThemeSource                                 string
-	UpdateChannel                               string
-	UpdatePolicy                                string
-	WindowSnapping                              *DesktopWindowSnappingInput
+	// AgentSessionLaunchModesByWorkspace is accepted for wire compatibility but
+	// ignored on write. Launch modes mutate through PatchAgentSessionLaunchMode
+	// so concurrent workspace windows cannot replace the global map.
+	AgentSessionLaunchModesByWorkspace    *map[string]map[string]string
+	AgentConversationDetailMode           string
+	AgentDockLayout                       string
+	AppCatalogChannel                     string
+	BrowserUseConnectionMode              string
+	DefaultAgentProvider                  string
+	DockIconStyle                         string
+	DockPlacement                         string
+	DeletedAgentConversationRetentionDays int
+	FileDefaultOpenersByExtension         map[string]string
+	FeatureFlags                          map[string]bool
+	WorkbenchShortcuts                    preferencesbiz.DesktopWorkbenchShortcuts
+	Locale                                string
+	MinimizeAnimation                     string
+	SleepPreventionMode                   string
+	ShowAppDeveloperSources               bool
+	ThemeSource                           string
+	UpdateChannel                         string
+	UpdatePolicy                          string
+	WindowSnapping                        *DesktopWindowSnappingInput
 }
 
 type DesktopWindowSnappingInput struct {
@@ -140,6 +149,46 @@ func (s Service) PatchAgentComposerDefaultsForTarget(
 	return defaults, nil
 }
 
+func (s Service) PatchAgentSessionLaunchMode(
+	ctx context.Context,
+	input PatchAgentSessionLaunchModeInput,
+) (preferencesbiz.DesktopPreferences, error) {
+	if s.Store == nil {
+		return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences store is not configured")
+	}
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	projectSectionKey := strings.TrimSpace(input.ProjectSectionKey)
+	mode := strings.TrimSpace(input.Mode)
+	if workspaceID == "" {
+		return preferencesbiz.DesktopPreferences{}, errors.New("workspace id is required")
+	}
+	if projectSectionKey == "" {
+		return preferencesbiz.DesktopPreferences{}, errors.New("project section key is required")
+	}
+	if mode != "local" && mode != "worktree" {
+		return preferencesbiz.DesktopPreferences{}, errors.New("agent session launch mode is unsupported")
+	}
+	patchStore, ok := s.Store.(workspacedata.AgentSessionLaunchModePatchStore)
+	if !ok {
+		return preferencesbiz.DesktopPreferences{}, errors.New("agent session launch mode patch store is not configured")
+	}
+	previous, err := s.Store.GetDesktopPreferences(ctx)
+	if err != nil {
+		return preferencesbiz.DesktopPreferences{}, err
+	}
+	preferences, err := patchStore.PatchAgentSessionLaunchMode(ctx, workspaceID, projectSectionKey, mode)
+	if err != nil {
+		return preferencesbiz.DesktopPreferences{}, err
+	}
+	for _, observer := range s.changeObservers {
+		observer(ctx, previous, preferences)
+	}
+	if s.Publisher != nil {
+		_ = s.Publisher.PublishDesktopPreferencesUpdated(ctx, preferences)
+	}
+	return preferences, nil
+}
+
 func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.DesktopPreferences, error) {
 	if s.Store == nil {
 		return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences store is not configured")
@@ -151,13 +200,6 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 	}
 
 	windowSnapping := resolveWindowSnapping(stored, input.WindowSnapping)
-	agentSessionLaunchModesByWorkspace := stored.AgentSessionLaunchModesByWorkspace
-	if input.AgentSessionLaunchModesByWorkspace != nil {
-		agentSessionLaunchModesByWorkspace = normalizeAgentSessionLaunchModesByWorkspace(
-			*input.AgentSessionLaunchModesByWorkspace,
-		)
-	}
-
 	preferences, err := s.Store.PutDesktopPreferences(ctx, preferencesbiz.DesktopPreferences{
 		AgentCLIUpdateCheckEnabled: input.AgentCLIUpdateCheckEnabled,
 		// The legacy provider-keyed defaults are frozen: client input is
@@ -169,28 +211,30 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 		// dedicated daemon-side field patch may change this map.
 		AgentComposerDefaultsByAgentTarget:          stored.AgentComposerDefaultsByAgentTarget,
 		AgentGUIConversationRailCollapsedByProvider: normalizeAgentGUIConversationRailCollapsedByProvider(input.AgentGUIConversationRailCollapsedByProvider),
-		AgentSessionLaunchModesByWorkspace:          agentSessionLaunchModesByWorkspace,
-		AgentConversationDetailMode:                 preferencesbiz.NormalizeDesktopAgentConversationDetailMode(input.AgentConversationDetailMode),
-		AgentDockLayout:                             normalizeAgentDockLayout(input.AgentDockLayout),
-		AppCatalogChannel:                           normalizeAppCatalogChannel(input.AppCatalogChannel),
-		BrowserUseConnectionMode:                    normalizeBrowserUseConnectionMode(input.BrowserUseConnectionMode),
-		DefaultAgentProvider:                        normalizeDefaultAgentProvider(input.DefaultAgentProvider),
-		DockIconStyle:                               strings.TrimSpace(input.DockIconStyle),
-		DockPlacement:                               strings.TrimSpace(input.DockPlacement),
-		DeletedAgentConversationRetentionDays:       preferencesbiz.NormalizeDeletedAgentConversationRetentionDays(input.DeletedAgentConversationRetentionDays),
-		FileDefaultOpenersByExtension:               normalizeFileDefaultOpenersByExtension(input.FileDefaultOpenersByExtension),
-		Initialized:                                 true,
-		FeatureFlags:                                preferencesbiz.NormalizeDesktopFeatureFlags(input.FeatureFlags),
-		WorkbenchShortcuts:                          preferencesbiz.NormalizeDesktopWorkbenchShortcuts(input.WorkbenchShortcuts),
-		Locale:                                      strings.TrimSpace(input.Locale),
-		MinimizeAnimation:                           normalizeMinimizeAnimation(input.MinimizeAnimation),
-		SleepPreventionMode:                         strings.TrimSpace(input.SleepPreventionMode),
-		ShowAppDeveloperSources:                     input.ShowAppDeveloperSources,
-		ThemeSource:                                 strings.TrimSpace(input.ThemeSource),
-		UpdateChannel:                               strings.TrimSpace(input.UpdateChannel),
-		UpdatePolicy:                                strings.TrimSpace(input.UpdatePolicy),
-		WindowSnappingEnabled:                       windowSnapping.Enabled,
-		WindowSnappingShortcutPreset:                windowSnapping.ShortcutPreset,
+		// Launch modes are frozen on the full preferences mutation. Only the
+		// dedicated daemon-side single-key patch may change this map.
+		AgentSessionLaunchModesByWorkspace:    stored.AgentSessionLaunchModesByWorkspace,
+		AgentConversationDetailMode:           preferencesbiz.NormalizeDesktopAgentConversationDetailMode(input.AgentConversationDetailMode),
+		AgentDockLayout:                       normalizeAgentDockLayout(input.AgentDockLayout),
+		AppCatalogChannel:                     normalizeAppCatalogChannel(input.AppCatalogChannel),
+		BrowserUseConnectionMode:              normalizeBrowserUseConnectionMode(input.BrowserUseConnectionMode),
+		DefaultAgentProvider:                  normalizeDefaultAgentProvider(input.DefaultAgentProvider),
+		DockIconStyle:                         strings.TrimSpace(input.DockIconStyle),
+		DockPlacement:                         strings.TrimSpace(input.DockPlacement),
+		DeletedAgentConversationRetentionDays: preferencesbiz.NormalizeDeletedAgentConversationRetentionDays(input.DeletedAgentConversationRetentionDays),
+		FileDefaultOpenersByExtension:         normalizeFileDefaultOpenersByExtension(input.FileDefaultOpenersByExtension),
+		Initialized:                           true,
+		FeatureFlags:                          preferencesbiz.NormalizeDesktopFeatureFlags(input.FeatureFlags),
+		WorkbenchShortcuts:                    preferencesbiz.NormalizeDesktopWorkbenchShortcuts(input.WorkbenchShortcuts),
+		Locale:                                strings.TrimSpace(input.Locale),
+		MinimizeAnimation:                     normalizeMinimizeAnimation(input.MinimizeAnimation),
+		SleepPreventionMode:                   strings.TrimSpace(input.SleepPreventionMode),
+		ShowAppDeveloperSources:               input.ShowAppDeveloperSources,
+		ThemeSource:                           strings.TrimSpace(input.ThemeSource),
+		UpdateChannel:                         strings.TrimSpace(input.UpdateChannel),
+		UpdatePolicy:                          strings.TrimSpace(input.UpdatePolicy),
+		WindowSnappingEnabled:                 windowSnapping.Enabled,
+		WindowSnappingShortcutPreset:          windowSnapping.ShortcutPreset,
 	})
 	if err != nil {
 		return preferencesbiz.DesktopPreferences{}, err
@@ -339,29 +383,6 @@ func normalizeAgentGUIConversationRailCollapsedByProvider(input map[string]bool)
 			continue
 		}
 		result[normalizedProvider] = collapsed
-	}
-	return result
-}
-
-func normalizeAgentSessionLaunchModesByWorkspace(input map[string]map[string]string) map[string]map[string]string {
-	result := map[string]map[string]string{}
-	for workspaceID, byProject := range input {
-		workspaceID = strings.TrimSpace(workspaceID)
-		if workspaceID == "" {
-			continue
-		}
-		normalizedProjects := map[string]string{}
-		for sectionKey, mode := range byProject {
-			sectionKey = strings.TrimSpace(sectionKey)
-			mode = strings.TrimSpace(mode)
-			if sectionKey == "" || (mode != "local" && mode != "worktree") {
-				continue
-			}
-			normalizedProjects[sectionKey] = mode
-		}
-		if len(normalizedProjects) > 0 {
-			result[workspaceID] = normalizedProjects
-		}
 	}
 	return result
 }

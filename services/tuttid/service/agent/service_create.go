@@ -151,20 +151,22 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	var isolationWarnings []SessionWarning
 	keepWorktree := false
 	if isolationMode == WorktreeIsolationMode {
-		created, warnings, createErr := s.createSessionWorktree(ctx, workspaceID, cwd, input.AgentSessionID)
+		launch, createErr := s.createSessionWorktree(ctx, workspaceID, cwd, input.AgentSessionID)
 		if createErr != nil {
 			return createSessionFailureResult(input, createErr)
 		}
-		isolation = &created
-		isolationWarnings = warnings
-		cwd = created.WorktreePath
+		isolation = &launch.Isolation
+		isolationWarnings = launch.Warnings
+		cwd = launch.Cwd
 		input.Cwd = stringPointer(cwd)
-		input.RuntimeContext = sessionIsolationRuntimeContext(input.RuntimeContext, created)
-		defer func() {
-			if !keepWorktree {
-				s.rollbackSessionWorktree(context.Background(), created)
-			}
-		}()
+		input.RuntimeContext = sessionIsolationRuntimeContext(input.RuntimeContext, launch.Isolation)
+		if launch.Created {
+			defer func() {
+				if !keepWorktree {
+					s.rollbackSessionWorktree(context.Background(), launch.Isolation)
+				}
+			}()
+		}
 	}
 	if providerTargetRefKind(input.ProviderTargetRef) == "agent_extension" {
 		nodeStartedAt = time.Now()
@@ -190,7 +192,7 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		return createSessionFailureResult(input, err)
 	}
 	if isolation != nil {
-		prepared.Cwd = isolation.WorktreePath
+		prepared.Cwd = cwd
 	}
 	// Keep the durable launch snapshot aligned with the same capability clamp
 	// used by runtime preparation. Otherwise a missing browser/computer backend
