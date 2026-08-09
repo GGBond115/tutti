@@ -1,5 +1,9 @@
 import type { AgentConversationVM } from "@tutti-os/agent-gui/conversation-projection";
-import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
+import {
+  NativeControlGlyph,
+  type NativeTheme,
+  useNativeTheme
+} from "@tutti-os/ui-system/native";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { t } from "../i18n";
@@ -8,10 +12,6 @@ import {
   MobileConversationImages,
   MobileGeneratedImage
 } from "./MobileConversationImages";
-import {
-  MobileChevronGlyph,
-  MobileStatusDotGlyph
-} from "./MobileControlGlyphs";
 import { MobileMarkdownText } from "./MobileMarkdownText";
 
 type TranscriptRow = AgentConversationVM["rows"][number];
@@ -198,19 +198,21 @@ function MobileThinkingBlock({
         ]}
       >
         <View style={styles.disclosureHeaderLine}>
-          <MobileStatusDotGlyph
+          <NativeControlGlyph
             color={toolStatusColor(theme, statusKind)}
             size={8}
+            variant="status"
           />
           <Text style={styles.thinkingLabel}>{t("reasoning")}</Text>
           {statusLabel ? (
             <Text style={styles.thinkingStatus}>{statusLabel}</Text>
           ) : null}
           {hasBody ? (
-            <MobileChevronGlyph
+            <NativeControlGlyph
               color={theme.color.muted}
               direction={expanded ? "up" : "down"}
               size={16}
+              variant="chevron"
             />
           ) : null}
         </View>
@@ -246,10 +248,11 @@ function MobileRawErrorDisclosure({ detail }: { detail: string }) {
         ]}
       >
         <Text style={styles.errorDisclosureLabel}>{t("rawError")}</Text>
-        <MobileChevronGlyph
+        <NativeControlGlyph
           color={theme.color.danger}
           direction={expanded ? "up" : "down"}
           size={16}
+          variant="chevron"
         />
       </Pressable>
       {expanded ? <Text style={styles.errorText}>{detail}</Text> : null}
@@ -308,9 +311,10 @@ function MobileToolGroupRow({
         style={({ pressed }) => [styles.toolHeader, pressed && styles.pressed]}
       >
         <View style={styles.disclosureHeaderLine}>
-          <MobileStatusDotGlyph
+          <NativeControlGlyph
             color={toolStatusColor(theme, statusKind)}
             size={8}
+            variant="status"
           />
           <View style={styles.toolHeaderText}>
             <Text numberOfLines={1} style={styles.toolTitle}>
@@ -321,10 +325,11 @@ function MobileToolGroupRow({
             </Text>
           </View>
           {hasDetails ? (
-            <MobileChevronGlyph
+            <NativeControlGlyph
               color={theme.color.muted}
               direction={expanded ? "up" : "down"}
               size={16}
+              variant="chevron"
             />
           ) : null}
         </View>
@@ -356,9 +361,10 @@ function MobileToolCallRow({ call }: { call: ToolCall }) {
   return (
     <View style={styles.toolCall}>
       <View style={styles.toolCallStatusDot}>
-        <MobileStatusDotGlyph
+        <NativeControlGlyph
           color={toolStatusColor(theme, call.statusKind)}
           size={8}
+          variant="status"
         />
       </View>
       <View style={styles.toolCallContent}>
@@ -445,7 +451,11 @@ function MobileProcessingRow({ label }: { label: string | null | undefined }) {
   const styles = createStyles(theme);
   return (
     <View accessibilityLiveRegion="polite" style={styles.processing}>
-      <MobileStatusDotGlyph color={theme.color.accent} size={8} />
+      <NativeControlGlyph
+        color={theme.color.accent}
+        size={8}
+        variant="status"
+      />
       <Text style={styles.processingText}>
         {label?.trim() || t("processing")}
       </Text>
@@ -473,10 +483,11 @@ function MobileTurnSummaryRow({
       >
         <View style={styles.disclosureHeaderLine}>
           <Text style={styles.summaryTitle}>{label}</Text>
-          <MobileChevronGlyph
+          <NativeControlGlyph
             color={theme.color.muted}
             direction={expanded ? "up" : "down"}
             size={16}
+            variant="chevron"
           />
         </View>
       </Pressable>
@@ -484,7 +495,11 @@ function MobileTurnSummaryRow({
         <View style={styles.fileList}>
           {row.files.map((file) => (
             <View key={file.messageId} style={styles.fileRow}>
-              <MobileStatusDotGlyph color={theme.color.muted} size={6} />
+              <NativeControlGlyph
+                color={theme.color.muted}
+                size={6}
+                variant="status"
+              />
               <Text numberOfLines={1} style={styles.fileName}>
                 {file.label}
               </Text>

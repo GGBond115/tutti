@@ -3534,6 +3534,27 @@
       "nativePreview": true
     },
     {
+      "id": "native-control-glyph",
+      "layer": "base",
+      "name": "NativeControlGlyph",
+      "export": "NativeControlGlyph",
+      "from": "@tutti-os/ui-system/native",
+      "category": "icon",
+      "status": "experimental",
+      "source": "src/native/control-glyph.tsx",
+      "propsType": "NativeControlGlyphProps",
+      "description": "Decorative add, back, chevron, send, status, and stop glyph variants for React Native controls.",
+      "useCases": [
+        "Native icon buttons",
+        "Disclosure affordances",
+        "Compact status indicators"
+      ],
+      "migrationHints": [
+        "Keep the glyph decorative and provide the localized accessible name on its owning control."
+      ],
+      "nativePreview": true
+    },
+    {
       "id": "native-progress-bar",
       "layer": "base",
       "name": "NativeProgressBar",

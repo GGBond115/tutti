@@ -1,6 +1,7 @@
 import type { AgentActivitySessionSettings } from "@tutti-os/agent-activity-core";
 import {
   NativeButton,
+  NativeControlGlyph,
   NativeListRow,
   NativeSheet,
   type NativeTheme,
@@ -10,7 +11,6 @@ import { useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
-import { MobileChevronGlyph } from "./MobileControlGlyphs";
 
 export type ComposerSettingMenu =
   | "model"
@@ -175,10 +175,11 @@ export function MobileComposerSettingsSheet({
             style={[styles.chipRailHint, styles.chipRailHintLeading]}
             testID="mobile-composer-settings-leading-hint"
           >
-            <MobileChevronGlyph
+            <NativeControlGlyph
               color={theme.color.textSecondary}
               direction="left"
               size={14}
+              variant="chevron"
             />
           </View>
         ) : null}
@@ -188,10 +189,11 @@ export function MobileComposerSettingsSheet({
             style={[styles.chipRailHint, styles.chipRailHintTrailing]}
             testID="mobile-composer-settings-trailing-hint"
           >
-            <MobileChevronGlyph
+            <NativeControlGlyph
               color={theme.color.textSecondary}
               direction="right"
               size={14}
+              variant="chevron"
             />
           </View>
         ) : null}

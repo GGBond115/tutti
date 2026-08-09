@@ -1,12 +1,60 @@
 import type { ReactNode } from "react";
 import { View } from "react-native";
 
-interface MobileControlGlyphProps {
+export type NativeControlGlyphVariant =
+  | "add"
+  | "back"
+  | "chevron"
+  | "send"
+  | "status"
+  | "stop";
+
+interface NativeControlGlyphBaseProps {
   color: string;
   size?: number;
 }
 
-export function MobileAddGlyph({ color, size = 20 }: MobileControlGlyphProps) {
+interface NativeGlyphRenderProps {
+  color: string;
+  size: number;
+}
+
+export type NativeControlGlyphProps = NativeControlGlyphBaseProps &
+  (
+    | {
+        direction: "down" | "left" | "right" | "up";
+        variant: "chevron";
+      }
+    | {
+        direction?: never;
+        variant: Exclude<NativeControlGlyphVariant, "chevron">;
+      }
+  );
+
+export function NativeControlGlyph(props: NativeControlGlyphProps) {
+  switch (props.variant) {
+    case "add":
+      return <AddGlyph color={props.color} size={props.size ?? 20} />;
+    case "back":
+      return <BackGlyph color={props.color} size={props.size ?? 20} />;
+    case "chevron":
+      return (
+        <ChevronGlyph
+          color={props.color}
+          direction={props.direction}
+          size={props.size ?? 18}
+        />
+      );
+    case "send":
+      return <SendGlyph color={props.color} size={props.size ?? 20} />;
+    case "status":
+      return <StatusGlyph color={props.color} size={props.size ?? 8} />;
+    case "stop":
+      return <StopGlyph color={props.color} size={props.size ?? 20} />;
+  }
+}
+
+function AddGlyph({ color, size }: NativeGlyphRenderProps) {
   const stroke = Math.max(2, size * 0.1);
   return (
     <GlyphFrame size={size}>
@@ -36,7 +84,7 @@ export function MobileAddGlyph({ color, size = 20 }: MobileControlGlyphProps) {
   );
 }
 
-export function MobileBackGlyph({ color, size = 20 }: MobileControlGlyphProps) {
+function BackGlyph({ color, size }: NativeGlyphRenderProps) {
   const stroke = Math.max(2, size * 0.1);
   const wing = size * 0.38;
   return (
@@ -80,11 +128,11 @@ export function MobileBackGlyph({ color, size = 20 }: MobileControlGlyphProps) {
   );
 }
 
-export function MobileChevronGlyph({
+function ChevronGlyph({
   color,
   direction,
-  size = 18
-}: MobileControlGlyphProps & {
+  size
+}: NativeGlyphRenderProps & {
   direction: "down" | "left" | "right" | "up";
 }) {
   const stroke = Math.max(2, size * 0.11);
@@ -129,7 +177,7 @@ export function MobileChevronGlyph({
   );
 }
 
-export function MobileSendGlyph({ color, size = 20 }: MobileControlGlyphProps) {
+function SendGlyph({ color, size }: NativeGlyphRenderProps) {
   const stroke = Math.max(2, size * 0.1);
   return (
     <GlyphFrame size={size}>
@@ -172,7 +220,22 @@ export function MobileSendGlyph({ color, size = 20 }: MobileControlGlyphProps) {
   );
 }
 
-export function MobileStopGlyph({ color, size = 20 }: MobileControlGlyphProps) {
+function StatusGlyph({ color, size }: NativeGlyphRenderProps) {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        backgroundColor: color,
+        borderRadius: size / 2,
+        height: size,
+        width: size
+      }}
+    />
+  );
+}
+
+function StopGlyph({ color, size }: NativeGlyphRenderProps) {
   const square = size * 0.48;
   return (
     <GlyphFrame size={size}>
@@ -188,24 +251,6 @@ export function MobileStopGlyph({ color, size = 20 }: MobileControlGlyphProps) {
         }}
       />
     </GlyphFrame>
-  );
-}
-
-export function MobileStatusDotGlyph({
-  color,
-  size = 8
-}: MobileControlGlyphProps) {
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={{
-        backgroundColor: color,
-        borderRadius: size / 2,
-        height: size,
-        width: size
-      }}
-    />
   );
 }
 

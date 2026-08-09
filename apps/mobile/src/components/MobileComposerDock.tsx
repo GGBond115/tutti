@@ -1,5 +1,6 @@
 import type { AgentActivitySessionSettings } from "@tutti-os/agent-activity-core";
 import {
+  NativeControlGlyph,
   NativeIconButton,
   NativeListRow,
   type NativeTheme,
@@ -25,13 +26,6 @@ import {
   MobileComposerSettingsSheet,
   type ComposerSettingMenu
 } from "./MobileComposerSettingsSheet";
-import {
-  MobileAddGlyph,
-  MobileBackGlyph,
-  MobileChevronGlyph,
-  MobileSendGlyph,
-  MobileStopGlyph
-} from "./MobileControlGlyphs";
 import {
   MobileKeyboardAvoidingView,
   mobileKeyboardDismissMode
@@ -223,7 +217,11 @@ export function MobileComposerDock({
             accessibilityLabel={t("moreActions")}
             disabled={!model.commandsAvailable}
             icon={
-              <MobileAddGlyph color={theme.color.textSecondary} size={20} />
+              <NativeControlGlyph
+                color={theme.color.textSecondary}
+                size={20}
+                variant="add"
+              />
             }
             onPress={openToolsMenu}
             style={styles.addButton}
@@ -245,7 +243,11 @@ export function MobileComposerDock({
               accessibilityLabel={t("stop")}
               disabled={!model.commandsAvailable}
               icon={
-                <MobileStopGlyph color={theme.color.background} size={20} />
+                <NativeControlGlyph
+                  color={theme.color.background}
+                  size={20}
+                  variant="stop"
+                />
               }
               onPress={onStop}
               style={styles.actionButton}
@@ -256,7 +258,11 @@ export function MobileComposerDock({
                 model.ambiguousSubmission ? t("retry") : t("send")
               }
               icon={
-                <MobileSendGlyph color={theme.color.background} size={20} />
+                <NativeControlGlyph
+                  color={theme.color.background}
+                  size={20}
+                  variant="send"
+                />
               }
               onPress={onSend}
               style={styles.actionButton}
@@ -297,10 +303,11 @@ export function MobileComposerDock({
                       onPress={() => setToolsMenu("model")}
                       title={t("model")}
                       trailing={
-                        <MobileChevronGlyph
+                        <NativeControlGlyph
                           color={theme.color.muted}
                           direction="right"
                           size={16}
+                          variant="chevron"
                         />
                       }
                     />
@@ -312,10 +319,11 @@ export function MobileComposerDock({
                       onPress={() => setToolsMenu("permission")}
                       title={t("permissions")}
                       trailing={
-                        <MobileChevronGlyph
+                        <NativeControlGlyph
                           color={theme.color.muted}
                           direction="right"
                           size={16}
+                          variant="chevron"
                         />
                       }
                     />
@@ -349,10 +357,11 @@ export function MobileComposerDock({
                       onPress={() => setToolsMenu("quickPrompts")}
                       title={t("quickPrompts")}
                       trailing={
-                        <MobileChevronGlyph
+                        <NativeControlGlyph
                           color={theme.color.muted}
                           direction="right"
                           size={16}
+                          variant="chevron"
                         />
                       }
                     />
@@ -385,7 +394,11 @@ export function MobileComposerDock({
                     <NativeIconButton
                       accessibilityLabel={t("cancel")}
                       icon={
-                        <MobileBackGlyph color={theme.color.text} size={20} />
+                        <NativeControlGlyph
+                          color={theme.color.text}
+                          size={20}
+                          variant="back"
+                        />
                       }
                       onPress={() => setToolsMenu("tools")}
                       style={styles.menuBackButton}

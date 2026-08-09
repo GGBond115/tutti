@@ -6,6 +6,7 @@ import { resolveAgentConversationNavigationAction } from "@tutti-os/agent-gui/co
 import { createAgentConversationFollowEndController } from "@tutti-os/agent-gui/agent-conversation/follow-end";
 import {
   NativeButton,
+  NativeControlGlyph,
   NativeIconButton,
   type NativeTheme,
   useNativeTheme
@@ -13,7 +14,6 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MobileComposerDock } from "../components/MobileComposerDock";
-import { MobileBackGlyph } from "../components/MobileControlGlyphs";
 import { MobileConversationInteractionDock } from "../components/MobileConversationInteractionDock";
 import { MobileConversationTimeline } from "../components/MobileConversationTimeline";
 import {
@@ -28,6 +28,11 @@ import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import type { WorkspaceMediaSnapshot } from "../services/workspaceMediaService";
 import type { MobileQuickPromptLibrarySnapshot } from "../services/mobileQuickPromptLibraryService";
+import {
+  conversationDistanceFromBottom,
+  initialConversationScrollGeometry,
+  updateConversationScrollGeometry
+} from "./conversationScrollGeometry";
 import { createConversationScrollScheduler } from "./conversationScrollScheduler";
 
 export function ConversationScreenView({
@@ -82,9 +87,7 @@ export function ConversationScreenView({
     createAgentConversationFollowEndController()
   );
   const followEndController = followEndControllerRef.current;
-  const lastScrollOffsetY = useRef(0);
-  const contentHeight = useRef(0);
-  const viewportHeight = useRef(0);
+  const scrollGeometry = useRef(initialConversationScrollGeometry);
   const scrollScheduler = useRef<
     ReturnType<typeof createConversationScrollScheduler> | undefined
   >(undefined);
@@ -107,9 +110,10 @@ export function ConversationScreenView({
 
   useEffect(() => {
     followEndController.dispatch("conversation-changed");
-    lastScrollOffsetY.current = 0;
-    contentHeight.current = 0;
-    viewportHeight.current = 0;
+    scrollGeometry.current = updateConversationScrollGeometry(
+      scrollGeometry.current,
+      { type: "conversation-changed" }
+    );
     setShowScrollToBottom(false);
     scheduleScrollToBottom(false, "auto-follow");
     return () => scrollScheduler.current?.cancel();
@@ -152,7 +156,13 @@ export function ConversationScreenView({
           <NativeIconButton
             accessibilityLabel={t("sessions")}
             onPress={onBack}
-            icon={<MobileBackGlyph color={theme.color.text} size={20} />}
+            icon={
+              <NativeControlGlyph
+                color={theme.color.text}
+                size={20}
+                variant="back"
+              />
+            }
             style={styles.headerCircleButton}
             variant="ghost"
           />
@@ -205,13 +215,22 @@ export function ConversationScreenView({
             keyboardShouldPersistTaps="handled"
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onContentSizeChange={(_width, height) => {
-              contentHeight.current = height;
+              scrollGeometry.current = updateConversationScrollGeometry(
+                scrollGeometry.current,
+                { height, type: "content-size-changed" }
+              );
               if (followEndController.getSnapshot() === "following") {
                 scheduleScrollToBottom(false, "auto-follow");
               }
             }}
             onLayout={({ nativeEvent }) => {
-              viewportHeight.current = nativeEvent.layout.height;
+              scrollGeometry.current = updateConversationScrollGeometry(
+                scrollGeometry.current,
+                {
+                  height: nativeEvent.layout.height,
+                  type: "layout-changed"
+                }
+              );
               if (followEndController.getSnapshot() === "following") {
                 scheduleScrollToBottom(false, "auto-follow");
               }
@@ -233,8 +252,16 @@ export function ConversationScreenView({
                 nativeEvent.layoutMeasurement.height -
                 nativeEvent.contentOffset.y;
               const scrollingTowardEnd =
-                nativeEvent.contentOffset.y > lastScrollOffsetY.current;
-              lastScrollOffsetY.current = nativeEvent.contentOffset.y;
+                nativeEvent.contentOffset.y > scrollGeometry.current.offsetY;
+              scrollGeometry.current = updateConversationScrollGeometry(
+                scrollGeometry.current,
+                {
+                  contentHeight: nativeEvent.contentSize.height,
+                  offsetY: nativeEvent.contentOffset.y,
+                  type: "scrolled",
+                  viewportHeight: nativeEvent.layoutMeasurement.height
+                }
+              );
               if (
                 followEndController.getSnapshot() === "detached" &&
                 scrollingTowardEnd &&
@@ -247,10 +274,9 @@ export function ConversationScreenView({
               );
             }}
             onTouchStart={() => {
-              const distanceFromBottom =
-                contentHeight.current -
-                viewportHeight.current -
-                lastScrollOffsetY.current;
+              const distanceFromBottom = conversationDistanceFromBottom(
+                scrollGeometry.current
+              );
               if (distanceFromBottom > 48) {
                 scrollScheduler.current?.cancel();
                 followEndController.dispatch("user-scrolled-away");

@@ -1,6 +1,7 @@
 import {
   NativeAvatar,
   NativeButton,
+  NativeControlGlyph,
   NativeIconButton,
   NativeListRow,
   NativeProgressBar,
@@ -114,6 +115,32 @@ export function NativeComponentGallery({ onClose }: { onClose(): void }) {
               icon={<Text style={styles.moreIcon}>⋯</Text>}
               onPress={() => undefined}
             />
+          </View>
+        </GallerySection>
+
+        <GallerySection title="native-control-glyph">
+          <View style={styles.glyphGrid}>
+            {(["add", "back", "send", "status", "stop"] as const).map(
+              (variant) => (
+                <View key={variant} style={styles.glyphPreview}>
+                  <NativeControlGlyph
+                    color={theme.color.text}
+                    variant={variant}
+                  />
+                  <Text style={styles.galleryStateLabel}>{variant}</Text>
+                </View>
+              )
+            )}
+            {(["down", "left", "right", "up"] as const).map((direction) => (
+              <View key={direction} style={styles.glyphPreview}>
+                <NativeControlGlyph
+                  color={theme.color.text}
+                  direction={direction}
+                  variant="chevron"
+                />
+                <Text style={styles.galleryStateLabel}>{direction}</Text>
+              </View>
+            ))}
           </View>
         </GallerySection>
 
@@ -236,6 +263,16 @@ function createStyles(theme: NativeTheme) {
     galleryStateLabel: {
       color: theme.color.muted,
       fontSize: theme.space.small
+    },
+    glyphGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: theme.space.medium
+    },
+    glyphPreview: {
+      alignItems: "center",
+      gap: theme.space.small / 2,
+      minWidth: theme.control.regular
     },
     inline: { flexDirection: "row", gap: theme.space.small },
     moreIcon: {
