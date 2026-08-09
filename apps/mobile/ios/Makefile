@@ -15,7 +15,8 @@ ios-bindings-check:
 	test -f "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Mobile.objc.h"; \
 	test -f "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Liveprotocolmobile.objc.h"; \
 	grep -Fq 'TUTMobileNewLink' "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Mobile.objc.h"; \
-	grep -Fq 'TUTLiveprotocolmobileNewSubscriber' "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Liveprotocolmobile.objc.h"
+	grep -Fq 'TUTLiveprotocolmobileNewSubscriber' "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Liveprotocolmobile.objc.h"; \
+	grep -Fq 'TUTLiveprotocolmobileNewSubscriberForRevision' "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Liveprotocolmobile.objc.h"
 
 ios-framework:
 	@xcode_path=$$(xcode-select -p 2>/dev/null); \

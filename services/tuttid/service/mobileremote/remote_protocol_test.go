@@ -250,6 +250,8 @@ type stubAgentLiveEventSource struct {
 	payloads [][]byte
 }
 
+const historicalAgentLiveRevision = "sha256:7101e69f2559036c"
+
 func (s stubAgentLiveEventSource) StreamAgentActivity(
 	ctx context.Context,
 	_ string,
@@ -331,6 +333,95 @@ func TestRemoteProtocolStreamsValidatedAgentLiveFrames(t *testing.T) {
 		event.WorkspaceID != "workspace-1" ||
 		event.AgentSessionID != "session-1" {
 		t.Fatalf("unexpected live event: %+v", event)
+	}
+	_ = client.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoteProtocolAcceptsHistoricalAgentLiveRevision(t *testing.T) {
+	t.Parallel()
+	server, client := net.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- serveRemoteStreamWithAgentLive(
+			context.Background(),
+			server,
+			http.NotFoundHandler(),
+			"pairing-1",
+			stubAgentLiveEventSource{},
+		)
+	}()
+	body, err := json.Marshal(agentLiveSubscribeRequest{
+		ProtocolRevision: historicalAgentLiveRevision,
+		WorkspaceID:      "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRemoteFrame(client, RemoteRequest{
+		ProtocolEpoch: ApplicationProtocolEpoch,
+		Service:       AgentLiveService,
+		RequestID:     "request-live-legacy",
+		Method:        AgentLiveSubscribeMethod,
+		Path:          "/v1/workspaces/workspace-1/agent-live",
+		Body:          body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ready := readAgentLiveTestFrame(t, client)
+	if ready.ProtocolRevision != historicalAgentLiveRevision ||
+		len(ready.Deliveries) != 1 ||
+		ready.Deliveries[0].StreamReady == nil ||
+		ready.Deliveries[0].StreamReady.ProtocolRevision != historicalAgentLiveRevision {
+		t.Fatalf("historical ready frame = %+v", ready)
+	}
+	_ = client.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoteProtocolRejectsUnknownAgentLiveRevisionWithCurrentExpected(t *testing.T) {
+	t.Parallel()
+	server, client := net.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- serveRemoteStreamWithAgentLive(
+			context.Background(),
+			server,
+			http.NotFoundHandler(),
+			"pairing-1",
+			stubAgentLiveEventSource{},
+		)
+	}()
+	const unknownRevision = "sha256:0000000000000000"
+	body, err := json.Marshal(agentLiveSubscribeRequest{
+		ProtocolRevision: unknownRevision,
+		WorkspaceID:      "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRemoteFrame(client, RemoteRequest{
+		ProtocolEpoch: ApplicationProtocolEpoch,
+		Service:       AgentLiveService,
+		RequestID:     "request-live-unknown",
+		Method:        AgentLiveSubscribeMethod,
+		Path:          "/v1/workspaces/workspace-1/agent-live",
+		Body:          body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rejected := readAgentLiveTestFrame(t, client)
+	if rejected.ProtocolRevision != liveprotocol.ProtocolRevision ||
+		len(rejected.Deliveries) != 1 ||
+		rejected.Deliveries[0].Rejected == nil ||
+		rejected.Deliveries[0].Rejected.Reason != liveprotocol.RejectionProtocolRevisionMismatch ||
+		rejected.Deliveries[0].Rejected.ExpectedRevision != liveprotocol.ProtocolRevision ||
+		rejected.Deliveries[0].Rejected.ReceivedRevision != unknownRevision {
+		t.Fatalf("unknown revision rejection = %+v", rejected)
 	}
 	_ = client.Close()
 	if err := <-done; err != nil {
@@ -497,6 +588,50 @@ func TestRemoteProtocolPreservesCanonicalSessionRestore(t *testing.T) {
 		len(frame.Deliveries[0].Discontinuity.ReconcileKeys) != 1 ||
 		frame.Deliveries[0].Discontinuity.ReconcileKeys[0].AgentSessionID != "session-1" {
 		t.Fatalf("unexpected session restore frame: %+v", frame)
+	}
+	_ = client.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoteProtocolDowngradesSessionRestoreForHistoricalRevision(t *testing.T) {
+	t.Parallel()
+	publisher, err := liveprotocol.NewPublisher(liveprotocol.PublisherConfig{
+		ProtocolRevision: historicalAgentLiveRevision,
+		StreamID:         "stream-1",
+		BindingID:        "binding-1",
+		Epoch:            1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, client := net.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- publishAgentActivityEnvelope(
+			server,
+			publisher,
+			"workspace-1",
+			[]byte(`{
+				"workspaceId":"workspace-1",
+				"agentSessionId":"session-1",
+				"eventType":"session_restored",
+				"data":{
+					"workspaceId":"workspace-1",
+					"agentSessionId":"session-1",
+					"eventType":"session_restored",
+					"restoredAtUnixMs":10
+				}
+			}`),
+		)
+	}()
+	frame := readAgentLiveTestFrame(t, client)
+	if frame.ProtocolRevision != historicalAgentLiveRevision ||
+		len(frame.Deliveries) != 1 ||
+		frame.Deliveries[0].Discontinuity == nil ||
+		frame.Deliveries[0].Discontinuity.Reason != "canonical_update" {
+		t.Fatalf("historical restore frame = %+v", frame)
 	}
 	_ = client.Close()
 	if err := <-done; err != nil {

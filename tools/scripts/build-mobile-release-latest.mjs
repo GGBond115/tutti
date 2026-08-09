@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { loadGeneratedAgentLiveProtocol } from "./agent-live-release-compatibility.mjs";
 
 export const mobileReleaseLatestSchemaVersion =
   "tutti.android.mobile.latest.v1";
@@ -31,8 +32,10 @@ export async function buildMobileReleaseLatest(options) {
     .update(await readFile(apkPath))
     .digest("hex");
   const apkName = path.basename(apkPath);
+  const agentLiveProtocol = await loadGeneratedAgentLiveProtocol();
 
   return {
+    agentLiveProtocol,
     apkUrl:
       `${baseUrl}/${encodeURLPathSegment(tag)}/${sha256}/` +
       encodeURLPathSegment(apkName),

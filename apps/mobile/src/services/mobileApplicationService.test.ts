@@ -3,6 +3,7 @@ import type {
   WorkspaceSummary
 } from "@tutti-os/client-tuttid-ts";
 import { InstantiationService } from "@tutti-os/infra/di";
+import { AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION } from "@tutti-os/agent-activity-core";
 import type { AccountSession } from "./mobileDomain";
 import { MobileApplicationService } from "./mobileApplicationService";
 import type {
@@ -192,6 +193,81 @@ describe("MobileApplicationService scopes", () => {
     });
     expect(harness.closeCalls).toBe(0);
     expect(harness.connectCalls).toBe(1);
+  });
+
+  test("falls back once to an accepted Desktop Agent live revision", async () => {
+    const harness = createHarness(session, [workspace], {
+      agentLiveDeliveriesOnSubscribe: [
+        {
+          expectedRevision: "sha256:7101e69f2559036c",
+          kind: "connection",
+          reason: "protocol_revision_mismatch",
+          receivedRevision: AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION,
+          retryable: false,
+          status: "disconnected"
+        }
+      ]
+    });
+    const service = new MobileApplicationService(
+      new InstantiationService(),
+      harness.ports
+    );
+    await service.start();
+    await service.deviceService!.connect(pairing);
+
+    expect(harness.subscribedProtocolRevisions).toEqual([
+      AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION,
+      "sha256:7101e69f2559036c"
+    ]);
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "synchronizing" }
+    });
+
+    harness.emitAgentLiveConnection("connected");
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "connected" }
+    });
+
+    harness.emitLifecycle("background");
+    harness.clock.advanceBy(1_000);
+    harness.emitLifecycle("foreground");
+    await flushPromises();
+    expect(harness.subscribedProtocolRevisions).toEqual([
+      AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION,
+      "sha256:7101e69f2559036c",
+      "sha256:7101e69f2559036c"
+    ]);
+  });
+
+  test("does not loop when the fallback Agent live revision is rejected", async () => {
+    const rejection: AgentLiveDelivery = {
+      expectedRevision: "sha256:7101e69f2559036c",
+      kind: "connection",
+      reason: "protocol_revision_mismatch",
+      receivedRevision: AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION,
+      retryable: false,
+      status: "disconnected"
+    };
+    const harness = createHarness(session, [workspace], {
+      agentLiveDeliveriesOnSubscribe: [rejection, rejection]
+    });
+    const service = new MobileApplicationService(
+      new InstantiationService(),
+      harness.ports
+    );
+    await service.start();
+    await service.deviceService!.connect(pairing);
+
+    expect(harness.subscribeCalls).toBe(2);
+    expect(service.getSnapshot()).toMatchObject({
+      connection: {
+        expectedRevision: "sha256:7101e69f2559036c",
+        phase: "failed",
+        reasonCode: "protocol_revision_mismatch"
+      }
+    });
+    harness.clock.advanceBy(30_000);
+    expect(harness.subscribeCalls).toBe(2);
   });
 
   test("preserves a synchronous protocol rejection during workspace startup", async () => {
@@ -454,6 +530,7 @@ function createHarness(
   registerCalls: number;
   requestCalls: number;
   subscribeCalls: number;
+  subscribedProtocolRevisions: Array<string | undefined>;
   subscriptionCloseCalls: number;
 } {
   const clock = new ManualClock();
@@ -512,6 +589,7 @@ function createHarness(
     ports: null as unknown as MobileServicePorts,
     requestCalls: 0,
     subscribeCalls: 0,
+    subscribedProtocolRevisions: [] as Array<string | undefined>,
     subscriptionCloseCalls: 0
   };
   harness.ports = {
@@ -560,8 +638,9 @@ function createHarness(
           status: 204
         };
       },
-      subscribeAgentLive: (_workspaceId, listener) => {
+      subscribeAgentLive: (_workspaceId, listener, protocolRevision) => {
         harness.subscribeCalls += 1;
+        harness.subscribedProtocolRevisions.push(protocolRevision);
         liveListener = listener;
         const delivery = agentLiveDeliveriesOnSubscribe.shift();
         if (delivery) listener(delivery);

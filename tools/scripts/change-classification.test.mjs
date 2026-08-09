@@ -485,6 +485,16 @@ test("repository check registry selects only relevant generated checks", () => {
   );
 });
 
+test("Agent live release bootstrap selects tool and generated contracts", () => {
+  const checks = selectRepositoryChecks([
+    "tools/release/agent-live-protocol-bootstrap.json"
+  ]);
+  const keys = checks.map((check) => check.key);
+
+  assert.ok(keys.includes("contracts:tool-tests"));
+  assert.ok(keys.includes("generated:agent-live-protocol"));
+});
+
 test("provider source changes select catalog and strategy checks", () => {
   const checks = selectRepositoryChecks([
     "packages/agent/daemon/providerregistry/providers.go"

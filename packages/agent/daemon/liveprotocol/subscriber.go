@@ -18,7 +18,7 @@ func NewSubscriber(config SubscriberConfig) (*Subscriber, error) {
 	if revision == "" {
 		revision = ProtocolRevision
 	}
-	if revision != ProtocolRevision {
+	if !SupportsProtocolRevision(revision) {
 		return nil, ErrProtocolMismatch
 	}
 	return &Subscriber{

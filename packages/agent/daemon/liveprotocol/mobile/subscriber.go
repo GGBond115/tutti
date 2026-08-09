@@ -39,12 +39,17 @@ func ProtocolRevision() string {
 }
 
 func NewSubscriber(epoch int64, afterSeq int64) (*Subscriber, error) {
+	return NewSubscriberForRevision(liveprotocol.ProtocolRevision, epoch, afterSeq)
+}
+
+func NewSubscriberForRevision(revision string, epoch int64, afterSeq int64) (*Subscriber, error) {
 	if epoch < 0 || afterSeq < 0 {
 		return nil, fmt.Errorf("agent live resume cursor must not be negative")
 	}
 	subscriber, err := liveprotocol.NewSubscriber(liveprotocol.SubscriberConfig{
-		Epoch:    uint64(epoch),
-		AfterSeq: uint64(afterSeq),
+		ProtocolRevision: revision,
+		Epoch:            uint64(epoch),
+		AfterSeq:         uint64(afterSeq),
 	})
 	if err != nil {
 		return nil, err

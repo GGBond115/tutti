@@ -280,6 +280,7 @@ type PublishInput struct {
 }
 
 type PublisherConfig struct {
+	ProtocolRevision string
 	StreamID         string
 	BindingID        string
 	Epoch            uint64

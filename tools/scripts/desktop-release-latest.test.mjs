@@ -6,6 +6,25 @@ import path from "node:path";
 
 import { buildDesktopReleaseLatest } from "../../apps/desktop/scripts/build-release-latest.mjs";
 
+test("desktop RC promotion gates against the Mobile latest protocol", async () => {
+  const workflow = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(
+      new URL(
+        "../../.github/workflows/desktop-release-promote.yml",
+        import.meta.url
+      ),
+      "utf8"
+    )
+  );
+  assert.match(workflow, /needs\.resolve\.outputs\.release_channel == 'rc'/);
+  assert.match(workflow, /agent-live-release-publish/);
+  assert.match(
+    workflow,
+    /TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET.+latest\.json/s
+  );
+  assert.match(workflow, /agent-live-release-compatibility\.mjs/);
+});
+
 test("desktop release latest metadata exposes CloudFront URLs for every asset", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "desktop-release-latest-"));
   try {
@@ -33,6 +52,7 @@ test("desktop release latest metadata exposes CloudFront URLs for every asset", 
     assert.equal(latest.releasedAt, "2026-07-04T12:00:00.000Z");
     assert.equal(latest.gitSha, "537327a1");
     assert.equal(latest.sourceRef, "main");
+    assert.equal(latest.agentLiveProtocol, undefined);
     assert.equal(
       latest.baseUrl,
       "https://d111111abcdef8.cloudfront.net/desktop-release-assets"
@@ -124,6 +144,10 @@ test("desktop release latest metadata supports rc channel tags", async () => {
     assert.equal(latest.channel, "rc");
     assert.equal(latest.prerelease, true);
     assert.equal(latest.version, "1.2.3-rc.1");
+    assert.deepEqual(latest.agentLiveProtocol, {
+      acceptedRevisions: ["sha256:b29022aba44d33cb", "sha256:7101e69f2559036c"],
+      currentRevision: "sha256:b29022aba44d33cb"
+    });
     assert.equal(
       latest.preferredDownloads.macosUniversalDmg?.includes("v1.2.3-rc.1"),
       true
@@ -181,6 +205,7 @@ test("desktop release latest metadata supports beta channel tags", async () => {
     assert.equal(latest.channel, "beta");
     assert.equal(latest.prerelease, true);
     assert.equal(latest.version, "1.2.3-beta.1");
+    assert.equal(latest.agentLiveProtocol, undefined);
     assert.equal(
       latest.preferredDownloads.macosUniversalDmg?.includes("v1.2.3-beta.1"),
       true

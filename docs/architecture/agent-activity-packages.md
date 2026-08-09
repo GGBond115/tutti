@@ -1278,8 +1278,32 @@ Session, and Turn identity fields. Opaque business values remain
 `json.RawMessage`, including file paths and large JSON integers, so transport
 does not sanitize or reinterpret renderer data. The exact protocol revision
 covers the event schema, protobuf field numbers, delivery-kind values, and JSON
-control shapes. A revision mismatch is an explicit rejection followed by
-canonical reconciliation; it is not a compatibility conversion path.
+control shapes. The generated compatibility contract distinguishes the current
+revision from an explicit, bounded set of historical dialects. A Publisher and
+Subscriber remain strict about the exact revision selected for one stream;
+supporting a historical revision never means relabeling a current frame.
+Instead, each historical revision has a named projection profile and historical
+wire fixtures captured from the published implementation. Codec validation
+also enforces the selected profile, so a caller cannot bypass Publisher
+projection by attaching a historical revision to a current-only semantic.
+Revisions or profiles without an implemented handler remain explicit typed
+rejections.
+
+The paired-device handshake deliberately remains scalar. Mobile requests its
+current revision first. If an older Desktop rejects it with the existing typed
+`expectedRevision`, Mobile may reopen the stream exactly once when that exact
+historical dialect is locally accepted. A newer Desktop directly accepts an
+older Mobile's requested dialect. This provides rolling compatibility without
+min/max ordering or a capability matrix. Compatibility preserves connection,
+continuity, and every semantic already defined by the selected historical
+dialect; it does not promise that a newer product feature exists on an older
+client. The `sha256:7101e69f2559036c` profile therefore projects
+`session_restored` as an ordinary canonical-update reconcile hint. That old
+Mobile cannot clear an existing deletion tombstone until it upgrades and
+receives the explicit newer restore semantic.
+Mobile retains a successfully selected historical revision across ordinary
+pause/resume and stream reconnects; constructing a new Workspace lane starts a
+new negotiation from current.
 
 `StreamReady` is transport-only and must not be interpreted as canonical
 catch-up. `AttachmentChanged` starts a baseline for one positive attachment
@@ -1338,8 +1362,9 @@ message/reconcile variants into scoped discontinuities, and preserves an
 explicit `session_deleted` or `session_restored` reason plus Session reconcile
 key for the Mobile adapter to normalize into the shared coordinator's lifecycle
 path. Those semantic reasons participate in
-`AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION`; mismatched builds are rejected instead
-of silently degrading deletion or restore into an ordinary reconcile. The
+`AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION`; an accepted historical profile must
+explicitly define any lossy projection instead of silently inheriting current
+semantics. The
 adapter establishes the workspace subscription before publishing
 `stream_ready`, so events produced during ready-frame delivery are already
 buffered instead of falling through a subscribe gap. The Android

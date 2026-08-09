@@ -1,6 +1,6 @@
 # Mobile Troubleshooting
 
-## Android stays on “Syncing the latest data” after pairing
+## Mobile stays on “Syncing the latest data” after pairing
 
 - **Symptom:** Device pairing and the direct DeviceLink handshake succeed, but
   the mobile App remains on **Syncing the latest data**. The native log repeats
@@ -10,28 +10,35 @@
   rejection reports `protocol_revision_mismatch`, compare the safe
   `expectedRevision` and `receivedRevision` hashes. This is a protocol
   compatibility failure, not a local-network or pairing failure.
-- **Root cause:** The computer rejects an Agent live subscription whose protocol
-  revision does not match its own. If the native rejection is collapsed into a
-  generic disconnect, the live lane treats a deterministic incompatibility as
-  transient and retries forever. Repeated disconnect callbacks can also keep
-  replacing the connection-ready deadline, so the App never reaches a visible
-  failed state.
+- **Root cause:** The computer rejects an Agent live subscription whose exact
+  revision is neither current nor one of its explicit historical dialects. If
+  the native rejection is collapsed into a generic disconnect, the live lane
+  treats a deterministic incompatibility as transient and retries forever.
+  Repeated disconnect callbacks can also keep replacing the connection-ready
+  deadline, so the App never reaches a visible failed state.
 - **Fix:** Preserve the typed rejection reason and revision hashes through the
-  native bridge. Classify `protocol_revision_mismatch` as terminal for the
-  current connection attempt, close the rejected subscription without
-  scheduling another live retry, and keep the original synchronization
-  deadline for retryable transport failures. Present an explicit incompatible
-  version message with a mobile update action; do not automatically restart a
-  terminal attempt after foreground resume.
+  native bridge. When `expectedRevision` names an accepted historical dialect,
+  close the rejected stream and reopen it exactly once with that revision.
+  Cache the selected revision for ordinary reconnects and foreground resumes;
+  create a new negotiation only with a new Workspace lane. An unknown revision or
+  a rejection after fallback is terminal: schedule no further live retry and
+  present the incompatible-version recovery surface. Historical dialects
+  preserve old semantics only; for example, the `7101` dialect cannot deliver
+  the newer explicit Session-restore semantic.
 - **Validation:** Verify an ordinary stream close still retries and rebuilds
   DeviceLink after the recovery grace period. Inject a protocol-revision
-  rejection and assert that the connection enters the failed state once, emits
-  a `device_connection.phase_changed` diagnostic with stable
-  `protocol_revision_mismatch`, preserves both revision hashes, schedules no
-  additional subscription, and stays terminal across background and foreground
-  transitions. Confirm the failure UI offers **Check for updates** instead of
-  **Reconnect**.
+  rejection for `7101` and assert that Mobile performs one successful fallback
+  without publishing a terminal connection failure. Reject that fallback a
+  second time and assert that the connection enters the failed state once,
+  preserves both revision hashes, schedules no additional subscription, and
+  stays terminal across background and foreground transitions. An unsupported
+  revision must fail immediately. After a successful fallback, background and
+  foreground the App and assert that the next subscription requests `7101`
+  directly. Confirm the failure UI offers **Check for
+  updates** instead of **Reconnect**.
 - **References:** `apps/mobile/src/native/agentLiveNativeBridge.ts`,
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/DeviceLinkModule.kt`,
+  `apps/mobile/ios/TuttiMobile/DeviceLinkModule.mm`,
   `apps/mobile/src/services/workspaceAgentLiveLane.ts`,
   `apps/mobile/src/services/mobileApplicationService.ts`,
   `apps/mobile/src/components/MobileConnectionRecoveryOverlay.tsx`

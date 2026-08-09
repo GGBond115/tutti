@@ -26,6 +26,10 @@ test("builds an Android latest pointer with immutable APK metadata", async () =>
   });
 
   assert.deepEqual(latest, {
+    agentLiveProtocol: {
+      acceptedRevisions: ["sha256:b29022aba44d33cb", "sha256:7101e69f2559036c"],
+      currentRevision: "sha256:b29022aba44d33cb"
+    },
     apkUrl:
       "https://downloads.example.test/tutti-mobile-releases/tutti-mobile-v0.1.1/1e10ba560383b17472b4cf72fef8f9e76c66815a3e6ae8c5a9b0c5e696b0bdf8/app-release.apk",
     baseUrl: "https://downloads.example.test/tutti-mobile-releases",
@@ -119,13 +123,20 @@ test("serializes pointer publication and protects immutable assets", async () =>
   );
   const workflow = await readFile(workflowPath, "utf8");
 
-  assert.match(workflow, /mobile-android-release-publish/);
-  assert.match(
-    workflow,
-    /cancel-in-progress: \$\{\{ !inputs\.publish_android \}\}/
-  );
+  assert.match(workflow, /agent-live-release-publish/);
+  assert.match(workflow, /inputs\.platform == 'ios'/);
+  assert.match(workflow, /needs: android/);
   assert.match(workflow, /preflight_immutable\(\)/);
   assert.match(workflow, /upload_immutable\(\)/);
+  assert.match(
+    workflow,
+    /TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET.+channels\/rc\/latest\.json/s
+  );
+  assert.match(workflow, /agent-live-release-compatibility\.mjs/);
+  assert.match(
+    workflow,
+    /--released-mobile current-mobile-release-pointer\.json/
+  );
   assert.match(
     workflow,
     /Refusing to overwrite immutable Android release asset/

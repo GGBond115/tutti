@@ -1,5 +1,8 @@
 export type { AgentActivityAdapter } from "./adapter.ts";
-export { AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION } from "./liveProtocolRevision.gen.ts";
+export {
+  AGENT_ACTIVITY_LIVE_ACCEPTED_PROTOCOL_REVISIONS,
+  AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION
+} from "./liveProtocolRevision.gen.ts";
 export { parseAgentActivityGoalControlText } from "./goalControl.ts";
 export type { AgentActivityLiveEvent } from "./liveEvent.types.ts";
 export type { AgentActivityComposerModelConfiguration } from "./composerModelConfiguration.types.ts";

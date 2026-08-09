@@ -51,7 +51,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: desktop-release-promotion
+  group: ${{ (inputs.expected_channel == 'rc' || contains(inputs.release_tag, '-rc.')) && 'agent-live-release-publish' || 'desktop-release-promotion' }}
   cancel-in-progress: false
 
 env:
@@ -189,6 +189,8 @@ jobs:
       TUTTI_DESKTOP_RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
       TUTTI_DESKTOP_RELEASE_TARGET: ${{ needs.resolve.outputs.release_target }}
       TUTTI_DESKTOP_RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+      TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET }}
+      TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX }}
 
     steps:
       - name: Checkout release target
@@ -276,6 +278,13 @@ jobs:
               missing+=("$name")
             fi
           done
+          if [[ "${TUTTI_DESKTOP_RELEASE_CHANNEL}" == "rc" ]]; then
+            for name in TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX; do
+              if [[ -z "${!name:-}" ]]; then
+                missing+=("$name")
+              fi
+            done
+          fi
           if (( ${#missing[@]} > 0 )); then
             echo "Missing required AWS S3 release asset configuration: ${missing[*]}" >&2
             exit 1
@@ -401,6 +410,17 @@ jobs:
         run: |
           export RELEASE_ASSET_BASE_URL="${TUTTI_DESKTOP_RELEASE_ASSETS_BASE_URL}"
           node apps/desktop/scripts/build-release-latest.mjs release-assets release-latest.json
+
+      - name: Verify Mobile compatibility for Desktop RC
+        if: ${{ needs.resolve.outputs.release_channel == 'rc' }}
+        run: |
+          mobile_prefix="${TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX%/}"
+          aws s3 cp \
+            "s3://${TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET}/${mobile_prefix}/latest.json" \
+            current-mobile-release-pointer.json
+          node tools/scripts/agent-live-release-compatibility.mjs \
+            --desktop release-latest.json \
+            --mobile current-mobile-release-pointer.json
 
       - name: Update stable changelog metadata
         if: ${{ needs.resolve.outputs.release_channel == 'stable' }}

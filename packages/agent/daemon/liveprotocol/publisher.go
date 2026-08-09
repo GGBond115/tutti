@@ -34,6 +34,9 @@ type Publisher struct {
 
 func NewPublisher(config PublisherConfig) (*Publisher, error) {
 	applyPublisherDefaults(&config)
+	if !SupportsProtocolRevision(config.ProtocolRevision) {
+		return nil, ErrProtocolMismatch
+	}
 	if strings.TrimSpace(config.StreamID) == "" || strings.TrimSpace(config.BindingID) == "" || config.Epoch == 0 {
 		return nil, fmt.Errorf("%w: publisher identity", ErrInvalidFrame)
 	}
@@ -47,6 +50,10 @@ func (p *Publisher) Publish(input PublishInput) ([]Frame, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	input, err := projectPublishInputForRevision(p.config.ProtocolRevision, input)
+	if err != nil {
+		return nil, err
+	}
 	delivery, size, err := deliveryFromInput(input)
 	if err != nil {
 		return nil, err
@@ -231,7 +238,7 @@ func (p *Publisher) replayFramesLocked(entries []replayEntry) ([]Frame, error) {
 		limit = DefaultFrameMaxBytes
 	}
 	base := Frame{
-		ProtocolRevision: ProtocolRevision,
+		ProtocolRevision: p.config.ProtocolRevision,
 		StreamID:         p.config.StreamID,
 		BindingID:        p.config.BindingID,
 		Epoch:            p.config.Epoch,
@@ -316,7 +323,7 @@ func (p *Publisher) flushLocked() ([]Frame, error) {
 		return nil, nil
 	}
 	frame := Frame{
-		ProtocolRevision: ProtocolRevision,
+		ProtocolRevision: p.config.ProtocolRevision,
 		StreamID:         p.config.StreamID,
 		BindingID:        p.config.BindingID,
 		Epoch:            p.config.Epoch,
@@ -510,6 +517,10 @@ func reconcileKeysForEvent(event *Event) []ReconcileKey {
 }
 
 func applyPublisherDefaults(config *PublisherConfig) {
+	config.ProtocolRevision = strings.TrimSpace(config.ProtocolRevision)
+	if config.ProtocolRevision == "" {
+		config.ProtocolRevision = ProtocolRevision
+	}
 	if config.BatchDelay <= 0 {
 		config.BatchDelay = DefaultBatchDelay
 	}

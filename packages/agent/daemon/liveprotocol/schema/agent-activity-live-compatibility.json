@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "tutti.agent-live.compatibility.v1",
+  "historicalDialects": [
+    {
+      "revision": "sha256:7101e69f2559036c",
+      "profile": "pre-session-restored"
+    }
+  ],
+  "rejectedRevisions": []
+}

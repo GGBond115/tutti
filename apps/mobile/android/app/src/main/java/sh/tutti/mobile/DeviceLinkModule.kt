@@ -279,6 +279,7 @@ class DeviceLinkModule(
     fun startAgentLive(
         workspaceId: String,
         subscriptionGeneration: Double,
+        protocolRevision: String,
         promise: Promise,
     ) {
         val normalizedWorkspaceId = workspaceId.trim()
@@ -297,6 +298,14 @@ class DeviceLinkModule(
             promise.reject(
                 "AGENT_LIVE_SUBSCRIBE_FAILED",
                 "Agent live subscription generation must be a positive integer",
+            )
+            return
+        }
+        val normalizedProtocolRevision = protocolRevision.trim()
+        if (normalizedProtocolRevision.isEmpty()) {
+            promise.reject(
+                "AGENT_LIVE_SUBSCRIBE_FAILED",
+                "Agent live protocol revision is required",
             )
             return
         }
@@ -323,13 +332,18 @@ class DeviceLinkModule(
                     check(promoteAgentLiveStream(stream, generation)) {
                         "Agent live subscription was cancelled"
                     }
-                    val subscriber = Liveprotocolmobile.newSubscriber(0, 0)
+                    val subscriber =
+                        Liveprotocolmobile.newSubscriberForRevision(
+                            normalizedProtocolRevision,
+                            0,
+                            0,
+                        )
                     val requestID = UUID.randomUUID().toString()
                     val subscription =
                         JSONObject()
                             .put(
                                 "protocolRevision",
-                                Liveprotocolmobile.protocolRevision(),
+                                normalizedProtocolRevision,
                             ).put("workspaceId", normalizedWorkspaceId)
                             .toString()
                             .toByteArray(StandardCharsets.UTF_8)

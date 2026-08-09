@@ -316,6 +316,7 @@ RCT_REMAP_METHOD(requestAgentHTTP,
 RCT_REMAP_METHOD(startAgentLive,
                  startAgentLive:(NSString *)workspaceID
                  subscriptionGeneration:(nonnull NSNumber *)subscriptionGeneration
+                 protocolRevision:(NSString *)protocolRevision
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
   NSString *normalized =
@@ -332,6 +333,14 @@ RCT_REMAP_METHOD(startAgentLive,
     reject(@"AGENT_LIVE_SUBSCRIBE_FAILED",
            @"Agent live subscription generation must be a positive integer",
            nil);
+    return;
+  }
+  NSString *normalizedProtocolRevision =
+      [protocolRevision stringByTrimmingCharactersInSet:
+                            [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if (normalizedProtocolRevision.length == 0) {
+    reject(@"AGENT_LIVE_SUBSCRIBE_FAILED",
+           @"Agent live protocol revision is required", nil);
     return;
   }
   TUTMobileLink *selected = [self linkSnapshot];
@@ -360,7 +369,8 @@ RCT_REMAP_METHOD(startAgentLive,
     }
 
     TUTLiveprotocolmobileSubscriber *subscriber =
-        TUTLiveprotocolmobileNewSubscriber(0, 0, &error);
+        TUTLiveprotocolmobileNewSubscriberForRevision(
+            normalizedProtocolRevision, 0, 0, &error);
     if (subscriber == nil || error != nil) {
       [self clearAgentLiveStream:stream generation:generation];
       [self closeDetachedStream:stream];
@@ -369,7 +379,7 @@ RCT_REMAP_METHOD(startAgentLive,
       return;
     }
     NSDictionary *subscription = @{
-      @"protocolRevision" : TUTLiveprotocolmobileProtocolRevision(),
+      @"protocolRevision" : normalizedProtocolRevision,
       @"workspaceId" : normalized,
     };
     NSData *subscriptionData = TUTJSONData(subscription, &error);

@@ -15,7 +15,8 @@ android-bindings-check:
 	trap 'rm -rf "$$bind_tmp"' EXIT; \
 	cd "$(DEVICE_LINK_DIR)" && $(GOMOBILE_GO) tool gobind -lang=java -javapkg=$(JAVA_PACKAGE) -outdir="$$bind_tmp" ./mobile ../agent/daemon/liveprotocol/mobile; \
 	test -f "$$bind_tmp/java/sh/tutti/mobile/bindings/mobile/Mobile.java"; \
-	test -f "$$bind_tmp/java/sh/tutti/mobile/bindings/liveprotocolmobile/Liveprotocolmobile.java"
+	test -f "$$bind_tmp/java/sh/tutti/mobile/bindings/liveprotocolmobile/Liveprotocolmobile.java"; \
+	grep -Fq 'newSubscriberForRevision' "$$bind_tmp/java/sh/tutti/mobile/bindings/liveprotocolmobile/Liveprotocolmobile.java"
 
 android-aar:
 	@test -n "$(ANDROID_HOME)" || (echo "ANDROID_HOME is required" >&2; exit 1)

@@ -316,6 +316,18 @@ https://<asset-base-url>/channels/beta/latest.json
 
 `preview` is the user-facing name for the RC channel. RC releases write both `channels/preview/latest.json` and `channels/rc/latest.json`. Beta releases write only `channels/beta/latest.json`.
 
+The RC pointer includes the generated Agent live `currentRevision` and exact
+`acceptedRevisions`. Before an RC pointer is replaced, promotion downloads the
+Mobile `latest.json` directly from its authoritative S3 location and requires
+that the two scalar-handshake paths are
+reachable: the Desktop candidate accepts Mobile current directly, or Mobile
+accepts Desktop current for its one typed-rejection fallback. This gate is RC
+specific; stable and beta pointers do not receive Agent live metadata. Desktop
+RC, published Android, and TestFlight workflows share one repository release
+lock so neither side can validate a stale pair while the other mutates it. The
+pre-metadata `v0.2.21-rc.0` and Mobile `0.1.8` pointers are recognized only by
+their exact one-time bootstrap entries.
+
 The packaged desktop updater consumes the stable and RC pointer contracts. Before
 each update check it reads `latest.json` for the stable channel or
 `channels/rc/latest.json` for the RC channel, validates the schema, expected

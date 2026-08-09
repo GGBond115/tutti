@@ -1,4 +1,5 @@
 import { DeviceEventEmitter, NativeEventEmitter } from "react-native";
+import { AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION } from "@tutti-os/agent-activity-core";
 import { createAppLifecyclePort } from "./appLifecyclePort";
 import { appLifecycle, deviceLink, mobileSecurity } from "./mobileNative";
 import { signInWithBrowser } from "../services/accountClient";
@@ -43,7 +44,7 @@ export function createMobileServicePorts(): MobileServicePorts {
       closeLink: () => deviceLink.closeLink(),
       requestAgentHTTP: (method, path, body, timeoutMillis) =>
         deviceLink.requestAgentHTTP(method, path, body, timeoutMillis),
-      subscribeAgentLive(workspaceId, listener) {
+      subscribeAgentLive(workspaceId, listener, protocolRevision) {
         let active = true;
         const subscriptionGeneration = ++nextAgentLiveSubscriptionGeneration;
         const subscription = DeviceEventEmitter.addListener(
@@ -60,7 +61,11 @@ export function createMobileServicePorts(): MobileServicePorts {
           }
         );
         void deviceLink
-          .startAgentLive(workspaceId, subscriptionGeneration)
+          .startAgentLive(
+            workspaceId,
+            subscriptionGeneration,
+            protocolRevision ?? AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION
+          )
           .catch(() => {
             if (active) {
               listener({

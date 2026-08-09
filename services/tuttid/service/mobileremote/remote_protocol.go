@@ -93,15 +93,20 @@ func serveAgentLiveStream(
 		return err
 	}
 	streamID := "device-link:" + strings.TrimSpace(request.RequestID)
+	selectedRevision := liveprotocol.ProtocolRevision
+	if liveprotocol.SupportsProtocolRevision(subscription.ProtocolRevision) {
+		selectedRevision = subscription.ProtocolRevision
+	}
 	publisher, err := liveprotocol.NewPublisher(liveprotocol.PublisherConfig{
-		StreamID:  streamID,
-		BindingID: strings.TrimSpace(bindingID),
-		Epoch:     1,
+		ProtocolRevision: selectedRevision,
+		StreamID:         streamID,
+		BindingID:        strings.TrimSpace(bindingID),
+		Epoch:            1,
 	})
 	if err != nil {
 		return err
 	}
-	if subscription.ProtocolRevision != liveprotocol.ProtocolRevision {
+	if !liveprotocol.SupportsProtocolRevision(subscription.ProtocolRevision) {
 		return publishAgentLiveInput(stream, publisher, liveprotocol.PublishInput{
 			Rejected: &liveprotocol.Rejected{
 				Reason:           liveprotocol.RejectionProtocolRevisionMismatch,
@@ -124,7 +129,7 @@ func serveAgentLiveStream(
 		func() error {
 			if err := publishAgentLiveInput(stream, publisher, liveprotocol.PublishInput{
 				StreamReady: &liveprotocol.StreamReady{
-					ProtocolRevision: liveprotocol.ProtocolRevision,
+					ProtocolRevision: selectedRevision,
 					StreamID:         streamID,
 					BindingID:        strings.TrimSpace(bindingID),
 				},

@@ -187,6 +187,7 @@ export function isToolContractRelevant(file) {
   const normalized = normalize(file);
   return (
     normalized.startsWith("tools/scripts/") ||
+    normalized.startsWith("tools/release/") ||
     normalized.startsWith("packages/workspace/app-release-tools/") ||
     normalized.startsWith("apps/desktop/scripts/") ||
     normalized.startsWith(".github/workflows/") ||
@@ -287,10 +288,15 @@ function isAgentLiveProtocolContractRelevant(file) {
       "packages/agent/daemon/liveprotocol/schema/agent-activity-live-event.schema.json" ||
     file ===
       "packages/agent/daemon/liveprotocol/schema/agent-activity-live-wire-contract.json" ||
+    file ===
+      "packages/agent/daemon/liveprotocol/schema/agent-activity-live-compatibility.json" ||
     file === "packages/agent/daemon/liveprotocol/protocol_revision.gen.go" ||
+    file ===
+      "packages/agent/daemon/liveprotocol/protocol_compatibility.gen.json" ||
     file === "packages/agent/activity-core/src/liveProtocolRevision.gen.ts" ||
     file ===
       "packages/events/protocol/definitions/agent/activity.updated.event.json" ||
+    file === "tools/release/agent-live-protocol-bootstrap.json" ||
     file === "tools/scripts/generate-agent-live-protocol.mjs"
   );
 }

@@ -1,4 +1,6 @@
 import {
+  AGENT_ACTIVITY_LIVE_ACCEPTED_PROTOCOL_REVISIONS,
+  AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION,
   createAgentActivityWorkspaceEventCoordinator,
   type AgentActivityDurableMessage,
   type AgentActivityLiveEvent,
@@ -45,6 +47,9 @@ export class WorkspaceAgentLiveLane {
   private railReconcileTask: { cancel(): void } | null = null;
   private subscription: { close(): void } | null = null;
   private subscriptionGeneration = 0;
+  private requestedProtocolRevision: string =
+    AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION;
+  private revisionFallbackAttempted = false;
   // Mobile currently opens every native stream from epoch/sequence zero, so
   // this projection has the same lifetime as the subscription. A future
   // persisted resume cursor must persist this fence with it.
@@ -73,7 +78,8 @@ export class WorkspaceAgentLiveLane {
       (delivery) => {
         if (subscriptionGeneration !== this.subscriptionGeneration) return;
         this.handleDelivery(delivery);
-      }
+      },
+      this.requestedProtocolRevision
     );
     if (
       subscriptionGeneration !== this.subscriptionGeneration ||
@@ -153,10 +159,17 @@ export class WorkspaceAgentLiveLane {
         this.setConnected(true);
         return;
       }
+      const fallbackRevision = this.resolveFallbackRevision(delivery);
       this.subscriptionGeneration += 1;
       this.subscription?.close();
       this.subscription = null;
       this.attachmentFence = null;
+      if (fallbackRevision) {
+        this.requestedProtocolRevision = fallbackRevision;
+        this.revisionFallbackAttempted = true;
+        this.start();
+        return;
+      }
       this.coordinator.eventStreamConnectionChanged({
         status: "disconnected"
       });
@@ -206,6 +219,26 @@ export class WorkspaceAgentLiveLane {
       return;
     }
     this.applyEvent(delivery.event);
+  }
+
+  private resolveFallbackRevision(
+    delivery: Extract<
+      AgentLiveDelivery,
+      { kind: "connection"; status: "disconnected" }
+    >
+  ): string | null {
+    if (
+      this.revisionFallbackAttempted ||
+      delivery.reason !== "protocol_revision_mismatch" ||
+      !delivery.expectedRevision ||
+      delivery.expectedRevision === this.requestedProtocolRevision ||
+      !AGENT_ACTIVITY_LIVE_ACCEPTED_PROTOCOL_REVISIONS.some(
+        (revision) => revision === delivery.expectedRevision
+      )
+    ) {
+      return null;
+    }
+    return delivery.expectedRevision;
   }
 
   private handleAttachmentChanged(

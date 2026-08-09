@@ -90,7 +90,8 @@ interface DeviceLinkNative {
   runLoopbackProbe(timeoutMillis: number): Promise<string>;
   startAgentLive(
     workspaceId: string,
-    subscriptionGeneration: number
+    subscriptionGeneration: number,
+    protocolRevision: string
   ): Promise<void>;
   stopAgentLive(): Promise<void>;
 }

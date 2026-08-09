@@ -281,9 +281,12 @@ func validateFrame(frame Frame) error {
 			return ErrSequenceGap
 		}
 		previous = delivery.Seq
+		if delivery.StreamReady != nil && delivery.StreamReady.ProtocolRevision != frame.ProtocolRevision {
+			return ErrInvalidFrame
+		}
 	}
-	if frame.ProtocolRevision != ProtocolRevision && !isTypedRejectionFrame(frame) {
-		return fmt.Errorf("%w: got %q want %q", ErrProtocolMismatch, frame.ProtocolRevision, ProtocolRevision)
+	if err := validateFrameForProtocolDialect(frame); err != nil {
+		return fmt.Errorf("%w: frame violates %q dialect", err, frame.ProtocolRevision)
 	}
 	return nil
 }
@@ -347,7 +350,7 @@ func validateDelivery(delivery Delivery) error {
 	case DeliveryKindStreamReady:
 		count = boolCount(delivery.StreamReady != nil)
 		if delivery.StreamReady != nil &&
-			(delivery.StreamReady.ProtocolRevision != ProtocolRevision ||
+			(strings.TrimSpace(delivery.StreamReady.ProtocolRevision) == "" ||
 				strings.TrimSpace(delivery.StreamReady.StreamID) == "" ||
 				strings.TrimSpace(delivery.StreamReady.BindingID) == "") {
 			return ErrInvalidFrame

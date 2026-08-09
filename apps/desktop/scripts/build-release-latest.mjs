@@ -3,6 +3,7 @@
 import { readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { loadGeneratedAgentLiveProtocol } from "../../../tools/scripts/agent-live-release-compatibility.mjs";
 
 const schemaVersion = "tutti.desktop.release.latest.v1";
 
@@ -172,6 +173,8 @@ async function buildDesktopReleaseLatest(options) {
     options.releasedAt instanceof Date
       ? options.releasedAt.toISOString()
       : String(options.releasedAt ?? new Date().toISOString()).trim();
+  const agentLiveProtocol =
+    channel === "rc" ? await loadGeneratedAgentLiveProtocol() : null;
 
   const entries = await readdir(assetDirPath, { withFileTypes: true });
   const assetNames = entries
@@ -195,6 +198,7 @@ async function buildDesktopReleaseLatest(options) {
   const windowsX64Exe = assets.find(isWindowsX64Exe)?.url ?? null;
 
   return {
+    ...(agentLiveProtocol ? { agentLiveProtocol } : {}),
     schemaVersion,
     tag: releaseTag,
     version: releaseVersion,

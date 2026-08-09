@@ -2,3 +2,8 @@
 
 export const AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION =
   "sha256:b29022aba44d33cb" as const;
+
+export const AGENT_ACTIVITY_LIVE_ACCEPTED_PROTOCOL_REVISIONS = [
+  "sha256:b29022aba44d33cb",
+  "sha256:7101e69f2559036c"
+] as const;

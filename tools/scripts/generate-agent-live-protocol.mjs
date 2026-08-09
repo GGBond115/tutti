@@ -13,6 +13,10 @@ const wireContractPath = resolve(
   repoRoot,
   "packages/agent/daemon/liveprotocol/schema/agent-activity-live-wire-contract.json"
 );
+const compatibilityPath = resolve(
+  repoRoot,
+  "packages/agent/daemon/liveprotocol/schema/agent-activity-live-compatibility.json"
+);
 const canonicalPath = resolve(
   repoRoot,
   "packages/events/protocol/definitions/agent/activity.updated.event.json"
@@ -25,10 +29,28 @@ const tsOutputPath = resolve(
   repoRoot,
   "packages/agent/activity-core/src/liveProtocolRevision.gen.ts"
 );
+const compatibilityOutputPath = resolve(
+  repoRoot,
+  "packages/agent/daemon/liveprotocol/protocol_compatibility.gen.json"
+);
 const checkOnly = process.argv.includes("--check");
+const dialectProfileDefinitions = [
+  {
+    goConstant: "protocolDialectProfileCurrent",
+    profile: "current"
+  },
+  {
+    goConstant: "protocolDialectProfilePreSessionRestored",
+    profile: "pre-session-restored"
+  }
+];
 
 const liveSchema = JSON.parse(readFileSync(schemaPath, "utf8"));
 const wireContract = JSON.parse(readFileSync(wireContractPath, "utf8"));
+const compatibility = JSON.parse(readFileSync(compatibilityPath, "utf8"));
+const previousGeneratedCompatibility = readOptionalJSON(
+  compatibilityOutputPath
+);
 const canonicalDefinition = JSON.parse(readFileSync(canonicalPath, "utf8"));
 const canonicalVariants = [
   "session_audit",
@@ -44,11 +66,41 @@ const canonicalVariants = [
   return variant;
 });
 validateWireContract(wireContract);
+validateCompatibility(compatibility);
 const digest = createHash("sha256")
   .update(JSON.stringify({ liveSchema, wireContract, canonicalVariants }))
   .digest("hex")
   .slice(0, 16);
 const revision = `sha256:${digest}`;
+requirePreviousRevisionDecision({
+  compatibility,
+  previousGeneratedCompatibility,
+  revision
+});
+const dialects = [
+  { revision, profile: "current" },
+  ...compatibility.historicalDialects
+];
+if (
+  new Set(dialects.map((dialect) => dialect.revision)).size !== dialects.length
+) {
+  throw new Error("Agent live compatibility revisions must be unique");
+}
+const goDialectDeclarations = dialects
+  .map(
+    (dialect) =>
+      `\t{Revision: ${JSON.stringify(dialect.revision)}, Profile: ${JSON.stringify(dialect.profile)}},`
+  )
+  .join("\n");
+const goDialectProfileConstantWidth = Math.max(
+  ...dialectProfileDefinitions.map((profile) => profile.goConstant.length)
+);
+const goDialectProfileDeclarations = dialectProfileDefinitions
+  .map(
+    (profile) =>
+      `\t${profile.goConstant.padEnd(goDialectProfileConstantWidth)} = ${JSON.stringify(profile.profile)}`
+  )
+  .join("\n");
 const goWireFieldConstants = [
   ...wireContract.frameFields,
   ...wireContract.deliveryFields
@@ -81,6 +133,14 @@ package liveprotocol
 
 const ProtocolRevision = ${JSON.stringify(revision)}
 
+const (
+${goDialectProfileDeclarations}
+)
+
+var generatedProtocolDialects = [...]protocolDialectDescriptor{
+${goDialectDeclarations}
+}
+
 // Protobuf-wire field numbers and delivery kinds are generated from
 // schema/agent-activity-live-wire-contract.json. They participate in
 // ProtocolRevision and must not be edited independently.
@@ -99,7 +159,22 @@ ${goDeliveryKindConstants}
 
 export const AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION =
   ${JSON.stringify(revision)} as const;
+
+export const AGENT_ACTIVITY_LIVE_ACCEPTED_PROTOCOL_REVISIONS = ${JSON.stringify(
+      dialects.map((dialect) => dialect.revision),
+      null,
+      2
+    )} as const;
 `
+  ],
+  [
+    compatibilityOutputPath,
+    `{
+  "schemaVersion": ${JSON.stringify(compatibility.schemaVersion)},
+  "currentRevision": ${JSON.stringify(revision)},
+  "acceptedRevisions": [${dialects.map((dialect) => JSON.stringify(dialect.revision)).join(", ")}],
+  "dialects": ${JSON.stringify(dialects, null, 2).replaceAll("\n", "\n  ")}
+}\n`
   ]
 ]);
 
@@ -153,6 +228,81 @@ function validateWireContract(contract) {
     if (!(requiredControl in contract.controls)) {
       throw new Error(`wire contract is missing ${requiredControl} control`);
     }
+  }
+}
+
+function validateCompatibility(contract) {
+  if (
+    contract?.schemaVersion !== "tutti.agent-live.compatibility.v1" ||
+    !Array.isArray(contract.historicalDialects) ||
+    !Array.isArray(contract.rejectedRevisions)
+  ) {
+    throw new Error(
+      "Agent live compatibility contract has an invalid root shape"
+    );
+  }
+  if (contract.historicalDialects.length > 2) {
+    throw new Error(
+      "Agent live compatibility supports at most two historical dialects"
+    );
+  }
+  const supportedProfiles = new Set(
+    dialectProfileDefinitions
+      .map((profile) => profile.profile)
+      .filter((profile) => profile !== "current")
+  );
+  for (const dialect of contract.historicalDialects) {
+    if (
+      typeof dialect?.revision !== "string" ||
+      !/^sha256:[0-9a-f]{16}$/.test(dialect.revision) ||
+      typeof dialect?.profile !== "string" ||
+      !supportedProfiles.has(dialect.profile)
+    ) {
+      throw new Error(
+        "Agent live compatibility contract has an invalid dialect"
+      );
+    }
+  }
+  for (const rejected of contract.rejectedRevisions) {
+    if (
+      typeof rejected?.revision !== "string" ||
+      !/^sha256:[0-9a-f]{16}$/.test(rejected.revision) ||
+      typeof rejected?.reason !== "string" ||
+      rejected.reason.trim().length === 0
+    ) {
+      throw new Error(
+        "Agent live compatibility contract has an invalid rejected revision"
+      );
+    }
+  }
+}
+
+function readOptionalJSON(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function requirePreviousRevisionDecision({
+  compatibility,
+  previousGeneratedCompatibility,
+  revision
+}) {
+  const previous = previousGeneratedCompatibility?.currentRevision;
+  if (typeof previous !== "string" || previous === revision) return;
+  const accepted = compatibility.historicalDialects.some(
+    (dialect) => dialect.revision === previous
+  );
+  const rejected = compatibility.rejectedRevisions.some(
+    (candidate) => candidate.revision === previous
+  );
+  if (!accepted && !rejected) {
+    throw new Error(
+      `Agent live protocol changed from ${previous} to ${revision}; add the previous revision to historicalDialects with a profile or rejectedRevisions with a reason`
+    );
   }
 }
 

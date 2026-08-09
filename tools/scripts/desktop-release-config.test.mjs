@@ -714,7 +714,10 @@ test("desktop promotion validates draft identity, checksums, and channel orderin
 
   assert.match(promoteWorkflow, /workflow_call:/);
   assert.match(promoteWorkflow, /workflow_dispatch:/);
-  assert.match(promoteWorkflow, /group:\s+desktop-release-promotion/);
+  assert.match(
+    promoteWorkflow,
+    /group:\s+\$\{\{[\s\S]*contains\(inputs\.release_tag, '-rc\.'\)[\s\S]*'agent-live-release-publish'[\s\S]*'desktop-release-promotion'[\s\S]*\}\}/
+  );
   assert.match(
     promoteWorkflow,
     /gh release view "\$\{release_tag\}"[\s\S]*assets,isDraft,isPrerelease,tagName,targetCommitish,url/
@@ -1204,7 +1207,10 @@ test("desktop Windows package and daemon agree on the bundled Mutagen resource",
 test("desktop packages and daemon agree on the bundled uv archive root", async () => {
   const packageJson = JSON.parse(await readFile(desktopPackagePath, "utf8"));
   const defaults = JSON.parse(
-    await readFile(new URL("../../config/tutti.defaults.json", import.meta.url), "utf8")
+    await readFile(
+      new URL("../../config/tutti.defaults.json", import.meta.url),
+      "utf8"
+    )
   );
   const buildScript = await readFile(buildScriptPath, "utf8");
   const tuttidManager = await readFile(tuttidManagerPath, "utf8");

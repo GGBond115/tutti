@@ -542,13 +542,33 @@ binding surface as an XCFramework, archives the React Native app, and uses the
 repository App Store Connect API key plus the `IOS_DEVELOPMENT_TEAM` repository
 variable for Xcode-managed cloud signing. It loads the Mobile Podfile's pnpm
 path compatibility shim before generating the Pods project, combines the GitHub
-Actions run number and attempt as the unique iOS build number, exports an App
-Store Connect IPA, verifies that the signed app contains its release
+Actions run number and attempt as the unique iOS build number, and verifies the
+generated Mobile Agent live protocol against the current Desktop RC pointer
+before archiving. The generated iOS protocol must also exactly match the
+published Android pointer, which remains the single Mobile protocol state used
+by later Desktop RC gates. It then exports an App Store Connect IPA, verifies
+that the signed app contains its release
 `main.jsbundle`, and uploads the archive to TestFlight without registering test
 device UDIDs. The exported IPA and checksum remain available as a 14-day private
 validation artifact rather than creating a GitHub Release. Both jobs remain
 manual so pull request code does not receive mobile signing credentials
 automatically.
+
+Published Android and Desktop RC pointers carry the generated Agent live
+`currentRevision` and exact `acceptedRevisions`. Before replacing either mutable
+pointer, the release workflow reads the other product's authoritative S3
+pointer and
+checks the scalar-handshake reachability rule: Desktop must accept Mobile's
+current revision, or Mobile must accept Desktop's current revision. An
+arbitrary third historical revision in both lists is insufficient because the
+typed fallback advertises only the server's current revision. The exact
+pre-metadata Mobile `0.1.8` and Desktop `0.2.21-rc.0` pointers have bounded
+bootstrap entries; every later pointer must publish protocol metadata and fails
+closed when it is absent. The bootstrap file itself selects both tool-contract
+tests and the generated Agent live check, and its loader rejects any additional
+release kind or tag. Desktop RC, Android publication, and TestFlight share one
+release concurrency group. Stable and beta Desktop pointers do not carry this
+RC-specific metadata.
 
 Local runs resolve `golangci-lint` from `$(go env GOPATH)/bin` first and fall
 back to `PATH`. This matches the repository install command without requiring a

@@ -28,8 +28,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ${{ inputs.publish_android && 'mobile-android-release-publish' || format('mobile-internal-build-{0}-{1}', inputs.platform, github.ref) }}
-  cancel-in-progress: ${{ !inputs.publish_android }}
+  group: ${{ (inputs.publish_android || inputs.platform == 'ios' || inputs.platform == 'all') && 'agent-live-release-publish' || format('mobile-internal-build-{0}-{1}', inputs.platform, github.ref) }}
+  cancel-in-progress: ${{ !inputs.publish_android && inputs.platform == 'android' }}
 
 jobs:
   android:
@@ -163,12 +163,14 @@ jobs:
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           TUTTI_ARTIFACTS_AWS_ROLE_ARN: ${{ vars.TUTTI_ARTIFACTS_AWS_ROLE_ARN }}
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET }}
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX }}
           TUTTI_MOBILE_RELEASE_ASSETS_BASE_URL: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_BASE_URL }}
           TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET }}
           TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX }}
           TUTTI_ANDROID_VERSION_NAME: ${{ inputs.android_version_name }}
         run: |
-          for name in AWS_REGION TUTTI_ARTIFACTS_AWS_ROLE_ARN TUTTI_MOBILE_RELEASE_ASSETS_BASE_URL TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX; do
+          for name in AWS_REGION TUTTI_ARTIFACTS_AWS_ROLE_ARN TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX TUTTI_MOBILE_RELEASE_ASSETS_BASE_URL TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX; do
             if [[ -z "${!name:-}" ]]; then
               echo "Missing required Android release publishing variable: ${name}" >&2
               exit 1
@@ -200,6 +202,20 @@ jobs:
         with:
           aws-region: ${{ vars.AWS_REGION }}
           role-to-assume: ${{ vars.TUTTI_ARTIFACTS_AWS_ROLE_ARN }}
+
+      - name: Verify Desktop RC compatibility for Android release
+        if: inputs.publish_android && (inputs.platform == 'android' || inputs.platform == 'all')
+        env:
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET }}
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX }}
+        run: |
+          desktop_prefix="${TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX%/}"
+          aws s3 cp \
+            "s3://${TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET}/${desktop_prefix}/channels/rc/latest.json" \
+            current-desktop-rc-release-pointer.json
+          node tools/scripts/agent-live-release-compatibility.mjs \
+            --desktop current-desktop-rc-release-pointer.json \
+            --mobile mobile-release-latest.json
 
       - name: Prevent Android release rollback
         if: inputs.publish_android && (inputs.platform == 'android' || inputs.platform == 'all')
@@ -330,7 +346,8 @@ jobs:
 
   ios:
     name: Build and upload iOS TestFlight
-    if: inputs.platform == 'ios' || inputs.platform == 'all'
+    needs: android
+    if: ${{ always() && (inputs.platform == 'ios' || inputs.platform == 'all') && (inputs.platform != 'all' || needs.android.result == 'success') }}
     runs-on: macos-26
     timeout-minutes: 60
 
@@ -390,8 +407,50 @@ jobs:
           echo "APPLE_API_KEY_PATH=${private_key_path}" >> "${GITHUB_ENV}"
           echo "IOS_DEVELOPMENT_TEAM=${IOS_DEVELOPMENT_TEAM}" >> "${GITHUB_ENV}"
 
+      - name: Validate iOS release compatibility configuration
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TUTTI_ARTIFACTS_AWS_ROLE_ARN: ${{ vars.TUTTI_ARTIFACTS_AWS_ROLE_ARN }}
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET }}
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX }}
+          TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET }}
+          TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX }}
+        run: |
+          for name in AWS_REGION TUTTI_ARTIFACTS_AWS_ROLE_ARN TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required iOS release compatibility variable: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Configure AWS credentials for iOS release
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ vars.TUTTI_ARTIFACTS_AWS_ROLE_ARN }}
+
       - name: Build iOS framework and install pods
         run: pnpm --filter @tutti-os/mobile ios:pods
+
+      - name: Verify Desktop RC compatibility for iOS release
+        env:
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET }}
+          TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX }}
+          TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET }}
+          TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX }}
+        run: |
+          desktop_prefix="${TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX%/}"
+          mobile_prefix="${TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX%/}"
+          aws s3 cp \
+            "s3://${TUTTI_DESKTOP_RELEASE_ASSETS_S3_BUCKET}/${desktop_prefix}/channels/rc/latest.json" \
+            current-desktop-rc-release-pointer.json
+          aws s3 cp \
+            "s3://${TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET}/${mobile_prefix}/latest.json" \
+            current-mobile-release-pointer.json
+          node tools/scripts/agent-live-release-compatibility.mjs \
+            --desktop current-desktop-rc-release-pointer.json \
+            --mobile-generated \
+            --released-mobile current-mobile-release-pointer.json
 
       - name: Archive iOS app
         shell: bash

@@ -61,7 +61,8 @@ export interface DeviceLinkPort {
   }>;
   subscribeAgentLive(
     workspaceId: string,
-    listener: (delivery: AgentLiveDelivery) => void
+    listener: (delivery: AgentLiveDelivery) => void,
+    protocolRevision?: string
   ): { close(): void };
 }
 

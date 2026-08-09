@@ -4,6 +4,16 @@ package liveprotocol
 
 const ProtocolRevision = "sha256:b29022aba44d33cb"
 
+const (
+	protocolDialectProfileCurrent            = "current"
+	protocolDialectProfilePreSessionRestored = "pre-session-restored"
+)
+
+var generatedProtocolDialects = [...]protocolDialectDescriptor{
+	{Revision: "sha256:b29022aba44d33cb", Profile: "current"},
+	{Revision: "sha256:7101e69f2559036c", Profile: "pre-session-restored"},
+}
+
 // Protobuf-wire field numbers and delivery kinds are generated from
 // schema/agent-activity-live-wire-contract.json. They participate in
 // ProtocolRevision and must not be edited independently.
