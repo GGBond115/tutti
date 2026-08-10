@@ -19,6 +19,7 @@ import { AgentConversationClockProvider } from "../../shared/agentConversation/c
 import type { AgentGUINodeViewModel } from "./model/agentGuiNodeTypes";
 import {
   agentTargetPresentationKey,
+  mergeAgentTargetsForMentionPresentations,
   projectAgentTargetPresentations
 } from "./model/agentGuiTargetPresentation";
 import styles from "./AgentGUINode.styles";
@@ -511,20 +512,28 @@ export function AgentGUINodeView({
     ]
   );
   const targetPresentationKey = agentTargetPresentationKey(
-    viewModel.rail.agentTargets
+    mergeAgentTargetsForMentionPresentations(
+      viewModel.rail.agentTargets,
+      viewModel.composer.handoffAgentTargets
+    )
   );
   const agentTargetPresentations = useMemo<
     readonly AgentMessageMarkdownAgentTarget[]
   >(
     () =>
       projectAgentTargetPresentations({
-        agentTargets: viewModel.rail.agentTargets,
+        agentTargets: mergeAgentTargetsForMentionPresentations(
+          viewModel.rail.agentTargets,
+          viewModel.composer.handoffAgentTargets
+        ),
         ownerSeparator: labels.sharedAgentOwnerSeparator,
         workspaceId: viewModel.shell.workspaceId
       }),
     [
       labels.sharedAgentOwnerSeparator,
       targetPresentationKey,
+      viewModel.composer.handoffAgentTargets,
+      viewModel.rail.agentTargets,
       viewModel.shell.workspaceId
     ]
   );
