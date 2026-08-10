@@ -34,6 +34,10 @@ func (p *ActivityProjection) SettleStaleTurnsOnStartup(ctx context.Context) erro
 		"event", "workspace.agent_turn.stale_settled",
 		"count", len(settlements),
 	)
-	agenthost.NotifyCommitted(ctx, p, agenthost.StaleTurnSettlementDelta(settlements))
+	delta := agenthost.StaleTurnSettlementDelta(settlements)
+	for index, settled := range delta.RootTurnsSettled {
+		delta.RootTurnsSettled[index].IsChildSession = p.sessionIsChild(ctx, settled.WorkspaceID, settled.AgentSessionID)
+	}
+	p.observeCommittedOutsideHost(ctx, delta)
 	return nil
 }
