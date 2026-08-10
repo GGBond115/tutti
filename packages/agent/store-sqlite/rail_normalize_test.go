@@ -96,3 +96,16 @@ func TestClassifyRailSectionUsesCanonicalProjectKey(t *testing.T) {
 		t.Fatalf("ClassifyRailSection key = %q, want %q", section.Key, want)
 	}
 }
+
+func TestRailSectionKeyForProjectUsesWindowsCaseInsensitiveIdentity(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows filesystem identity is platform-specific")
+	}
+	left := `C:\Users\Demo\Repo`
+	right := `c:\users\demo\repo`
+	if RailSectionKeyForProject(left) != RailSectionKeyForProject(right) {
+		t.Fatalf("Windows project keys differ: %q vs %q", RailSectionKeyForProject(left), RailSectionKeyForProject(right))
+	}
+}

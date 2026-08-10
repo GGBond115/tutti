@@ -108,7 +108,7 @@ func TestServiceImportExternalSessionsRepairsSelectedNestedProjectRailMembership
 	if err != nil {
 		t.Fatalf("ReportSessionState(legacy parent membership) error = %v", err)
 	}
-	if legacy.Session.RailSectionKey != "project:"+parentProject {
+	if legacy.Session.RailSectionKey != agentactivitybiz.RailSectionKeyForProject(parentProject) {
 		t.Fatalf("legacy railSectionKey = %q, want parent before reimport", legacy.Session.RailSectionKey)
 	}
 
@@ -131,7 +131,7 @@ func TestServiceImportExternalSessionsRepairsSelectedNestedProjectRailMembership
 	if err != nil || !ok {
 		t.Fatalf("GetSession() ok=%v error=%v", ok, err)
 	}
-	wantSectionKey := "project:" + nestedProject
+	wantSectionKey := agentactivitybiz.RailSectionKeyForProject(nestedProject)
 	if persisted.RailSectionKey != wantSectionKey {
 		t.Fatalf("railSectionKey = %q, want selected nested project %q", persisted.RailSectionKey, wantSectionKey)
 	}
