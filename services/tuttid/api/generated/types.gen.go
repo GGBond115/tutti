@@ -9427,9 +9427,12 @@ type WorkspaceDeletedAgentSession struct {
 	// DeletedAtUnixMs Tombstone time used by the retention policy.
 	DeletedAtUnixMs int64 `json:"deletedAtUnixMs"`
 
-	// ProjectPath Persisted original project path; null means the conversations section.
+	// ProjectPath Persisted project path retained as presentation metadata. Classification is determined only by railSectionKey.
 	ProjectPath *string `json:"projectPath"`
-	Restorable  bool    `json:"restorable"`
+
+	// RailSectionKey Immutable persisted rail section identity used for classification.
+	RailSectionKey string `json:"railSectionKey"`
+	Restorable     bool   `json:"restorable"`
 
 	// Title Original canonical title. Empty titles remain empty.
 	Title string `json:"title"`
@@ -9465,7 +9468,12 @@ type WorkspaceDeletedAgentSessionProjectOption struct {
 	// ProjectAvailable Whether the original project is still registered in the current project catalog.
 	ProjectAvailable bool   `json:"projectAvailable"`
 	ProjectLabel     string `json:"projectLabel"`
-	ProjectPath      string `json:"projectPath"`
+
+	// ProjectPath Persisted project path retained as presentation metadata; it is not the option identity.
+	ProjectPath *string `json:"projectPath"`
+
+	// RailSectionKey Exact persisted rail section identity represented by this option.
+	RailSectionKey string `json:"railSectionKey"`
 }
 
 // WorkspaceDeletedAgentSessionUnavailableReason defines model for WorkspaceDeletedAgentSessionUnavailableReason.
@@ -10296,10 +10304,13 @@ type ListWorkspaceDeletedAgentSessionsParams struct {
 	// SearchQuery Case-insensitive search over the original session title only.
 	SearchQuery *string `form:"searchQuery,omitempty" json:"searchQuery,omitempty"`
 
-	// ProjectScope Select sessions without an original project. Mutually exclusive with projectPath; omit both project filters to list every location.
+	// RailSectionKey Select sessions by their exact persisted rail section key. Mutually exclusive with the deprecated project filters; omit every section filter to list all locations.
+	RailSectionKey *string `form:"railSectionKey,omitempty" json:"railSectionKey,omitempty"`
+
+	// ProjectScope Deprecated explicit conversations-section selector. It is resolved to the fixed conversations rail section key and is mutually exclusive with railSectionKey and projectPath.
 	ProjectScope *ListWorkspaceDeletedAgentSessionsParamsProjectScope `form:"projectScope,omitempty" json:"projectScope,omitempty"`
 
-	// ProjectPath Select sessions by their persisted original project path. Mutually exclusive with projectScope.
+	// ProjectPath Deprecated explicit project selector. The path is resolved to its canonical rail section key before querying and is mutually exclusive with railSectionKey and projectScope.
 	ProjectPath *string `form:"projectPath,omitempty" json:"projectPath,omitempty"`
 
 	// Cursor Opaque cursor returned by the previous page.

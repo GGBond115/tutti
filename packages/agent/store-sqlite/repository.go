@@ -128,13 +128,13 @@ const (
 
 // ListDeletedSessionsInput selects topmost tombstones in one workspace. A
 // topmost tombstone has no tombstoned parent, so it may anchor either a root
-// tree or a deleted child subtree. A nil ProjectPath means all project scopes,
-// a pointer to an empty string selects unscoped conversations, and a non-empty
-// value selects that exact original project path.
+// tree or a deleted child subtree. A nil RailSectionKey means every section;
+// a non-nil value selects that exact persisted rail section key, including the
+// fixed conversations key.
 type ListDeletedSessionsInput struct {
 	WorkspaceID           string
 	SearchQuery           string
-	ProjectPath           *string
+	RailSectionKey        *string
 	CursorUpdatedAtUnixMS int64
 	CursorAgentSessionID  string
 	Limit                 int
@@ -143,6 +143,7 @@ type ListDeletedSessionsInput struct {
 type DeletedSessionSummary struct {
 	AgentSessionID    string
 	Title             string
+	RailSectionKey    string
 	ProjectPath       string
 	UpdatedAtUnixMS   int64
 	DeletedAtUnixMS   int64
@@ -150,10 +151,15 @@ type DeletedSessionSummary struct {
 	UnavailableReason string
 }
 
+type DeletedSessionRailSection struct {
+	RailSectionKey string
+	ProjectPath    string
+}
+
 type DeletedSessionPage struct {
 	WorkspaceID         string
 	Sessions            []DeletedSessionSummary
-	ProjectPaths        []string
+	RailSections        []DeletedSessionRailSection
 	TotalCount          int
 	WorkspaceTotalCount int
 	HasMore             bool

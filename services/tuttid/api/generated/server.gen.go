@@ -119,7 +119,7 @@ type ServerInterface interface {
 	// Install or update one connector
 	// (POST /v1/connector-market/connectors/{connectorKey}:install)
 	InstallConnectorMarketConnector(w http.ResponseWriter, r *http.Request, connectorKey ConnectorMarketConnectorKey)
-	// Uninstall one connector
+	// Uninstall one connector from this device
 	// (POST /v1/connector-market/connectors/{connectorKey}:uninstall)
 	UninstallConnectorMarketConnector(w http.ResponseWriter, r *http.Request, connectorKey ConnectorMarketConnectorKey)
 	// Get one durable connector-market operation
@@ -7364,6 +7364,19 @@ func (siw *ServerInterfaceWrapper) ListWorkspaceDeletedAgentSessions(w http.Resp
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "searchQuery"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "searchQuery", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "railSectionKey" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "railSectionKey", r.URL.Query(), &params.RailSectionKey, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "railSectionKey"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "railSectionKey", Err: err})
 		}
 		return
 	}
@@ -39165,7 +39178,7 @@ type StrictServerInterface interface {
 	// Install or update one connector
 	// (POST /v1/connector-market/connectors/{connectorKey}:install)
 	InstallConnectorMarketConnector(ctx context.Context, request InstallConnectorMarketConnectorRequestObject) (InstallConnectorMarketConnectorResponseObject, error)
-	// Uninstall one connector
+	// Uninstall one connector from this device
 	// (POST /v1/connector-market/connectors/{connectorKey}:uninstall)
 	UninstallConnectorMarketConnector(ctx context.Context, request UninstallConnectorMarketConnectorRequestObject) (UninstallConnectorMarketConnectorResponseObject, error)
 	// Get one durable connector-market operation

@@ -390,7 +390,10 @@ Goal, observed Goal, revision, and tombstone semantics remain available after
 restore.
 `ListDeletedSessions` exposes workspace-scoped topmost tombstones—those with no
 tombstoned parent—with stable `updatedAt + sessionId` paging and explicitly
-marks legacy lossy tombstones unavailable. `RestoreDeletedSession` restores the
+marks legacy lossy tombstones unavailable. Its summaries, project-option
+catalog, and optional filter use the exact persisted `railSectionKey` as their
+identity; the retained project path is presentation metadata only.
+`RestoreDeletedSession` restores the
 exact component atomically without starting or resuming a provider.
 `PurgeDeletedSessionTrees` permanently removes selected topmost components, or
 all such components in one Workspace. The optional

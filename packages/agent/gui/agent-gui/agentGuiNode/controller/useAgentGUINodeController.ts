@@ -232,7 +232,6 @@ export function useAgentGUINodeController({
     conversationListState,
     conversations
   } = conversationList;
-  const isNoProjectPath = agentHostApi.userProjects?.isNoProjectPath;
   const hasLoadedConversations = conversationListState?.initialized ?? false;
   const isLoadingConversations = conversationListState?.isLoading ?? false;
   const sessionEngineState = useAgentGUISessionEngineState({
@@ -309,7 +308,6 @@ export function useAgentGUINodeController({
     homeComposerTargetOverride,
     isComposerHome,
     isCreatingConversation,
-    isNoProjectPath,
     onDataChange,
     onRememberComposerDefaults,
     onShowMessage,
@@ -380,7 +378,6 @@ export function useAgentGUINodeController({
       }
       return {
         ...conversationSummaryFromAgentSession(session, {
-          isNoProjectPath,
           needsUserAction: activeRelatedPendingInteractions.length > 0,
           userProjects
         }),
@@ -391,7 +388,6 @@ export function useAgentGUINodeController({
       activeRelatedPendingInteractions.length,
       agentActivityDisplayStatuses,
       conversations,
-      isNoProjectPath,
       userProjects
     ]);
   // Stashes the error message from a failed first-message create so the
@@ -460,9 +456,10 @@ export function useAgentGUINodeController({
   ]);
 
   // NOTE: project metadata is intentionally NOT written back into the shared
-  // conversation store. `conversation.project` is a per-window JOIN of cwd ×
-  // userProjects; deriving it here and persisting it caused cross-window update
-  // storms. Rail membership now comes from the backend railSectionKey contract.
+  // conversation store. `conversation.project` is a per-window exact JOIN of
+  // railSectionKey × userProjects.sectionKey; deriving it here and persisting it
+  // caused cross-window update storms. Rail membership comes from the same
+  // backend railSectionKey contract.
 
   useEffect(() => {
     if (activeConversationId === null && isComposerHome) {
