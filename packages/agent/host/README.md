@@ -47,6 +47,28 @@ state instead of starting another provider Session. This preflight is durable
 across Host process restarts and does not depend on the runtime's in-memory
 Session registry.
 
+Session creation also has a Host-owned canonical initialization barrier. Every
+Runtime used by `CreateSession` must implement
+`RuntimeSessionInitializationPublisher`. Host calls
+`Start(CanonicalInitPending=true)`, durably initializes the exact canonical
+Session (including immutable rail placement), and only then calls
+`PublishSessionInitialization`. While that barrier is pending, the Runtime may
+start its provider connection but must buffer activity reports, stream events,
+configuration updates, and command snapshots so none of them can create or
+expose canonical state before Host commits it. Publication is idempotent and
+releases the buffered observations in order. An initial-content Session keeps
+its separate provisional submit barrier after canonical initialization and
+does not become visible until its submitted intent is durable.
+
+`RuntimeStartResult.Created` records ownership of the live Runtime for the
+exact `Start` call. Failed-create compensation may close only a Runtime with
+`Created=true` and may roll back only a canonical Session created by that
+attempt. A retry that reuses an existing Runtime or canonical Session must not
+close or delete the earlier owner's resources; it must validate the existing
+immutable rail and fail closed on a mismatch. Host consumers must preserve the
+`Start -> canonical initialize -> publish` sequence instead of publishing a
+runtime-start report directly from `Start`.
+
 Provider Turn acceptance is a cross-process barrier, not a generic lifecycle
 notification. The runtime may move through `queued`, `dispatched`,
 `provider_observed`, and `resolving_identity`, but it must not expose provider
