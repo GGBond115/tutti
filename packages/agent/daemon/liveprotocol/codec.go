@@ -384,18 +384,17 @@ func validAttachmentControl(
 	}
 	// Goal-only attachments are turnless; invocation attachments always carry
 	// both sides of the Turn identity mapping. A half-populated pair cannot be
-	// projected safely by a recipient.
+	// projected safely by a recipient. The optional canonical set may still be
+	// populated for a turnless attachment after Host proves each Goal Turn.
 	canonicalTurnID = strings.TrimSpace(canonicalTurnID)
 	callerTurnID = strings.TrimSpace(callerTurnID)
 	if (canonicalTurnID == "") != (callerTurnID == "") {
 		return false
 	}
-	if canonicalTurnID == "" {
-		return len(canonicalTurnIDs) == 0
-	}
 	if len(canonicalTurnIDs) == 0 {
-		// Older producers omit the optional continuation set. The singular
-		// anchor is the complete identity set in that wire shape.
+		// Older producers omit the optional continuation set. A singular anchor
+		// is then the complete identity set; a turnless attachment has not yet
+		// observed a proven Goal Turn.
 		return true
 	}
 	seen := make(map[string]struct{}, len(canonicalTurnIDs))
@@ -408,6 +407,9 @@ func validAttachmentControl(
 			return false
 		}
 		seen[candidate] = struct{}{}
+	}
+	if canonicalTurnID == "" {
+		return true
 	}
 	_, anchored := seen[canonicalTurnID]
 	return anchored

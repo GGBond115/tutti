@@ -3,6 +3,7 @@ package liveprotocol
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +98,36 @@ func TestFrameRoundTripCarriesAttachmentRecoveryFence(t *testing.T) {
 	}
 }
 
+func TestFrameRoundTripCarriesTurnlessGoalAuthorizationSet(t *testing.T) {
+	t.Parallel()
+	frame := Frame{
+		ProtocolRevision: ProtocolRevision,
+		StreamID:         "stream-1",
+		BindingID:        "binding-1",
+		Epoch:            7,
+		Deliveries: []Delivery{{
+			Seq: 1, Kind: DeliveryKindAttachmentChanged,
+			AttachmentChanged: &AttachmentChanged{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+				CanonicalTurnIDs: []string{"goal-turn-1", "goal-turn-2"}, AttachmentRevision: 3,
+			},
+		}},
+	}
+	encoded, err := EncodeFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeFrame(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := decoded.Deliveries[0].AttachmentChanged
+	if changed == nil || changed.CanonicalTurnID != "" || changed.CallerTurnID != "" ||
+		!reflect.DeepEqual(changed.CanonicalTurnIDs, []string{"goal-turn-1", "goal-turn-2"}) {
+		t.Fatalf("decoded turnless Goal attachment = %#v", changed)
+	}
+}
+
 func TestAttachmentRecoveryControlsRejectInvalidIdentityOrRevision(t *testing.T) {
 	t.Parallel()
 	for _, delivery := range []Delivery{
@@ -124,6 +155,13 @@ func TestAttachmentRecoveryControlsRejectInvalidIdentityOrRevision(t *testing.T)
 			AttachmentCaughtUp: &AttachmentCaughtUp{
 				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
 				CallerTurnID: "caller-turn-1", AttachmentRevision: 1,
+			},
+		},
+		{
+			Seq: 1, Kind: DeliveryKindAttachmentChanged,
+			AttachmentChanged: &AttachmentChanged{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+				CanonicalTurnIDs: []string{"goal-turn-1", "goal-turn-1"}, AttachmentRevision: 1,
 			},
 		},
 	} {

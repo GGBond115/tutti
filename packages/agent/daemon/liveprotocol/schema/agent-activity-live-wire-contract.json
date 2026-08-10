@@ -165,7 +165,7 @@
         "workspaceId": "non-empty-string",
         "agentSessionId": "non-empty-string",
         "canonicalTurnId": "string",
-        "canonicalTurnIds": "non-empty-string-array-containing-canonical-turn-id",
+        "canonicalTurnIds": "unique-non-empty-string-array-containing-canonical-turn-id-when-present",
         "callerTurnId": "string",
         "attachmentRevision": "positive-integer"
       }
@@ -183,7 +183,7 @@
         "workspaceId": "non-empty-string",
         "agentSessionId": "non-empty-string",
         "canonicalTurnId": "string",
-        "canonicalTurnIds": "non-empty-string-array-containing-canonical-turn-id",
+        "canonicalTurnIds": "unique-non-empty-string-array-containing-canonical-turn-id-when-present",
         "callerTurnId": "string",
         "attachmentRevision": "positive-integer"
       }

@@ -89,6 +89,22 @@ func (s planContinuationOperationStore) GetRuntimeOperation(
 	return s.operation, s.found, nil
 }
 
+type goalActivityOperationStore struct {
+	GoalStateStore
+	operation storesqlite.GoalControlOperation
+	found     bool
+}
+
+func (s goalActivityOperationStore) GetGoalControlOperation(
+	_ context.Context,
+	workspaceID, operationID string,
+) (storesqlite.GoalControlOperation, bool, error) {
+	if workspaceID != s.operation.WorkspaceID || operationID != s.operation.OperationID {
+		return storesqlite.GoalControlOperation{}, false, errors.New("unexpected Goal operation identity")
+	}
+	return s.operation, s.found, nil
+}
+
 func (s canonicalQueryStore) GetSessionInteractionTreeSnapshot(
 	_ context.Context,
 	query storesqlite.SessionInteractionTreeQuery,
@@ -384,6 +400,123 @@ func TestGetPlanDecisionContinuationDoesNotExposeConfirmedSubmitBeforeCompletion
 	_, found, err := host.GetPlanDecisionContinuation(t.Context(), ref, parentTurnID)
 	if err != nil || found {
 		t.Fatalf("GetPlanDecisionContinuation() = (found=%v, err=%v), want completion barrier", found, err)
+	}
+}
+
+func TestGetGoalActivityTurnOwnsDurableGenerationProof(t *testing.T) {
+	ref := SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"}
+	turn := storesqlite.Turn{
+		WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
+		TurnID: "goal-turn-2", Phase: storesqlite.TurnPhaseRunning,
+		Origin:                storesqlite.TurnOriginGoalContinuation,
+		SourceGoalOperationID: "goal-operation-1", SourceGoalRevision: 4,
+		SourceGoalRepairEpoch: 2,
+	}
+	operation := storesqlite.GoalControlOperation{
+		OperationID: turn.SourceGoalOperationID, WorkspaceID: ref.WorkspaceID,
+		AgentSessionID: ref.AgentSessionID, GoalRevision: turn.SourceGoalRevision,
+		RepairEpoch: turn.SourceGoalRepairEpoch, Status: storesqlite.GoalOperationStatusCompleted,
+	}
+	host := New(Config{
+		CanonicalStore: planContinuationCanonicalStore{
+			session: storesqlite.Session{
+				WorkspaceID: ref.WorkspaceID, ID: ref.AgentSessionID,
+				ActiveTurnID: turn.TurnID,
+			},
+			turn: turn,
+			turnPage: storesqlite.SessionTurnSummaryPage{
+				Turns: []storesqlite.SessionTurnSummary{{TurnID: turn.TurnID}},
+			},
+		},
+		GoalStore: goalActivityOperationStore{operation: operation, found: true},
+	})
+
+	got, found, err := host.GetGoalActivityTurn(t.Context(), ref, turn.TurnID)
+	if err != nil || !found || !reflect.DeepEqual(got.Turn, turn) ||
+		got.Session.ActiveTurnID != turn.TurnID {
+		t.Fatalf("GetGoalActivityTurn() = (%#v, %v, %v), want authorized Goal Turn", got, found, err)
+	}
+}
+
+func TestGetGoalActivityTurnRejectsUnrelatedOrMismatchedTurn(t *testing.T) {
+	ref := SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"}
+	baseTurn := storesqlite.Turn{
+		WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
+		TurnID: "candidate-turn", Phase: storesqlite.TurnPhaseRunning,
+		Origin:                storesqlite.TurnOriginGoalContinuation,
+		SourceGoalOperationID: "goal-operation-1", SourceGoalRevision: 4,
+		SourceGoalRepairEpoch: 2,
+	}
+	baseOperation := storesqlite.GoalControlOperation{
+		OperationID: baseTurn.SourceGoalOperationID, WorkspaceID: ref.WorkspaceID,
+		AgentSessionID: ref.AgentSessionID, GoalRevision: baseTurn.SourceGoalRevision,
+		RepairEpoch: baseTurn.SourceGoalRepairEpoch, Status: storesqlite.GoalOperationStatusCompleted,
+	}
+	tests := []struct {
+		name      string
+		turn      storesqlite.Turn
+		operation storesqlite.GoalControlOperation
+		activeID  string
+		latestID  string
+		wantErr   error
+	}{
+		{
+			name: "ordinary user Turn", turn: func() storesqlite.Turn {
+				value := baseTurn
+				value.Origin = storesqlite.TurnOriginUserPrompt
+				return value
+			}(), operation: baseOperation, activeID: baseTurn.TurnID, latestID: baseTurn.TurnID,
+		},
+		{
+			name: "not active", turn: baseTurn, operation: baseOperation,
+			activeID: "newer-turn", latestID: "newer-turn",
+		},
+		{
+			name: "operation revision mismatch", turn: baseTurn,
+			operation: func() storesqlite.GoalControlOperation {
+				value := baseOperation
+				value.GoalRevision++
+				return value
+			}(), activeID: baseTurn.TurnID, latestID: baseTurn.TurnID,
+			wantErr: storesqlite.ErrGoalOperationConflict,
+		},
+		{
+			name: "superseded operation", turn: baseTurn,
+			operation: func() storesqlite.GoalControlOperation {
+				value := baseOperation
+				value.Status = storesqlite.GoalOperationStatusSuperseded
+				return value
+			}(), activeID: baseTurn.TurnID, latestID: baseTurn.TurnID,
+		},
+		{
+			name: "unknown operation status", turn: baseTurn,
+			operation: func() storesqlite.GoalControlOperation {
+				value := baseOperation
+				value.Status = "future_status"
+				return value
+			}(), activeID: baseTurn.TurnID, latestID: baseTurn.TurnID,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			host := New(Config{
+				CanonicalStore: planContinuationCanonicalStore{
+					session: storesqlite.Session{
+						WorkspaceID: ref.WorkspaceID, ID: ref.AgentSessionID,
+						ActiveTurnID: test.activeID,
+					},
+					turn: test.turn,
+					turnPage: storesqlite.SessionTurnSummaryPage{
+						Turns: []storesqlite.SessionTurnSummary{{TurnID: test.latestID}},
+					},
+				},
+				GoalStore: goalActivityOperationStore{operation: test.operation, found: true},
+			})
+			_, found, err := host.GetGoalActivityTurn(t.Context(), ref, test.turn.TurnID)
+			if found || !errors.Is(err, test.wantErr) {
+				t.Fatalf("GetGoalActivityTurn() = (found=%v, err=%v), want (false, %v)", found, err, test.wantErr)
+			}
+		})
 	}
 }
 

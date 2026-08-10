@@ -312,3 +312,36 @@ func TestRecipientProjectorProjectsDurablyAuthorizedContinuationTurns(t *testing
 		t.Fatal("unproven turn was projected")
 	}
 }
+
+func TestRecipientProjectorPreservesHostProvenTurnlessGoalTurn(t *testing.T) {
+	t.Parallel()
+	event, err := NewMessageDeltaEvent(MessageDeltaData{
+		WorkspaceID: "owner-workspace", AgentSessionID: "owner-session",
+		MessageID: "message-1", TurnID: "goal-turn-2", Role: "assistant", Kind: "text",
+		OccurredAtUnixMS: 20,
+		Content:          &MessageContentOperation{Operation: "append_text", Text: "working"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector, err := NewRecipientProjector(ProjectionContext{
+		OwnerWorkspaceID: "owner-workspace", OwnerAgentSessionID: "owner-session",
+		CanonicalTurnIDs:     []string{"goal-turn-1", "goal-turn-2"},
+		RecipientWorkspaceID: "caller-workspace", RecipientAgentSessionID: "caller-session",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := projector.Project(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data MessageDeltaData
+	if err := json.Unmarshal(projected.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.WorkspaceID != "caller-workspace" || data.AgentSessionID != "caller-session" ||
+		data.TurnID != "goal-turn-2" {
+		t.Fatalf("projected turnless Goal delta = %#v", data)
+	}
+}

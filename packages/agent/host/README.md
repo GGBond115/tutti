@@ -188,6 +188,13 @@ algorithm. Startup and steady-state workers process fences before ordinary
 Goal operations; otherwise a prepared revoked Goal could be replayed during
 recovery before its fence reached the runtime.
 
+`GetGoalActivityTurn` is the read-only projection proof for consumers that
+observe a turnless Goal Session. A candidate must be the latest active Turn,
+have a Goal-owned origin, and carry an exact operation/revision/repair-epoch
+identity backed by the durable Goal operation store. Consumers may use the
+returned Session and Turn to authorize live projection; they must not infer
+Goal ownership from `Session.ActiveTurnID`, Turn recency, or origin alone.
+
 > **Currently disabled.** Durable edit-and-retry is neutralized in production via
 > `Config.EditRetryDisabled`: its saga can strand a session in a rolled-back-but-
 > not-resent state whose runtime operation becomes a cold-recovery poison pill

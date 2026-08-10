@@ -205,10 +205,10 @@ type AttachmentChanged struct {
 	WorkspaceID     string `json:"workspaceId"`
 	AgentSessionID  string `json:"agentSessionId"`
 	CanonicalTurnID string `json:"canonicalTurnId,omitempty"`
-	// CanonicalTurnIDs contains the canonical Turn identities that are
-	// durably authorized to project into the same CallerTurnID. The singular
-	// CanonicalTurnID remains the attachment anchor; this list only grows when
-	// the Host proves an explicit continuation.
+	// CanonicalTurnIDs contains the canonical Turn identities that are durably
+	// authorized for this attachment. Invocation attachments include their
+	// singular anchor and Host-proven continuations. Turnless Goal attachments
+	// have no singular anchor and grow this list from Host-proven Goal Turns.
 	CanonicalTurnIDs   []string `json:"canonicalTurnIds,omitempty"`
 	CallerTurnID       string   `json:"callerTurnId,omitempty"`
 	AttachmentRevision uint64   `json:"attachmentRevision"`
