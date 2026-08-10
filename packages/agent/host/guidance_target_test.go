@@ -18,8 +18,8 @@ func (o *recordingGuidanceTerminalFailureObserver) ObserveTerminalFailure(_ cont
 
 func TestHostGuidanceRequiresExactTargetBeforeCreatingClaim(t *testing.T) {
 	observer := &recordingGuidanceTerminalFailureObserver{}
-	host, store, runtime := newHostEditRetryFixture(t)
-	host = agenthost.New(agenthost.Config{
+	_, store, runtime := newHostEditRetryFixture(t)
+	host := agenthost.New(agenthost.Config{
 		CanonicalStore:          sqliteCanonicalStore{Store: store},
 		TurnSubmissions:         store,
 		EffectiveHistory:        store,
@@ -56,8 +56,8 @@ func TestHostGuidanceRequiresExactTargetBeforeCreatingClaim(t *testing.T) {
 
 func TestHostGuidanceTargetMismatchCleansPreparedClaim(t *testing.T) {
 	observer := &recordingGuidanceTerminalFailureObserver{}
-	host, store, runtime := newHostEditRetryFixture(t)
-	host = agenthost.New(agenthost.Config{
+	_, store, runtime := newHostEditRetryFixture(t)
+	host := agenthost.New(agenthost.Config{
 		CanonicalStore:          sqliteCanonicalStore{Store: store},
 		TurnSubmissions:         store,
 		EffectiveHistory:        store,
