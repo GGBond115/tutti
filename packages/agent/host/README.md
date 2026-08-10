@@ -237,7 +237,10 @@ an idempotent clear once to resolve a crash window, while unsafe set replay
 remains rejected.
 
 `GetSession` reads canonical session truth plus an optional live runtime
-observation without starting a provider. `GetTurn`, `GetInteraction`,
+observation without starting a provider. `GetSessionWithRailPlacement` adds
+the Host-owned immutable rail proof for idempotent recovery; application
+adapters must not reproduce rail normalization from canonical fields.
+`GetTurn`, `GetInteraction`,
 `ListSessionTurns`, `ListSessionMessages`, `FindTurnByClientSubmitID`, and
 `GetSessionInteractionSnapshot` expose canonical queries without leaking an
 adapter's concrete store. `GetSessionInteractionTreeSnapshot` is the

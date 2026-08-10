@@ -113,6 +113,15 @@ func TitlePolicyScenarios() []Scenario {
 	return []Scenario{{Name: "clear canonical title", run: runClearCanonicalTitle}}
 }
 
+// RailPlacementRecoveryScenarios verifies the Host-owned immutable rail proof
+// used by application adapters during idempotent recovery.
+func RailPlacementRecoveryScenarios() []RailPlacementRecoveryScenario {
+	return []RailPlacementRecoveryScenario{{
+		Name: "recover canonical session only on matching rail",
+		run:  runRecoverCanonicalSessionOnlyOnMatchingRail,
+	}}
+}
+
 // DeletionAdmissionScenarios verifies the provider-neutral guard around the
 // exact canonical closure owned and replanned by Host.
 func DeletionAdmissionScenarios() []Scenario {

@@ -52,6 +52,14 @@ func TestPublishedInteractionTreeScenarioCatalogHasUniqueNames(t *testing.T) {
 	}
 }
 
+func TestPublishedRailPlacementRecoveryScenarioCatalogHasUniqueNames(t *testing.T) {
+	t.Parallel()
+	scenarios := RailPlacementRecoveryScenarios()
+	if len(scenarios) != 1 || scenarios[0].Name == "" {
+		t.Fatalf("rail placement recovery scenarios=%#v", scenarios)
+	}
+}
+
 func TestPublishedEditRetryScenarioCatalogHasUniqueNames(t *testing.T) {
 	t.Parallel()
 	scenarios := EditRetryScenarios()

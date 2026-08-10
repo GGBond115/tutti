@@ -302,6 +302,46 @@ func runCreateWithRailPlacement(ctx context.Context, driver Driver) error {
 	return nil
 }
 
+func runRecoverCanonicalSessionOnlyOnMatchingRail(
+	ctx context.Context,
+	driver RailPlacementRecoveryDriver,
+) error {
+	if err := driver.Reset(ctx, Fixture{}); err != nil {
+		return err
+	}
+	ref := agenthost.SessionRef{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-rail-recovery",
+	}
+	placement := &agenthost.RailPlacement{
+		Version: 1, Kind: agenthost.RailPlacementKindProject,
+		ProjectPath: "/workspace/project", SectionKey: "project:/workspace/project",
+	}
+	created, _, err := driver.Create(ctx, ref.WorkspaceID, agenthost.CreateSessionInput{
+		AgentSessionID: ref.AgentSessionID, AgentTargetID: "target-1", Provider: "codex",
+		RailPlacement: placement,
+	})
+	if err != nil {
+		return fmt.Errorf("create session for rail recovery: %w", err)
+	}
+	recovered, err := driver.GetSessionWithRailPlacement(ctx, ref, &agenthost.RailPlacement{
+		Version: 1, Kind: agenthost.RailPlacementKindProject,
+		ProjectPath: "/workspace/project", SectionKey: "project:/ignored-by-normalization",
+	})
+	if err != nil {
+		return fmt.Errorf("recover session on matching rail: %w", err)
+	}
+	if recovered.SessionID != created.SessionID || recovered.RailSectionKey != created.RailSectionKey {
+		return fmt.Errorf("recovered session=%#v, want %#v", recovered, created)
+	}
+	if _, err := driver.GetSessionWithRailPlacement(ctx, ref, &agenthost.RailPlacement{
+		Version: 1, Kind: agenthost.RailPlacementKindProject,
+		ProjectPath: "/workspace/other-project",
+	}); !errors.Is(err, agenthost.ErrRailPlacementConflict) {
+		return fmt.Errorf("recover session on mismatched rail error=%v", err)
+	}
+	return nil
+}
+
 func runResumePersistedSession(ctx context.Context, driver Driver) error {
 	fixture := Fixture{Session: &SessionSeed{
 		WorkspaceID: "workspace-1", AgentSessionID: "session-resume", Provider: "codex",
