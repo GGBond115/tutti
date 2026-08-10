@@ -728,8 +728,8 @@ func TestReplayProcessTransportIgnoresVolatileInitializeClientInfo(t *testing.T)
 func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentities(t *testing.T) {
 	directory := t.TempDir()
 	base := &cassetteTestConnection{received: []ProcessFrame{
-		{Stdout: []byte(`{"version":8,"id":"request-recorded","type":"ok","payload":{"providerSessionId":"provider-recorded"}}` + "\n")},
-		{Stdout: []byte(`{"version":8,"id":"exec-recorded","type":"ok"}` + "\n")},
+		{Stdout: []byte(`{"version":9,"id":"request-recorded","type":"ok","payload":{"providerSessionId":"provider-recorded"}}` + "\n")},
+		{Stdout: []byte(`{"version":9,"id":"exec-recorded","type":"ok"}` + "\n")},
 	}}
 	recording, err := NewRecordingProcessTransport(
 		cassetteTestTransport{connection: base},
@@ -752,14 +752,14 @@ func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentitie
 	if err != nil {
 		t.Fatal(err)
 	}
-	recordedStart := []byte(`{"version":8,"id":"request-recorded","type":"start","payload":{"agentSessionId":"session-recorded","providerSessionId":"provider-recorded","cwd":"/Users/recorded/project","env":{"ANTHROPIC_API_KEY":"secret-recorded","CLAUDE_CONFIG_DIR":"/Users/recorded/.claude","IS_SANDBOX":"1"}}}` + "\n")
+	recordedStart := []byte(`{"version":9,"id":"request-recorded","type":"start","payload":{"agentSessionId":"session-recorded","providerSessionId":"provider-recorded","cwd":"/Users/recorded/project","env":{"ANTHROPIC_API_KEY":"secret-recorded","CLAUDE_CONFIG_DIR":"/Users/recorded/.claude","IS_SANDBOX":"1"}}}` + "\n")
 	if err := connection.Send(recordedStart); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := connection.Recv(); err != nil {
 		t.Fatal(err)
 	}
-	recordedExec := []byte(`{"version":8,"id":"exec-recorded","type":"exec","payload":{"agentSessionId":"session-recorded","turnId":"turn-recorded","promptCorrelationId":"submit-recorded","prompt":"REPLAY_EXACT"}}` + "\n")
+	recordedExec := []byte(`{"version":9,"id":"exec-recorded","type":"exec","payload":{"agentSessionId":"session-recorded","turnId":"turn-recorded","promptCorrelationId":"submit-recorded","prompt":"REPLAY_EXACT"}}` + "\n")
 	if err := connection.Send(recordedExec); err != nil {
 		t.Fatal(err)
 	}
@@ -816,7 +816,7 @@ func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentitie
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayStart := []byte(`{"payload":{"env":{"ANTHROPIC_API_KEY":"different-secret","CLAUDE_CONFIG_DIR":"/isolated/.claude","IS_SANDBOX":"1"},"cwd":"/isolated/project","providerSessionId":"provider-replayed","agentSessionId":"session-replayed"},"type":"start","id":"request-replayed","version":8}` + "\n")
+	replayStart := []byte(`{"payload":{"env":{"ANTHROPIC_API_KEY":"different-secret","CLAUDE_CONFIG_DIR":"/isolated/.claude","IS_SANDBOX":"1"},"cwd":"/isolated/project","providerSessionId":"provider-replayed","agentSessionId":"session-replayed"},"type":"start","id":"request-replayed","version":9}` + "\n")
 	if err := replayed.Send(replayStart); err != nil {
 		t.Fatal(err)
 	}
@@ -828,7 +828,7 @@ func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentitie
 		!bytes.Contains(frame.Stdout, []byte(`"providerSessionId":"provider-recorded"`)) {
 		t.Fatalf("mapped Claude start response = %s", frame.Stdout)
 	}
-	replayExec := []byte(`{"version":8,"id":"exec-replayed","type":"exec","payload":{"agentSessionId":"session-replayed","turnId":"turn-replayed","promptCorrelationId":"submit-replayed","prompt":"REPLAY_EXACT"}}` + "\n")
+	replayExec := []byte(`{"version":9,"id":"exec-replayed","type":"exec","payload":{"agentSessionId":"session-replayed","turnId":"turn-replayed","promptCorrelationId":"submit-replayed","prompt":"REPLAY_EXACT"}}` + "\n")
 	if err := replayed.Send(replayExec); err != nil {
 		t.Fatal(err)
 	}

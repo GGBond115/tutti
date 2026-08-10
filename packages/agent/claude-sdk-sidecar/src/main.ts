@@ -125,8 +125,8 @@ export async function handleRequest(
       case "cancel": {
         const payload = request.payload ?? {};
         const session = requireSession(stringValue(payload.agentSessionId));
-        const canceled = await session.cancel(stringValue(payload.turnId));
-        emit({ id, type: "ok", payload: { canceled } });
+        const result = await session.cancel(stringValue(payload.turnId));
+        emit({ id, type: "ok", payload: result });
         return;
       }
       case "stop_task": {

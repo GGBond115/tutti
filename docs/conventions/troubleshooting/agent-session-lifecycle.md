@@ -2923,13 +2923,20 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   settings flag application with turn dispatch and retire the idle generation
   before a live settings mutation. The workspace Engine and composer gate both
   block send while the settings operation is unsettled. For cancel, carry the
-  exact Turn ID to the sidecar and wait for durable provider acceptance before
-  publishing cancel settlement; a pre-acceptance cancellation reports applied
-  without a provider Turn rather than poisoning the delivery claim as unknown.
+  exact Turn ID to the sidecar and dispatch the native cancel before consulting
+  acceptance state. The sidecar returns `pre_accept`, `provider_active`,
+  `absent`, or `mismatch`: locally remove only an undispatched queue item; after
+  dispatch, publish the canceled terminal only after SDK interrupt/shutdown
+  acknowledges. Wait for the exact Turn's durable provider-acceptance outcome
+  only for `provider_active`. Treat only `absent` as authoritative not-found;
+  mismatch, unknown disposition, interrupt failure, and acceptance failure stay
+  fail-closed.
 - Validation:
   Cover follow-up resume, settings timeout/retry gating, exact targeted cancel,
-  cancel before acceptance, and cancel followed by a new send. Native guidance
-  must interrupt active tool work before enqueueing the steering prompt.
+  same-tick Goal cancellation, cancel before dispatch, interrupt acknowledgment
+  and failure, durable acceptance success and failure, mismatched/absent targets,
+  and cancel followed by a new send. Native guidance must interrupt active tool
+  work before enqueueing the steering prompt.
 - References:
   [sessionRuntime.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionRuntime.ts)
   [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go)

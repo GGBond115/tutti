@@ -78,11 +78,11 @@ type claudeSDKAdapterSession struct {
 	// WorkspaceAgentTurn ids.
 	rootTurnID        string
 	rootProviderTurns map[string]struct{}
-	// providerTurnAccepted closes after the current root turn's provider
-	// identity has crossed the durable acceptance barrier. Cancel waits on it
-	// so CompleteCancel cannot settle HasSettledTurn before Established.
-	// Guarded by the adapter mutex; recreate on each new root turn.
-	providerTurnAccepted chan struct{}
+	// providerAcceptanceOutcomes retains the durable Host acceptance result by
+	// exact canonical Turn. Cancel dispatches to the provider first and consults
+	// this latch only when the sidecar confirms a provider-active cancellation.
+	// Guarded by the adapter mutex.
+	providerAcceptanceOutcomes map[string]*claudeSDKProviderAcceptanceOutcome
 	// goalArmTurnID is the sidecar turn carrying a queued /goal set command
 	// that has not settled yet; until it does, other turns settling must not
 	// be read as goal completion. Guarded by the adapter mutex.
@@ -101,6 +101,13 @@ type claudeSDKAdapterSession struct {
 	fencedGoalIdentities map[goalOperationIdentity]struct{}
 	fencedGoalTurns      map[string]claudeSDKGoalTurnFenceState
 	goalTurnBindings     map[string]claudeSDKGoalTurnBinding
+	pendingGoalCommands  map[string]claudeSDKPendingGoalCommand
+}
+
+type claudeSDKProviderAcceptanceOutcome struct {
+	done chan struct{}
+	once sync.Once
+	err  error
 }
 
 type claudeSDKGoalTurnFenceState uint8
@@ -117,6 +124,13 @@ type claudeSDKGoalTurnBinding struct {
 	identity        goalOperationIdentity
 	published       bool
 	publicationDone chan struct{}
+}
+
+type claudeSDKPendingGoalCommand struct {
+	identity     goalOperationIdentity
+	action       string
+	previousGoal map[string]any
+	started      bool
 }
 
 type claudeSDKCompactMessage struct {

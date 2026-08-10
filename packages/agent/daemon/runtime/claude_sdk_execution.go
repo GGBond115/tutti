@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -223,13 +224,17 @@ func (a *ClaudeCodeSDKAdapter) ExecWithProviderAcceptance(
 					acceptanceErr = errors.New(
 						"provider acceptance barrier is unavailable",
 					)
-					return
+				} else {
+					acceptanceErr = acceptProviderTurn(receipt)
 				}
-				acceptanceErr = acceptProviderTurn(receipt)
+				a.completeClaudeSDKProviderAcceptance(
+					adapterSession,
+					turnID,
+					acceptanceErr,
+				)
 				accepted = acceptanceErr == nil
 				if accepted {
 					acceptedProviderTurnID = providerTurnID
-					a.signalClaudeSDKProviderTurnAccepted(adapterSession)
 				}
 			})
 			if acceptanceErr != nil {
@@ -515,24 +520,65 @@ func (a *ClaudeCodeSDKAdapter) cancelClaudeSDKTurn(
 	}
 	cancelCtx, cancel := context.WithTimeout(ctx, claudeSDKGoalCommandTimeout)
 	defer cancel()
-	// Durable cancel settlement marks HasSettledTurn. Waiting here ensures
-	// root_provider_turn_id is already committed (Established) before that
-	// settlement, so a cancel→resend cannot hit provider_session_not_established.
-	if err := a.waitClaudeSDKProviderTurnAccepted(cancelCtx, adapterSession); err != nil {
-		return nil, err
-	}
 	payload := map[string]any{
 		"agentSessionId": session.AgentSessionID,
 	}
 	if turnID != "" {
 		payload["turnId"] = turnID
 	}
-	if err := a.roundTripClaudeSDK(cancelCtx, session.AgentSessionID, adapterSession, claudeSDKSidecarRequest{
+	response, err := a.roundTripClaudeSDKResponse(cancelCtx, session.AgentSessionID, adapterSession, claudeSDKSidecarRequest{
 		ID:      newID(),
 		Type:    "cancel",
 		Payload: payload,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
+	}
+	disposition := strings.TrimSpace(payloadString(response.Payload, "disposition"))
+	responseTurnID := strings.TrimSpace(payloadString(response.Payload, "turnId"))
+	providerTurnID := strings.TrimSpace(payloadString(response.Payload, "providerTurnId"))
+	dispatchPhase := strings.TrimSpace(payloadString(response.Payload, "dispatchPhase"))
+	canceled := payloadBoolValue(response.Payload, "canceled")
+	if responseTurnID != turnID {
+		return nil, fmt.Errorf(
+			"claude SDK cancel response turn mismatch: requested %q, received %q",
+			turnID,
+			responseTurnID,
+		)
+	}
+	if !validClaudeSDKCancelDispatchPhase(dispatchPhase) {
+		return nil, fmt.Errorf(
+			"claude SDK returned unknown cancel dispatch phase %q",
+			dispatchPhase,
+		)
+	}
+	switch disposition {
+	case "pre_accept":
+		if !canceled || providerTurnID != "" {
+			return nil, errors.New("claude SDK returned inconsistent pre-accept cancellation")
+		}
+	case "provider_active":
+		if !canceled || providerTurnID == "" {
+			return nil, errors.New("claude SDK returned inconsistent provider-active cancellation")
+		}
+		if dispatchPhase == "queued" || dispatchPhase == "pending_goal" || dispatchPhase == "unknown" {
+			return nil, errors.New("claude SDK returned provider-active cancellation before dispatch")
+		}
+		if err := a.waitClaudeSDKProviderAcceptanceOutcome(cancelCtx, adapterSession, turnID); err != nil {
+			return nil, fmt.Errorf("claude SDK durable provider acceptance: %w", err)
+		}
+	case "absent":
+		if canceled || providerTurnID != "" {
+			return nil, errors.New("claude SDK returned inconsistent absent cancellation")
+		}
+		return nil, ErrSessionNoActiveTurn
+	case "mismatch":
+		if canceled || providerTurnID != "" {
+			return nil, errors.New("claude SDK returned inconsistent mismatched cancellation")
+		}
+		return nil, fmt.Errorf("%w: turn %q", ErrCancelTargetMismatch, turnID)
+	default:
+		return nil, fmt.Errorf("claude SDK returned unknown cancel disposition %q", disposition)
 	}
 	events := a.claudeSDKPendingRequestFailureEvents(adapterSession, session, "", errPermissionRequestCanceled)
 	// Finish open turn lifecycles by normalizer ownership, not by the live
@@ -558,19 +604,18 @@ func (a *ClaudeCodeSDKAdapter) CancelTargets(ctx context.Context, rootSession Se
 				return TargetedCancelResult{}, ErrSessionDisconnected
 			}
 			rootTurnID := strings.TrimSpace(target.TurnID)
-			// services/tuttid owns the exact durable cancellation target set.
-			// Close those projection boundaries before asking the SDK to stop so
-			// cancellation-caused task/tool terminal events cannot race the
-			// durable canceled state and reinterpret a child as failed.
-			for _, cancelTarget := range targets {
-				a.markClaudeSDKTurnClosed(adapterSession, cancelTarget.TurnID, "cancel_requested")
-			}
 			// Claude SDK exposes cancellation for the root query. That provider
 			// operation stops its nested Task executions as part of the same
 			// query; services/tuttid supplied the exact durable target set.
 			events, err := a.cancelClaudeSDKTurn(ctx, rootSession, rootTurnID, reason)
 			if err != nil {
 				return TargetedCancelResult{}, err
+			}
+			// Commit projection fences only after the sidecar has confirmed its
+			// exact disposition. Absent, mismatch, timeout, or protocol failure
+			// must leave later provider evidence observable for reconciliation.
+			for _, cancelTarget := range targets {
+				a.markClaudeSDKTurnClosed(adapterSession, cancelTarget.TurnID, "cancel_requested")
 			}
 			return TargetedCancelResult{
 				Events:           events,

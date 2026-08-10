@@ -578,7 +578,7 @@ func TestClaudeSDKLineReaderTracksNDJSONInputUnitsAtCompletionChunk(t *testing.T
 			RecordingID:  "recording-1",
 			ConnectionID: "connection-1",
 			ChunkSeq:     4,
-			Stdout:       []byte(`{"version":8,"type":"assistant_delta","payload":{"text":"hel`),
+			Stdout:       []byte(`{"version":9,"type":"assistant_delta","payload":{"text":"hel`),
 		},
 		{
 			RecordingID:  "recording-1",
@@ -586,7 +586,7 @@ func TestClaudeSDKLineReaderTracksNDJSONInputUnitsAtCompletionChunk(t *testing.T
 			ChunkSeq:     5,
 			Stdout: []byte(
 				`lo"}}` + "\n" +
-					`{"version":8,"type":"turn_completed","payload":{"turnId":"turn-1"}}` + "\n",
+					`{"version":9,"type":"turn_completed","payload":{"turnId":"turn-1"}}` + "\n",
 			),
 		},
 	}}

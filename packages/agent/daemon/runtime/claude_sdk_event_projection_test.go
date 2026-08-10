@@ -1553,13 +1553,8 @@ func TestClaudeCodeSDKAdapterMapsExitPlanModeInteractive(t *testing.T) {
 
 func TestClaudeCodeSDKAdapterCancelClearsPendingInteractive(t *testing.T) {
 	adapter := NewClaudeCodeSDKAdapter(nil)
-	session := standardTestSession(ProviderClaudeCode)
-	adapterSession := &claudeSDKAdapterSession{
-		conn:            &recordingClaudeSDKConnection{},
-		pendingRequests: make(map[string]*pendingInteractiveRequest),
-		liveState:       newClaudeSDKLiveState(),
-	}
-	adapter.storeSession(session.AgentSessionID, adapterSession)
+	conn := &ackClaudeSDKConnection{}
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
 	adapter.beginClaudeSDKRootTurn(
 		adapterSession,
 		"turn-cancel",
@@ -1600,12 +1595,8 @@ func TestClaudeCodeSDKAdapterCancelClearsPendingInteractive(t *testing.T) {
 
 func TestClaudeCodeSDKAdapterCancelFailsOpenToolCalls(t *testing.T) {
 	adapter := NewClaudeCodeSDKAdapter(nil)
-	session := standardTestSession(ProviderClaudeCode)
-	adapterSession := &claudeSDKAdapterSession{
-		conn:      &recordingClaudeSDKConnection{},
-		liveState: newClaudeSDKLiveState(),
-	}
-	adapter.storeSession(session.AgentSessionID, adapterSession)
+	conn := &ackClaudeSDKConnection{}
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
 	adapter.registerClaudeSDKTurn(adapterSession, "turn-write", nil)
 
 	started, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-write", claudeSDKSidecarEvent{
@@ -1660,12 +1651,8 @@ func TestClaudeCodeSDKAdapterCancelFailsOpenThinking(t *testing.T) {
 	// Mirrors the open-Write cancel path: thinking must leave the shared turn
 	// normalizer so Stop does not leave a forever-"thinking" disclosure.
 	adapter := NewClaudeCodeSDKAdapter(nil)
-	session := standardTestSession(ProviderClaudeCode)
-	adapterSession := &claudeSDKAdapterSession{
-		conn:      &recordingClaudeSDKConnection{},
-		liveState: newClaudeSDKLiveState(),
-	}
-	adapter.storeSession(session.AgentSessionID, adapterSession)
+	conn := &ackClaudeSDKConnection{}
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
 	adapter.registerClaudeSDKTurn(adapterSession, "turn-think", nil)
 
 	streaming, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-think", claudeSDKSidecarEvent{
@@ -1705,12 +1692,8 @@ func TestClaudeCodeSDKAdapterCancelFailsOpenToolsAfterWaiterUnregistered(t *test
 	// Mirrors controller Cancel ordering: active.cancel() makes Exec unregister
 	// its waiter before adapter.Cancel runs. Open tools must still close.
 	adapter := NewClaudeCodeSDKAdapter(nil)
-	session := standardTestSession(ProviderClaudeCode)
-	adapterSession := &claudeSDKAdapterSession{
-		conn:      &recordingClaudeSDKConnection{},
-		liveState: newClaudeSDKLiveState(),
-	}
-	adapter.storeSession(session.AgentSessionID, adapterSession)
+	conn := &ackClaudeSDKConnection{}
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
 	waiter := adapter.registerClaudeSDKTurn(adapterSession, "turn-write", nil)
 
 	if _, _, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-write", claudeSDKSidecarEvent{
