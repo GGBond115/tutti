@@ -517,11 +517,15 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 	// an in-flight RPC. Because turn/start responds immediately while the
 	// turn keeps streaming, this is the main delivery path for turn output:
 	// resolve the active turn context so notifications keep producing
-	// activity events after the RPC has returned.
+	// activity events after the RPC has returned. Child sessions may outlive
+	// that root turn, so their events retain a session-level fallback below.
 	client.SetMessageHandler(func(ctx context.Context, message acpMessage) error {
 		endInputUnit := a.inputUnits.begin(ctx, session.AgentSessionID)
 		defer endInputUnit()
 		turnSession := session
+		if appSession := a.getSession(session.AgentSessionID); appSession != nil {
+			turnSession.ProviderSessionID = firstNonEmpty(appSession.threadID, turnSession.ProviderSessionID)
+		}
 		turnID := ""
 		var normalizer *acpTurnNormalizer
 		var turnEmit func([]activityshared.Event)
@@ -542,6 +546,11 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 		events = a.inputUnits.stamp(session.AgentSessionID, events)
 		if turnEmit != nil {
 			turnEmit(events)
+		} else if childEvents := appServerChildSessionEvents(session.AgentSessionID, events); len(childEvents) > 0 {
+			a.emitSessionEvents(
+				session.AgentSessionID,
+				a.stampTurnLifecycleSnapshots(session.AgentSessionID, childEvents),
+			)
 		}
 		return err
 	})
@@ -597,4 +606,19 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 	})
 	started = true
 	return client, initializeResult, false, nil
+}
+
+func appServerChildSessionEvents(
+	rootAgentSessionID string,
+	events []activityshared.Event,
+) []activityshared.Event {
+	rootAgentSessionID = strings.TrimSpace(rootAgentSessionID)
+	childEvents := make([]activityshared.Event, 0, len(events))
+	for _, event := range events {
+		eventAgentSessionID := strings.TrimSpace(event.AgentSessionID)
+		if eventAgentSessionID != "" && eventAgentSessionID != rootAgentSessionID {
+			childEvents = append(childEvents, event)
+		}
+	}
+	return childEvents
 }

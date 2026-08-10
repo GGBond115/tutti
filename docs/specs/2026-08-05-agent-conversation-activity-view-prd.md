@@ -108,8 +108,8 @@ Activity View 的核心价值是把 Conversation Rail 从“目录”临时切�
 | D2   | Desktop 默认关闭，由用户显式开启；Mobile 会话首页固定开启        | Desktop 保留既有项目目录心智；Mobile 直接采用已批准的新首页承载   |
 | D3   | 最近范围固定为最近 7 个自然日                                    | 覆盖一周工作上下文，避免无边界加载历史                            |
 | D4   | Priority 顺序复刻 Codex：`waiting`、`unread`、`active`           | 不按失败/成功再创造一套 Tutti 排序标准                            |
-| D5   | `waiting` 由 Tutti canonical `needsUserAction` 映射              | UI 语义跟随 Codex，事实来源仍由 Tutti lifecycle 保证              |
-| D6   | 子 Session 不作为左栏独立行                                      | Codex 将子线程作为独立实体管理，但左栏由根线程代表                |
+| D5   | `waiting` 由根 Session 自身的 canonical `needsUserAction` 映射   | 左栏状态与普通 Rail 统一，事实来源仍由 Tutti lifecycle 保证       |
+| D6   | 子 Session 不作为左栏独立行，也不改变根行状态                    | 子 Agent 状态留在会话详情中，左栏只表达主会话自身状态             |
 | D7   | Priority 与近期日期段之间去重                                    | 一个 Session 只在最靠前的可见位置出现一次                         |
 | D8   | 搜索临时接管内容区，清空搜索后恢复 Activity View                 | 搜索是明确查找意图，避免搜索结果与工作队列结构混杂                |
 | D9   | Activity View 不新增或改造通用筛选器                             | 当前 Engine 是完整输入边界，不增加 host context 契约              |
@@ -121,6 +121,7 @@ Activity View 的核心价值是把 Conversation Rail 从“目录”临时切�
 | Codex 行为/概念                   | Tutti 特有事实                                     | 处理方式                                               | 是否改变体验                 |
 | --------------------------------- | -------------------------------------------------- | ------------------------------------------------------ | ---------------------------- |
 | 本地 task attention `waiting`     | Tutti 用 pending Interaction / `needsUserAction`   | adapter 映射为 waiting                                 | 否                           |
+| 子 Agent 仍在工作或等待           | 子 Session 有独立 canonical lifecycle              | 详情继续展示；Activity Rail 根行只读取根 Session 状态  | 是；与普通 Rail 状态口径统一 |
 | `threadId` / `parentThreadId`     | Tutti 用 `agentSessionId` / `parentAgentSessionId` | identity adapter，保留根行/子行关系                    | 否                           |
 | ChatGPT 模式可筛 Work / Chat      | Tutti Agent GUI 只有 Agent Session                 | 不显示无意义的 Work/Chat 选项                          | 是；最小差异，数据类型不存在 |
 | Scheduled 选项                    | Tutti 没有 canonical scheduled Session 类型        | 不显示 Scheduled 选项                                  | 是；数据类型不存在           |
@@ -230,11 +231,11 @@ Priority 内部不再增加多层可折叠标题，避免窄 Rail 产生过多 c
 
 每个根 Session 先映射为 Codex 同构的 attention state，再计算纯 presentation rank：
 
-| rank | Codex 同构状态 | Tutti canonical 映射                                       | 行内原因                         |
-| ---- | -------------- | ---------------------------------------------------------- | -------------------------------- |
-| 0    | `waiting`      | `needsUserAction=true`，通常来自 pending Interaction       | 需要处理                         |
-| 1    | `unread`       | 现有 attention/read state 表示存在未读结果                 | 未读；不再细分失败或成功的优先级 |
-| 2    | `active`       | 根 Session 或其子 Session 仍有 active lifecycle projection | 进行中                           |
+| rank | Codex 同构状态 | Tutti canonical 映射                                                 | 行内原因                         |
+| ---- | -------------- | -------------------------------------------------------------------- | -------------------------------- |
+| 0    | `waiting`      | 根 Session 自身 `needsUserAction=true`，通常来自 pending Interaction | 需要处理                         |
+| 1    | `unread`       | 现有 attention/read state 表示存在未读结果                           | 未读；不再细分失败或成功的优先级 |
+| 2    | `active`       | 根 Session 自身仍有 active lifecycle projection                      | 进行中                           |
 
 普通 idle 不进入 Priority，由近期日期范围决定是否出现在某个日期段。Activity View 运行期间晚到的 canonical idle summary 也不会被视为 activity，不会改变 Priority；它只可在下一次 toggle 的初始快照中按近期日期进入日期段。仅因用户选择历史会话而临时注入的 idle summary 同样不属于 Activity candidate。已经进入当前 Priority snapshot 的会话即使随后标记已读或变为 idle，也保留原成员和相对顺序，直到下一次 toggle；删除 tombstone 是唯一的即时移除例外。
 
@@ -502,7 +503,7 @@ interface AgentConversationActivityViewModel {
 1. 开启 Activity View 只投影 Engine 当前内存态；不调用 Session list/page、SQLite 或 transcript 接口。
 2. Engine 已知、距离现在超过 7 天但为 waiting 的根 Session 仍出现在 Priority。
 3. Engine 已知、距离现在超过 7 天但为 unread 的根 Session 仍出现在 Priority。
-4. Tutti 的 `needsUserAction=true` 映射为 waiting；普通运行映射为 active。
+4. 根 Session 自身的 `needsUserAction=true` 映射为 waiting；根 Session 自身运行映射为 active；子 Session 的 working/waiting 不改变根行状态。
 5. waiting 排在 unread 前，unread 排在 active 前；unread 不按结果成功/失败二次排序。
 6. 同 rank 两条会话按 recency 倒序；时间相同保留输入顺序。
 7. 同时满足 Priority 与近期日期范围的 Session 只出现在 Priority。
@@ -533,7 +534,7 @@ interface AgentConversationActivityViewModel {
 
 ### 15.3 实时与异常
 
-1. 新 pending Interaction 到达时会话进入 Priority，且不需要手动刷新。
+1. 根 Session 的新 pending Interaction 到达时会话进入 Priority，且不需要手动刷新；子 Session 的 pending Interaction 不改变根行状态。
 2. Interaction 处理完后行状态立即更新，但本次 snapshot 中的既有成员与顺序保持；重新开启后按剩余 facts 重建。
 3. Turn 完成或失败生成新 unread completion 时，新候选增量进入 Priority；既有成员不因该事件全量重排。
 4. Desktop daemon 推送的新建/更新根 Session 先进入 Engine；符合规则时无需刷新即可增量入队，重复事件不产生重复行。
@@ -556,9 +557,9 @@ interface AgentConversationActivityViewModel {
 ### 16.1 单元测试
 
 - rank 判定矩阵；
-- Tutti `needsUserAction` 到 waiting、普通运行到 active 的映射；
+- 根 Session 自身的 `needsUserAction` 到 waiting、普通运行到 active 的映射；
 - waiting/unread/active 的排序，以及已读后既有 Priority 成员的 snapshot retention；
-- child Session 过滤与 child activity 到 root 的投影；
+- child Session 过滤，以及 child working/waiting 不改变 root Rail 状态；
 - Priority 与日期段去重；
 - 7 日 cutoff 和本地午夜边界；
 - imported、hidden、deleted、unknown enum；

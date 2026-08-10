@@ -12,7 +12,7 @@ import { createTestAgentSessionEngine } from "../../../shared/testing/createTest
 import { useAgentGUIConversationRailQuery } from "./useAgentGUIConversationRailQuery";
 
 describe("useAgentGUIConversationRailQuery Activity facts", () => {
-  it("keeps child sessions hidden and aggregates their activity onto the root", async () => {
+  it("keeps child sessions hidden without aggregating their activity onto the root", async () => {
     const engine = createTestAgentSessionEngine("workspace-1");
     engine.dispatch({
       type: "session/upserted",
@@ -75,7 +75,7 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
     await waitFor(() =>
       expect(rendered.result.current.activityRootFacts.get("root")).toEqual({
         needsUserAction: false,
-        status: "working"
+        status: "ready"
       })
     );
     expect(rendered.result.current.activityRootFacts.has("child")).toBe(false);
@@ -84,6 +84,11 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
         (conversation) => conversation.id
       )
     ).toEqual(["root"]);
+    expect(rendered.result.current.activityConversations[0]).toMatchObject({
+      id: "root",
+      needsUserAction: false,
+      status: "ready"
+    });
 
     act(() => {
       engine.dispatch({
@@ -102,10 +107,15 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
     });
     await waitFor(() =>
       expect(rendered.result.current.activityRootFacts.get("root")).toEqual({
-        needsUserAction: true,
-        status: "waiting"
+        needsUserAction: false,
+        status: "ready"
       })
     );
+    expect(rendered.result.current.activityConversations[0]).toMatchObject({
+      id: "root",
+      needsUserAction: false,
+      status: "ready"
+    });
 
     rendered.unmount();
     engine.dispose();

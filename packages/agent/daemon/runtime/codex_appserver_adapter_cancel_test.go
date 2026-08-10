@@ -2,9 +2,10 @@ package agentruntime
 
 import (
 	"context"
-	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"testing"
 	"time"
+
+	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 )
 
 func TestCodexAppServerAdapterCancelInterruptsActiveTurn(t *testing.T) {
@@ -224,6 +225,63 @@ func TestCodexAppServerAdapterCancelAfterTurnCompletedStillMarksChildrenCanceled
 		t.Fatalf("confirmed targets = %#v, want child", cancelResult.ConfirmedTargets)
 	}
 	_ = transport
+}
+
+func TestCodexAppServerAdapterEmitsLateChildCompletionAfterRootTurnCompleted(t *testing.T) {
+	adapter, transport, session := startedAppServerAdapter(t)
+	_, _ = adapter.rememberAppServerChildThreads(session, "codex-thread-1", session.AgentSessionID, "turn-local-1", session.AgentSessionID, "turn-local-1", map[string]any{
+		"type":              "collabAgentToolCall",
+		"id":                "spawn-child-1",
+		"receiverThreadIds": []any{"child-thread-1"},
+	})
+	child, ok := adapter.appServerChildThread(session.AgentSessionID, "child-thread-1")
+	if !ok {
+		t.Fatal("child thread was not registered")
+	}
+
+	// The parent finishes first, leaving the provider child alive without an
+	// active root-turn emitter attached to the session-level message handler.
+	if _, err := adapter.Exec(context.Background(), session, []PromptContentBlock{{
+		Type: "text", Text: "parent task",
+	}}, "", "turn-local-1", nil, nil); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if activeTurn := adapter.sessionActiveTurn(session.AgentSessionID); activeTurn != nil {
+		t.Fatal("root turn remained active after completion")
+	}
+
+	type emittedBatch struct {
+		agentSessionID string
+		events         []activityshared.Event
+	}
+	emitted := make(chan emittedBatch, 1)
+	adapter.SetSessionEventSink(func(agentSessionID string, events []activityshared.Event) {
+		emitted <- emittedBatch{
+			agentSessionID: agentSessionID,
+			events:         append([]activityshared.Event(nil), events...),
+		}
+	})
+	transport.conn.notify(appServerNotifyTurnCompleted, map[string]any{
+		"threadId": "child-thread-1",
+		"turn":     map[string]any{"id": "child-provider-turn-1", "status": "completed"},
+	})
+
+	select {
+	case batch := <-emitted:
+		if batch.agentSessionID != session.AgentSessionID {
+			t.Fatalf("sink session = %q, want root %q", batch.agentSessionID, session.AgentSessionID)
+		}
+		completed := eventsOfType(batch.events, activityshared.EventTurnCompleted)
+		if len(completed) != 1 || completed[0].AgentSessionID != child.agentSessionID || completed[0].Payload.TurnID != child.turnID {
+			t.Fatalf("late child completion events = %#v", batch.events)
+		}
+		lifecycle, stamped := activityshared.TurnLifecycleSnapshotFromEvent(completed[0])
+		if !stamped || lifecycle.Phase != string(activityshared.TurnPhaseSettled) {
+			t.Fatalf("late child lifecycle = %#v, stamped=%v", lifecycle, stamped)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("late child completion did not reach the session event sink")
+	}
 }
 
 func TestCodexAppServerAdapterCancelInterruptsLateUnownedRootTurn(t *testing.T) {

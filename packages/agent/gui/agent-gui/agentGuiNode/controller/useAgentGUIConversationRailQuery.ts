@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   selectAttentionReadState,
-  selectWorkspaceAgentConsumerSessions,
-  selectWorkspaceAgentRootConversationSessions
+  selectWorkspaceAgentConsumerSessions
 } from "@tutti-os/agent-activity-core";
 import {
   useAgentGUIRuntime,
@@ -270,10 +269,10 @@ function selectEmptyAgentGUIConversationActivityRootFacts(): ReadonlyMap<
 }
 
 function selectAgentGUIConversationActivityRootFacts(
-  state: Parameters<typeof selectWorkspaceAgentRootConversationSessions>[0]
+  state: Parameters<typeof selectWorkspaceAgentConsumerSessions>[0]
 ): ReadonlyMap<string, AgentGUIConversationActivityRootFact> {
   return new Map(
-    selectWorkspaceAgentRootConversationSessions(state)
+    selectWorkspaceAgentConsumerSessions(state)
       .filter((item) => item.session.visible !== false)
       .map((item) => [
         item.session.agentSessionId,
