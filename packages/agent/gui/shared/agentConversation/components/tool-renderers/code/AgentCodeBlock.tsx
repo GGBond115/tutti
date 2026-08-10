@@ -44,9 +44,7 @@ export function AgentCodeBlock({
   );
   const addedCount = lineCount;
   const fileLabel = fileNameFromPath(path) ?? path ?? "Code";
-  const emptyPlaceholder = translate(
-    "agentHost.agentTool.details.emptyContent"
-  );
+  const emptyPlaceholder = translate("agentHost.agentGui.turnSummaryEmpty");
   if (!normalized) {
     return (
       <div

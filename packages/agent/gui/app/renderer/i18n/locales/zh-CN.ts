@@ -685,8 +685,7 @@ export const zhCN = {
         imagePreviewAlt: "图片生成预览",
         showFullContent: "展开完整内容（{{count}} 行）",
         collapseContent: "收起内容",
-        showFullDiff: "展开完整差异（{{count}} 行）",
-        emptyContent: "(empty)"
+        showFullDiff: "展开完整差异（{{count}} 行）"
       },
       labels: {
         runCommand: "执行命令",

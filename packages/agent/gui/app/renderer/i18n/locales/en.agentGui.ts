@@ -596,7 +596,7 @@ export const enAgentGui = {
   turnSummaryViaTool: "via {{tool}}",
   turnSummaryBefore: "Before",
   turnSummaryAfter: "After",
-  turnSummaryEmpty: "Empty",
+  turnSummaryEmpty: "(empty)",
   turnSummaryOpenFile: "Open",
   turnSummaryUndo: "Undo",
   turnSummaryReapply: "Reapply",
