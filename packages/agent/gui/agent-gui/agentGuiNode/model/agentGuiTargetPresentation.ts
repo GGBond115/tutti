@@ -48,6 +48,31 @@ export function mergeAgentTargetsForMentionPresentations(
   return byId.size === railTargets.length ? railTargets : [...byId.values()];
 }
 
+export function mentionAgentTargetPresentationKey(
+  railTargets: readonly AgentGUIAgentTarget[],
+  handoffTargets: readonly AgentGUIAgentTarget[] = []
+): string {
+  return agentTargetPresentationKey(
+    mergeAgentTargetsForMentionPresentations(railTargets, handoffTargets)
+  );
+}
+
+export function projectMentionAgentTargetPresentations(input: {
+  handoffTargets?: readonly AgentGUIAgentTarget[];
+  ownerSeparator: string;
+  railTargets: readonly AgentGUIAgentTarget[];
+  workspaceId: string;
+}): readonly AgentMessageMarkdownAgentTarget[] {
+  return projectAgentTargetPresentations({
+    agentTargets: mergeAgentTargetsForMentionPresentations(
+      input.railTargets,
+      input.handoffTargets
+    ),
+    ownerSeparator: input.ownerSeparator,
+    workspaceId: input.workspaceId
+  });
+}
+
 export function projectAgentTargetPresentations(input: {
   agentTargets: readonly AgentGUIAgentTarget[];
   ownerSeparator: string;
