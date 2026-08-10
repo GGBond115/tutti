@@ -615,7 +615,6 @@ export const zhCNAgentGui = {
   turnSummaryViaTool: "通过 {{tool}}",
   turnSummaryBefore: "变更前",
   turnSummaryAfter: "变更后",
-  turnSummaryEmpty: "空内容",
   codeBlockEmptyContent: "(empty)",
   turnSummaryOpenFile: "打开",
   turnSummaryUndo: "撤销",
