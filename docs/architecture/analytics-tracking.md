@@ -480,9 +480,30 @@ Out of scope for dedicated Host terminal-failure flows:
 - file-change card open failures (desktop UI / TSH Analytics only)
 - shared-agent product events (owned by the shared-agent analytics track)
 
-Adapters should map those observations into product analytics events. Call
-`ObserveTerminalFailuresFromDelta` alongside `NotifyCommitted` when activity
-projection commits are not routed through `Host.notifyCommitted`. Do not
+Adapters should map those observations into product analytics events. Do not
 promote every `LifecycleStep` into a product analytics event; lifecycle steps
 remain diagnostic. Terminal failures carry the original error message and
 failure stage for investigation without user-supplied logs.
+
+### Who extracts failures from a committed delta
+
+`Host.notifyCommitted` owns delta terminal failures. It calls
+`ObserveTerminalFailuresFromDelta` before `NotifyCommitted`, so every commit
+Host publishes is already accounted for by the time observers run. A
+`CommitObserver` — `ActivityProjection.ObserveCommitted` included — must never
+re-observe the delta it receives; doing so double-counts every durable runtime,
+goal, turn, and tool-call failure whenever the same observer is wired to both.
+
+A report path that commits and fans out without going through Host calls
+`ObserveTerminalFailuresFromDelta` exactly once next to its own
+`NotifyCommitted`. In tuttid that path is
+`ActivityProjection.observeCommittedOutsideHost`, the single entrypoint for the
+direct activity-state, session-message, and stale-turn reports;
+`ActivityProjection.SetTerminalFailureObserver` exists to feed it. Canonical
+bookkeeping commits (`CanonicalDelta`) carry no failure-bearing sections, so
+they need no extraction.
+
+Because the observed `RuntimeOperations`, `EffectiveHistory`, and `GoalStore`
+wrappers are the only source of durable runtime and goal commit deltas, `New`
+installs them when either `CommitObserver` or `TerminalFailureObserver` is
+configured. An adapter that wants failure analytics alone still gets them.
