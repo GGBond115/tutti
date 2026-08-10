@@ -68,6 +68,7 @@ test("clones an explicitly projected Goal synchronization state", () => {
     agentSessionId: "session-goal-sync",
     cwd: "/workspace",
     goalSyncState: {
+      executionPending: true,
       pendingOperationId: " goal-operation-1 ",
       revision: 3,
       syncStatus: "applying"
@@ -80,6 +81,7 @@ test("clones an explicitly projected Goal synchronization state", () => {
   });
 
   assert.deepEqual(session.goalSyncState, {
+    executionPending: true,
     pendingOperationId: "goal-operation-1",
     revision: 3,
     syncStatus: "applying"

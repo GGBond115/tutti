@@ -45,6 +45,7 @@ func TestGeneratedAgentSessionIncludesIndependentLatestTurnProjection(t *testing
 			PendingOperationID: "goal-operation-1",
 			Revision:           3,
 			SyncStatus:         agentactivitybiz.GoalSyncStatusApplying,
+			ExecutionPending:   true,
 		},
 		Capabilities: canonical.NewCapabilitySnapshot([]string{"planMode", "planImplementation"}),
 		Metadata: agentactivitybiz.SessionMetadata{
@@ -85,7 +86,8 @@ func TestGeneratedAgentSessionIncludesIndependentLatestTurnProjection(t *testing
 		generated.GoalSyncState.Revision != 3 ||
 		generated.GoalSyncState.SyncStatus != "applying" ||
 		generated.GoalSyncState.PendingOperationId == nil ||
-		*generated.GoalSyncState.PendingOperationId != "goal-operation-1" {
+		*generated.GoalSyncState.PendingOperationId != "goal-operation-1" ||
+		!generated.GoalSyncState.ExecutionPending {
 		t.Fatalf("goal sync state = %#v", generated.GoalSyncState)
 	}
 	encoded, err := json.Marshal(generated)

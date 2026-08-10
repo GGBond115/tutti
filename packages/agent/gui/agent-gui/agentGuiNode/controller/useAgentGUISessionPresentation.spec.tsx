@@ -286,6 +286,18 @@ describe("useAgentGUISessionPresentation", () => {
     input.activeEngineSession = {
       ...input.activeEngineSession!,
       goalSyncState: {
+        executionPending: true,
+        pendingOperationId: null,
+        revision: 1,
+        syncStatus: "synced"
+      }
+    };
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(true);
+
+    input.activeEngineSession = {
+      ...input.activeEngineSession!,
+      goalSyncState: {
         pendingOperationId: "goal-operation-1",
         revision: 1,
         syncStatus: "synced"
@@ -297,6 +309,7 @@ describe("useAgentGUISessionPresentation", () => {
     input.activeEngineSession = {
       ...input.activeEngineSession!,
       goalSyncState: {
+        executionPending: true,
         pendingOperationId: null,
         revision: 1,
         syncStatus: "diverged"
@@ -328,6 +341,16 @@ describe("useAgentGUISessionPresentation", () => {
       rendered.rerender();
       expect(rendered.result.current.activeConversationBusy).toBe(true);
     }
+
+    input.activeEngineSession = {
+      ...input.activeEngineSession!,
+      goalSyncState: {
+        executionPending: true,
+        pendingOperationId: null,
+        revision: 1,
+        syncStatus: "synced"
+      }
+    };
 
     input.activeEngineLatestTurn = {
       agentSessionId: "session-1",

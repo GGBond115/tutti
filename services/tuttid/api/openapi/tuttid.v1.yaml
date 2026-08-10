@@ -14306,6 +14306,7 @@ components:
         - revision
         - syncStatus
         - pendingOperationId
+        - executionPending
       properties:
         revision:
           type: integer
@@ -14323,6 +14324,12 @@ components:
         pendingOperationId:
           type: string
           nullable: true
+        executionPending:
+          type: boolean
+          description: >-
+            Host-owned proof that an accepted initial Goal is expected to
+            begin autonomous execution and has not produced its first exact
+            Goal Turn yet.
     WorkspaceAgentSessionGoalState:
       type: object
       additionalProperties: false

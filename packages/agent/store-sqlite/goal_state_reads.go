@@ -65,10 +65,10 @@ func scanSessionGoalStateRows(row rowScanner) (SessionGoalState, bool, error) {
 	var state SessionGoalState
 	var desiredJSON, observedJSON sql.NullString
 	var evidenceJSON string
-	var tombstoned int
+	var tombstoned, executionPending int
 	if err := row.Scan(&state.WorkspaceID, &state.AgentSessionID, &desiredJSON, &observedJSON,
 		&state.Revision, &tombstoned, &state.SyncStatus, &state.PendingOperationID,
-		&evidenceJSON, &state.LastError, &state.ObservedAtUnixMS,
+		&executionPending, &evidenceJSON, &state.LastError, &state.ObservedAtUnixMS,
 		&state.CreatedAtUnixMS, &state.UpdatedAtUnixMS); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return SessionGoalState{}, false, nil
@@ -76,6 +76,7 @@ func scanSessionGoalStateRows(row rowScanner) (SessionGoalState, bool, error) {
 		return SessionGoalState{}, false, err
 	}
 	state.Tombstoned = tombstoned != 0
+	state.ExecutionPending = executionPending != 0
 	state.Desired = unmarshalNullableJSONMap(desiredJSON)
 	state.Observed = unmarshalNullableJSONMap(observedJSON)
 	state.LastEvidence, _ = unmarshalJSONMap(evidenceJSON)

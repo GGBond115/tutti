@@ -253,6 +253,7 @@ func TestProtocolV2ProjectionIncludesDurableGoalSyncState(t *testing.T) {
 			PendingOperationID: " goal-operation-1 ",
 			Revision:           4,
 			SyncStatus:         agentactivitybiz.GoalSyncStatusApplying,
+			ExecutionPending:   true,
 			WorkspaceID:        "workspace-1",
 		},
 	}}
@@ -269,7 +270,8 @@ func TestProtocolV2ProjectionIncludesDurableGoalSyncState(t *testing.T) {
 	if projected.GoalSyncState == nil ||
 		projected.GoalSyncState.Revision != 4 ||
 		projected.GoalSyncState.SyncStatus != agentactivitybiz.GoalSyncStatusApplying ||
-		projected.GoalSyncState.PendingOperationID != "goal-operation-1" {
+		projected.GoalSyncState.PendingOperationID != "goal-operation-1" ||
+		!projected.GoalSyncState.ExecutionPending {
 		t.Fatalf("GoalSyncState = %#v", projected.GoalSyncState)
 	}
 }

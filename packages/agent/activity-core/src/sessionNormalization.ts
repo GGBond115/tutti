@@ -93,7 +93,8 @@ export function normalizeAgentActivitySession(
                 revision: source.goalSyncState.revision,
                 syncStatus: source.goalSyncState.syncStatus,
                 pendingOperationId:
-                  source.goalSyncState.pendingOperationId?.trim() || null
+                  source.goalSyncState.pendingOperationId?.trim() || null,
+                executionPending: source.goalSyncState.executionPending === true
               }
             : null
         }

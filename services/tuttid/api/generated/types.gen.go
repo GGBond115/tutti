@@ -9002,6 +9002,8 @@ type WorkspaceAgentSessionGoalStateResponse struct {
 
 // WorkspaceAgentSessionGoalSyncState defines model for WorkspaceAgentSessionGoalSyncState.
 type WorkspaceAgentSessionGoalSyncState struct {
+	// ExecutionPending Host-owned proof that an accepted initial Goal is expected to begin autonomous execution and has not produced its first exact Goal Turn yet.
+	ExecutionPending   bool                                         `json:"executionPending"`
 	PendingOperationId *string                                      `json:"pendingOperationId"`
 	Revision           int64                                        `json:"revision"`
 	SyncStatus         WorkspaceAgentSessionGoalSyncStateSyncStatus `json:"syncStatus"`

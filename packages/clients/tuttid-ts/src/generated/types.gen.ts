@@ -3187,6 +3187,10 @@ export type WorkspaceAgentSessionGoalSyncState = {
     | "unknown"
     | "failed";
   pendingOperationId: string | null;
+  /**
+   * Host-owned proof that an accepted initial Goal is expected to begin autonomous execution and has not produced its first exact Goal Turn yet.
+   */
+  executionPending: boolean;
 };
 
 export type WorkspaceAgentSessionGoalState = {

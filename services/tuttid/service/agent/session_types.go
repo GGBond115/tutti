@@ -306,6 +306,7 @@ type SessionGoalSyncState struct {
 	Revision           int64
 	SyncStatus         string
 	PendingOperationID string
+	ExecutionPending   bool
 }
 
 // SessionForkLineage is the durable provenance of a user-initiated root

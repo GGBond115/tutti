@@ -683,6 +683,8 @@ export interface AgentActivitySessionGoalSyncState {
   revision: number;
   syncStatus: AgentActivitySessionGoalSyncStatus;
   pendingOperationId: string | null;
+  /** Optional for mixed-version hosts; true is authoritative Host evidence. */
+  executionPending?: boolean;
 }
 
 export interface AgentActivitySessionGoalState {

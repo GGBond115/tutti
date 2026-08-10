@@ -343,12 +343,15 @@ empty initial content to their Create transport, and Agent Host creates the
 Session plus durable Goal operation without creating a Turn.
 Hosts that already observe that durable operation may attach the optional,
 read-only `goalSyncState` projection to the Session. The field carries only the
-revision, sync status, and pending operation identity. Omission means the host
-cannot prove progress; consumers must not reinterpret it as idle or successful.
+revision, sync status, pending operation identity, and optional Host-owned
+`executionPending` proof. Omission means the host cannot prove progress;
+consumers must not reinterpret it as idle or successful.
 For loading continuity, `pending`, `applying`, and `unknown` require a non-empty
-pending operation identity. `synced` proves the Goal mutation converged and
-releases this bridge; canonical Turn or runtime activity must independently
-prove later execution.
+pending operation identity. A `synced` mutation keeps the initial-Goal bridge
+only when `executionPending` is explicitly true. The Host clears that proof on
+the first canonical Turn with exact Goal provenance or when the Goal becomes
+terminal, diverged, failed, or otherwise non-executing. Missing proof fails
+closed, including for mixed-version hosts.
 Engine Session merging preserves known state across compatible projections that
 omit the optional field, while an explicit `null` clears it.
 Existing-Session Goal Control is a separate Engine operation. The caller

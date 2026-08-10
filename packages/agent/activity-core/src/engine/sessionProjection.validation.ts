@@ -140,7 +140,9 @@ function optionalGoalSyncState(value: unknown): boolean {
       Number.isSafeInteger(value.revision) &&
       (value.revision as number) >= 0 &&
       isOneOf(value.syncStatus, GOAL_SYNC_STATUSES) &&
-      isNullableString(value.pendingOperationId))
+      isNullableString(value.pendingOperationId) &&
+      (value.executionPending === undefined ||
+        typeof value.executionPending === "boolean"))
   );
 }
 

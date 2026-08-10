@@ -570,6 +570,7 @@ test("new-session Goal projection stops being optimistic after canonical hydrati
   assert.deepEqual(
     selectEngineSession(engine.getSnapshot(), "session-new")?.goalSyncState,
     {
+      executionPending: false,
       pendingOperationId: "goal-operation-1",
       revision: 1,
       syncStatus: "applying"
@@ -586,6 +587,7 @@ test("new-session Goal projection stops being optimistic after canonical hydrati
   assert.deepEqual(
     selectEngineSession(engine.getSnapshot(), "session-new")?.goalSyncState,
     {
+      executionPending: false,
       pendingOperationId: "goal-operation-1",
       revision: 1,
       syncStatus: "applying"

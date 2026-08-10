@@ -477,6 +477,7 @@ func projectedSessionGoalSyncState(state agentactivitybiz.SessionGoalState) *Ses
 		Revision:           state.Revision,
 		SyncStatus:         strings.TrimSpace(state.SyncStatus),
 		PendingOperationID: strings.TrimSpace(state.PendingOperationID),
+		ExecutionPending:   state.ExecutionPending,
 	}
 }
 

@@ -2474,11 +2474,15 @@ canonical replacement does not remove and recreate the visible `goal-control`
 row.
 Hosts that can observe the durable Goal saga may additionally project the
 optional Session `goalSyncState` (`revision`, `syncStatus`, and
-`pendingOperationId`). It is read evidence owned by the Host, not Session-owned
-Goal lifecycle state. AgentGUI uses it only while the exact initial Goal
-operation remains pending. Omission means unknown capability; `synced`,
-`failed`, and `diverged` all release that operation bridge. Canonical Turn or
-runtime activity independently owns any later execution presentation.
+`pendingOperationId`, plus optional `executionPending`). It is read evidence
+owned by the Host, not Session-owned Goal lifecycle state. AgentGUI uses an
+identified `pending`, `applying`, or `unknown` operation while the exact initial
+Goal mutation remains pending. After mutation convergence, `synced` retains the
+bridge only when the Host explicitly reports `executionPending=true`. The Host
+clears that proof on the first canonical Turn with exact Goal provenance or on
+terminal, diverged, failed, or non-active Goal evidence. Omission fails closed,
+including across mixed-version hosts; AgentGUI never infers future execution
+from `synced` alone or uses a UI timeout.
 The pending activation carries the same resolved project section key as the
 create command. Exact rail projection therefore shows the conversation as soon
 as the intent is accepted; it does not wait for provider startup or invent a

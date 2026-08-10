@@ -72,6 +72,7 @@ test("session mapping preserves durable Goal synchronization evidence", () => {
     {
       ...createSession(),
       goalSyncState: {
+        executionPending: true,
         pendingOperationId: " goal-operation-1 ",
         revision: 4,
         syncStatus: "applying"
@@ -81,6 +82,7 @@ test("session mapping preserves durable Goal synchronization evidence", () => {
   );
 
   assert.deepEqual(session.goalSyncState, {
+    executionPending: true,
     pendingOperationId: "goal-operation-1",
     revision: 4,
     syncStatus: "applying"
@@ -89,9 +91,25 @@ test("session mapping preserves durable Goal synchronization evidence", () => {
 
 test("session mapping rejects malformed Goal synchronization evidence", () => {
   for (const goalSyncState of [
-    { pendingOperationId: 42, revision: 1, syncStatus: "applying" },
-    { pendingOperationId: null, revision: -1, syncStatus: "applying" },
-    { pendingOperationId: null, revision: 1, syncStatus: "future" }
+    {
+      executionPending: false,
+      pendingOperationId: 42,
+      revision: 1,
+      syncStatus: "applying"
+    },
+    {
+      executionPending: false,
+      pendingOperationId: null,
+      revision: -1,
+      syncStatus: "applying"
+    },
+    {
+      executionPending: false,
+      pendingOperationId: null,
+      revision: 1,
+      syncStatus: "future"
+    },
+    { pendingOperationId: null, revision: 1, syncStatus: "synced" }
   ]) {
     assert.throws(
       () =>

@@ -78,7 +78,8 @@ export function agentActivitySessionFromTuttidSession(
           revision: session.goalSyncState.revision,
           syncStatus: session.goalSyncState.syncStatus,
           pendingOperationId:
-            session.goalSyncState.pendingOperationId?.trim() || null
+            session.goalSyncState.pendingOperationId?.trim() || null,
+          executionPending: session.goalSyncState.executionPending === true
         }
       : null,
     tuttiModeActivation: session.tuttiModeActivation
@@ -208,7 +209,8 @@ function isTuttidGoalSyncState(value: unknown): boolean {
     typeof state.syncStatus === "string" &&
     TUTTID_GOAL_SYNC_STATUSES.has(state.syncStatus) &&
     (state.pendingOperationId === null ||
-      typeof state.pendingOperationId === "string")
+      typeof state.pendingOperationId === "string") &&
+    typeof state.executionPending === "boolean"
   );
 }
 

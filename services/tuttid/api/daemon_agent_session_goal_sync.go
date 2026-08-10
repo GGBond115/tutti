@@ -21,5 +21,6 @@ func generatedAgentSessionGoalSyncState(
 		PendingOperationId: optionalStringPointer(strings.TrimSpace(state.PendingOperationID)),
 		Revision:           state.Revision,
 		SyncStatus:         syncStatus,
+		ExecutionPending:   state.ExecutionPending,
 	}
 }

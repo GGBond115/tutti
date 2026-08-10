@@ -731,6 +731,8 @@ function initialGoalHasPendingOperationEvidence(input: {
     case "applying":
     case "unknown":
       return Boolean(input.syncState.pendingOperationId?.trim());
+    case "synced":
+      return input.syncState.executionPending === true;
     default:
       return false;
   }
