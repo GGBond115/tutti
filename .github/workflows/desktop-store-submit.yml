@@ -15,6 +15,10 @@ on:
       target_commit:
         required: true
         type: string
+      verify_release_tag:
+        default: true
+        required: false
+        type: boolean
   workflow_dispatch:
     inputs:
       release_tag:
@@ -35,6 +39,11 @@ on:
       submit:
         default: false
         description: Submit the validated package to Partner Center
+        required: true
+        type: boolean
+      verify_release_tag:
+        default: true
+        description: Require the release tag to resolve to the target commit
         required: true
         type: boolean
 
@@ -98,6 +107,7 @@ jobs:
           ref: ${{ inputs.target_commit }}
 
       - name: Verify stable tag points to release target
+        if: ${{ inputs.verify_release_tag }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
