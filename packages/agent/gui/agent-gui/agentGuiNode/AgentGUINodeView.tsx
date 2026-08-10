@@ -511,29 +511,25 @@ export function AgentGUINodeView({
       workspaceUserProjectI18n
     ]
   );
+  const mentionPresentationTargets = mergeAgentTargetsForMentionPresentations(
+    viewModel.rail.agentTargets,
+    viewModel.composer.handoffAgentTargets
+  );
   const targetPresentationKey = agentTargetPresentationKey(
-    mergeAgentTargetsForMentionPresentations(
-      viewModel.rail.agentTargets,
-      viewModel.composer.handoffAgentTargets
-    )
+    mentionPresentationTargets
   );
   const agentTargetPresentations = useMemo<
     readonly AgentMessageMarkdownAgentTarget[]
   >(
     () =>
       projectAgentTargetPresentations({
-        agentTargets: mergeAgentTargetsForMentionPresentations(
-          viewModel.rail.agentTargets,
-          viewModel.composer.handoffAgentTargets
-        ),
+        agentTargets: mentionPresentationTargets,
         ownerSeparator: labels.sharedAgentOwnerSeparator,
         workspaceId: viewModel.shell.workspaceId
       }),
     [
       labels.sharedAgentOwnerSeparator,
       targetPresentationKey,
-      viewModel.composer.handoffAgentTargets,
-      viewModel.rail.agentTargets,
       viewModel.shell.workspaceId
     ]
   );
