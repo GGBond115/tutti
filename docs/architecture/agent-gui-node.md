@@ -877,8 +877,20 @@ canonical Session first appears. Session existence or an `available` runtime
 must not create an idle frame before the exact Turn claims the submission. A
 viable new-Session activation with `initialTurnExpected` remains the same busy
 bridge while no canonical latest Turn exists. Goal-only activation deliberately
-does not expect a Turn. When a provider exposes an exact session-level
-`running`/`idle` observation before Turn identity, the daemon projects that
+does not set `initialTurnExpected`, because Goal Control does not synchronously
+create a Turn. A viable initial Goal `set` whose projected Goal is still active
+remains a busy bridge only while the Goal is optimistic or the host supplies an
+exact pending/applying/unknown `goalSyncState` with a pending operation
+identity. A synced Goal proves only that the Goal mutation converged; it does
+not prove that a future Turn will exist. The first canonical Turn, a synced or
+non-active Goal,
+`failed`/`diverged` synchronization, `pending`/`applying`/`unknown` without an operation identity,
+or a canceled/failed activation releases the bridge; initial Goal `clear` never
+creates it. A host that omits `goalSyncState` cannot prove post-create execution
+and therefore fails closed to the canonical availability projection instead of
+keeping the composer busy indefinitely. When a provider exposes an exact
+session-level `running`/`idle` observation before Turn identity, the daemon
+projects that
 typed, non-persistent runtime activity through `agent.activity.updated` after
 the associated state report wins canonical ordering. Desktop and Mobile Live
 consume the same event variant. The workspace Engine uses its occurrence time
@@ -2460,6 +2472,13 @@ callers that omit the structured field. AgentGUI represents the pending control
 and its durable audit with the same client-submit presentation identity, so
 canonical replacement does not remove and recreate the visible `goal-control`
 row.
+Hosts that can observe the durable Goal saga may additionally project the
+optional Session `goalSyncState` (`revision`, `syncStatus`, and
+`pendingOperationId`). It is read evidence owned by the Host, not Session-owned
+Goal lifecycle state. AgentGUI uses it only while the exact initial Goal
+operation remains pending. Omission means unknown capability; `synced`,
+`failed`, and `diverged` all release that operation bridge. Canonical Turn or
+runtime activity independently owns any later execution presentation.
 The pending activation carries the same resolved project section key as the
 create command. Exact rail projection therefore shows the conversation as soon
 as the intent is accepted; it does not wait for provider startup or invent a

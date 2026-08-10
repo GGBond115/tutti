@@ -360,6 +360,15 @@ title from the display prompt, or from a synthesized `/goal` command when the
 display prompt is absent. Non-empty initial content and typed initial Goal are
 mutually exclusive, and product adapters must not reconstruct the command from
 display text.
+The public Session contract optionally carries `goalSyncState` as a narrow
+Host-owned observation: revision, sync status, and pending operation identity.
+It does not move Goal saga ownership into Activity Core. Missing state means the
+host cannot prove progress; explicit `null` clears prior evidence, and Session
+merge preserves prior evidence when a compatible partial projection merely
+omits the field. AgentGUI may use an identified pending/applying/unknown
+operation for initial-Goal loading continuity without inventing a Turn or a UI
+timeout. A synced operation is terminal mutation evidence, not proof that a
+future Turn will exist.
 Desktop AgentGUI and Mobile call `stopSession` instead of constructing
 `session/stopRequested` protocol fields. The same method stops an active Turn
 or records a bounded request that cancels the first Turn produced by an

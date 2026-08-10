@@ -341,6 +341,16 @@ for external hosts that use them for goal setup or idempotency. A typed
 new-Session Goal is part of activation: hosts forward `initialGoalControl` and
 empty initial content to their Create transport, and Agent Host creates the
 Session plus durable Goal operation without creating a Turn.
+Hosts that already observe that durable operation may attach the optional,
+read-only `goalSyncState` projection to the Session. The field carries only the
+revision, sync status, and pending operation identity. Omission means the host
+cannot prove progress; consumers must not reinterpret it as idle or successful.
+For loading continuity, `pending`, `applying`, and `unknown` require a non-empty
+pending operation identity. `synced` proves the Goal mutation converged and
+releases this bridge; canonical Turn or runtime activity must independently
+prove later execution.
+Engine Session merging preserves known state across compatible projections that
+omit the optional field, while an explicit `null` clears it.
 Existing-Session Goal Control is a separate Engine operation. The caller
 proposes a stable client-submit identity; admission returns the effective
 identity actually used by the Engine. The Engine owns command identity,

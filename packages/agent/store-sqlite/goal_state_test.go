@@ -7,6 +7,44 @@ import (
 	"testing"
 )
 
+func TestListSessionGoalStatesReturnsRequestedRowsInOneRead(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	for index, sessionID := range []string{"session-1", "session-2"} {
+		if _, err := store.ReportSessionState(ctx, SessionStateReport{
+			AgentSessionID:   sessionID,
+			OccurredAtUnixMS: int64(index + 1),
+			Provider:         "codex",
+			WorkspaceID:      "workspace-goal-list",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, err := store.PrepareGoalControlOperation(ctx, GoalControlOperationPrepare{
+			Action:           "set",
+			AgentSessionID:   sessionID,
+			Objective:        "ship " + sessionID,
+			OccurredAtUnixMS: int64(index + 10),
+			OperationID:      "goal-" + sessionID,
+			WorkspaceID:      "workspace-goal-list",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	states, err := store.ListSessionGoalStates(ctx, " workspace-goal-list ", []string{
+		" session-2 ", "session-missing", "session-1", "session-2", "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 2 ||
+		states["session-1"].PendingOperationID != "goal-session-1" ||
+		states["session-2"].PendingOperationID != "goal-session-2" {
+		t.Fatalf("states = %#v", states)
+	}
+}
+
 func TestProviderGoalAdoptionCompletesWithoutProviderRedispatch(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
