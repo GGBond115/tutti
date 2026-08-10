@@ -2,55 +2,57 @@ package agenthost
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 )
 
 type Config struct {
-	CanonicalStore         CanonicalStore
-	InteractionTrees       CanonicalInteractionTreeStore
-	TurnSubmissions        TurnSubmissionStore
-	EffectiveHistory       EffectiveHistoryStore
-	SessionManagement      SessionManagementStore
-	SessionBatchManagement SessionBatchManagementStore
-	SessionDeletionGuard   SessionDeletionGuard
-	SessionPurge           SessionPurgeStore
-	DeletedSessions        DeletedSessionStore
-	HistoricalState        HistoricalSessionStateStore
-	SessionForks           SessionForkStore
-	SessionForkRecovery    SessionForkRecoveryStore
-	SessionForkRuntime     SessionForkRuntime
-	SessionForkContext     SessionForkContextPolicy
-	SessionForkState       SessionForkProviderStateBinder
-	SessionForkAttachments SessionForkAttachmentStager
-	Runtime                RuntimeController
-	HistoryRuntime         RuntimeHistoryController
-	RuntimePreparation     RuntimePreparationPort
-	SettingsPolicy         SettingsPolicy
-	Attachments            AttachmentMaterializer
-	Clock                  Clock
-	SessionLocker          SessionLocker
-	RuntimeStartGate       RuntimeStartGate
-	LifecycleObserver      LifecycleObserver
-	CommitObserver         CommitObserver
-	RuntimeOperations      RuntimeOperationStore
-	OperationEvents        RuntimeOperationEventPublisher
-	OperationOwner         string
-	Scheduler              Scheduler
-	StaleTurnSettler       StaleTurnSettler
-	WorktreeGC             WorktreeGarbageCollector
-	GoalStore              GoalStateStore
-	GoalFences             GoalGenerationFenceStore
-	GoalRuntime            GoalRuntimeController
-	GoalInbox              GoalReconcileInboxStore
-	GoalOwner              string
-	GoalClock              Clock
-	GoalAttemptTimeout     time.Duration
-	GoalRecoveryBudget     time.Duration
-	GoalMaxAttempts        int
-	GoalDispatchDeadline   time.Duration
-	GoalActor              *SessionActor
-	SessionMutationActor   *SessionActor
+	CanonicalStore          CanonicalStore
+	InteractionTrees        CanonicalInteractionTreeStore
+	TurnSubmissions         TurnSubmissionStore
+	EffectiveHistory        EffectiveHistoryStore
+	SessionManagement       SessionManagementStore
+	SessionBatchManagement  SessionBatchManagementStore
+	SessionDeletionGuard    SessionDeletionGuard
+	SessionPurge            SessionPurgeStore
+	DeletedSessions         DeletedSessionStore
+	HistoricalState         HistoricalSessionStateStore
+	SessionForks            SessionForkStore
+	SessionForkRecovery     SessionForkRecoveryStore
+	SessionForkRuntime      SessionForkRuntime
+	SessionForkContext      SessionForkContextPolicy
+	SessionForkState        SessionForkProviderStateBinder
+	SessionForkAttachments  SessionForkAttachmentStager
+	Runtime                 RuntimeController
+	HistoryRuntime          RuntimeHistoryController
+	RuntimePreparation      RuntimePreparationPort
+	SettingsPolicy          SettingsPolicy
+	Attachments             AttachmentMaterializer
+	Clock                   Clock
+	SessionLocker           SessionLocker
+	RuntimeStartGate        RuntimeStartGate
+	LifecycleObserver       LifecycleObserver
+	TerminalFailureObserver TerminalFailureObserver
+	CommitObserver          CommitObserver
+	RuntimeOperations       RuntimeOperationStore
+	OperationEvents         RuntimeOperationEventPublisher
+	OperationOwner          string
+	Scheduler               Scheduler
+	StaleTurnSettler        StaleTurnSettler
+	WorktreeGC              WorktreeGarbageCollector
+	GoalStore               GoalStateStore
+	GoalFences              GoalGenerationFenceStore
+	GoalRuntime             GoalRuntimeController
+	GoalInbox               GoalReconcileInboxStore
+	GoalOwner               string
+	GoalClock               Clock
+	GoalAttemptTimeout      time.Duration
+	GoalRecoveryBudget      time.Duration
+	GoalMaxAttempts         int
+	GoalDispatchDeadline    time.Duration
+	GoalActor               *SessionActor
+	SessionMutationActor    *SessionActor
 
 	// EditRetryDisabled neutralizes the durable edit-and-retry feature (PR
 	// #1681). When set, new edit-retry operations are refused and any operation
@@ -87,6 +89,7 @@ type Host struct {
 	locker                 SessionLocker
 	startupGate            RuntimeStartGate
 	observer               LifecycleObserver
+	terminalFailure        TerminalFailureObserver
 	commitObserver         CommitObserver
 	operations             RuntimeOperationStore
 	events                 RuntimeOperationEventPublisher
@@ -133,8 +136,9 @@ func New(config Config) *Host {
 		sessionForkRecovery:    config.SessionForkRecovery,
 		preparation:            config.RuntimePreparation, settingsPolicy: config.SettingsPolicy, attachments: config.Attachments,
 		clock: config.Clock, locker: config.SessionLocker, startupGate: config.RuntimeStartGate,
-		observer: config.LifecycleObserver, commitObserver: config.CommitObserver,
-		operations: config.RuntimeOperations, events: config.OperationEvents,
+		observer: config.LifecycleObserver, terminalFailure: config.TerminalFailureObserver,
+		commitObserver: config.CommitObserver,
+		operations:     config.RuntimeOperations, events: config.OperationEvents,
 		owner: config.OperationOwner, scheduler: config.Scheduler, staleTurns: config.StaleTurnSettler,
 		worktreeGC: config.WorktreeGC,
 		goals:      config.GoalStore, goalFences: config.GoalFences, goalRuntime: config.GoalRuntime, goalInbox: config.GoalInbox,
@@ -171,12 +175,64 @@ func New(config Config) *Host {
 	return host
 }
 
-func (h *Host) observeStep(ctx context.Context, flow, name, sessionID, provider string, startedAt time.Time, err error) {
+func (h *Host) observeStep(ctx context.Context, flow, name, workspaceID, sessionID, provider string, startedAt time.Time, err error) {
 	if h != nil && h.observer != nil {
 		h.observer.ObserveLifecycleStep(ctx, LifecycleStep{
 			Flow: flow, Name: name, AgentSessionID: sessionID, Provider: provider, StartedAt: startedAt, Err: err,
 		})
 	}
+	if err != nil {
+		h.observeTerminalFailure(ctx, TerminalFailure{
+			Flow:           flow,
+			FailureStage:   name,
+			WorkspaceID:    workspaceID,
+			AgentSessionID: sessionID,
+			Provider:       provider,
+			ErrorCode:      terminalFailureCode(err),
+			ErrorMessage:   err.Error(),
+			Retryable:      isRetryableRuntimeOperationError(err),
+		})
+	}
+}
+
+func (h *Host) observeGuidanceTargetFailure(
+	ctx context.Context,
+	ref SessionRef,
+	provider, turnID, clientSubmitID string,
+	startedAt time.Time,
+	err error,
+) {
+	if err == nil {
+		return
+	}
+	if h != nil && h.observer != nil {
+		h.observer.ObserveLifecycleStep(ctx, LifecycleStep{
+			Flow: "guidance", Name: "guidance_target", AgentSessionID: ref.AgentSessionID,
+			Provider: provider, StartedAt: startedAt, Err: err,
+		})
+	}
+	h.observeTerminalFailure(ctx, TerminalFailure{
+		Flow:           "guidance",
+		FailureStage:   "guidance_target",
+		WorkspaceID:    ref.WorkspaceID,
+		AgentSessionID: ref.AgentSessionID,
+		TurnID:         strings.TrimSpace(turnID),
+		ClientSubmitID: strings.TrimSpace(clientSubmitID),
+		Provider:       provider,
+		ErrorCode:      guidanceTargetFailureCode(err),
+		ErrorMessage:   err.Error(),
+		Retryable:      false,
+	})
+}
+
+func (h *Host) observeTerminalFailure(ctx context.Context, failure TerminalFailure) {
+	if h == nil || h.terminalFailure == nil {
+		return
+	}
+	if failure.ErrorMessage == "" && failure.ErrorCode == "" {
+		return
+	}
+	h.terminalFailure.ObserveTerminalFailure(ctx, failure)
 }
 
 type systemClock struct{}

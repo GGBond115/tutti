@@ -500,8 +500,42 @@ type LifecycleStep struct {
 
 // LifecycleObserver receives diagnostic step outcomes. It must not influence
 // command correctness; durable state remains in CanonicalStore.
+//
+// Adapters must not turn every LifecycleStep into a product analytics event.
+// Prefer TerminalFailureObserver for aggregated failure telemetry.
 type LifecycleObserver interface {
 	ObserveLifecycleStep(context.Context, LifecycleStep)
+}
+
+// TerminalFailure is one aggregated failure fact for product telemetry.
+// Host emits at most one observation per failed command or durable terminal
+// settlement. It carries the failure stage and original error text so adapters
+// can report without depending on user-supplied logs.
+type TerminalFailure struct {
+	Flow            string
+	FailureStage    string
+	WorkspaceID     string
+	AgentSessionID  string
+	TurnID          string
+	OperationID     string
+	ClientSubmitID  string
+	RequestID       string
+	Provider        string
+	ErrorCode       string
+	ErrorMessage    string
+	ToolNameFamily  string
+	InteractionKind string
+	// IsChildSession marks provider-native subagent sessions (parent tool call).
+	// Adapters may use it to distinguish child-session turn/tool failures from
+	// root-session ones without a separate event family.
+	IsChildSession bool
+	Retryable      bool
+}
+
+// TerminalFailureObserver receives aggregated terminal failures. It must not
+// influence command correctness; durable state remains in CanonicalStore.
+type TerminalFailureObserver interface {
+	ObserveTerminalFailure(context.Context, TerminalFailure)
 }
 
 // CommitObserver is the single post-commit wake surface. Implementations must

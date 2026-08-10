@@ -25,6 +25,7 @@ type RootTurnSettled struct {
 	WorkspaceID    string
 	AgentSessionID string
 	Turn           storesqlite.Turn
+	IsChildSession bool
 }
 
 type RuntimeOperationCommitStage string
@@ -102,6 +103,7 @@ func ActivityStateDelta(input canonical.ReportSessionStateInput, reply canonical
 	if result.RootTurnAccepted && result.RootTurn.Phase == storesqlite.TurnPhaseSettled {
 		delta.RootTurnsSettled = append(delta.RootTurnsSettled, RootTurnSettled{
 			WorkspaceID: result.RootTurn.WorkspaceID, AgentSessionID: result.RootTurn.AgentSessionID, Turn: result.RootTurn,
+			IsChildSession: sessionStateIsChild(input.State),
 		})
 	}
 	if goalOp := goalOperationFromActivityState(input, result); goalOp != nil {
@@ -112,6 +114,14 @@ func ActivityStateDelta(input canonical.ReportSessionStateInput, reply canonical
 		delta.addView(input.WorkspaceID, result.RootTurn.AgentSessionID)
 	}
 	return delta
+}
+
+func sessionStateIsChild(state canonical.WorkspaceAgentSessionStateUpdate) bool {
+	kind := strings.TrimSpace(state.Kind)
+	if strings.EqualFold(kind, storesqlite.SessionKindChild) {
+		return true
+	}
+	return strings.TrimSpace(state.ParentToolCallID) != ""
 }
 
 // goalOperationFromActivityState promotes bottom-up Goal observed updates
@@ -266,6 +276,7 @@ func NotifyCommitted(ctx context.Context, observer CommitObserver, delta Committ
 
 func (h *Host) notifyCommitted(ctx context.Context, delta CommittedDelta) {
 	if h != nil {
+		ObserveTerminalFailuresFromDelta(ctx, h.terminalFailure, delta)
 		NotifyCommitted(ctx, h.commitObserver, delta)
 	}
 }

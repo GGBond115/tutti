@@ -31,6 +31,7 @@ type ActivityProjection struct {
 	rootTurnObserver             RootTurnObserver
 	turnForkabilityResolver      TurnForkabilityResolver
 	replayCommitObserver         ReplayCommitObserver
+	terminalFailureObserver      agenthost.TerminalFailureObserver
 	// rootTurnSettleStateObserver is the dedicated, opt-in consumer list for
 	// synthesized canonical root-turn settlement states. It is deliberately
 	// separate from sessionStateObserver: the general observers historically
