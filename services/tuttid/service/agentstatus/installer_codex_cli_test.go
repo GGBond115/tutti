@@ -484,7 +484,7 @@ func TestManagedNPMRepairInstallPrefixFindsWindowsNPMShim(t *testing.T) {
 	}
 }
 
-func TestRunCodexCLILatestInstallerMovesLegacyWindowsPrefixToLocalBin(t *testing.T) {
+func TestRunCodexCLILatestInstallerRepairsLegacyWindowsPrefixInPlace(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows legacy npm prefix behavior")
 	}
@@ -519,7 +519,7 @@ func TestRunCodexCLILatestInstallerMovesLegacyWindowsPrefixToLocalBin(t *testing
 	}, legacyShim); err != nil {
 		t.Fatalf("runCodexCLILatestInstaller() error = %v", err)
 	}
-	wantPrefix := filepath.Join(home, ".local", "bin")
+	wantPrefix := legacyPrefix
 	if len(command.Args) < 2 || command.Args[0] == "" {
 		t.Fatalf("Command args = %#v, want npm install arguments", command.Args)
 	}
@@ -531,7 +531,7 @@ func TestRunCodexCLILatestInstallerMovesLegacyWindowsPrefixToLocalBin(t *testing
 		}
 	}
 	if gotPrefix != wantPrefix {
-		t.Fatalf("Command args = %#v, want final Windows prefix %s", command.Args, wantPrefix)
+		t.Fatalf("Command args = %#v, want legacy Windows prefix repaired in place at %s", command.Args, wantPrefix)
 	}
 }
 

@@ -25,3 +25,18 @@ func ResolveNPMGlobalLayout(installBinDir string) NPMGlobalLayout {
 	prefixDir := filepath.Dir(installBinDir)
 	return NPMGlobalLayout{PrefixDir: prefixDir, BinDir: installBinDir}
 }
+
+// UserManagedNPMExecutableDirs returns Tutti's current user-level npm launcher
+// directory followed by any backward-compatible directory that older Tutti
+// releases used. Callers use this list for discovery only; fresh installs still
+// target the first entry.
+func UserManagedNPMExecutableDirs(home string) []string {
+	installBinDir := filepath.Join(home, ".local", "bin")
+	dirs := []string{ResolveNPMGlobalLayout(installBinDir).BinDir}
+	if runtime.GOOS == "windows" {
+		// Older Windows releases passed %USERPROFILE%\.local as npm's prefix,
+		// so npm placed codex.cmd/tutti-agent.cmd directly in that directory.
+		dirs = append(dirs, filepath.Join(home, ".local"))
+	}
+	return dirs
+}

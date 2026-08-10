@@ -406,6 +406,10 @@ func (s Service) List(ctx context.Context, input ListInput) (snapshot Snapshot, 
 	for i := range statuses {
 		statuses[i].Update = baseProviderUpdateStatus(specs[i], statuses[i].CLI.Version, statuses[i].CLI.BinaryPath)
 	}
+	// A valid managed CLI can predate user-PATH publication (notably the legacy
+	// Windows .local npm prefix). Adopt its verified directory in place instead
+	// of presenting an unnecessary install action or creating a second copy.
+	s.publishDetectedManagedBinaryDirs(ctx, specs, statuses)
 
 	// Remote update discovery is a separate, explicit opt-in. It never runs for
 	// ordinary readiness/status requests, and each provider records a cached,
