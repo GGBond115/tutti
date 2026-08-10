@@ -103,8 +103,11 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 	if h.preparation != nil {
 		preparedAt := h.now()
 		prepared, err = h.preparation.Prepare(ctx, createPreparationInput(workspaceID, input))
-		h.observeStep(ctx, "session_create", "runtime_prepared", workspaceID, input.AgentSessionID, input.Provider, preparedAt, err)
+		// Only observe failures here. Service adapters already emit the success
+		// node_result for runtime_prepared before Host CreateSession; a success
+		// LifecycleStep would duplicate that analytics event.
 		if err != nil {
+			h.observeStep(ctx, "session_create", "runtime_prepared", workspaceID, input.AgentSessionID, input.Provider, preparedAt, err)
 			return createSessionFailureResult(input, err)
 		}
 	}
