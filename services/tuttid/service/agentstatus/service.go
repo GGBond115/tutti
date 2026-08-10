@@ -270,7 +270,9 @@ type Service struct {
 	// ClaudeCodeRuntimeDir is the user-local root that hosts provisioned Claude
 	// binaries. It is required for Claude Code runtime provisioning.
 	ClaudeCodeRuntimeDir string
-	AnalyticsReporter    reporterservice.Reporter
+	// UserCommandBinDir is the stable user-level directory published on PATH.
+	UserCommandBinDir string
+	AnalyticsReporter reporterservice.Reporter
 	// RunOutcomes lets a runtime auth failure override a stale "logged in" marker
 	// so the dock/wizard surface that login dropped. Shared pointer across copies.
 	RunOutcomes *RunOutcomeStore
@@ -312,6 +314,7 @@ type ServiceDependencies struct {
 	AnalyticsReporter          reporterservice.Reporter
 	ManagedRuntime             managedruntime.Resolver
 	ClaudeCodeRuntimeDir       string
+	UserCommandBinDir          string
 	CodexRuntimeSelectionStore CodexRuntimeSelectionStore
 	UserPathAdapter            UserPathAdapter
 }
@@ -323,6 +326,7 @@ func NewService(dependencies ServiceDependencies) Service {
 		AnalyticsReporter:          dependencies.AnalyticsReporter,
 		ManagedRuntime:             dependencies.ManagedRuntime,
 		ClaudeCodeRuntimeDir:       dependencies.ClaudeCodeRuntimeDir,
+		UserCommandBinDir:          dependencies.UserCommandBinDir,
 		RunOutcomes:                NewRunOutcomeStore(),
 		StatusCache:                NewProviderStatusCache(),
 		CLIVersionCache:            NewCLIVersionCache(),

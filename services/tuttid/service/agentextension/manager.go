@@ -45,9 +45,14 @@ type Manager struct {
 	Preferences       workspacedata.PreferencesStore
 	Client            *http.Client
 	RuntimeResolver   runtimecmd.Resolver
+	UserPathAdapter   UserPathAdapter
 	reconcileMu       sync.Mutex
 	versionCacheOnce  sync.Once
 	runtimeVersions   *runtimeVersionCache
+}
+
+type UserPathAdapter interface {
+	Ensure(context.Context, string) error
 }
 
 type Installation = agentextensionbiz.Installation

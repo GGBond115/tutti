@@ -103,9 +103,7 @@ func buildDaemonAPI(
 		Publisher:                      preferencesPublisher,
 		AgentComposerDefaultsPublisher: preferencesPublisher,
 	}
-	agentTargets := agenttargetservice.Service{
-		Store: agentTargetStore,
-	}
+	agentTargets := agenttargetservice.Service{Store: agentTargetStore}
 	agentRuntimeDir, err := tuttitypes.DefaultAgentRuntimeDir()
 	if err != nil {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("resolve agent runtime directory: %w", err)
@@ -124,6 +122,7 @@ func buildDaemonAPI(
 		Installations:     agentextensiondata.NewFileInstallationStore(agentExtensionStateDir),
 		Discovery:         agentSetupDiscovery,
 		Preferences:       preferencesStore,
+		UserPathAdapter:   agentstatusservice.NewUserPathAdapter(),
 	}
 	preferences.RegisterChangeObserver(func(ctx context.Context, previous, current preferencesbiz.DesktopPreferences) {
 		for _, reconcileErr := range agentExtensionManager.ReconcileDesktopPreferencesChange(ctx, previous, current) {
@@ -212,6 +211,7 @@ func buildDaemonAPI(
 		AnalyticsReporter:          analyticsReporter,
 		ManagedRuntime:             managedRuntimeResolver,
 		ClaudeCodeRuntimeDir:       filepath.Join(agentRuntimeDir, "claude-code"),
+		UserCommandBinDir:          agentExtensionBinDir,
 		CodexRuntimeSelectionStore: agentProviderRuntimeSelectionStore,
 		UserPathAdapter:            agentstatusservice.NewUserPathAdapter(),
 	})

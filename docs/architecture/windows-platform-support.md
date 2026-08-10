@@ -157,6 +157,18 @@ existing verified package is reused and updated in place instead of creating a
 second copy. After verification the daemon publishes the directory that owns
 the selected launcher. It does not migrate or delete the legacy package.
 
+Managed Agent Extensions and the provisioned Claude Code runtime publish into
+the same `%USERPROFILE%\.local\bin` contract. Their versioned executables stay
+under `%USERPROFILE%\.local\share\tutti\agent-runtimes`; a stable per-Agent
+`.cmd` launcher and a user-level `.cmd` launcher form two verified hops to the
+active executable. This avoids file-symlink privilege and keeps versioned
+runtime directories out of `PATH`. The daemon refuses to replace an existing
+entry unless it carries the Tutti launcher marker and points inside the
+expected managed runtime root. Successful install actions surface user-PATH
+write failures, while status-time adoption repairs PATH on a best-effort basis.
+Registry changes affect new processes only, so an already-open terminal must be
+restarted before it can resolve a newly published command.
+
 System proxy resolution follows the same shared precedence on macOS and
 Windows: session/process environment, then the operating-system static proxy,
 then direct connection. The common resolver owns merging, `NO_PROXY`, caching,
