@@ -2,6 +2,7 @@ package agenthost
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 )
@@ -192,6 +193,36 @@ func (h *Host) observeStep(ctx context.Context, flow, name, workspaceID, session
 			Retryable:      isRetryableRuntimeOperationError(err),
 		})
 	}
+}
+
+func (h *Host) observeGuidanceTargetFailure(
+	ctx context.Context,
+	ref SessionRef,
+	provider, turnID, clientSubmitID string,
+	startedAt time.Time,
+	err error,
+) {
+	if err == nil {
+		return
+	}
+	if h != nil && h.observer != nil {
+		h.observer.ObserveLifecycleStep(ctx, LifecycleStep{
+			Flow: "guidance", Name: "guidance_target", AgentSessionID: ref.AgentSessionID,
+			Provider: provider, StartedAt: startedAt, Err: err,
+		})
+	}
+	h.observeTerminalFailure(ctx, TerminalFailure{
+		Flow:           "guidance",
+		FailureStage:   "guidance_target",
+		WorkspaceID:    ref.WorkspaceID,
+		AgentSessionID: ref.AgentSessionID,
+		TurnID:         strings.TrimSpace(turnID),
+		ClientSubmitID: strings.TrimSpace(clientSubmitID),
+		Provider:       provider,
+		ErrorCode:      guidanceTargetFailureCode(err),
+		ErrorMessage:   err.Error(),
+		Retryable:      false,
+	})
 }
 
 func (h *Host) observeTerminalFailure(ctx context.Context, failure TerminalFailure) {

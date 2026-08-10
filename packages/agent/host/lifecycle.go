@@ -454,7 +454,18 @@ func (h *Host) SendInput(ctx context.Context, ref SessionRef, input SendInput) (
 	// interaction boundary; allowing the runtime to infer "current" would make
 	// an A->B transition during transport silently steer B.
 	if input.Guidance && strings.TrimSpace(input.TurnID) == "" {
-		return SendInputResult{}, ErrActiveTurnTargetRequired
+		err := ErrActiveTurnTargetRequired
+		h.observeTerminalFailure(ctx, TerminalFailure{
+			Flow:           "guidance",
+			FailureStage:   "guidance_target",
+			WorkspaceID:    ref.WorkspaceID,
+			AgentSessionID: ref.AgentSessionID,
+			ClientSubmitID: strings.TrimSpace(input.ClientSubmitID),
+			ErrorCode:      guidanceTargetFailureCode(err),
+			ErrorMessage:   err.Error(),
+			Retryable:      false,
+		})
+		return SendInputResult{}, err
 	}
 	normalized, promptText, err := normalizePromptContent(input.Content)
 	if err != nil {
@@ -571,7 +582,13 @@ func (h *Host) sendInputSerialized(
 		})
 	}()
 	if err != nil {
-		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
+		if input.Guidance &&
+			(errors.Is(err, ErrActiveTurnTargetMismatch) ||
+				execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionNotDispatched) {
+			h.observeGuidanceTargetFailure(ctx, ref, session.Provider, input.TurnID, claim.ClientSubmitID, startedAt, err)
+		} else {
+			h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
+		}
 		if !input.Guidance && strings.TrimSpace(execResult.TurnID) != "" {
 			if persistErr := h.persistRuntimeSubmitOutcome(
 				ctx, ref, execResult,

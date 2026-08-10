@@ -104,3 +104,16 @@ func terminalFailureCode(err error) string {
 	}
 	return ""
 }
+
+func guidanceTargetFailureCode(err error) string {
+	switch {
+	case errors.Is(err, ErrActiveTurnTargetRequired):
+		return "active_turn_target_required"
+	case errors.Is(err, ErrActiveTurnTargetMismatch):
+		return "active_turn_target_mismatch"
+	}
+	if code := terminalFailureCode(err); code != "" {
+		return code
+	}
+	return "guidance_target"
+}

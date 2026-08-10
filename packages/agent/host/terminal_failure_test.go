@@ -120,3 +120,79 @@ func TestTerminalFailuresFromDeltaEmitsPlanDecisionFailures(t *testing.T) {
 		t.Fatalf("failures = %#v", observer.failures)
 	}
 }
+
+func TestTerminalFailuresFromDeltaEmitsEditRetryFailures(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	ObserveTerminalFailuresFromDelta(context.Background(), observer, CommittedDelta{
+		RuntimeOperation: &RuntimeOperationCommitted{
+			Stage: RuntimeOperationFailed,
+			Operation: storesqlite.RuntimeOperation{
+				WorkspaceID: "ws-1", AgentSessionID: "session-1", OperationID: "op-edit-retry",
+				Kind: storesqlite.RuntimeOperationKindEditRetry, TurnID: "turn-edit",
+				LastError: "edit retry disabled",
+			},
+		},
+	})
+	if len(observer.failures) != 1 || observer.failures[0].Flow != "edit_retry" {
+		t.Fatalf("failures = %#v", observer.failures)
+	}
+}
+
+func TestTerminalFailuresFromDeltaMarksChildSessionTurnAndTool(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	ObserveTerminalFailuresFromDelta(context.Background(), observer, CommittedDelta{
+		ActivityState: &ActivityStateCommitted{
+			Input: canonical.ReportSessionStateInput{
+				WorkspaceID: "ws-1", AgentSessionID: "child-1",
+				State: canonical.WorkspaceAgentSessionStateUpdate{
+					Kind: storesqlite.SessionKindChild, ParentToolCallID: "call-1",
+				},
+			},
+		},
+		RootTurnsSettled: []RootTurnSettled{{
+			WorkspaceID: "ws-1", AgentSessionID: "child-1", IsChildSession: true,
+			Turn: storesqlite.Turn{
+				TurnID: "turn-child", Outcome: storesqlite.TurnOutcomeFailed,
+				ErrorMessage: "child turn failed",
+			},
+		}},
+		SessionMessages: &SessionMessagesCommitted{
+			Input: canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "child-1"},
+			Result: storesqlite.MessageReportResult{
+				Messages: []storesqlite.Message{{
+					MessageID: "toolcall:child", AgentSessionID: "child-1", TurnID: "turn-child",
+					Kind: "tool_call", Status: "failed",
+					Payload: map[string]any{"toolName": "Bash", "errorMessage": "child tool failed"},
+				}},
+			},
+		},
+	})
+	if len(observer.failures) != 2 {
+		t.Fatalf("failures = %#v, want 2", observer.failures)
+	}
+	for _, failure := range observer.failures {
+		if !failure.IsChildSession {
+			t.Fatalf("expected child session marker on %#v", failure)
+		}
+	}
+}
+
+func TestObserveGuidanceTargetFailureEmitsAggregatedTerminalFailure(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	host := New(Config{TerminalFailureObserver: observer})
+	host.observeGuidanceTargetFailure(
+		context.Background(),
+		SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"},
+		"codex", "turn-1", "guidance-1", host.now(), ErrActiveTurnTargetMismatch,
+	)
+	if len(observer.failures) != 1 {
+		t.Fatalf("terminal failures = %#v, want 1", observer.failures)
+	}
+	got := observer.failures[0]
+	if got.Flow != "guidance" || got.FailureStage != "guidance_target" || got.TurnID != "turn-1" {
+		t.Fatalf("failure identity = %#v", got)
+	}
+	if got.ErrorCode != "active_turn_target_mismatch" || got.ClientSubmitID != "guidance-1" {
+		t.Fatalf("failure payload = %#v", got)
+	}
+}

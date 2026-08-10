@@ -25,6 +25,16 @@ func ObserveTerminalFailuresFromDelta(ctx context.Context, observer TerminalFail
 
 func terminalFailuresFromDelta(delta CommittedDelta) []TerminalFailure {
 	failures := make([]TerminalFailure, 0, 4)
+	childBySession := map[string]bool{}
+	if delta.ActivityState != nil {
+		sessionID := firstNonEmptyTrimmed(
+			delta.ActivityState.Input.AgentSessionID,
+			delta.ActivityState.Result.RootTurn.AgentSessionID,
+		)
+		if sessionID != "" {
+			childBySession[sessionID] = sessionStateIsChild(delta.ActivityState.Input.State)
+		}
+	}
 	if delta.RuntimeOperation != nil && delta.RuntimeOperation.Stage == RuntimeOperationFailed {
 		if failure, ok := terminalFailureFromRuntimeOperation(*delta.RuntimeOperation); ok {
 			failures = append(failures, failure)
@@ -42,7 +52,7 @@ func terminalFailuresFromDelta(delta CommittedDelta) []TerminalFailure {
 		}
 	}
 	if delta.SessionMessages != nil {
-		failures = append(failures, terminalFailuresFromSessionMessages(*delta.SessionMessages)...)
+		failures = append(failures, terminalFailuresFromSessionMessages(*delta.SessionMessages, childBySession)...)
 	}
 	return failures
 }
@@ -84,6 +94,8 @@ func runtimeOperationFailureFlow(kind string) string {
 		return "plan_decision"
 	case storesqlite.RuntimeOperationKindCancelTurn:
 		return "turn_cancel"
+	case storesqlite.RuntimeOperationKindEditRetry:
+		return "edit_retry"
 	default:
 		return ""
 	}
@@ -150,11 +162,12 @@ func terminalFailureFromRootTurn(settled RootTurnSettled) (TerminalFailure, bool
 		TurnID:         strings.TrimSpace(settled.Turn.TurnID),
 		ErrorCode:      strings.TrimSpace(settled.Turn.ErrorCode),
 		ErrorMessage:   message,
+		IsChildSession: settled.IsChildSession,
 		Retryable:      false,
 	}, true
 }
 
-func terminalFailuresFromSessionMessages(committed SessionMessagesCommitted) []TerminalFailure {
+func terminalFailuresFromSessionMessages(committed SessionMessagesCommitted, childBySession map[string]bool) []TerminalFailure {
 	workspaceID := strings.TrimSpace(committed.Input.WorkspaceID)
 	failures := make([]TerminalFailure, 0)
 	for _, message := range committed.Result.Messages {
@@ -162,16 +175,18 @@ func terminalFailuresFromSessionMessages(committed SessionMessagesCommitted) []T
 			continue
 		}
 		messageText := toolCallFailureMessage(message)
+		sessionID := firstNonEmptyTrimmed(message.AgentSessionID, committed.Input.AgentSessionID)
 		failures = append(failures, TerminalFailure{
 			Flow:           "tool_call",
 			FailureStage:   "settled",
 			WorkspaceID:    workspaceID,
-			AgentSessionID: firstNonEmptyTrimmed(message.AgentSessionID, committed.Input.AgentSessionID),
+			AgentSessionID: sessionID,
 			TurnID:         strings.TrimSpace(message.TurnID),
 			RequestID:      strings.TrimSpace(message.MessageID),
 			ErrorCode:      strings.TrimSpace(message.Status),
 			ErrorMessage:   messageText,
 			ToolNameFamily: toolNameFamily(message.Payload),
+			IsChildSession: childBySession[sessionID],
 			Retryable:      false,
 		})
 	}

@@ -525,7 +525,11 @@ type TerminalFailure struct {
 	ErrorMessage    string
 	ToolNameFamily  string
 	InteractionKind string
-	Retryable       bool
+	// IsChildSession marks provider-native subagent sessions (parent tool call).
+	// Adapters may use it to distinguish child-session turn/tool failures from
+	// root-session ones without a separate event family.
+	IsChildSession bool
+	Retryable      bool
 }
 
 // TerminalFailureObserver receives aggregated terminal failures. It must not

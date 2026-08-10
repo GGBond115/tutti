@@ -461,12 +461,24 @@ Agent Host may emit aggregated terminal failures through
 `TerminalFailureObserver`. Sources:
 
 - failed `session_create` / `message_send` lifecycle commands
+- guidance target binding failures (`flow=guidance`,
+  `failure_stage=guidance_target`) before claim creation or when the runtime
+  rejects an exact turn target before provider admission
 - goal-control prepare / refresh command failures, and durable
   `GoalOperationFailed` / terminal incidents
 - durable runtime-operation failures for `interactive_response`,
-  `plan_decision`, and `turn_cancel`
-- settled failed / interrupted root turns
+  `plan_decision`, `turn_cancel`, and `edit_retry`
+- settled failed / interrupted root turns (including child/subagent sessions
+  via `IsChildSession`)
 - failed / errored `tool_call` messages in session-message commits
+
+Out of scope for dedicated Host terminal-failure flows:
+
+- queue as a separate event family (queued submits still fail as
+  `message_send` / turn settlements; `isQueued` remains a diagnostic trait)
+- session fork (TSH does not expose fork)
+- file-change card open failures (desktop UI / TSH Analytics only)
+- shared-agent product events (owned by the shared-agent analytics track)
 
 Adapters should map those observations into product analytics events. Call
 `ObserveTerminalFailuresFromDelta` alongside `NotifyCommitted` when activity
