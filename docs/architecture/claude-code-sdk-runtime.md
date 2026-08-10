@@ -182,18 +182,41 @@ The Go transport retains only a bounded failure classification; explicitly
 prefixed auth diagnostics are separately sanitized before structured logging.
 
 SDK Query lifetime is narrower than durable provider-session lifetime. A user
-cancel first revokes the current Query generation, awaits the SDK interrupt
-acknowledgment, then closes that Query in cleanup. Closing before the interrupt
-response turns a successful provider stop into a transport failure. Revocation
-fences message routing, hooks, and `canUseTool` before permission-mode handling,
-including `bypassPermissions`; background-task notifications from the canceled
-generation therefore cannot start a synthetic continuation or execute another
-tool. The next real user prompt creates a fresh Query with
+cancel carries the exact canonical Turn and returns one structured disposition:
+`pre_accept`, `provider_active`, `absent`, or `mismatch`. An undispatched queue
+entry can be removed locally. Once the prompt has been dispatched, cancel first
+revokes the current Query generation, awaits the SDK interrupt acknowledgment,
+then closes that Query in cleanup; the sidecar publishes `turn_canceled` only
+after that acknowledgment. Closing before the interrupt response turns a
+successful provider stop into a transport failure. Revocation fences message
+routing, hooks, and `canUseTool` before permission-mode handling, including
+`bypassPermissions`; background-task notifications from the canceled generation
+therefore cannot start a synthetic continuation or execute another tool. Every
+Turn already handed to the retired Query's prompt queue settles after that same
+acknowledgment, including a drained Goal command that can no longer execute; a
+Goal command still in the sidecar's deferred queue is independent and remains
+eligible for exact local removal. For a
+`provider_active` response, the Go adapter also waits for the exact Turn's
+durable provider-acceptance outcome before confirming cancellation. `absent`
+is the only authoritative not-found result; mismatches, unknown dispositions,
+interrupt failures, and acceptance failures remain fail-closed. The next real
+user prompt creates a fresh Query with
 `resume: providerSessionId` and generation-local prompt/abort resources. If the
 SDK replays the canceled generation's terminal task notification and paired
 result during resume, the new generation consumes that tail without attaching
 it to the new canonical Turn. Session close remains permanent and closes the
 current generation without creating a resumable successor.
+
+The Go adapter also tracks each accepted-but-not-started typed Goal command by
+its operation, revision, repair epoch, action, and previous optimistic Goal
+mirror. A Goal-generation fence targets both those pending commands and Turns
+that already have provider bindings. When the sidecar confirms an exact pending
+Goal cancellation, the adapter removes its bookkeeping and restores the
+previous mirror only while that same identity is still current, so a stale
+cancellation cannot overwrite a newer Goal. `goal_command_started` records
+provider progress but does not commit the optimistic mirror; an authoritative
+Goal observation or successful command terminal commits it, while cancellation,
+failure, or supersession closes the exact pending transaction.
 
 Background-task lifecycle uses the SDK's `background_tasks_changed` system
 message as a level signal. Its `tasks` array fully replaces the previous live
@@ -251,7 +274,8 @@ The daemon and sidecar exchange newline-delimited JSON over standard input and
 output. Every request and event carries the current protocol version. Missing
 or unsupported versions fail explicitly. Change both
 `claude_sdk_protocol.go` and `src/protocol.ts` together and cover the change on
-both sides.
+both sides. Version 9 makes the cancel disposition, exact canonical Turn ID,
+provider Turn ID, and dispatch phase correctness-required response fields.
 
 Capability and composer contracts are intentionally stable across this runtime
 split. Imported historical metadata may still be read for display compatibility

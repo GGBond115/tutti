@@ -59,6 +59,38 @@
   [standaloneAgentToolWorkbench.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/ui/standaloneAgentToolWorkbench.ts)
   [browser-node-package.md](../../architecture/browser-node-package.md)
 
+### Final Browser tab close leaves the Workbench window open
+
+- Symptom:
+  A Browser Workbench node has one tab. Its tab close control is visible, but
+  clicking it leaves the Browser window open. The native Workbench close
+  control may still work.
+- Quick checks:
+  Inspect the callbacks passed to `BrowserNodeWorkbenchHeader`. Confirm that
+  the final-tab callback reaches `windowActions.close()` and is not implemented
+  as `BrowserNodeHostApi.close({ nodeId: surfaceNodeId })`. The Workbench node ID
+  is a parent surface ID; registered Browser guests use `:tab:*` child IDs.
+- Root cause:
+  Browser guest cleanup and Workbench surface closure are different lifecycle
+  boundaries. Closing a parent ID through the Browser host API emits a guest
+  close event but cannot remove the Workbench node. The native window control
+  can mask this mismatch because its own click handler separately closes the
+  Workbench window, while the final-tab control has no such fallback.
+- Fix:
+  Keep the native action and final-tab request separate. Bind the dedicated
+  final-tab request to `windowActions.close()` and let Browser tab-surface lease
+  release close the remaining child guests after unmount. Do not add a second
+  Workbench close call to the native control's capture path.
+- Validation:
+  Exercise the Browser Workbench close-request adapter and assert that its
+  final-tab request runs the Workbench close action exactly once. Keep the
+  package tab intent tests to prove that the dedicated Workbench request wins
+  while the ordinary standalone-host callback remains a supported fallback.
+- References:
+  [BrowserNodeChrome.tsx](../../../packages/browser/workbench-node/src/react/BrowserNodeChrome.tsx)
+  [Browser Workbench adapter](../../../packages/browser/workbench-node/src/workbench/index.ts)
+  [Browser Workbench adapter test](../../../packages/browser/workbench-node/src/workbench/browserNodeCloseRequests.test.ts)
+
 ### Inline custom-header menu is clipped to the Workbench title bar
 
 - Symptom:

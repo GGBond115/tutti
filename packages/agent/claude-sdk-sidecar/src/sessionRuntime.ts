@@ -27,7 +27,11 @@ import {
   type ToolPermissionOptions
 } from "./interactive.ts";
 import { resolveInteractiveTurnId } from "./interactiveTurnResolver.ts";
-import { GoalExecQueue, type GoalCommandDispatch } from "./goalExecQueue.ts";
+import {
+  GoalExecQueue,
+  type GoalCommandDispatch,
+  type GoalExecInput
+} from "./goalExecQueue.ts";
 import { TurnLifecycle, type RuntimeTurn } from "./turnLifecycle.ts";
 import { normalizeTitle, stringValue } from "./runtimeValues.ts";
 import {
@@ -66,6 +70,36 @@ type ClaudeQueryFactory = (input: {
   prompt: AsyncIterable<SDKUserMessage>;
   options: ClaudeQueryOptions;
 }) => ClaudeQueryRuntime;
+
+export type SessionCancelDisposition =
+  | "pre_accept"
+  | "provider_active"
+  | "absent"
+  | "mismatch";
+
+export type SessionCancelResult = {
+  canceled: boolean;
+  disposition: SessionCancelDisposition;
+  turnId: string;
+  providerTurnId: string;
+  dispatchPhase: ProviderTurnPhase | "pending_goal" | "unknown";
+};
+
+function cancelResult(
+  canceled: boolean,
+  disposition: SessionCancelDisposition,
+  turnId: string,
+  providerTurnId = "",
+  dispatchPhase: SessionCancelResult["dispatchPhase"] = "unknown"
+): SessionCancelResult {
+  return {
+    canceled,
+    disposition,
+    turnId: turnId.trim(),
+    providerTurnId: providerTurnId.trim(),
+    dispatchPhase
+  };
+}
 
 export class SessionRuntime {
   providerSessionId: string;
@@ -443,6 +477,7 @@ export class SessionRuntime {
           !generation ||
           !this.isQueryGenerationActive(generation) ||
           executionEpoch !== this.executionEpoch ||
+          turn.canceling ||
           turn.settled
         ) {
           return;
@@ -583,40 +618,103 @@ export class SessionRuntime {
       });
   }
 
-  async cancel(expectedTurnId = ""): Promise<boolean> {
+  async cancel(expectedTurnId = ""): Promise<SessionCancelResult> {
+    expectedTurnId =
+      expectedTurnId.trim() || this.turns.activeTurn?.turnId.trim() || "";
     if (this.sessionClosed) {
-      return false;
+      return cancelResult(false, "absent", expectedTurnId);
     }
-    let hasActiveTurn: boolean;
-    if (expectedTurnId) {
-      hasActiveTurn = this.turns.cancelActiveExact(expectedTurnId);
-      if (!hasActiveTurn) {
-        return false;
-      }
-    } else if (!this.turns.activeTurn || this.turns.activeTurn.settled) {
-      // No live provider turn yet. Do not settle queued turns or tear down the
-      // query — that leaves HasSettledTurn without root_provider_turn_id and
-      // blocks cancel→resend with provider_session_not_established.
-      return false;
-    } else {
-      hasActiveTurn = this.turns.cancelQueued();
+    if (!expectedTurnId) {
+      return cancelResult(false, "absent", "");
     }
-    this.activities.cancel();
-    this.executionEpoch += 1;
-    this.providerTurnAcceptance.cancel(expectedTurnId);
-    this.canceledQueryTailPending = true;
-    this.interactions.rejectAll(new Error("Tool use aborted"));
-    const generation = this.queryGeneration;
-    this.queryGeneration = undefined;
-    try {
-      await generation?.shutdown(true);
-    } finally {
-      if (hasActiveTurn) {
-        this.turns.settleActive("turn_canceled");
+
+    const pendingGoal = this.goalExecQueue.cancelExact(expectedTurnId);
+    if (pendingGoal) {
+      this.emitPendingGoalCanceled(pendingGoal);
+      return cancelResult(
+        true,
+        "pre_accept",
+        expectedTurnId,
+        "",
+        "pending_goal"
+      );
+    }
+
+    const preparation = this.turns.prepareExactCancellation(expectedTurnId);
+    if (preparation.disposition === "absent") {
+      return cancelResult(false, "absent", expectedTurnId);
+    }
+    if (preparation.disposition === "mismatch") {
+      return cancelResult(false, "mismatch", expectedTurnId);
+    }
+    if (preparation.disposition === "unresolved") {
+      throw new Error(
+        `Claude SDK exact cancellation remains unresolved for turn ${expectedTurnId}`
+      );
+    }
+
+    const phase =
+      this.providerTurnAcceptance.phase(expectedTurnId) ?? "unknown";
+    if (preparation.differentActiveTurn && phase !== "queued") {
+      this.turns.releaseExactCancellation(expectedTurnId);
+      return cancelResult(false, "mismatch", expectedTurnId, "", phase);
+    }
+    if (preparation.disposition === "queued" && phase === "queued") {
+      if (!this.turns.commitExactCancellation(expectedTurnId)) {
+        throw new Error(
+          `Claude SDK lost exact cancellation target ${expectedTurnId}`
+        );
       }
       this.turns.clearCancelled();
+      return cancelResult(true, "pre_accept", expectedTurnId, "", phase);
     }
-    return hasActiveTurn;
+
+    const generation = this.queryGeneration;
+    if (!generation) {
+      this.turns.discardExactAbsent(expectedTurnId);
+      this.turns.clearCancelled();
+      return cancelResult(false, "absent", expectedTurnId, "", phase);
+    }
+
+    // One SDK Query owns every Turn already handed to its prompt queue. Native
+    // interrupt retires that entire generation, so fence and settle every such
+    // Turn after the same shutdown ACK instead of stranding collateral Goal
+    // commands whose prompts can no longer run.
+    const generationTurnIds = this.turns.prepareGenerationCancellation();
+    this.activities.cancel();
+    this.executionEpoch += 1;
+    this.providerTurnAcceptance.cancel();
+    this.canceledQueryTailPending = true;
+    this.interactions.rejectAll(new Error("Tool use aborted"));
+    this.queryGeneration = undefined;
+    await generation.shutdown(true);
+    for (const turnId of generationTurnIds) {
+      if (!this.turns.commitExactCancellation(turnId)) {
+        throw new Error(`Claude SDK lost canceled Query turn ${turnId}`);
+      }
+    }
+    this.turns.clearCancelled();
+    return cancelResult(
+      true,
+      preparation.providerTurnId ? "provider_active" : "pre_accept",
+      expectedTurnId,
+      preparation.providerTurnId,
+      phase
+    );
+  }
+
+  private emitPendingGoalCanceled(input: GoalExecInput): void {
+    emit({
+      type: "goal_command_canceled",
+      payload: {
+        turnId: input.turnId,
+        operationId: input.goal.operationId,
+        revision: input.goal.revision,
+        repairEpoch: input.goal.repairEpoch ?? 0,
+        action: input.goal.action,
+        reason: "cancel_requested"
+      }
+    });
   }
 
   async stopTask(taskId: string, parentToolUseId = ""): Promise<boolean> {
@@ -749,6 +847,9 @@ export class SessionRuntime {
           await this.router.handle(message);
         }
       } catch (error) {
+        if (isAbortError(error) && !this.isQueryGenerationActive(generation)) {
+          return;
+        }
         this.logAuthRefresh("query_consume.failed", {
           activeTurnId: this.turns.activeId,
           queuedTurnIds: this.turns.queue
