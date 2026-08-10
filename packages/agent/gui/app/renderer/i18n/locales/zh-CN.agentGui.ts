@@ -8,9 +8,12 @@ import { zhCNAgentGuiSlashPalette } from "./zh-CN.agentGuiSlashPalette.ts";
 import { zhCNAgentGuiSessionActions } from "./zh-CN.agentGuiSessionActions.ts";
 import { zhCNAgentGuiCollaboration } from "./zh-CN.agentGuiCollaboration.ts";
 import { zhCNTuttiModePlan } from "./zh-CN.tuttiModePlan.ts";
-
+import { zhCNAgentGuiComposer } from "./zh-CN.agentGuiComposer.ts";
+import { zhCNAgentGuiProjectLaunch } from "./zh-CN.agentGuiProjectLaunch.ts";
 export const zhCNAgentGui = {
   imageDownloaded: "图片已下载",
+  imageLoadFailed: "图片加载失败",
+  retryImage: "重试",
   codexSaverModeLabel: "Codex 省额度模式",
   codexSaverModeDescription:
     "主模型保持不变；合适的独立子任务改用 Luna Max，按当前额度口径约为 Sol High 的 1/10。实际效果与速度因任务而异。",
@@ -96,8 +99,7 @@ export const zhCNAgentGui = {
   modelLabel: "模型",
   modelSelectionLabel: "模型选择",
   defaultModel: "默认模型",
-  loadingOptions: "正在加载",
-  inheritedUnavailable: "继承 / 不可用",
+  ...zhCNAgentGuiComposer,
   reasoningLabel: "推理强度",
   reasoningDegreeLabel: "推理程度",
   reasoningOptionDefault: "默认",
@@ -467,6 +469,7 @@ export const zhCNAgentGui = {
   startConversation: "开始会话",
   selectConversation: "选择一个会话",
   loadingConversations: "正在加载会话...",
+  conversationsLoadFailed: "无法加载会话",
   loadingConversation: "正在加载会话...",
   scrollToBottom: "滚动至底部",
   searchNoConversations: "暂无相关会话",
@@ -612,7 +615,7 @@ export const zhCNAgentGui = {
   turnSummaryViaTool: "通过 {{tool}}",
   turnSummaryBefore: "变更前",
   turnSummaryAfter: "变更后",
-  turnSummaryEmpty: "空内容",
+  codeBlockEmptyContent: "(empty)",
   turnSummaryOpenFile: "打开",
   turnSummaryUndo: "撤销",
   turnSummaryReapply: "重新应用",
@@ -731,8 +734,7 @@ export const zhCNAgentGui = {
   quickPrompts: zhCNAgentGuiQuickPrompts,
   referenceWorkspaceFiles: "引用空间文件",
   ...zhCNAgentGuiReferencePicker,
-  projectLocked: "会话开始后项目不可更改",
-  projectMissingDescription: "此对话的工作目录已不存在",
+  ...zhCNAgentGuiProjectLaunch,
   fileMentionEnterFolder: "进入文件夹",
   fileMentionSwitchCategory: "切换分类",
   fileMentionNavigateHierarchy: "进入/返回文件夹",

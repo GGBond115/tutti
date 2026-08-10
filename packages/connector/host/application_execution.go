@@ -235,7 +235,10 @@ func (application *Application) completeUninstall(ctx context.Context, operation
 		}
 		revision := tx.AdvanceRevision()
 		connector.Installation = Installation{State: InstallationStateNotInstalled}
-		connector.Authorization = initialAuthorization(connector.Release.Manifest.AuthorizationKind)
+		// Local uninstall changes only device installation truth. Authorization is
+		// a separate lifecycle: remote authorization is projected from the account
+		// snapshot, while local providers are disconnected only through the explicit
+		// DisconnectAuthorization operation.
 		connector.Revision = revision
 		operation.State, operation.Stage, operation.FailureCode = OperationStateCompleted, OperationStageCompleted, ""
 		operation.UpdatedAt = application.config.Now().UTC()
@@ -305,8 +308,19 @@ func (application *Application) beginAuthorizationSession(
 		strings.TrimSpace(session.SessionID) == "" || !validAuthorizationSessionAction(session) {
 		return AuthorizationSession{}, invalidOperationReceipt("authorization provider returned an invalid session")
 	}
-	if err := application.completeAuthorizationStart(ctx, operation.OperationID, session); err != nil {
+	remote := release.Manifest.Implementation.RemoteStreamableHTTP != nil
+	if session.State == AuthorizationStateConnected && !remote {
+		session.Resolution = AuthorizationSessionResolutionProviderConnected
+	} else {
+		session.Resolution = AuthorizationSessionResolutionUnresolved
+	}
+	if err := application.completeAuthorizationStart(ctx, operation.OperationID, session, !remote); err != nil {
 		return AuthorizationSession{}, err
+	}
+	if session.State == AuthorizationStateConnected {
+		if err := application.projectAuthorizationAndScheduleRuntime(ctx, operation.Scope, operation.ConnectorKey, session.ConnectionID, AuthorizationStateConnected, ""); err != nil {
+			return AuthorizationSession{}, err
+		}
 	}
 	return session, nil
 }
@@ -315,11 +329,11 @@ func validAuthorizationSessionAction(session AuthorizationSession) bool {
 	switch strings.TrimSpace(session.ActionType) {
 	case "":
 		return (session.State == AuthorizationStatePending && strings.TrimSpace(session.AuthorizationURL) != "") ||
-			(session.State == AuthorizationStateConnected && strings.TrimSpace(session.AuthorizationURL) == "")
+			(session.State == AuthorizationStateConnected && strings.TrimSpace(session.AuthorizationURL) == "" && strings.TrimSpace(session.ConnectionID) != "")
 	case "redirect":
 		return session.State == AuthorizationStatePending && strings.TrimSpace(session.AuthorizationURL) != ""
 	case "submit_secret":
-		return session.State == AuthorizationStateConnected && strings.TrimSpace(session.AuthorizationURL) == ""
+		return session.State == AuthorizationStateConnected && strings.TrimSpace(session.AuthorizationURL) == "" && strings.TrimSpace(session.ConnectionID) != ""
 	default:
 		return false
 	}
@@ -341,10 +355,37 @@ func (application *Application) executeDisconnectAuthorization(ctx context.Conte
 	}); err != nil {
 		return NewDomainError(ErrorCodeAuthorizationFailed, "connector authorization disconnect failed", true, err)
 	}
-	return application.completeConnectorOperation(ctx, operation.OperationID, func(connector Connector) Connector {
-		connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
+	release, err := frozenRelease(operation)
+	if err != nil {
+		return err
+	}
+	remote := release.Manifest.Implementation.RemoteStreamableHTTP != nil
+	if err := application.completeConnectorOperation(ctx, operation.OperationID, func(connector Connector) Connector {
+		if !remote {
+			connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
+		}
 		return connector
-	})
+	}); err != nil {
+		return err
+	}
+	if err := application.projectAuthorizationAndScheduleRuntime(ctx, operation.Scope, operation.ConnectorKey, "", AuthorizationStateDisconnected, ""); err != nil {
+		return err
+	}
+	if remote {
+		receipts, err := application.config.Repository.UnresolvedAuthorizationSessionOperations(ctx, operation.Scope)
+		if err != nil {
+			return err
+		}
+		for _, receipt := range receipts {
+			if receipt.ConnectorKey != operation.ConnectorKey {
+				continue
+			}
+			if err := application.config.Repository.ResolveAuthorizationSession(ctx, receipt.OperationID, AuthorizationSessionResolutionSuperseded); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (application *Application) markOperationRunning(ctx context.Context, operationID string) (Operation, error) {
@@ -459,6 +500,7 @@ func (application *Application) completeAuthorizationStart(
 	ctx context.Context,
 	operationID string,
 	session AuthorizationSession,
+	projectDeviceState bool,
 ) error {
 	return application.config.Repository.Transaction(ctx, func(tx Transaction) error {
 		operation, err := tx.Operation(operationID)
@@ -469,7 +511,7 @@ func (application *Application) completeAuthorizationStart(
 		if err != nil {
 			return err
 		}
-		stateChanged := connector.Authorization.State != session.State
+		stateChanged := projectDeviceState && connector.Authorization.State != session.State
 		if operation.State == OperationStateCompleted && !stateChanged {
 			return nil
 		}
@@ -477,7 +519,9 @@ func (application *Application) completeAuthorizationStart(
 			return invalidTransition("authorization", string(connector.Authorization.State), string(session.State))
 		}
 		revision := tx.AdvanceRevision()
-		connector.Authorization = Authorization{State: session.State}
+		if projectDeviceState {
+			connector.Authorization = Authorization{State: session.State}
+		}
 		connector.Revision = revision
 		if operation.State != OperationStateCompleted {
 			operation.State = OperationStateCompleted

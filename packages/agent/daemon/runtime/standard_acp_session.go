@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +39,10 @@ func (a *standardACPAdapter) Start(ctx context.Context, session Session) ([]acti
 		})
 		return nil, err
 	}
+	if len(acpMCPServers(session.MCPServers)) > 0 && !standardACPHTTPMCPSupported(initializeResult) {
+		_ = client.Close()
+		return nil, ErrMCPHTTPUnsupported
+	}
 	started := false
 	keepSession := false
 	previousSession := a.getSession(session.AgentSessionID)
@@ -53,21 +58,26 @@ func (a *standardACPAdapter) Start(ctx context.Context, session Session) ([]acti
 			}
 		}
 	}()
+	initialPromptContext, err := a.resolveInitialPromptContext(session)
+	if err != nil {
+		return nil, err
+	}
 	acpSession := &standardACPSession{
-		client:           client,
-		agentInfo:        acpAgentInfo(initializeResult),
-		promptImage:      standardACPProviderPromptImageSupported(a.config.provider, initializeResult),
-		sessionClose:     standardACPSessionCloseSupported(initializeResult),
-		acpLiveState:     standardACPInitialLiveState(),
-		pendingApprovals: make(map[string]*pendingACPApproval),
-		permissionModeID: strings.TrimSpace(session.PermissionModeID),
-		planMode:         session.SettingsValue().PlanMode,
+		client:               client,
+		agentInfo:            acpAgentInfo(initializeResult),
+		promptImage:          standardACPProviderPromptImageSupported(a.config.provider, initializeResult),
+		sessionClose:         standardACPSessionCloseSupported(initializeResult),
+		acpLiveState:         standardACPInitialLiveState(),
+		pendingApprovals:     make(map[string]*pendingACPApproval),
+		permissionModeID:     strings.TrimSpace(session.PermissionModeID),
+		planMode:             session.SettingsValue().PlanMode,
+		initialPromptContext: initialPromptContext,
 	}
 	a.storeSession(session.AgentSessionID, acpSession)
 
 	newSessionParams := map[string]any{
 		"cwd":        firstNonEmpty(session.CWD, "/"),
-		"mcpServers": []any{},
+		"mcpServers": acpMCPServers(session.MCPServers),
 	}
 	if err := a.applyProviderSessionMeta(newSessionParams, session); err != nil {
 		return nil, err
@@ -175,6 +185,10 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 	if err != nil {
 		return err
 	}
+	if !attachedCheckpoint && len(acpMCPServers(session.MCPServers)) > 0 && !standardACPHTTPMCPSupported(initializeResult) {
+		_ = client.Close()
+		return ErrMCPHTTPUnsupported
+	}
 	started := false
 	keepSession := false
 	previousSession := a.getSession(session.AgentSessionID)
@@ -190,6 +204,10 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 			}
 		}
 	}()
+	initialPromptContext, err := a.resolveInitialPromptContext(session)
+	if err != nil {
+		return err
+	}
 	if attachedCheckpoint {
 		liveState := standardACPInitialLiveState()
 		liveState.currentMode = firstNonEmpty(
@@ -206,6 +224,7 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 			pendingApprovals:     make(map[string]*pendingACPApproval),
 			permissionModeID:     strings.TrimSpace(session.PermissionModeID),
 			planMode:             session.SettingsValue().PlanMode,
+			initialPromptContext: initialPromptContext,
 		}
 		started = true
 		keepSession = true
@@ -214,15 +233,16 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 		return nil
 	}
 	acpSession := &standardACPSession{
-		client:            client,
-		providerSessionID: session.ProviderSessionID,
-		agentInfo:         acpAgentInfo(initializeResult),
-		promptImage:       standardACPProviderPromptImageSupported(a.config.provider, initializeResult),
-		sessionClose:      standardACPSessionCloseSupported(initializeResult),
-		acpLiveState:      standardACPInitialLiveState(),
-		pendingApprovals:  make(map[string]*pendingACPApproval),
-		permissionModeID:  strings.TrimSpace(session.PermissionModeID),
-		planMode:          session.SettingsValue().PlanMode,
+		client:               client,
+		providerSessionID:    session.ProviderSessionID,
+		agentInfo:            acpAgentInfo(initializeResult),
+		promptImage:          standardACPProviderPromptImageSupported(a.config.provider, initializeResult),
+		sessionClose:         standardACPSessionCloseSupported(initializeResult),
+		acpLiveState:         standardACPInitialLiveState(),
+		pendingApprovals:     make(map[string]*pendingACPApproval),
+		permissionModeID:     strings.TrimSpace(session.PermissionModeID),
+		planMode:             session.SettingsValue().PlanMode,
+		initialPromptContext: initialPromptContext,
 	}
 	if previousSession != nil {
 		acpSession.acpLiveState = cloneACPLiveState(previousSession.acpLiveState)
@@ -236,7 +256,7 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 	resumeParams := map[string]any{
 		"sessionId":  session.ProviderSessionID,
 		"cwd":        firstNonEmpty(session.CWD, "/"),
-		"mcpServers": []any{},
+		"mcpServers": acpMCPServers(session.MCPServers),
 	}
 	if err := a.applyProviderSessionMeta(resumeParams, session); err != nil {
 		return err
@@ -261,6 +281,39 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 	keepSession = true
 	a.closeReplacedSession(previousSession, client)
 	return nil
+}
+
+func acpMCPServers(bindings []MCPServerBinding) []any {
+	servers := make([]any, 0, len(bindings))
+	for _, binding := range bindings {
+		if strings.TrimSpace(binding.Name) == "" || strings.TrimSpace(binding.URL) == "" || strings.TrimSpace(binding.Type) != "http" {
+			continue
+		}
+		headerNames := make([]string, 0, len(binding.Headers))
+		for name := range binding.Headers {
+			headerNames = append(headerNames, name)
+		}
+		sort.Strings(headerNames)
+		headers := make([]any, 0, len(headerNames))
+		for _, name := range headerNames {
+			headers = append(headers, map[string]any{"name": name, "value": binding.Headers[name]})
+		}
+		servers = append(servers, map[string]any{
+			"name": binding.Name, "type": "http", "url": binding.URL, "headers": headers,
+		})
+	}
+	return servers
+}
+
+func standardACPHTTPMCPSupported(raw json.RawMessage) bool {
+	var result struct {
+		AgentCapabilities struct {
+			MCPCapabilities struct {
+				HTTP bool `json:"http"`
+			} `json:"mcpCapabilities"`
+		} `json:"agentCapabilities"`
+	}
+	return json.Unmarshal(raw, &result) == nil && result.AgentCapabilities.MCPCapabilities.HTTP
 }
 
 func (*standardACPAdapter) CanResume(session Session) bool {

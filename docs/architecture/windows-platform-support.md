@@ -18,16 +18,16 @@ formal `latest` release path.
 
 Current implementation and evidence:
 
-| Area                     | Shared owner                                            | Windows boundary                                           | Status                                                                                          |
-| ------------------------ | ------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Desktop daemon lifecycle | Electron main process                                   | packages `tuttid.exe` and injects native resource paths    | Windows Alpha CI packages it                                                                    |
-| Workspace Apps           | daemon app lifecycle, health, state, and events         | `AppShellAdapter` invokes the packaged managed POSIX shell | Onboarding fat package is exercised in Windows Alpha CI                                         |
-| Terminal                 | terminal service and shared terminal contracts          | `TerminalProcessFactory` uses ConPTY                       | focused adapter and daemon WebSocket tests run in Windows daemon-adapter and Alpha CI           |
-| Agent processes          | provider-neutral agent/runtime services                 | build-tagged executable, command, and process handling     | focused Windows tests run in Agent adapter and Alpha CI                                         |
-| Browser                  | browser service contract                                | focused Windows executable/profile path behavior           | focused Windows tests exist; full browser E2E remains a promotion gate                          |
-| Computer use             | computer service contract                               | Cua Driver 0.18.0 doctor/MCP boundary and owned daemon     | focused Windows tests and opt-in MCP smoke exist; screenshot/input E2E remains a promotion gate |
-| Files                    | workspace file APIs and portable Go filesystem behavior | add a narrow adapter only where Windows semantics differ   | full Windows Files E2E remains a promotion gate                                                 |
-| Release                  | desktop release policy                                  | unsigned NSIS plus a separately gated Store AppX artifact  | Store build/submission automation exists; production certification is not yet validated         |
+| Area                     | Shared owner                                            | Windows boundary                                                              | Status                                                                                          |
+| ------------------------ | ------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Desktop daemon lifecycle | Electron main process                                   | packages `tuttid.exe` and injects native resource paths                       | Windows Alpha CI packages it                                                                    |
+| Workspace Apps           | daemon app lifecycle, health, state, and events         | `AppShellAdapter` invokes the packaged managed POSIX shell                    | Onboarding fat package is exercised in Windows Alpha CI                                         |
+| Terminal                 | terminal service and shared terminal contracts          | `TerminalProcessFactory` uses ConPTY                                          | focused adapter and daemon WebSocket tests run in Windows daemon-adapter and Alpha CI           |
+| Agent processes          | provider-neutral agent/runtime services                 | build-tagged executable, command, process handling, and user PATH publication | focused Windows tests run in Agent adapter and Alpha CI                                         |
+| Browser                  | browser service contract                                | focused Windows executable/profile path behavior                              | focused Windows tests exist; full browser E2E remains a promotion gate                          |
+| Computer use             | computer service contract                               | Cua Driver 0.18.0 doctor/MCP boundary and owned daemon                        | focused Windows tests and opt-in MCP smoke exist; screenshot/input E2E remains a promotion gate |
+| Files                    | workspace file APIs and portable Go filesystem behavior | add a narrow adapter only where Windows semantics differ                      | full Windows Files E2E remains a promotion gate                                                 |
+| Release                  | desktop release policy                                  | unsigned NSIS plus a separately gated Store AppX artifact                     | Store build/submission automation exists; production certification is not yet validated         |
 
 Passing `windows-latest` CI proves the build and automated paths above. It does
 not by itself prove the supported Windows 10 floor, installer UX, upgrade, or
@@ -143,8 +143,67 @@ events remain shared daemon behavior.
 
 Agent installation and launch keep provider/product policy shared. Windows
 command resolution, executable verification, npm launcher layout, and process
-creation stay in the runtime command/process boundary. Do not make provider
-installers assemble shell command strings to handle Windows.
+creation stay in the runtime command/process boundary. Managed npm installs use
+the selected user executable directory (normally `%USERPROFILE%\.local\bin`)
+as npm's Windows prefix, because Windows npm writes `.cmd`/`.ps1` launchers
+directly under the prefix. After a successful managed install/update, the
+daemon's narrow Windows user-path adapter idempotently appends that directory
+to `HKCU\Environment\Path` and broadcasts `WM_SETTINGCHANGE`; it never
+writes the machine-wide path or changes Unix/macOS shell profiles. Do not make
+provider installers assemble shell command strings to handle Windows.
+Fresh installs use `%USERPROFILE%\.local\bin`. The resolver also scans the
+older `%USERPROFILE%\.local` npm prefix after the current directory, so an
+existing verified package is reused and updated in place instead of creating a
+second copy. After verification the daemon publishes the directory that owns
+the selected launcher. It does not migrate or delete the legacy package.
+
+System proxy resolution follows the same shared precedence on macOS and
+Windows: session/process environment, then the operating-system static proxy,
+then direct connection. The common resolver owns merging, `NO_PROXY`, caching,
+diagnostics, and the `TUTTI_DISABLE_PROXY_AUTODETECT` escape hatch. Build-tagged
+adapters only read native state: Darwin uses `scutil --proxy`; Windows reads the
+current-user WinINet `Internet Settings` values. Windows protocol maps and
+bypass entries are normalized to `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
+PAC execution and SOCKS conversion remain out of scope because the daemon does
+not embed a PAC/SOCKS engine. WinINet bypass entries that cannot be represented
+faithfully by standard `NO_PROXY` syntax (for example `10.*` and `<local>`) are
+not projected; loopback, `.local`, exact hosts, and `*.domain` suffixes remain
+covered.
+
+Agent Target setup uses one Desktop-owned, version-pinned `uv` resource rather
+than downloading `uv` separately for each Python agent. Release staging copies
+the official compressed archive for each packaged architecture under
+`bin/managed-uv/<platform>/<version>/`; both staging and tuttid verify the
+pinned size and SHA-256. Electron injects only the resource root through
+`TUTTI_BUNDLED_UV_ROOT`. The daemon keeps extraction, cache markers, and the
+dynamic official-download fallback. Node, Python, Kimi, Hermes, and other agent
+payloads remain dynamically installed, so this adds roughly one compressed uv
+archive per architecture rather than a complete cross-language toolchain.
+
+The signed macOS release is the one packaging exception. The upstream macOS
+archives contain nested `uv` and `uvx` executables without Tutti's Developer ID
+signature, so Apple notarization rejects the archive when it is embedded in the
+app. macOS therefore uses the same pinned, checksum-verified dynamic download
+fallback at first use; Windows and Linux continue to ship their bundled uv
+archive.
+
+For generic ACP providers such as OpenCode, provider resolution rewrites the
+adapter command once and every status, login, model-catalog, and session path
+uses that resolved executable. On Windows a complete isolated npm package is
+preferred over an earlier stale PATH shim; package metadata and containment are
+validated before its declared binary is accepted.
+
+The Windows Desktop package also vendors the pinned Mutagen executable used
+when file-symlink creation is unavailable. Electron resolves the packaged
+resource and injects `TUTTI_MUTAGEN_BIN` into `tuttid`; Workspace Apps inherit
+that same absolute path. Release staging downloads the official archive and
+license texts, verifies their pinned SHA-256 digests, and packages only the
+Windows amd64 executable and notices. Runtime execution therefore has no
+Mutagen download dependency, while an explicit `TUTTI_MUTAGEN_BIN` remains an
+operator override. If the packaged or configured executable is unavailable,
+runtime preparation uses a guarded per-run auth copy and copies a valid
+refreshed credential back only when the stable source has not changed
+concurrently.
 
 ### Browser and Files
 

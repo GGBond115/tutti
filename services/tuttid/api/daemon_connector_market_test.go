@@ -16,6 +16,14 @@ type stubConnectorMarketService struct {
 	categoriesFn func(context.Context) ([]market.CatalogCategory, error)
 	pageFn       func(context.Context, market.CatalogPageQuery) (market.CatalogPage, error)
 	installFn    func(context.Context, market.ConnectorMutation) (market.MutationResult, error)
+	projectionFn func(context.Context, string, string) (market.AuthorizationProjection, error)
+}
+
+func (service stubConnectorMarketService) GetAuthorizationProjection(ctx context.Context, accountID, connectorKey string) (market.AuthorizationProjection, error) {
+	if service.projectionFn == nil {
+		return market.AuthorizationProjection{}, market.ErrNotFound
+	}
+	return service.projectionFn(ctx, accountID, connectorKey)
 }
 
 func (service stubConnectorMarketService) Snapshot(ctx context.Context) (market.Snapshot, error) {
@@ -71,6 +79,59 @@ func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T)
 	aliases := routing["aliases"].([]any)
 	if len(aliases) != 2 || aliases[0] != "Notion" || aliases[1] != "Notion AI" {
 		t.Fatalf("public agent routing aliases = %#v", aliases)
+	}
+}
+
+func TestDaemonAPIConnectorMarketOverlaysAccountAuthorizationProjection(t *testing.T) {
+	service := stubConnectorMarketService{
+		snapshotFn: func(context.Context) (market.Snapshot, error) {
+			return market.Snapshot{Connectors: []market.Connector{connectorMarketTestConnector()}}, nil
+		},
+		projectionFn: func(_ context.Context, accountID, connectorKey string) (market.AuthorizationProjection, error) {
+			if accountID != "account-1" || connectorKey != "notion" {
+				t.Fatalf("projection scope = %q/%q", accountID, connectorKey)
+			}
+			return market.AuthorizationProjection{AccountID: accountID, ConnectorKey: connectorKey, State: market.AuthorizationStateConnected}, nil
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{ConnectorMarketService: service, ConnectorMarketScope: func() market.OperationScope {
+		return market.OperationScope{AccountID: "account-1"}
+	}}))
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodGet, "/v1/connector-market", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Connectors []struct {
+			Authorization struct {
+				State string `json:"state"`
+			} `json:"authorization"`
+		} `json:"connectors"`
+	}
+	decodeGeneratedRouteResponse(t, recorder, &body)
+	if len(body.Connectors) != 1 || body.Connectors[0].Authorization.State != string(market.AuthorizationStateConnected) {
+		t.Fatalf("body = %#v", body)
+	}
+}
+
+func TestDaemonAPIRemoteAuthorizationProjectionIsDisconnectedUntilSnapshotReady(t *testing.T) {
+	connector := connectorMarketTestConnector()
+	connector.Release.Manifest.Implementation = market.Implementation{Kind: market.ImplementationKindRemoteStreamableHTTP,
+		RemoteStreamableHTTP: &market.RemoteStreamableHTTPImplementation{ProtocolVersion: "2026-07-28"}}
+	service := stubConnectorMarketService{projectionFn: func(context.Context, string, string) (market.AuthorizationProjection, error) {
+		return market.AuthorizationProjection{AccountID: "account-1", ConnectorKey: connector.Key, State: market.AuthorizationStateConnected,
+			ServerSynchronized: true}, nil
+	}}
+	api := DaemonAPI{ConnectorMarketService: service, ConnectorMarketScope: func() market.OperationScope {
+		return market.OperationScope{AccountID: "account-1"}
+	}, ConnectorAuthorizationReady: func(string) bool { return false }}
+	connectors := []market.Connector{connector}
+	if err := api.overlayConnectorAuthorizationProjections(context.Background(), connectors); err != nil {
+		t.Fatal(err)
+	}
+	if connectors[0].Authorization.State != market.AuthorizationStateDisconnected {
+		t.Fatalf("authorization = %#v", connectors[0].Authorization)
 	}
 }
 

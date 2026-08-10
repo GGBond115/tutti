@@ -20,6 +20,7 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 	if p == nil {
 		return nil
 	}
+	agenthost.ObserveTerminalFailuresFromDelta(ctx, p.terminalFailureObserver, delta)
 	if committed := delta.ActivityState; committed != nil {
 		provisional := activityStateIsProvisional(committed.Input)
 		if !provisional {
@@ -62,6 +63,11 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 			if canonicalSessionDeleted(delta, invalidated) {
 				p.publishActivityUpdated(ctx, invalidated.WorkspaceID, invalidated.AgentSessionID,
 					"session_deleted", activitySessionDeletedEventPayload(invalidated.WorkspaceID, invalidated.AgentSessionID))
+				continue
+			}
+			if canonicalSessionRestored(delta, invalidated) {
+				p.publishActivityUpdated(ctx, invalidated.WorkspaceID, invalidated.AgentSessionID,
+					"session_restored", activitySessionRestoredEventPayload(invalidated.WorkspaceID, invalidated.AgentSessionID))
 				continue
 			}
 			p.publishActivityUpdated(ctx, invalidated.WorkspaceID, invalidated.AgentSessionID,
@@ -121,9 +127,21 @@ func runtimeContextBool(runtimeContext map[string]any, key string) bool {
 }
 
 func canonicalSessionDeleted(delta agenthost.CommittedDelta, invalidated agenthost.CanonicalViewInvalidated) bool {
+	return canonicalSessionMutationMatches(delta, invalidated, "delete")
+}
+
+func canonicalSessionRestored(delta agenthost.CommittedDelta, invalidated agenthost.CanonicalViewInvalidated) bool {
+	return canonicalSessionMutationMatches(delta, invalidated, "restore")
+}
+
+func canonicalSessionMutationMatches(
+	delta agenthost.CommittedDelta,
+	invalidated agenthost.CanonicalViewInvalidated,
+	operation string,
+) bool {
 	for _, mutation := range delta.ProjectionDirty {
 		if mutation.WorkspaceID == invalidated.WorkspaceID && mutation.AgentSessionID == invalidated.AgentSessionID &&
-			mutation.EntityKind == agentactivitybiz.MutationEntitySession && mutation.Operation == "delete" {
+			mutation.EntityKind == agentactivitybiz.MutationEntitySession && mutation.Operation == operation {
 			return true
 		}
 	}

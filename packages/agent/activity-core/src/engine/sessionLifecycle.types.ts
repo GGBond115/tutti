@@ -168,6 +168,12 @@ export interface TurnUpsertedIntent {
 export interface TurnProjectionReceivedIntent {
   type: "turn/projectionReceived";
   activeTurnId: string | null;
+  /**
+   * The host has already fenced transport identity and ordering, so settlement
+   * of this immutable Turn may absorb a temporary projection from another
+   * version domain even when its wall-clock timestamp is lower.
+   */
+  hostFencedSameTurnSettlement?: true;
   turn: AgentActivityTurn;
   workspaceId: string;
 }
@@ -209,6 +215,11 @@ export interface InteractionResponseRequestedIntent {
 
 export interface SessionRemovedIntent {
   type: "session/removed";
+  agentSessionId: string;
+}
+
+export interface SessionRestoredIntent {
+  type: "session/restored";
   agentSessionId: string;
 }
 
@@ -306,6 +317,7 @@ export type SessionLifecycleIntent =
   | SessionHistoryAuthoritativeSnapshotReceivedIntent
   | SessionMetadataPatchedIntent
   | SessionRemovedIntent
+  | SessionRestoredIntent
   | SessionRuntimeActivityChangedIntent
   | SessionRuntimeAvailabilityChangedIntent
   | SessionSettingsActivationRequestedIntent

@@ -69,6 +69,7 @@ type StartInput struct {
 	Provider                string
 	CWD                     string
 	Env                     []string
+	MCPServers              []MCPServerBinding
 	Title                   string
 	InitialTitleEstablished bool
 	Visible                 *bool
@@ -77,6 +78,7 @@ type StartInput struct {
 	PermissionModeID        string
 	Settings                *SessionSettings
 	Provisional             bool
+	CanonicalInitPending    bool
 }
 
 type ResumeInput struct {
@@ -88,6 +90,7 @@ type ResumeInput struct {
 	Resumable         bool
 	CWD               string
 	Env               []string
+	MCPServers        []MCPServerBinding
 	Title             string
 	Status            string
 	Visible           *bool
@@ -97,6 +100,10 @@ type ResumeInput struct {
 	Settings          *SessionSettings
 	CreatedAtUnixMS   int64
 	UpdatedAtUnixMS   int64
+	// GoalGenerationFences must be retained before this Session becomes
+	// available for Goal or Turn submission. Adapter installation follows
+	// Resume connection establishment and precedes Controller publication.
+	GoalGenerationFences []GoalGenerationFenceInput
 	// RecreateIfMissing creates a fresh provider session in place when the
 	// existing provider session can no longer be restored locally (e.g. an
 	// imported conversation), instead of returning a restore error.
@@ -377,6 +384,7 @@ type Session struct {
 	Resumable          bool                `json:"resumable"`
 	CWD                string              `json:"cwd,omitempty"`
 	Env                []string            `json:"-"`
+	MCPServers         []MCPServerBinding  `json:"-"`
 	Status             string              `json:"status"`
 	TurnLifecycle      *TurnLifecycle      `json:"turnLifecycle,omitempty"`
 	SubmitAvailability *SubmitAvailability `json:"submitAvailability,omitempty"`
@@ -407,6 +415,29 @@ type Session struct {
 	// title so a restarted runtime never lets a provider title clobber a
 	// persisted user title.
 	UserTitleSet bool `json:"-"`
+}
+
+type MCPServerBinding struct {
+	Name    string
+	Type    string
+	URL     string
+	Headers map[string]string
+}
+
+func cloneMCPServerBindings(input []MCPServerBinding) []MCPServerBinding {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make([]MCPServerBinding, 0, len(input))
+	for _, binding := range input {
+		headers := make(map[string]string, len(binding.Headers))
+		for key, value := range binding.Headers {
+			headers[key] = value
+		}
+		binding.Headers = headers
+		result = append(result, binding)
+	}
+	return result
 }
 
 type SessionInteractivePrompt struct {
@@ -481,6 +512,7 @@ type StreamEvent struct {
 
 type StartResult struct {
 	Session Session `json:"session"`
+	Created bool    `json:"created"`
 }
 
 type CloseResult struct {

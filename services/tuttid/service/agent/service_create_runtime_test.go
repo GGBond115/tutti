@@ -14,6 +14,33 @@ import (
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 )
 
+type testConnectorRuntime struct {
+	hints      []runtimeprep.ConnectorRoutingHint
+	binding    runtimeprep.MCPServerBinding
+	bind       func(string, string)
+	revoked    []string
+	revokeAlls int
+}
+
+func (runtime *testConnectorRuntime) RoutingHints() []runtimeprep.ConnectorRoutingHint {
+	return runtime.hints
+}
+
+func (runtime *testConnectorRuntime) BindSession(workspaceID, sessionID string) (runtimeprep.MCPServerBinding, error) {
+	if runtime.bind != nil {
+		runtime.bind(workspaceID, sessionID)
+	}
+	return runtime.binding, nil
+}
+
+func (runtime *testConnectorRuntime) RevokeSession(workspaceID, sessionID string) {
+	runtime.revoked = append(runtime.revoked, workspaceID+"/"+sessionID)
+}
+
+func (runtime *testConnectorRuntime) RevokeAll() {
+	runtime.revokeAlls++
+}
+
 func TestServiceCreateUsesRuntimePreparerResult(t *testing.T) {
 	runtime := newFakeRuntime()
 	service := newTestService(runtime)
@@ -22,14 +49,23 @@ func TestServiceCreateUsesRuntimePreparerResult(t *testing.T) {
 		result: runtimeprep.PreparedRuntime{
 			Cwd: "/prepared/workdir",
 			Env: []string{"CODEX_HOME=/prepared/codex-home"},
+			MCPServers: []runtimeprep.MCPServerBinding{{Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector",
+				Headers: map[string]string{"Authorization": "Bearer session-token"}}},
 		},
 		input: &prepareInput,
 	}
 	routingAliases := []string{"飞书", "Feishu"}
 	skillRoot := t.TempDir()
-	service.ConnectorRoutingHints = func() []runtimeprep.ConnectorRoutingHint {
-		return []runtimeprep.ConnectorRoutingHint{{ConnectorKey: "lark-cli", DisplayName: "Lark CLI", Aliases: routingAliases,
-			SkillRoot: skillRoot}}
+	service.ConnectorRuntime = &testConnectorRuntime{
+		hints: []runtimeprep.ConnectorRoutingHint{{ConnectorKey: "lark-cli", DisplayName: "Lark CLI", Aliases: routingAliases,
+			SkillRoot: skillRoot}},
+		binding: runtimeprep.MCPServerBinding{Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector",
+			Headers: map[string]string{"Authorization": "Bearer session-token"}},
+		bind: func(workspaceID, sessionID string) {
+			if workspaceID != "ws-1" || sessionID != "11111111-1111-4111-8111-111111111111" {
+				t.Fatalf("connector MCP binding scope = %q %q", workspaceID, sessionID)
+			}
+		},
 	}
 	cwd := "/user/workdir"
 
@@ -57,6 +93,12 @@ func TestServiceCreateUsesRuntimePreparerResult(t *testing.T) {
 	if len(start.Env) != 1 || start.Env[0] != "CODEX_HOME=/prepared/codex-home" {
 		t.Fatalf("runtime env = %#v, want prepared env", start.Env)
 	}
+	if len(start.MCPServers) != 1 || start.MCPServers[0].Name != "connector" || start.MCPServers[0].Headers["Authorization"] != "Bearer session-token" {
+		t.Fatalf("runtime MCP servers = %#v", start.MCPServers)
+	}
+	if len(prepareInput.MCPServers) != 1 || prepareInput.MCPServers[0].Name != "connector" {
+		t.Fatalf("prepare MCP servers = %#v", prepareInput.MCPServers)
+	}
 	if prepareInput.ConversationDetailMode != "general" {
 		t.Fatalf("prepare conversationDetailMode = %q, want general", prepareInput.ConversationDetailMode)
 	}
@@ -68,6 +110,41 @@ func TestServiceCreateUsesRuntimePreparerResult(t *testing.T) {
 	prepareInput.ConnectorRoutingHints[0].Aliases[0] = "mutated"
 	if got := service.activeConnectorRoutingHints()[0].Aliases[0]; got != "飞书" {
 		t.Fatalf("runtime preparation leaked mutable routing aliases: %q", got)
+	}
+}
+
+func TestPrepareRuntimeRevokesConnectorBindingWhenProviderPreparationFails(t *testing.T) {
+	service := newTestService(newFakeRuntime())
+	prepareErr := errors.New("prepare failed")
+	service.RuntimePreparer = fakeRuntimePreparer{err: prepareErr}
+	connector := &testConnectorRuntime{binding: runtimeprep.MCPServerBinding{
+		Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector",
+	}}
+	service.ConnectorRuntime = connector
+
+	_, err := service.prepareRuntimeWithModelEndpoint(t.Context(), "ws-1", t.TempDir(), CreateSessionInput{
+		AgentSessionID: "11111111-1111-4111-8111-111111111111",
+		Provider:       "codex",
+	}, nil)
+	if !errors.Is(err, prepareErr) {
+		t.Fatalf("prepareRuntimeWithModelEndpoint() error = %v, want %v", err, prepareErr)
+	}
+	if !slices.Equal(connector.revoked, []string{"ws-1/11111111-1111-4111-8111-111111111111"}) {
+		t.Fatalf("revoked bindings = %#v", connector.revoked)
+	}
+}
+
+func TestCleanupSessionResourcesRevokesConnectorWithoutProviderPreparer(t *testing.T) {
+	service := newTestService(newFakeRuntime())
+	service.RuntimePreparer = nil
+	connector := &testConnectorRuntime{}
+	service.ConnectorRuntime = connector
+
+	if err := service.cleanupSessionResources(t.Context(), "ws-1", "session-1"); err != nil {
+		t.Fatalf("cleanupSessionResources() error = %v", err)
+	}
+	if !slices.Equal(connector.revoked, []string{"ws-1/session-1"}) {
+		t.Fatalf("revoked bindings = %#v", connector.revoked)
 	}
 }
 

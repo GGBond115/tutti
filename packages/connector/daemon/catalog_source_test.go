@@ -124,6 +124,51 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
 	}
 }
 
+func TestCatalogSourcePreservesRemoteRequiredCapabilities(t *testing.T) {
+	var manifest map[string]any
+	if err := json.Unmarshal([]byte(`{
+  "schemaVersion": "2",
+  "itemType": "connector",
+  "itemKey": "tencent-docs",
+  "version": "0.2.0",
+  "display": {
+    "name": "Tencent Docs",
+    "iconUrl": "data:image/png;base64,iVBORw0KGgo="
+  },
+  "payload": {
+    "permissions": [],
+    "requiredCapabilities": ["tools"],
+    "packageManifestSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "authorization": {"kind": "api_key"},
+    "compatibility": {},
+    "implementation": {
+      "kind": "remote_streamable_http",
+      "remoteStreamableHttp": {
+        "protocolVersion": "2026-07-28",
+        "bindingRef": "tencent-docs.primary",
+        "contractVersion": 1,
+        "bindingContractHash": "sha256:ca239a2e69a22a3e1df0d50f6ad944491e7cd813fd347591ce238ebfc884017a"
+      }
+    }
+  }
+}`), &manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	source := &CatalogSource{executionTarget: "darwin-arm64"}
+	release, err := source.mapItem(wireMarketItem{
+		ItemType: "connector", ItemKey: "tencent-docs", Version: "0.2.0", Manifest: manifest,
+		Artifact:      &wireArtifact{Key: "tencent-docs/0.2.0/tencent-docs-0.2.0-any.tgz", SHA256: strings.Repeat("c", 64), SizeBytes: 123},
+		PublishedAtMS: 1785801600000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(release.Manifest.RequiredCapabilities) != 1 || release.Manifest.RequiredCapabilities[0] != "tools" {
+		t.Fatalf("requiredCapabilities = %#v, want [tools]", release.Manifest.RequiredCapabilities)
+	}
+}
+
 func TestCatalogSourceRejectsLegacyConnectorManifestV1(t *testing.T) {
 	var manifest map[string]any
 	if err := json.Unmarshal([]byte(`{

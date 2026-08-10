@@ -19,6 +19,7 @@ func (application *Application) executeRuntimeReconcile(ctx context.Context, ope
 	if err != nil {
 		return err
 	}
+	connector.Authorization.State = binding.AuthorizationState
 	receipt, err := application.reconcileRuntime(ctx, RuntimeReconcileRequest{
 		OperationID: operation.OperationID, Scope: operation.Scope, ConnectionID: binding.ConnectionID,
 		Connector: connector, Enabled: binding.Enabled, Generation: operation.HostGeneration,
@@ -64,5 +65,5 @@ func (application *Application) reconcileRuntime(ctx context.Context, request Ru
 type defaultRuntimeBindingResolver struct{}
 
 func (defaultRuntimeBindingResolver) ResolveRuntimeBinding(context.Context, RuntimeBindingRequest) (RuntimeBinding, error) {
-	return RuntimeBinding{ConnectionID: defaultConnectorConnectionID, Enabled: true}, nil
+	return RuntimeBinding{ConnectionID: defaultConnectorConnectionID, Enabled: true, AuthorizationState: AuthorizationStateNotRequired}, nil
 }

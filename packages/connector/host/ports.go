@@ -64,10 +64,11 @@ type Repository interface {
 	Snapshot(ctx context.Context) (Snapshot, error)
 	Connector(ctx context.Context, connectorKey string) (Connector, error)
 	Operation(ctx context.Context, operationID string) (Operation, error)
-	// CompletedAuthorizationOperations exposes durable authorization session
-	// receipts only to the internal reconciler. Snapshot remains safe for public
+	// UnresolvedAuthorizationSessionOperations exposes private durable receipts
+	// only for the explicitly active account. Snapshot remains safe for public
 	// presentation and must not contain Operation.Execution.
-	CompletedAuthorizationOperations(ctx context.Context) ([]Operation, error)
+	UnresolvedAuthorizationSessionOperations(ctx context.Context, scope OperationScope) ([]Operation, error)
+	ResolveAuthorizationSession(ctx context.Context, operationID string, resolution AuthorizationSessionResolution) error
 	ClaimOperation(ctx context.Context, operationID, owner string, now, leaseExpiresAt time.Time) (Operation, bool, error)
 	RenewOperationLease(ctx context.Context, operationID, owner string, token uint64, now, leaseExpiresAt time.Time) error
 	ReleaseOperationLease(ctx context.Context, operationID, owner string, token uint64) error
@@ -277,6 +278,7 @@ const (
 type RuntimeBinding struct {
 	ConnectionID          string
 	Enabled               bool
+	AuthorizationState    AuthorizationState
 	CredentialBrokerGrant []byte
 }
 
@@ -285,6 +287,19 @@ type RuntimeBinding struct {
 type AuthorizationProjectionStore interface {
 	AuthorizationProjection(ctx context.Context, accountID, connectorKey string) (AuthorizationProjection, error)
 	SaveAuthorizationProjection(ctx context.Context, projection AuthorizationProjection) error
+}
+
+type AuthorizationSnapshotStore interface {
+	AuthorizationProjectionStore
+	ApplyAuthorizationSnapshot(ctx context.Context, accountID string, snapshot AuthorizationSnapshot) (AuthorizationSnapshotApplyResult, error)
+}
+
+type AuthorizationSnapshotSource interface {
+	AuthorizationSnapshot(ctx context.Context, accountID string) (AuthorizationSnapshot, error)
+}
+
+type AuthorizationEventSource interface {
+	RunAuthorizationEvents(ctx context.Context, accountID string, notify func()) error
 }
 
 type CredentialBrokerGrantIssuer interface {
@@ -318,6 +333,7 @@ type AuthorizationDisconnectRequest struct {
 }
 
 type AuthorizationObserveRequest struct {
+	Scope     OperationScope
 	Connector Connector
 	Session   AuthorizationSession
 }

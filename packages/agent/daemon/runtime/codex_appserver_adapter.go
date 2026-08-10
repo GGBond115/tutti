@@ -259,7 +259,10 @@ type codexAppServerSession struct {
 	provenanceDegraded bool
 	// goalMutationMu is the provider-side half of the Host goal mutation lane. It serializes
 	// direct control, reconcile and delayed continuation nudges for this thread.
-	goalMutationMu         sync.Mutex
+	goalMutationMu sync.Mutex
+	// goalStateVersion fences asynchronous reads that started before a newer
+	// local Goal observation or control result. Guarded by the adapter mutex.
+	goalStateVersion       uint64
 	models                 []map[string]any
 	startupModelsReady     bool
 	startupRateLimitsReady bool

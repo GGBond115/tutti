@@ -364,6 +364,47 @@ func TestReportActivityStateRollsBackSessionOnLiveTurnConflict(t *testing.T) {
 	}
 }
 
+func TestReportActivityStateAppliesTerminalTurnWhenSessionSnapshotIsReplay(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	baseSession := SessionStateReport{
+		WorkspaceID: "ws-1", AgentSessionID: "session-1", Kind: SessionKindRoot,
+		Origin: "runtime", Provider: "codex", Status: "active", CurrentPhase: "working",
+		OccurredAtUnixMS: 100,
+	}
+	if result, err := store.ReportActivityState(ctx, ActivityStateReport{
+		Session: baseSession,
+		Turn: &TurnTransition{
+			WorkspaceID: "ws-1", AgentSessionID: "session-1", TurnID: "turn-1",
+			Phase: TurnPhaseRunning, OccurredAtUnixMS: 100,
+		},
+	}); err != nil || !result.TurnAccepted {
+		t.Fatalf("running report result=%#v error=%v", result, err)
+	}
+
+	// The runtime can emit a terminal turn transition in a batch whose session
+	// envelope is an exact replay. The session projection must not gate the
+	// child turn's durable terminal transition or leave active_turn_id stale.
+	if result, err := store.ReportActivityState(ctx, ActivityStateReport{
+		Session: baseSession,
+		Turn: &TurnTransition{
+			WorkspaceID: "ws-1", AgentSessionID: "session-1", TurnID: "turn-1",
+			Phase: TurnPhaseSettled, Outcome: TurnOutcomeCompleted, OccurredAtUnixMS: 101,
+		},
+	}); err != nil || !result.TurnAccepted {
+		t.Fatalf("terminal replay report result=%#v error=%v", result, err)
+	}
+	turn, found, err := store.GetTurn(ctx, "ws-1", "session-1", "turn-1")
+	if err != nil || !found || turn.Phase != TurnPhaseSettled {
+		t.Fatalf("terminal turn=%#v found=%v error=%v", turn, found, err)
+	}
+	session, found, err := store.GetSession(ctx, "ws-1", "session-1")
+	if err != nil || !found || session.ActiveTurnID != "" {
+		t.Fatalf("terminal session=%#v found=%v error=%v", session, found, err)
+	}
+}
+
 func TestRecordTurnTransitionAllowsWaitingToResumeRunning(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))

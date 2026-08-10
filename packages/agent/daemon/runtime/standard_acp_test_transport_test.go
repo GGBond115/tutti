@@ -25,9 +25,10 @@ type multiProcStandardACPTransport struct {
 func newStandardACPTransport(agentTitle string, sessionID string) *standardACPTransport {
 	return &standardACPTransport{
 		conn: &standardACPConnection{
-			recv:       make(chan ProcessFrame, 32),
-			agentTitle: agentTitle,
-			sessionID:  sessionID,
+			recv:            make(chan ProcessFrame, 32),
+			agentTitle:      agentTitle,
+			sessionID:       sessionID,
+			supportsHTTPMCP: true,
 		},
 	}
 }
@@ -47,6 +48,7 @@ func (t *multiProcStandardACPTransport) Start(_ context.Context, spec ProcessSpe
 		agentTitle:          t.agentTitle,
 		sessionID:           t.sessionID,
 		supportsLoadSession: t.supportsLoadSession,
+		supportsHTTPMCP:     true,
 	}
 	t.specs = append(t.specs, spec)
 	t.conns = append(t.conns, conn)
@@ -96,6 +98,7 @@ type standardACPConnection struct {
 	closeSessionError             *acpError
 	rejectModelValue              string
 	supportsLoadSession           bool
+	supportsHTTPMCP               bool
 	supportsCloseSession          bool
 	closeSessionExits             bool
 	isClosed                      bool

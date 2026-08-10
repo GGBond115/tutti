@@ -146,7 +146,7 @@
   "controls": {
     "discontinuity": {
       "required": ["reason"],
-      "semanticReasons": ["session_deleted"],
+      "semanticReasons": ["session_deleted", "session_restored"],
       "properties": {
         "reason": "non-empty-string",
         "reconcileKeys": "reconcile-key-array"
@@ -165,6 +165,7 @@
         "workspaceId": "non-empty-string",
         "agentSessionId": "non-empty-string",
         "canonicalTurnId": "string",
+        "canonicalTurnIds": "unique-non-empty-string-array-containing-canonical-turn-id-when-present",
         "callerTurnId": "string",
         "attachmentRevision": "positive-integer"
       }
@@ -182,6 +183,7 @@
         "workspaceId": "non-empty-string",
         "agentSessionId": "non-empty-string",
         "canonicalTurnId": "string",
+        "canonicalTurnIds": "unique-non-empty-string-array-containing-canonical-turn-id-when-present",
         "callerTurnId": "string",
         "attachmentRevision": "positive-integer"
       }

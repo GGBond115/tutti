@@ -31,6 +31,7 @@ type ActivityProjection struct {
 	rootTurnObserver             RootTurnObserver
 	turnForkabilityResolver      TurnForkabilityResolver
 	replayCommitObserver         ReplayCommitObserver
+	terminalFailureObserver      agenthost.TerminalFailureObserver
 	// rootTurnSettleStateObserver is the dedicated, opt-in consumer list for
 	// synthesized canonical root-turn settlement states. It is deliberately
 	// separate from sessionStateObserver: the general observers historically
@@ -419,6 +420,15 @@ func activitySessionDeletedEventPayload(workspaceID string, agentSessionID strin
 	}
 }
 
+func activitySessionRestoredEventPayload(workspaceID string, agentSessionID string) map[string]any {
+	return map[string]any{
+		"agentSessionId":   strings.TrimSpace(agentSessionID),
+		"eventType":        "session_restored",
+		"restoredAtUnixMs": time.Now().UnixMilli(),
+		"workspaceId":      strings.TrimSpace(workspaceID),
+	}
+}
+
 func (p *ActivityProjection) PublishSessionDeleted(ctx context.Context, workspaceID string, agentSessionID string) {
 	p.publishActivityUpdated(ctx, workspaceID, agentSessionID,
 		"session_deleted", activitySessionDeletedEventPayload(workspaceID, agentSessionID))
@@ -588,13 +598,6 @@ func (p *ActivityProjection) GetSession(workspaceID string, agentSessionID strin
 		return PersistedSession{}, false
 	}
 	return p.projectPersistedSession(context.Background(), persistedSessionFromActivity(session)), true
-}
-
-func (p *ActivityProjection) SessionDeleted(ctx context.Context, workspaceID string, agentSessionID string) (bool, error) {
-	if p == nil || p.repo == nil {
-		return false, nil
-	}
-	return p.repo.SessionDeleted(ctx, workspaceID, agentSessionID)
 }
 
 func (p *ActivityProjection) ListSessions(workspaceID string) ([]PersistedSession, bool) {

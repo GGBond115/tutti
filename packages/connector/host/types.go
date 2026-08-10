@@ -100,15 +100,16 @@ type Release struct {
 }
 
 type Manifest struct {
-	SchemaVersion     string                    `json:"schemaVersion"`
-	DisplayName       string                    `json:"displayName"`
-	IconURL           string                    `json:"iconUrl"`
-	Description       string                    `json:"description,omitempty"`
-	AgentRouting      *AgentRouting             `json:"agentRouting,omitempty"`
-	Permissions       []string                  `json:"permissions"`
-	Implementation    Implementation            `json:"implementation"`
-	AuthorizationKind string                    `json:"authorizationKind"`
-	Compatibility     CompatibilityRequirements `json:"compatibility,omitempty"`
+	SchemaVersion        string                    `json:"schemaVersion"`
+	DisplayName          string                    `json:"displayName"`
+	IconURL              string                    `json:"iconUrl"`
+	Description          string                    `json:"description,omitempty"`
+	AgentRouting         *AgentRouting             `json:"agentRouting,omitempty"`
+	Permissions          []string                  `json:"permissions"`
+	RequiredCapabilities []string                  `json:"requiredCapabilities,omitempty"`
+	Implementation       Implementation            `json:"implementation"`
+	AuthorizationKind    string                    `json:"authorizationKind"`
+	Compatibility        CompatibilityRequirements `json:"compatibility,omitempty"`
 }
 
 // AgentRouting carries connector-owned brand and product aliases used only to
@@ -231,19 +232,10 @@ type CLICommand struct {
 }
 
 type RemoteStreamableHTTPImplementation struct {
-	Endpoint       string                        `json:"endpoint"`
-	AllowedHosts   []string                      `json:"allowedHosts"`
-	Authentication RemoteTransportAuthentication `json:"authentication"`
-	Limits         RemoteTransportLimits         `json:"limits"`
-}
-
-type RemoteTransportAuthentication struct {
-	Type string `json:"type"`
-}
-
-type RemoteTransportLimits struct {
-	TimeoutMS        int `json:"timeoutMs"`
-	MaxResponseBytes int `json:"maxResponseBytes"`
+	ProtocolVersion     string `json:"protocolVersion"`
+	BindingRef          string `json:"bindingRef"`
+	ContractVersion     int    `json:"contractVersion"`
+	BindingContractHash string `json:"bindingContractHash"`
 }
 
 type Installation struct {
@@ -396,13 +388,40 @@ type RuntimeReceipt struct {
 }
 
 type AuthorizationSession struct {
-	OperationID      string             `json:"operationId"`
-	ConnectorKey     string             `json:"connectorKey"`
-	ConnectionID     string             `json:"-"`
-	SessionID        string             `json:"sessionId"`
-	ActionType       string             `json:"actionType"`
-	AuthorizationURL string             `json:"-"`
-	State            AuthorizationState `json:"-"`
+	OperationID      string                         `json:"operationId"`
+	ConnectorKey     string                         `json:"connectorKey"`
+	ConnectionID     string                         `json:"-"`
+	SessionID        string                         `json:"sessionId"`
+	ActionType       string                         `json:"actionType"`
+	AuthorizationURL string                         `json:"-"`
+	State            AuthorizationState             `json:"-"`
+	Resolution       AuthorizationSessionResolution `json:"resolution"`
+}
+
+// AuthorizationSessionResolution records why a private, durable start receipt
+// no longer needs provider polling. The empty value is treated as unresolved
+// for receipts written by older daemon versions.
+type AuthorizationSessionResolution string
+
+const (
+	AuthorizationSessionResolutionUnresolved            AuthorizationSessionResolution = "unresolved"
+	AuthorizationSessionResolutionProviderConnected     AuthorizationSessionResolution = "provider_connected"
+	AuthorizationSessionResolutionProviderFailed        AuthorizationSessionResolution = "provider_failed"
+	AuthorizationSessionResolutionAccountStateConverged AuthorizationSessionResolution = "account_state_converged"
+	AuthorizationSessionResolutionSuperseded            AuthorizationSessionResolution = "superseded"
+)
+
+// AuthorizationReconcileIntent is a private receipt transition that becomes
+// terminal only after the daemon has awaited the corresponding runtime
+// reconcile under its account lifecycle fence.
+type AuthorizationReconcileIntent struct {
+	OperationID  string
+	ConnectorKey string
+	Resolution   AuthorizationSessionResolution
+}
+
+func (session AuthorizationSession) IsResolved() bool {
+	return session.Resolution != "" && session.Resolution != AuthorizationSessionResolutionUnresolved
 }
 
 type AuthorizationObservationState string
@@ -414,8 +433,9 @@ const (
 )
 
 type AuthorizationObservation struct {
-	State       AuthorizationObservationState
-	FailureCode string
+	State        AuthorizationObservationState
+	ConnectionID string
+	FailureCode  string
 }
 
 type Snapshot struct {
@@ -441,12 +461,28 @@ type ConnectorMutation struct {
 // still device-scoped on Connector; switching accounts changes only this
 // projection and the runtime binding derived from it.
 type AuthorizationProjection struct {
-	AccountID    string             `json:"accountId"`
-	ConnectorKey string             `json:"connectorKey"`
-	ConnectionID string             `json:"connectionId,omitempty"`
-	State        AuthorizationState `json:"state"`
-	FailureCode  string             `json:"failureCode,omitempty"`
-	UpdatedAt    time.Time          `json:"updatedAt"`
+	AccountID         string `json:"accountId"`
+	ConnectorKey      string `json:"connectorKey"`
+	ConnectorVersion  string `json:"connectorVersion,omitempty"`
+	ConnectionID      string `json:"connectionId,omitempty"`
+	ConnectionVersion uint64 `json:"connectionVersion,omitempty"`
+	ServerRevision    uint64 `json:"serverRevision,omitempty"`
+	// ServerSynchronized distinguishes an authoritative revision 0 snapshot
+	// from device-local authorization state that has never been synchronized.
+	ServerSynchronized bool               `json:"serverSynchronized,omitempty"`
+	State              AuthorizationState `json:"state"`
+	FailureCode        string             `json:"failureCode,omitempty"`
+	UpdatedAt          time.Time          `json:"updatedAt"`
+}
+
+type AuthorizationSnapshot struct {
+	Revision   uint64
+	Connectors []AuthorizationProjection
+}
+
+type AuthorizationSnapshotApplyResult struct {
+	ChangedConnectorKeys        []string
+	PendingReceiptConnectorKeys []string
 }
 
 type MutationResult struct {

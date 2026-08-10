@@ -58,6 +58,22 @@ func (s *SQLiteWorkspaceStore) GetSession(ctx context.Context, workspaceID, sess
 	return store.GetSession(ctx, workspaceID, sessionID)
 }
 
+// GetSessionAndTurn preserves the SQLite snapshot boundary through the
+// workspace-routing Host adapter. Shared Agent live projections must not fall
+// back to independent Session and Turn reads at a terminal transition.
+func (s *SQLiteWorkspaceStore) GetSessionAndTurn(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	turnID string,
+) (storesqlite.Session, storesqlite.Turn, bool, error) {
+	store, err := s.store(workspaceID)
+	if err != nil {
+		return storesqlite.Session{}, storesqlite.Turn{}, false, err
+	}
+	return store.GetSessionAndTurn(ctx, workspaceID, sessionID, turnID)
+}
+
 func (s *SQLiteWorkspaceStore) GetSessionForkSource(
 	ctx context.Context,
 	workspaceID, sourceSessionID string,

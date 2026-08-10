@@ -323,6 +323,59 @@ test("projects message deltas and clears them on authoritative deletion", () => 
   harness.engine.dispose();
 });
 
+test("an explicit restore event clears only its tombstone and requests authoritative hydration", () => {
+  const harness = createHarness();
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "session_deleted",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "session_deleted",
+      deletedAtUnixMs: 11
+    }
+  });
+
+  const restored = harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "session_restored",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "session_restored",
+      restoredAtUnixMs: 12
+    }
+  });
+
+  assert.equal(restored.reason, "restored");
+  assert.equal(harness.coordinator.isSessionDeleted("session-1"), false);
+  assert.ok(
+    harness.commands.some(
+      (command) =>
+        command.type === "session/reconcile" &&
+        command.agentSessionId === "session-1"
+    )
+  );
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  assert.equal(
+    harness
+      .readCanonicalSnapshot()
+      .sessions.some((candidate) => candidate.agentSessionId === "session-1"),
+    true
+  );
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
 test("applies a settled Turn and its cleared Session reference atomically", () => {
   const harness = createHarness();
   const runningTurn = turn("running", 1);
@@ -407,6 +460,35 @@ test("rejects a late Turn fact without leaking completion into attention", () =>
   assert.equal(
     snapshot.attentionReadState.partitionsByUserId["user-1"],
     undefined
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("accepts host-fenced settlement across source version domains", () => {
+  const harness = createHarness();
+  const runningTurn = turn("running", 4);
+  harness.engine.dispatch({
+    session: session(runningTurn, 4),
+    type: "session/upserted"
+  });
+
+  const result = harness.coordinator.ingestEvent(
+    turnUpdateEvent("settled", 2, "turn-1", 100),
+    { hostFencedSameTurnSettlement: true }
+  );
+  const snapshot = harness.engine.getSnapshot();
+
+  assert.equal(result.accepted, true);
+  assert.equal(
+    snapshot.sessionLifecycle.turnsById[canonicalTurnKey("session-1", "turn-1")]
+      ?.phase,
+    "settled"
+  );
+  assert.equal(
+    snapshot.sessionLifecycle.sessionsById["session-1"]?.activeTurnId,
+    null
   );
 
   harness.coordinator.dispose();

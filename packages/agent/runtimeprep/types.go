@@ -62,6 +62,9 @@ type PrepareInput struct {
 	// SkillRoot points at the active release's verified, content-addressed Skill
 	// tree and remains stable across Connector runtime restarts.
 	ConnectorRoutingHints []ConnectorRoutingHint
+	// MCPServers are daemon-issued, session-scoped native MCP bindings. They
+	// are typed runtime configuration and must never be rendered into prompts.
+	MCPServers []MCPServerBinding
 	// ExtensionSkillRoots carries the skill root paths declared by an agent
 	// extension's composer profile (Skills.Roots[].Path). When non-empty,
 	// native tutti skills materialize into these roots instead of the
@@ -110,8 +113,16 @@ type ConnectorRoutingHint struct {
 }
 
 type PreparedRuntime struct {
-	Cwd string
-	Env []string
+	Cwd        string
+	Env        []string
+	MCPServers []MCPServerBinding
+}
+
+type MCPServerBinding struct {
+	Name    string
+	Type    string
+	URL     string
+	Headers map[string]string
 }
 
 type ExtensionRuntimePrep struct {
@@ -166,6 +177,11 @@ type CleanupInput struct {
 	WorkspaceID    string
 	AgentSessionID string
 	Provider       string
+	// PreserveRuntimeRoot releases live provider preparation resources while
+	// keeping the session-scoped sidecar directory available for a later
+	// restore. In particular, Codex keeps its resumable rollout below this
+	// directory. Permanent cleanup leaves this false.
+	PreserveRuntimeRoot bool
 }
 
 type RuntimeStore interface {
@@ -189,6 +205,7 @@ type ProviderPrepareInput struct {
 }
 
 type ProviderPrepareResult struct {
-	Cwd string
-	Env []string
+	Cwd     string
+	Env     []string
+	Cleanup func(context.Context) error
 }

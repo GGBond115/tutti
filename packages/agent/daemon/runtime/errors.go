@@ -15,6 +15,7 @@ var (
 	ErrActiveTurnTargetRequired      = errors.New("active-turn guidance requires an exact target turn")
 	ErrActiveTurnTargetMismatch      = errors.New("active-turn guidance target is no longer active")
 	ErrActiveTurnGuidanceUnsupported = errors.New("agent provider does not support active-turn guidance")
+	ErrMCPHTTPUnsupported            = errors.New("agent provider does not support HTTP MCP servers")
 )
 
 type AppError struct {

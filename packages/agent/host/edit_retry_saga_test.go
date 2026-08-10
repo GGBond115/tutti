@@ -436,8 +436,8 @@ type hostEditRetryRuntime struct {
 	content                     []agenthost.PromptContentBlock
 }
 
-func (*hostEditRetryRuntime) Start(context.Context, agenthost.RuntimeStartInput) (agenthost.ProviderRuntimeSession, error) {
-	return agenthost.ProviderRuntimeSession{}, nil
+func (*hostEditRetryRuntime) Start(context.Context, agenthost.RuntimeStartInput) (agenthost.RuntimeStartResult, error) {
+	return agenthost.RuntimeStartResult{}, nil
 }
 func (r *hostEditRetryRuntime) Resume(context.Context, agenthost.RuntimeResumeInput) (agenthost.ProviderRuntimeSession, error) {
 	return r.session(), nil

@@ -447,11 +447,14 @@ func TestStandardACPSessionNewAndLoadPassStandardClientMCPConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStandardACPAdapter new: %v", err)
 	}
-	if _, err := newAdapterRaw.Start(context.Background(), standardTestSession("acp:mcp-new")); err != nil {
+	newSession := standardTestSession("acp:mcp-new")
+	newSession.MCPServers = []MCPServerBinding{{Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector",
+		Headers: map[string]string{"Authorization": "Bearer test-token"}}}
+	if _, err := newAdapterRaw.Start(context.Background(), newSession); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if servers, ok := newTransport.conn.lastNewSessionParams["mcpServers"].([]any); !ok || len(servers) != 0 {
-		t.Fatalf("session/new mcpServers = %#v, want standard empty client config", newTransport.conn.lastNewSessionParams["mcpServers"])
+	if servers, ok := newTransport.conn.lastNewSessionParams["mcpServers"].([]any); !ok || len(servers) != 1 {
+		t.Fatalf("session/new mcpServers = %#v, want connector binding", newTransport.conn.lastNewSessionParams["mcpServers"])
 	}
 
 	loadTransport := newStandardACPTransport("MCP ACP", "mcp-load-session")
@@ -464,11 +467,33 @@ func TestStandardACPSessionNewAndLoadPassStandardClientMCPConfig(t *testing.T) {
 	}
 	loadSession := standardTestSession("acp:mcp-load")
 	loadSession.ProviderSessionID = "mcp-load-session"
+	loadSession.MCPServers = cloneMCPServerBindings(newSession.MCPServers)
 	if err := loadAdapterRaw.Resume(context.Background(), loadSession); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	if servers, ok := loadTransport.conn.lastLoadSessionParams["mcpServers"].([]any); !ok || len(servers) != 0 {
-		t.Fatalf("session/load mcpServers = %#v, want standard empty client config", loadTransport.conn.lastLoadSessionParams["mcpServers"])
+	if servers, ok := loadTransport.conn.lastLoadSessionParams["mcpServers"].([]any); !ok || len(servers) != 1 {
+		t.Fatalf("session/load mcpServers = %#v, want connector binding", loadTransport.conn.lastLoadSessionParams["mcpServers"])
+	}
+}
+
+func TestStandardACPSessionRejectsHTTPMCPWhenAgentDoesNotAdvertiseCapability(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("MCP Unsupported ACP", "mcp-unsupported-session")
+	transport.conn.supportsHTTPMCP = false
+	adapter, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+		Provider: "acp:mcp-unsupported", Name: "mcp-unsupported-acp", DisplayName: "MCP Unsupported ACP", Command: []string{"mcp-acp", "stdio"},
+	}, transport, LegacyHostMetadata())
+	if err != nil {
+		t.Fatalf("NewStandardACPAdapter: %v", err)
+	}
+	session := standardTestSession("acp:mcp-unsupported")
+	session.MCPServers = []MCPServerBinding{{Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector"}}
+	if _, err := adapter.Start(context.Background(), session); !errors.Is(err, ErrMCPHTTPUnsupported) {
+		t.Fatalf("Start error = %v, want ErrMCPHTTPUnsupported", err)
+	}
+	if transport.conn.lastNewSessionParams != nil {
+		t.Fatalf("session/new was sent despite unsupported HTTP MCP: %#v", transport.conn.lastNewSessionParams)
 	}
 }
 

@@ -146,6 +146,53 @@ func TestApplicationExecutesTypedCLIInstallationBeforeCompletion(t *testing.T) {
 	}
 }
 
+func TestApplicationLocalUninstallRemovesDeviceReleaseWithoutDisconnectingAuthorization(t *testing.T) {
+	connector := testConnector("lark")
+	connector.Release.Manifest.AuthorizationKind = "oauth2"
+	connector.Release.Manifest.Implementation.ManagedStdio.MCP = nil
+	connector.Release.Manifest.Implementation.ManagedStdio.CLI = &ManagedCLIInterface{Entrypoint: "lark-cli",
+		Install: &CLIInstallation{Kind: "node_package", NodePackage: &NodePackageInstallation{
+			Package: "@larksuite/cli", Version: "1.0.83",
+			Integrity: "sha512-qbJYoJtNch6dV8RvYBO2wpcKO9+6Io3Cuf5alYFzvLbtkSntOKqoc+xHI7p6wRq4oH4F9fydgNJbTGy79ibPdg==",
+			Launch:    NodePackageLaunch{Kind: "native", Entrypoint: "bin/lark-cli", SHA256: strings.Repeat("c", 64)},
+		}},
+	}
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	connector.Authorization = Authorization{State: AuthorizationStateConnected}
+	repository := newMemoryRepository(connector)
+	runtime := &memoryInstallRuntime{}
+	provider := &countingAuthorizationProvider{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, runtime, CatalogSnapshot{})
+	application.config.Authorization = provider
+
+	accepted, err := application.Uninstall(context.Background(), ConnectorMutation{
+		Mutation: Mutation{ClientRequestID: "uninstall-lark", ExpectedRevision: 0}, ConnectorKey: connector.Key,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repository.Connector(context.Background(), connector.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Installation.State != InstallationStateNotInstalled || stored.Installation.InstalledReleaseDigest != "" {
+		t.Fatalf("installation = %#v", stored.Installation)
+	}
+	if stored.Authorization.State != AuthorizationStateConnected {
+		t.Fatalf("local uninstall changed authorization = %#v", stored.Authorization)
+	}
+	if runtime.deactivations != 1 || runtime.removes != 1 || runtime.cliRemoves != 1 {
+		t.Fatalf("cleanup counts: deactivate=%d artifact=%d cli=%d", runtime.deactivations, runtime.removes, runtime.cliRemoves)
+	}
+	if provider.disconnects != 0 {
+		t.Fatalf("authorization disconnects = %d, want 0", provider.disconnects)
+	}
+}
+
 func TestCrossMachineReceiptsUseOpaqueReferences(t *testing.T) {
 	release := testReleaseWithImplementation("lark", "1.0.0", ImplementationKindManagedStdio)
 	release.Manifest.Implementation.ManagedStdio.MCP = nil
@@ -284,6 +331,7 @@ func TestApplicationReconcileRuntimeKeepsDeviceInstallationTruth(t *testing.T) {
 func TestApplicationAuthorizationObservationReconcilesWithoutChangingInstallation(t *testing.T) {
 	connector := testConnector("github")
 	connector.Release.Manifest.AuthorizationKind = "oauth2"
+	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
 	connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
 	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
 		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
@@ -357,6 +405,201 @@ func TestApplicationStartupReconcileAdvancesPastFence(t *testing.T) {
 	if host.lastDeactivation.Generation.Generation < firstReconcileGeneration ||
 		host.lastReconcile.Generation.Generation <= host.lastDeactivation.Generation.Generation {
 		t.Fatalf("repeated startup generations: fence=%#v reconcile=%#v", host.lastDeactivation.Generation, host.lastReconcile.Generation)
+	}
+}
+
+func TestApplicationCrossDeviceRemoteReconcileUsesAccountProjectionAuthorization(t *testing.T) {
+	connector := testConnector("tencent-docs")
+	connector.Release.Manifest.AuthorizationKind = "api_key"
+	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
+	connector.Release.Manifest.Implementation = Implementation{Kind: ImplementationKindRemoteStreamableHTTP, RemoteStreamableHTTP: &RemoteStreamableHTTPImplementation{
+		ProtocolVersion: "2026-07-28", BindingRef: "tencent-docs.primary", ContractVersion: 1,
+		BindingContractHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}}
+	connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	repository := newMemoryRepository(connector)
+	runtime := &memoryInstallRuntime{}
+	projectionStore := &authorizationProjectionStoreStub{projection: AuthorizationProjection{
+		AccountID: "account-1", ConnectorKey: connector.Key, ConnectionID: "server-connection", State: AuthorizationStateConnected,
+		ServerSynchronized: true,
+	}}
+	readiness := NewAuthorizationReadinessGate()
+	readiness.SetReady("account-1", true)
+	application := newTestApplication(t, repository, &memoryScheduler{}, runtime, CatalogSnapshot{})
+	application.config.AuthorizationProjections = projectionStore
+	application.config.RuntimeBindings = AccountRuntimeBindingResolver{Projections: projectionStore, Readiness: readiness}
+
+	if err := application.ReconcileInstalledRuntimesForScope(context.Background(), OperationScope{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.lastReconcile.Enabled || runtime.lastReconcile.Connector.Authorization.State != AuthorizationStateConnected ||
+		runtime.lastReconcile.ConnectionID != AccountRuntimeConnectionID("account-1", connector.Key) {
+		t.Fatalf("remote reconcile = %#v", runtime.lastReconcile)
+	}
+	if repository.connectors[connector.Key].Authorization.State != AuthorizationStateDisconnected {
+		t.Fatalf("device installation authorization was mutated: %#v", repository.connectors[connector.Key].Authorization)
+	}
+}
+
+func TestApplicationLocalUninstallKeepsRemoteProjectionAndReusesItAfterReinstall(t *testing.T) {
+	connector := testConnector("tencent-docs")
+	connector.Release.Manifest.AuthorizationKind = "api_key"
+	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
+	connector.Release.Manifest.Implementation = Implementation{Kind: ImplementationKindRemoteStreamableHTTP,
+		RemoteStreamableHTTP: &RemoteStreamableHTTPImplementation{
+			ProtocolVersion: "2026-07-28", BindingRef: "tencent-docs.primary", ContractVersion: 1,
+			BindingContractHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}}
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	connector.Authorization = Authorization{State: AuthorizationStateConnected}
+	repository := newMemoryRepository(connector)
+	runtime := &memoryInstallRuntime{}
+	projection := AuthorizationProjection{AccountID: "account-1", ConnectorKey: connector.Key,
+		ConnectionID: "server-connection", State: AuthorizationStateConnected, ServerSynchronized: true}
+	projectionStore := &authorizationProjectionStoreStub{projection: projection}
+	readiness := NewAuthorizationReadinessGate()
+	readiness.SetReady("account-1", true)
+	provider := &countingAuthorizationProvider{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, runtime, CatalogSnapshot{})
+	application.config.Authorization = provider
+	application.config.AuthorizationProjections = projectionStore
+	application.config.RuntimeBindings = AccountRuntimeBindingResolver{Projections: projectionStore, Readiness: readiness}
+	application.config.ImplementationRegistry = NewImplementationRegistry(map[string]ImplementationValidator{
+		ImplementationKindRemoteStreamableHTTP: nil,
+	})
+
+	uninstall, err := application.Uninstall(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "uninstall-tencent-docs", ExpectedRevision: 0},
+		ConnectorKey: connector.Key, AccountID: "account-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), uninstall.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.lastDeactivation.ConnectionID != AccountRuntimeConnectionID("account-1", connector.Key) {
+		t.Fatalf("deactivation = %#v", runtime.lastDeactivation)
+	}
+	if projectionStore.projection != projection {
+		t.Fatalf("authorization projection changed = %#v, want %#v", projectionStore.projection, projection)
+	}
+	if provider.disconnects != 0 {
+		t.Fatalf("authorization disconnects = %d, want 0", provider.disconnects)
+	}
+	if err := application.ReconcileRemoteAuthorizedRuntimesForScope(context.Background(), OperationScope{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.reconciles != 0 {
+		t.Fatalf("uninstalled connector reconciles = %d, want 0", runtime.reconciles)
+	}
+
+	snapshot, err := application.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	install, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "reinstall-tencent-docs", ExpectedRevision: snapshot.Revision},
+		ConnectorKey: connector.Key, AccountID: "account-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), install.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ReconcileInstalledRuntimesForScope(context.Background(), OperationScope{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.reconciles != 1 || !runtime.lastReconcile.Enabled ||
+		runtime.lastReconcile.Connector.Authorization.State != AuthorizationStateConnected {
+		t.Fatalf("reinstalled runtime reconcile = %#v, count=%d", runtime.lastReconcile, runtime.reconciles)
+	}
+}
+
+func TestApplicationRemoteAuthorizationStartUsesAccountProjectionInsteadOfDeviceState(t *testing.T) {
+	connector := testConnector("tencent-docs")
+	connector.Release.Manifest.AuthorizationKind = "oauth2"
+	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
+	connector.Release.Manifest.Implementation = Implementation{
+		Kind: ImplementationKindRemoteStreamableHTTP,
+		RemoteStreamableHTTP: &RemoteStreamableHTTPImplementation{
+			ProtocolVersion: "2026-07-28", BindingRef: "tencent-docs.primary", ContractVersion: 1,
+			BindingContractHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+	}
+	// This device field may have been written while another account was active.
+	connector.Authorization = Authorization{State: AuthorizationStateConnected}
+	repository := newMemoryRepository(connector)
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	application.config.AuthorizationProjections = &authorizationProjectionStoreStub{projection: AuthorizationProjection{
+		AccountID: "account-new", ConnectorKey: connector.Key, State: AuthorizationStateDisconnected,
+		ServerSynchronized: true,
+	}}
+
+	result, err := application.BeginAuthorization(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "authorization-new-account"},
+		ConnectorKey: connector.Key, AccountID: "account-new",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AuthorizationURL == "" || repository.connectors[connector.Key].Authorization.State != AuthorizationStateConnected {
+		t.Fatalf("result=%#v device authorization=%#v", result, repository.connectors[connector.Key].Authorization)
+	}
+	receipt := repository.operations[result.Operation.OperationID].Execution.AuthorizationSession
+	if receipt == nil || receipt.Resolution != AuthorizationSessionResolutionUnresolved {
+		t.Fatalf("receipt = %#v", receipt)
+	}
+}
+
+func TestApplicationConnectedProjectionConvergesReceiptWithoutProviderPolling(t *testing.T) {
+	connector := testConnector("tencent-docs")
+	connector.Release.Manifest.AuthorizationKind = "oauth2"
+	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
+	connector.Release.Manifest.Implementation = Implementation{
+		Kind: ImplementationKindRemoteStreamableHTTP,
+		RemoteStreamableHTTP: &RemoteStreamableHTTPImplementation{
+			ProtocolVersion: "2026-07-28", BindingRef: "tencent-docs.primary", ContractVersion: 1,
+			BindingContractHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+	}
+	repository := newMemoryRepository(connector)
+	repository.operations["authorization-1"] = Operation{
+		OperationID: "authorization-1", ClientRequestID: "request-1", ConnectorKey: connector.Key,
+		Kind: OperationKindStartAuthorization, Scope: OperationScope{AccountID: "account-1"},
+		State: OperationStateCompleted, Stage: OperationStageCompleted,
+		Target: operationTarget(OperationKindStartAuthorization, connector),
+		Execution: OperationExecution{AuthorizationSession: &AuthorizationSession{
+			OperationID: "authorization-1", ConnectorKey: connector.Key, SessionID: "session-1",
+			ActionType: "redirect", State: AuthorizationStatePending,
+			Resolution: AuthorizationSessionResolutionUnresolved,
+		}},
+	}
+	provider := &countingAuthorizationObserver{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	application.config.Authorization = provider
+	application.config.AuthorizationProjections = &authorizationProjectionStoreStub{projection: AuthorizationProjection{
+		AccountID: "account-1", ConnectorKey: connector.Key, ConnectionID: "connection-1",
+		State: AuthorizationStateConnected, ServerSynchronized: true,
+	}}
+
+	intents, err := application.ReconcileAuthorizations(context.Background(), OperationScope{AccountID: "account-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(intents) != 1 || intents[0].OperationID != "authorization-1" || intents[0].Resolution != AuthorizationSessionResolutionAccountStateConverged {
+		t.Fatalf("reconcile intents = %#v", intents)
+	}
+	if provider.observations != 0 {
+		t.Fatalf("provider observations = %d, want 0", provider.observations)
+	}
+	receipt := repository.operations["authorization-1"].Execution.AuthorizationSession
+	if receipt == nil || receipt.Resolution != AuthorizationSessionResolutionUnresolved {
+		t.Fatalf("receipt = %#v", receipt)
 	}
 }
 
@@ -806,6 +1049,7 @@ func TestApplicationReconcilesCompletedAuthorizationSession(t *testing.T) {
 	repository.operations["authorization-1"] = Operation{
 		OperationID: "authorization-1", ConnectorKey: connector.Key,
 		Kind: OperationKindStartAuthorization, State: OperationStateCompleted,
+		Target: operationTarget(OperationKindStartAuthorization, connector),
 		Execution: OperationExecution{AuthorizationSession: &AuthorizationSession{
 			OperationID: "authorization-1", ConnectorKey: connector.Key,
 			SessionID: "session-1", AuthorizationURL: "https://example.test/authorize",
@@ -814,7 +1058,7 @@ func TestApplicationReconcilesCompletedAuthorizationSession(t *testing.T) {
 	}
 	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
 	application.config.Authorization = observingAuthorizationProvider{observation: AuthorizationObservation{State: AuthorizationObservationConnected}}
-	if err := application.ReconcileAuthorizations(context.Background()); err != nil {
+	if _, err := application.ReconcileAuthorizations(context.Background(), OperationScope{}); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := repository.Connector(context.Background(), connector.Key)
@@ -1197,6 +1441,7 @@ func (authorizationProviderStub) Begin(_ context.Context, request AuthorizationS
 		SessionID:        "session-1",
 		ActionType:       "redirect",
 		AuthorizationURL: "https://example.test/authorize",
+		State:            AuthorizationStatePending,
 	}, nil
 }
 
@@ -1204,9 +1449,29 @@ func (authorizationProviderStub) Disconnect(context.Context, AuthorizationDiscon
 	return nil
 }
 
+type countingAuthorizationProvider struct {
+	authorizationProviderStub
+	disconnects int
+}
+
+func (provider *countingAuthorizationProvider) Disconnect(context.Context, AuthorizationDisconnectRequest) error {
+	provider.disconnects++
+	return nil
+}
+
 type observingAuthorizationProvider struct {
 	authorizationProviderStub
 	observation AuthorizationObservation
+}
+
+type countingAuthorizationObserver struct {
+	authorizationProviderStub
+	observations int
+}
+
+func (provider *countingAuthorizationObserver) Observe(context.Context, AuthorizationObserveRequest) (AuthorizationObservation, error) {
+	provider.observations++
+	return AuthorizationObservation{State: AuthorizationObservationPending}, nil
 }
 
 func (provider observingAuthorizationProvider) Observe(context.Context, AuthorizationObserveRequest) (AuthorizationObservation, error) {
@@ -1264,14 +1529,32 @@ func (repository *memoryRepository) Snapshot(_ context.Context) (Snapshot, error
 	}, nil
 }
 
-func (repository *memoryRepository) CompletedAuthorizationOperations(context.Context) ([]Operation, error) {
+func (repository *memoryRepository) UnresolvedAuthorizationSessionOperations(_ context.Context, scope OperationScope) ([]Operation, error) {
 	var operations []Operation
 	for _, operation := range repository.operations {
-		if operation.Kind == OperationKindStartAuthorization && operation.State == OperationStateCompleted {
+		if operation.Kind == OperationKindStartAuthorization && operation.State == OperationStateCompleted &&
+			operation.Scope == scope && operation.Execution.AuthorizationSession != nil &&
+			!operation.Execution.AuthorizationSession.IsResolved() {
 			operations = append(operations, operation)
 		}
 	}
 	return operations, nil
+}
+
+func (repository *memoryRepository) ResolveAuthorizationSession(
+	_ context.Context,
+	operationID string,
+	resolution AuthorizationSessionResolution,
+) error {
+	operation, ok := repository.operations[operationID]
+	if !ok {
+		return ErrNotFound
+	}
+	if operation.Execution.AuthorizationSession != nil && !operation.Execution.AuthorizationSession.IsResolved() {
+		operation.Execution.AuthorizationSession.Resolution = resolution
+		repository.operations[operationID] = operation
+	}
+	return nil
 }
 
 func (repository *memoryRepository) Connector(_ context.Context, connectorKey string) (Connector, error) {

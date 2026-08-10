@@ -319,6 +319,7 @@ func validateDelivery(delivery Delivery) error {
 			delivery.AttachmentChanged.WorkspaceID,
 			delivery.AttachmentChanged.AgentSessionID,
 			delivery.AttachmentChanged.CanonicalTurnID,
+			delivery.AttachmentChanged.CanonicalTurnIDs,
 			delivery.AttachmentChanged.CallerTurnID,
 			delivery.AttachmentChanged.AttachmentRevision,
 		) {
@@ -331,6 +332,7 @@ func validateDelivery(delivery Delivery) error {
 			delivery.AttachmentCaughtUp.WorkspaceID,
 			delivery.AttachmentCaughtUp.AgentSessionID,
 			delivery.AttachmentCaughtUp.CanonicalTurnID,
+			delivery.AttachmentCaughtUp.CanonicalTurnIDs,
 			delivery.AttachmentCaughtUp.CallerTurnID,
 			delivery.AttachmentCaughtUp.AttachmentRevision,
 		) {
@@ -371,7 +373,7 @@ func validateDelivery(delivery Delivery) error {
 }
 
 func validAttachmentControl(
-	bindingID, workspaceID, agentSessionID, canonicalTurnID, callerTurnID string,
+	bindingID, workspaceID, agentSessionID, canonicalTurnID string, canonicalTurnIDs []string, callerTurnID string,
 	revision uint64,
 ) bool {
 	if strings.TrimSpace(bindingID) == "" ||
@@ -382,9 +384,35 @@ func validAttachmentControl(
 	}
 	// Goal-only attachments are turnless; invocation attachments always carry
 	// both sides of the Turn identity mapping. A half-populated pair cannot be
-	// projected safely by a recipient.
-	return (strings.TrimSpace(canonicalTurnID) == "") ==
-		(strings.TrimSpace(callerTurnID) == "")
+	// projected safely by a recipient. The optional canonical set may still be
+	// populated for a turnless attachment after Host proves each Goal Turn.
+	canonicalTurnID = strings.TrimSpace(canonicalTurnID)
+	callerTurnID = strings.TrimSpace(callerTurnID)
+	if (canonicalTurnID == "") != (callerTurnID == "") {
+		return false
+	}
+	if len(canonicalTurnIDs) == 0 {
+		// Older producers omit the optional continuation set. A singular anchor
+		// is then the complete identity set; a turnless attachment has not yet
+		// observed a proven Goal Turn.
+		return true
+	}
+	seen := make(map[string]struct{}, len(canonicalTurnIDs))
+	for _, candidate := range canonicalTurnIDs {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return false
+		}
+		if _, ok := seen[candidate]; ok {
+			return false
+		}
+		seen[candidate] = struct{}{}
+	}
+	if canonicalTurnID == "" {
+		return true
+	}
+	_, anchored := seen[canonicalTurnID]
+	return anchored
 }
 
 func strictControlDecode(raw []byte, target any) error {

@@ -391,6 +391,32 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	}
 }
 
+func TestDefaultPreparerReturnsAuthoritativeMCPBindings(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	input := PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		Provider:       "unknown-provider",
+		Cwd:            t.TempDir(),
+		MCPServers: []MCPServerBinding{{
+			Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector",
+			Headers: map[string]string{"Authorization": "Bearer test-token"},
+		}},
+	}
+	prepared, err := newTestPreparer(t.TempDir()).Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if len(prepared.MCPServers) != 1 || prepared.MCPServers[0].URL != input.MCPServers[0].URL ||
+		prepared.MCPServers[0].Headers["Authorization"] != "Bearer test-token" {
+		t.Fatalf("prepared MCP servers = %#v", prepared.MCPServers)
+	}
+	prepared.MCPServers[0].Headers["Authorization"] = "mutated"
+	if input.MCPServers[0].Headers["Authorization"] != "Bearer test-token" {
+		t.Fatal("prepared MCP binding shares mutable headers with input")
+	}
+}
+
 func TestDefaultPreparerCodexSaverModeInstallsLunaWorkerAndRoutingPolicy(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1279,6 +1305,18 @@ func TestCodexConfigWithProjectRootMarkersDisabledKeepsExistingEmptyMarkers(t *t
 	}
 }
 
+func TestCodexConfigWithConnectorMCPReplacesReservedServerAndPreservesCustomServers(t *testing.T) {
+	input := "[mcp_servers.connector]\nurl = \"http://old\"\n\n[mcp_servers.custom]\nurl = \"http://custom\"\n"
+	next, changed := codexConfigWithConnectorMCP(input, []MCPServerBinding{{Name: "connector", Type: "http",
+		URL: "http://127.0.0.1:1234/mcp/connector", Headers: map[string]string{"Authorization": "Bearer session-token"}}})
+	if !changed || strings.Count(next, "[mcp_servers.connector]") != 1 ||
+		!strings.Contains(next, `url = "http://127.0.0.1:1234/mcp/connector"`) ||
+		!strings.Contains(next, `"Authorization" = "Bearer session-token"`) ||
+		!strings.Contains(next, "[mcp_servers.custom]") || strings.Contains(next, "http://old") {
+		t.Fatalf("connector MCP config = %q", next)
+	}
+}
+
 func TestCodexConfigWithSupportedServiceTierSanitizesLegacyValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1426,6 +1464,50 @@ func TestDefaultPreparerCleanupRemovesManagedBlocksAndRuntimeRoot(t *testing.T) 
 	}
 	if _, err := os.Stat(runtimeRoot); !os.IsNotExist(err) {
 		t.Fatalf("runtime root still exists, err = %v", err)
+	}
+}
+
+func TestDefaultPreparerCleanupCanPreserveRecoverableRuntimeRoot(t *testing.T) {
+	stateDir := t.TempDir()
+	cwd := t.TempDir()
+	preparer := newTestPreparer(stateDir)
+	prepared, err := preparer.Prepare(t.Context(), PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		Provider:       "codex",
+		Cwd:            cwd,
+	})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	codexHome := envValue(prepared.Env, "CODEX_HOME")
+	rolloutPath := filepath.Join(codexHome, "sessions", "rollout.jsonl")
+	if err := os.MkdirAll(filepath.Dir(rolloutPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rolloutPath, []byte("recoverable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := preparer.Cleanup(t.Context(), CleanupInput{
+		WorkspaceID:         "workspace-1",
+		AgentSessionID:      "session-1",
+		PreserveRuntimeRoot: true,
+	}); err != nil {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+	if content, err := os.ReadFile(rolloutPath); err != nil || string(content) != "recoverable" {
+		t.Fatalf("recoverable rollout = %q, error = %v", content, err)
+	}
+
+	if err := preparer.Cleanup(t.Context(), CleanupInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+	}); err != nil {
+		t.Fatalf("permanent Cleanup() error = %v", err)
+	}
+	if _, err := os.Stat(codexHome); !os.IsNotExist(err) {
+		t.Fatalf("codex home still exists after permanent cleanup, err = %v", err)
 	}
 }
 
@@ -1741,14 +1823,16 @@ func TestDefaultPreparerCursorUsesRuntimePluginDir(t *testing.T) {
 
 	preparer := newTestPreparer(stateDir)
 	preparer.CLICommand = "tutti-dev"
-	prepared, err := preparer.Prepare(t.Context(), PrepareInput{
+	prepareInput := PrepareInput{
 		WorkspaceID:    "workspace-1",
 		AgentSessionID: "cursor-session-1",
 		AgentTargetID:  "local:cursor",
 		Provider:       "cursor",
 		Cwd:            cwd,
+		CLICommand:     preparer.CLICommand,
 		BrowserUse:     true,
-	})
+	}
+	prepared, err := preparer.Prepare(t.Context(), prepareInput)
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
@@ -1782,6 +1866,7 @@ func TestDefaultPreparerCursorUsesRuntimePluginDir(t *testing.T) {
 	}
 	if !strings.Contains(string(pluginManifest), `"name": "tutti-cli"`) ||
 		!strings.Contains(string(pluginManifest), `"skills": "./skills/"`) ||
+		!strings.Contains(string(pluginManifest), `"rules": []`) ||
 		!strings.Contains(string(pluginManifest), `"displayName": "Tutti CLI"`) {
 		t.Fatalf("cursor plugin manifest = %q", string(pluginManifest))
 	}
@@ -1790,6 +1875,43 @@ func TestDefaultPreparerCursorUsesRuntimePluginDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(pluginDir, "hooks")); !os.IsNotExist(err) {
 		t.Fatalf("cursor ACP plugin hooks should remain dormant, stat error = %v", err)
+	}
+	contextPath := envValue(prepared.Env, cursorPromptContextFileEnv)
+	if contextPath != filepath.Join(pluginDir, "tutti-context.md") {
+		t.Fatalf("cursor prompt context path = %q, want plugin-owned context file", contextPath)
+	}
+	promptContext, err := os.ReadFile(contextPath)
+	if err != nil {
+		t.Fatalf("cursor prompt context missing: %v", err)
+	}
+	expectedInput := prepareInput
+	expectedInput.hostFacts, err = normalizeHostFacts(preparer.Profile.HostFacts)
+	if err != nil {
+		t.Fatalf("normalizeHostFacts() error = %v", err)
+	}
+	expectedPolicy, err := tuttiCLIPolicy(testResolvedInput(t, expectedInput))
+	if err != nil {
+		t.Fatalf("tuttiCLIPolicy() error = %v", err)
+	}
+	if !strings.HasPrefix(string(promptContext), strings.TrimSpace(expectedPolicy)+"\n\n## Available Skills\n") {
+		t.Fatalf("cursor prompt context does not start with resolved policy: %s", string(promptContext))
+	}
+	skillEntries, err := os.ReadDir(filepath.Join(pluginDir, "skills"))
+	if err != nil {
+		t.Fatalf("read cursor plugin skills: %v", err)
+	}
+	catalog := strings.SplitN(string(promptContext), "## Available Skills\n", 2)
+	if len(catalog) != 2 {
+		t.Fatalf("cursor prompt context missing dynamic Skill catalog: %s", string(promptContext))
+	}
+	if got := strings.Count(catalog[1], "\n- "); got != len(skillEntries) {
+		t.Fatalf("cursor prompt context catalog entries = %d, want %d", got, len(skillEntries))
+	}
+	for _, entry := range skillEntries {
+		skillFile := filepath.Join(pluginDir, "skills", entry.Name(), "SKILL.md")
+		if !strings.Contains(catalog[1], "`"+skillFile+"`") {
+			t.Fatalf("cursor prompt context missing materialized Skill path %q", skillFile)
+		}
 	}
 	pluginSkill, err := os.ReadFile(filepath.Join(pluginDir, "skills", "tutti-cli", "SKILL.md"))
 	if err != nil {
@@ -1886,6 +2008,26 @@ func TestTuttiAgentManagedConfigRemovesOnlyLegacyPinnedProvider(t *testing.T) {
 		if !strings.Contains(next, want) {
 			t.Fatalf("next removed %q: %s", want, next)
 		}
+	}
+}
+
+func TestTuttiAgentManagedConfigProjectsConnectorMCP(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := ensureTuttiAgentSessionConfig(configPath, PrepareInput{MCPServers: []MCPServerBinding{{
+		Name: "connector", Type: "http", URL: "http://127.0.0.1:4321/mcp/connector",
+		Headers: map[string]string{"Authorization": "Bearer test-token"},
+	}}}); err != nil {
+		t.Fatalf("ensureTuttiAgentSessionConfig() error = %v", err)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(raw)
+	if !strings.Contains(content, "[mcp_servers.connector]") ||
+		!strings.Contains(content, `url = "http://127.0.0.1:4321/mcp/connector"`) ||
+		!strings.Contains(content, `"Authorization" = "Bearer test-token"`) {
+		t.Fatalf("tutti-agent config = %q", content)
 	}
 }
 

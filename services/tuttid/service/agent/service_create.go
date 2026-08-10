@@ -37,6 +37,16 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	}
 	input.Provider = provider
 	input.ProviderTargetRef = launch.ProviderTargetRef
+	isolationMode := strings.TrimSpace(input.Isolation)
+	if isolationMode != "" && isolationMode != WorktreeIsolationMode {
+		return createSessionFailureResult(input, fmt.Errorf("%w: unsupported session isolation mode %q", ErrInvalidArgument, isolationMode))
+	}
+	if isolationMode == WorktreeIsolationMode && !sessionWorktreeTargetSupported(input.AgentTargetID, launch.ProviderTargetRef) {
+		return createSessionFailureResult(input, fmt.Errorf("%w: worktree isolation is unavailable for agent target", ErrInvalidArgument))
+	}
+	if isolationMode == WorktreeIsolationMode && !worktreeProjectRailPlacement(input.RailPlacement) {
+		return createSessionFailureResult(input, fmt.Errorf("%w: worktree isolation requires project rail placement", ErrInvalidArgument))
+	}
 	if valueBool(input.CodexSaverMode) && (!input.CodexSaverModeAllowed || !composerProviderSupportsSaverSubagentMode(provider)) {
 		return createSessionFailureResult(input, fmt.Errorf("%w: Codex saver mode is unavailable", ErrInvalidArgument))
 	}
@@ -119,10 +129,6 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		value(input.Model),
 		input.ReasoningEffort,
 	)
-	isolationMode := strings.TrimSpace(input.Isolation)
-	if isolationMode != "" && isolationMode != WorktreeIsolationMode {
-		return createSessionFailureResult(input, fmt.Errorf("%w: unsupported session isolation mode %q", ErrInvalidArgument, isolationMode))
-	}
 	worktreeLock := s.worktreeLock()
 	worktreeLock.RLock()
 	defer worktreeLock.RUnlock()
@@ -145,20 +151,22 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	var isolationWarnings []SessionWarning
 	keepWorktree := false
 	if isolationMode == WorktreeIsolationMode {
-		created, warnings, createErr := s.createSessionWorktree(ctx, workspaceID, cwd, input.AgentSessionID)
+		launch, createErr := s.createSessionWorktree(ctx, workspaceID, cwd, input.AgentSessionID)
 		if createErr != nil {
 			return createSessionFailureResult(input, createErr)
 		}
-		isolation = &created
-		isolationWarnings = warnings
-		cwd = created.WorktreePath
+		isolation = &launch.Isolation
+		isolationWarnings = launch.Warnings
+		cwd = launch.Cwd
 		input.Cwd = stringPointer(cwd)
-		input.RuntimeContext = sessionIsolationRuntimeContext(input.RuntimeContext, created)
-		defer func() {
-			if !keepWorktree {
-				s.rollbackSessionWorktree(context.Background(), created)
-			}
-		}()
+		input.RuntimeContext = sessionIsolationRuntimeContext(input.RuntimeContext, launch.Isolation)
+		if launch.Created {
+			defer func() {
+				if !keepWorktree {
+					s.rollbackSessionWorktree(context.Background(), launch.Isolation)
+				}
+			}()
+		}
 	}
 	if providerTargetRefKind(input.ProviderTargetRef) == "agent_extension" {
 		nodeStartedAt = time.Now()
@@ -184,7 +192,7 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		return createSessionFailureResult(input, err)
 	}
 	if isolation != nil {
-		prepared.Cwd = isolation.WorktreePath
+		prepared.Cwd = cwd
 	}
 	// Keep the durable launch snapshot aligned with the same capability clamp
 	// used by runtime preparation. Otherwise a missing browser/computer backend
@@ -372,6 +380,12 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	}, err
 }
 
+func worktreeProjectRailPlacement(placement *agenthost.RailPlacement) bool {
+	return placement != nil &&
+		agenthost.RailPlacementKind(strings.TrimSpace(string(placement.Kind))) == agenthost.RailPlacementKindProject &&
+		strings.TrimSpace(placement.ProjectPath) != ""
+}
+
 func createSessionFailureResult(input CreateSessionInput, err error) (CreateSessionResult, error) {
 	initialGoalStatus := agenthost.CreateSessionInitialGoalStatusNotRequested
 	_, typedGoal := agenthost.ParseTypedGoalControl(input.InitialContent, false)
@@ -518,6 +532,7 @@ func agentSessionIDOrNew(agentSessionID string) string {
 type preparedRuntime struct {
 	Cwd         string
 	Env         []string
+	MCPServers  []runtimeprep.MCPServerBinding
 	BrowserUse  *bool
 	ComputerUse *bool
 }
@@ -584,6 +599,20 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 	}
 	effectiveBrowserUse := s.clampComposerBrowserUseForLaunch(ctx, provider, input.ProviderTargetRef, input.BrowserUse)
 	effectiveComputerUse := s.clampComposerComputerUseForLaunch(ctx, provider, input.ProviderTargetRef, input.ComputerUse)
+	connectorHints := s.activeConnectorRoutingHints()
+	var connectorMCPServers []runtimeprep.MCPServerBinding
+	connectorBound := false
+	if s.ConnectorRuntime != nil {
+		binding, bindingErr := s.ConnectorRuntime.BindSession(workspaceID, strings.TrimSpace(input.AgentSessionID))
+		if bindingErr != nil {
+			if gatewayRegistered {
+				s.ModelGateway.Unregister(context.WithoutCancel(ctx), workspaceID, input.AgentSessionID)
+			}
+			return preparedRuntime{}, bindingErr
+		}
+		connectorMCPServers = []runtimeprep.MCPServerBinding{binding}
+		connectorBound = true
+	}
 	prepared, err := s.RuntimePreparer.Prepare(ctx, runtimeprep.PrepareInput{
 		WorkspaceID:               workspaceID,
 		AgentSessionID:            strings.TrimSpace(input.AgentSessionID),
@@ -610,7 +639,8 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		AgentSkills:               append([]string(nil), input.AgentSkills...),
 		AgentTools:                append([]string(nil), input.AgentTools...),
 		ExtraSkills:               sessionSkillBundlesToProviderSkillBundles(input.ExtraSkills),
-		ConnectorRoutingHints:     s.activeConnectorRoutingHints(),
+		ConnectorRoutingHints:     connectorHints,
+		MCPServers:                connectorMCPServers,
 		Metadata:                  input.Metadata,
 		CommandCapabilityProjection: cloneCommandCapabilityProjection(
 			input.CommandCapabilityProjection,
@@ -618,6 +648,9 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		ExternalRolloutSourcePath: input.ExternalRolloutSourcePath,
 	})
 	if err != nil {
+		if connectorBound {
+			s.ConnectorRuntime.RevokeSession(workspaceID, strings.TrimSpace(input.AgentSessionID))
+		}
 		if gatewayRegistered {
 			s.ModelGateway.Unregister(context.WithoutCancel(ctx), workspaceID, input.AgentSessionID)
 		}
@@ -629,9 +662,26 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 	return preparedRuntime{
 		Cwd:         prepared.Cwd,
 		Env:         append([]string(nil), prepared.Env...),
+		MCPServers:  cloneRuntimeMCPServerBindings(prepared.MCPServers),
 		BrowserUse:  effectiveCapabilitySetting(input.BrowserUse, effectiveBrowserUse),
 		ComputerUse: effectiveCapabilitySetting(input.ComputerUse, effectiveComputerUse),
 	}, nil
+}
+
+func cloneRuntimeMCPServerBindings(input []runtimeprep.MCPServerBinding) []runtimeprep.MCPServerBinding {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make([]runtimeprep.MCPServerBinding, 0, len(input))
+	for _, binding := range input {
+		headers := make(map[string]string, len(binding.Headers))
+		for key, value := range binding.Headers {
+			headers[key] = value
+		}
+		binding.Headers = headers
+		result = append(result, binding)
+	}
+	return result
 }
 
 func modelEndpointUsesOpenAIProtocol(endpoint *runtimeprep.ModelEndpointConfig) bool {

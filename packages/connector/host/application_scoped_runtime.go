@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -68,6 +69,82 @@ func (application *Application) ObserveAuthorization(
 	return application.ReconcileRuntime(ctx, mutation)
 }
 
+func (application *Application) projectAuthorizationAndScheduleRuntime(
+	ctx context.Context,
+	scope OperationScope,
+	connectorKey, connectionID string,
+	state AuthorizationState,
+	failureCode string,
+) error {
+	if application.config.AuthorizationProjections == nil || strings.TrimSpace(scope.AccountID) == "" {
+		return nil
+	}
+	connectionID = strings.TrimSpace(connectionID)
+	if state == AuthorizationStateConnected && connectionID == "" {
+		return invalidOperationReceipt("connected authorization did not provide a connection id")
+	}
+	connector, err := application.config.Repository.Connector(ctx, strings.TrimSpace(connectorKey))
+	if err != nil {
+		return err
+	}
+	release, err := application.installedReleaseEvidence(ctx, connector)
+	if err != nil {
+		return err
+	}
+	if release.Manifest.Implementation.RemoteStreamableHTTP != nil {
+		snapshotStore, ok := application.config.AuthorizationProjections.(AuthorizationSnapshotStore)
+		if !ok || application.config.AuthorizationSnapshots == nil {
+			return NewDomainError(ErrorCodeUnavailable, "remote connector authorization snapshot is unavailable", true, nil)
+		}
+		authoritative, snapshotErr := application.config.AuthorizationSnapshots.AuthorizationSnapshot(ctx, scope.AccountID)
+		if snapshotErr != nil {
+			return fmt.Errorf("refresh remote connector authorization snapshot: %w", snapshotErr)
+		}
+		if _, applyErr := snapshotStore.ApplyAuthorizationSnapshot(ctx, scope.AccountID, authoritative); applyErr != nil {
+			return fmt.Errorf("apply remote connector authorization snapshot: %w", applyErr)
+		}
+		if application.config.AuthorizationReadiness != nil {
+			application.config.AuthorizationReadiness.SetReady(scope.AccountID, true)
+		}
+	} else {
+		deviceSnapshot, snapshotErr := application.Snapshot(ctx)
+		if snapshotErr != nil {
+			return snapshotErr
+		}
+		requestID, idErr := application.config.NewID()
+		if idErr != nil {
+			return idErr
+		}
+		if _, err := application.ObserveAuthorization(ctx, ConnectorMutation{
+			Mutation:     Mutation{ClientRequestID: "authorization-projection/" + requestID, ExpectedRevision: deviceSnapshot.Revision},
+			ConnectorKey: strings.TrimSpace(connectorKey), AccountID: strings.TrimSpace(scope.AccountID),
+		}, AuthorizationProjection{
+			AccountID: strings.TrimSpace(scope.AccountID), ConnectorKey: strings.TrimSpace(connectorKey),
+			ConnectionID: connectionID, State: state, FailureCode: strings.TrimSpace(failureCode), UpdatedAt: application.config.Now().UTC(),
+		}); err != nil {
+			return err
+		}
+		return nil
+	}
+	deviceSnapshot, err := application.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	requestID, err := application.config.NewID()
+	if err != nil {
+		return err
+	}
+	_, err = application.ReconcileRuntime(ctx, ConnectorMutation{
+		Mutation: Mutation{
+			ClientRequestID:  "authorization-snapshot/" + requestID,
+			ExpectedRevision: deviceSnapshot.Revision,
+		},
+		ConnectorKey: strings.TrimSpace(connectorKey),
+		AccountID:    strings.TrimSpace(scope.AccountID),
+	})
+	return err
+}
+
 func (application *Application) ReconcileInstalledRuntimes(ctx context.Context) error {
 	return application.ReconcileInstalledRuntimesForScope(ctx, OperationScope{})
 }
@@ -75,6 +152,42 @@ func (application *Application) ReconcileInstalledRuntimes(ctx context.Context) 
 // ReconcileInstalledRuntimesForScope rebuilds runtime intent for an explicit
 // account authority after daemon or guest restart.
 func (application *Application) ReconcileInstalledRuntimesForScope(ctx context.Context, scope OperationScope) error {
+	return application.reconcileInstalledRuntimesForScope(ctx, scope, false)
+}
+
+// ReconcileRemoteAuthorizedRuntimesForScope is the level-triggered repair
+// path for account snapshot convergence. It deliberately excludes local and
+// authorization-free runtimes so the five-minute calibration cannot restart
+// unrelated CLI or stdio processes.
+func (application *Application) ReconcileRemoteAuthorizedRuntimesForScope(ctx context.Context, scope OperationScope) error {
+	return application.reconcileInstalledRuntimesForScope(ctx, scope, true)
+}
+
+func (application *Application) InstalledRemoteAuthorizedConnectorKeys(ctx context.Context) ([]string, error) {
+	snapshot, err := application.config.Repository.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0)
+	for _, connector := range snapshot.Connectors {
+		if connector.Installation.State != InstallationStateInstalled {
+			continue
+		}
+		release, err := application.installedReleaseEvidence(ctx, connector)
+		if err != nil {
+			// Keep a currently-known remote connector eligible so a broken local
+			// release evidence record cannot hide a fail-closed authorization
+			// reconcile. Unrelated local connectors are skipped independently.
+			release = connector.Release
+		}
+		if release.Manifest.Implementation.RemoteStreamableHTTP != nil && release.Manifest.AuthorizationKind != "none" {
+			keys = append(keys, connector.Key)
+		}
+	}
+	return keys, nil
+}
+
+func (application *Application) reconcileInstalledRuntimesForScope(ctx context.Context, scope OperationScope, remoteAuthorizedOnly bool) error {
 	if application == nil {
 		return NewDomainError(ErrorCodeUnavailable, "connector application is unavailable", false, nil)
 	}
@@ -82,15 +195,28 @@ func (application *Application) ReconcileInstalledRuntimesForScope(ctx context.C
 	if err != nil {
 		return err
 	}
+	var reconcileErr error
 	for _, connector := range snapshot.Connectors {
 		if connector.Installation.State != InstallationStateInstalled {
 			continue
 		}
 		installedRelease, evidenceErr := application.installedReleaseEvidence(ctx, connector)
 		if evidenceErr != nil {
+			if remoteAuthorizedOnly {
+				reconcileErr = errors.Join(reconcileErr, fmt.Errorf("%s: load installed release: %w", connector.Key, evidenceErr))
+				continue
+			}
 			return NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is unavailable", false, nil)
 		}
+		if remoteAuthorizedOnly && (installedRelease.Manifest.Implementation.RemoteStreamableHTTP == nil ||
+			installedRelease.Manifest.AuthorizationKind == "none") {
+			continue
+		}
 		if validationErr := ValidateRuntimeReleaseShape(installedRelease); validationErr != nil {
+			if remoteAuthorizedOnly {
+				reconcileErr = errors.Join(reconcileErr, fmt.Errorf("%s: validate installed release: %w", connector.Key, validationErr))
+				continue
+			}
 			return NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is invalid", false, validationErr)
 		}
 		installedConnector := connector
@@ -103,25 +229,42 @@ func (application *Application) ReconcileInstalledRuntimesForScope(ctx context.C
 		operation := Operation{OperationID: operationID, ConnectorKey: connector.Key, Scope: scope}
 		binding, err := application.resolveRuntimeBinding(ctx, operation, installedConnector, installedRelease, RuntimeBindingPurposeReconcile)
 		if err != nil {
+			if remoteAuthorizedOnly {
+				reconcileErr = errors.Join(reconcileErr, fmt.Errorf("%s: resolve runtime binding: %w", connector.Key, err))
+				continue
+			}
 			return NewDomainError(ErrorCodeUnavailable, "connector runtime binding could not be resolved", true, err)
 		}
+		installedConnector.Authorization.State = binding.AuthorizationState
 		receipt, err := application.reconcileRuntime(ctx, RuntimeReconcileRequest{
 			OperationID: operationID, Scope: scope, ConnectionID: binding.ConnectionID,
 			Connector: installedConnector, Enabled: binding.Enabled, CredentialBrokerGrant: binding.CredentialBrokerGrant,
 			Generation: HostGeneration{BootEpoch: application.config.BootEpoch, Generation: generation},
 		})
 		if err != nil {
+			if remoteAuthorizedOnly {
+				reconcileErr = errors.Join(reconcileErr, fmt.Errorf("%s: reconcile runtime: %w", connector.Key, err))
+				continue
+			}
 			return NewDomainError(ErrorCodeUnavailable, "connector runtime could not be reconciled", true, err)
 		}
 		if err := validateRuntimeReceipt(receipt, operationID, binding.ConnectionID, connector.Key,
 			installedRelease.ReleaseDigest, HostGeneration{BootEpoch: application.config.BootEpoch, Generation: generation}); err != nil {
+			if remoteAuthorizedOnly {
+				reconcileErr = errors.Join(reconcileErr, fmt.Errorf("%s: validate runtime receipt: %w", connector.Key, err))
+				continue
+			}
 			return err
 		}
 		if err := application.recordDirectRuntimeGeneration(ctx, connector.Key, installedRelease.ReleaseDigest, operationID, generation); err != nil {
+			if remoteAuthorizedOnly {
+				reconcileErr = errors.Join(reconcileErr, fmt.Errorf("%s: record runtime generation: %w", connector.Key, err))
+				continue
+			}
 			return err
 		}
 	}
-	return nil
+	return reconcileErr
 }
 
 // recordDirectRuntimeGeneration makes startup reconciliation participate in

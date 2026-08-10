@@ -296,7 +296,6 @@ export function reportAgentGUIRenderStateDiagnostic(input: {
     void Promise.resolve(
       reportDiagnostic.call(input.runtime, {
         details: {
-          temporaryMarker: "[TEMP:agent-session-premature-complete]",
           activeActivityDisplayStatus: input.activeActivityDisplayStatus,
           activeConversationBusy: input.activeConversationBusy,
           activeConversationId: input.activeConversationId,

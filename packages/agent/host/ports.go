@@ -222,6 +222,15 @@ type SessionPurgeStore interface {
 	PurgeDeletedSessions(context.Context, storesqlite.PurgeDeletedSessionsInput) (storesqlite.PurgeDeletedSessionsResult, error)
 }
 
+// DeletedSessionStore is the lossless tombstone read/restore/permanent-delete
+// boundary. Restore is a lifecycle command; presentation and retention policy
+// remain with the composing host adapter.
+type DeletedSessionStore interface {
+	ListDeletedSessions(context.Context, storesqlite.ListDeletedSessionsInput) (storesqlite.DeletedSessionPage, error)
+	RestoreDeletedSession(context.Context, storesqlite.RestoreDeletedSessionInput) (storesqlite.RestoreDeletedSessionResult, error)
+	PurgeDeletedSessionTrees(context.Context, storesqlite.PurgeDeletedSessionTreesInput) (storesqlite.PurgeDeletedSessionTreesResult, error)
+}
+
 // HistoricalSessionStateStore is the canonical persistence boundary used by
 // Replay before normal Host recovery. The contract contains business entities,
 // not rows, table names, or migration details.
@@ -241,7 +250,7 @@ type HistoricalSessionStateStore interface {
 // create, resume, send, exact cancel, interactive, plan, title, and visibility
 // workflows. Process transport and provider implementations stay behind it.
 type RuntimeController interface {
-	Start(context.Context, RuntimeStartInput) (ProviderRuntimeSession, error)
+	Start(context.Context, RuntimeStartInput) (RuntimeStartResult, error)
 	Resume(context.Context, RuntimeResumeInput) (ProviderRuntimeSession, error)
 	Session(workspaceID string, agentSessionID string) (ProviderRuntimeSession, bool)
 	CanResume(RuntimeResumeInput) bool
@@ -254,6 +263,14 @@ type RuntimeController interface {
 	SetTitle(context.Context, RuntimeSetTitleInput) (ProviderRuntimeSession, error)
 	SetVisible(context.Context, RuntimeSetVisibleInput) (ProviderRuntimeSession, error)
 	Close(context.Context, RuntimeCloseInput) error
+}
+
+// RuntimeSessionInitializationPublisher is the explicit release half of a
+// create-time canonical initialization barrier. CreateSession requires this
+// capability before starting a provider Runtime; other Host workflows can use
+// a narrower RuntimeController without pretending to support creation.
+type RuntimeSessionInitializationPublisher interface {
+	PublishSessionInitialization(context.Context, RuntimeSessionInitializationPublishInput) (ProviderRuntimeSession, error)
 }
 
 // RuntimeSessionLiveness distinguishes a registered runtime Session from a
@@ -415,9 +432,33 @@ type RuntimePreparationInput struct {
 type PreparedRuntime struct {
 	Cwd               string
 	Env               []string
+	MCPServers        []MCPServerBinding
 	ProviderTargetRef map[string]any
 	Settings          *ComposerSettings
 	RuntimeContext    map[string]any
+}
+
+type MCPServerBinding struct {
+	Name    string
+	Type    string
+	URL     string
+	Headers map[string]string
+}
+
+func cloneHostMCPServerBindings(input []MCPServerBinding) []MCPServerBinding {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make([]MCPServerBinding, 0, len(input))
+	for _, binding := range input {
+		headers := make(map[string]string, len(binding.Headers))
+		for key, value := range binding.Headers {
+			headers[key] = value
+		}
+		binding.Headers = headers
+		result = append(result, binding)
+	}
+	return result
 }
 
 type RuntimeCleanupInput struct {
@@ -427,6 +468,10 @@ type RuntimeCleanupInput struct {
 	// OrphanActivationCleanup requests Tutti Mode activation cleanup for
 	// runtime-only session state that never received a canonical tombstone.
 	OrphanActivationCleanup bool
+	// PreserveRecoverableState keeps provider resume identity and other
+	// session-owned persistent resources while still releasing live/transient
+	// runtime resources after a lossless soft delete.
+	PreserveRecoverableState bool
 }
 
 type RuntimePreparationPort interface {
@@ -479,8 +524,42 @@ type LifecycleStep struct {
 
 // LifecycleObserver receives diagnostic step outcomes. It must not influence
 // command correctness; durable state remains in CanonicalStore.
+//
+// Adapters must not turn every LifecycleStep into a product analytics event.
+// Prefer TerminalFailureObserver for aggregated failure telemetry.
 type LifecycleObserver interface {
 	ObserveLifecycleStep(context.Context, LifecycleStep)
+}
+
+// TerminalFailure is one aggregated failure fact for product telemetry.
+// Host emits at most one observation per failed command or durable terminal
+// settlement. It carries the failure stage and original error text so adapters
+// can report without depending on user-supplied logs.
+type TerminalFailure struct {
+	Flow            string
+	FailureStage    string
+	WorkspaceID     string
+	AgentSessionID  string
+	TurnID          string
+	OperationID     string
+	ClientSubmitID  string
+	RequestID       string
+	Provider        string
+	ErrorCode       string
+	ErrorMessage    string
+	ToolNameFamily  string
+	InteractionKind string
+	// IsChildSession marks provider-native subagent sessions (parent tool call).
+	// Adapters may use it to distinguish child-session turn/tool failures from
+	// root-session ones without a separate event family.
+	IsChildSession bool
+	Retryable      bool
+}
+
+// TerminalFailureObserver receives aggregated terminal failures. It must not
+// influence command correctness; durable state remains in CanonicalStore.
+type TerminalFailureObserver interface {
+	ObserveTerminalFailure(context.Context, TerminalFailure)
 }
 
 // CommitObserver is the single post-commit wake surface. Implementations must

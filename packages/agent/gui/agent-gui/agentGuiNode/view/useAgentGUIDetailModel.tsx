@@ -385,6 +385,12 @@ export function useAgentGUIDetailModel(input: Input) {
       modelTooltipVersionLabel: labels.modelTooltipVersionLabel,
       defaultModel: labels.defaultModel,
       loadingOptions: labels.loadingOptions,
+      composerOptionsLoadFailed: labels.composerOptionsLoadFailed,
+      retry: labels.composerOptionsRetry ?? labels.retryActivation,
+      retryTooltip:
+        labels.composerOptionsRetryTooltip ??
+        labels.composerOptionsRetry ??
+        labels.retryActivation,
       inheritedUnavailable: labels.inheritedUnavailable,
       loadingConversation: labels.loadingConversation,
       reasoningLabel: labels.reasoningLabel,
@@ -558,6 +564,9 @@ export function useAgentGUIDetailModel(input: Input) {
       handoffTargetShared: labels.handoffTargetShared,
       providerSwitchLabel: labels.providerSwitchLabel,
       projectLocked: labels.projectLocked,
+      sessionLaunchModeLabel: labels.sessionLaunchModeLabel,
+      sessionLaunchModeLocal: labels.sessionLaunchModeLocal,
+      sessionLaunchModeWorktree: labels.sessionLaunchModeWorktree,
       projectMissingDescription: labels.projectMissingDescription,
       promptTipsPrefix: labels.promptTipsPrefix,
       reviewPicker: labels.reviewPicker,
@@ -566,6 +575,9 @@ export function useAgentGUIDetailModel(input: Input) {
     }),
     [
       interactivePromptLabels,
+      labels.composerOptionsLoadFailed,
+      labels.composerOptionsRetry,
+      labels.composerOptionsRetryTooltip,
       labels.defaultModel,
       labels.tuttiModePlanSendAccept,
       labels.tuttiModePlanSendRequestChanges,
@@ -631,6 +643,9 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.planUnavailable,
       labels.goalLabel,
       labels.projectLocked,
+      labels.sessionLaunchModeLabel,
+      labels.sessionLaunchModeLocal,
+      labels.sessionLaunchModeWorktree,
       labels.projectMissingDescription,
       labels.promptTipsPrefix,
       labels.reviewPicker,

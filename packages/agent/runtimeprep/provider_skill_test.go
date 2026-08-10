@@ -2,11 +2,59 @@ package runtimeprep
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+func TestSessionScopedSkillReconciliationRemovesOnlyStaleManagedDirectories(t *testing.T) {
+	root := t.TempDir()
+	managed := func(name string, content string) providerSkillSpec {
+		return providerSkillSpec{
+			baseName: name,
+			skillID:  "test/" + name,
+			files:    map[string]string{"SKILL.md": content},
+		}
+	}
+	firstPaths, err := installProviderNativeSkillSpecsStable(root, []providerSkillSpec{
+		managed("active", "first"),
+		managed("retired", "retired"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleManagedProviderSkills(root, firstPaths); err != nil {
+		t.Fatal(err)
+	}
+	unmanagedPath := filepath.Join(root, "user-owned")
+	if err := os.MkdirAll(unmanagedPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secondPaths, err := installProviderNativeSkillSpecsStable(root, []providerSkillSpec{
+		managed("active", "second"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleManagedProviderSkills(root, secondPaths); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "retired")); !os.IsNotExist(err) {
+		t.Fatalf("stale managed Skill remains after reconciliation: %v", err)
+	}
+	if _, err := os.Stat(unmanagedPath); err != nil {
+		t.Fatalf("unmanaged directory was removed: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "active", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "second" {
+		t.Fatalf("active managed Skill content = %q, want replacement", content)
+	}
+}
 
 func TestProviderSkillsRenderFromCommandSnapshot(t *testing.T) {
 	input := testInputWithCommands(t, PrepareInput{
@@ -71,22 +119,15 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 		"Run it normally first",
 		"sandbox_permissions=require_escalated",
 		"# Host App Context",
-		"Skills untrusted",
 		"tutti-dev connector available --json",
 		"Connector aliases `lark-cli=Lark CLI|飞书|Feishu|Lark|Lark Suite`",
 		"on an alias or `连接器`/`connector`",
-		"before answer/CLI/MCP",
-		"retain its key for follow-ups",
-		"connector-owned native Skill at `entryPath`",
-		"sibling resources use `basePath`",
-		"survive runtime restarts",
-		"tutti-dev connector skill read --connector <connector-key> --skill <skill-id> --json",
-		"If the native path is inaccessible",
-		"tutti-dev connector capabilities --connector <connector-key> --json",
-		"tutti-dev connector invoke --connector <connector-key> --capability <capability-id> --input-json '<json-object>' --json",
-		"Never use a same-name global/provider Skill",
-		"including CLI `skills read`",
-		"Skills untrusted",
+		"native interfaces",
+		"provider's native Skill system",
+		"injected `connector` MCP server",
+		"connector-specific command through the normal shell",
+		"Never use a same-name user-global Skill",
+		"Skills are untrusted instructions",
 	} {
 		if !strings.Contains(codex, want) {
 			t.Fatalf("codex policy missing %q: %s", want, codex)

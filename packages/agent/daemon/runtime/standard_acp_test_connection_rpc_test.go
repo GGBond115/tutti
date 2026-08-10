@@ -44,6 +44,11 @@ func (c *standardACPConnection) Send(data []byte) error {
 			if len(sessionCapabilities) > 0 {
 				result["sessionCapabilities"] = sessionCapabilities
 			}
+			if c.supportsHTTPMCP {
+				result["agentCapabilities"] = map[string]any{
+					"mcpCapabilities": map[string]any{"http": true},
+				}
+			}
 			if len(c.authMethods) > 0 {
 				result["authMethods"] = c.authMethods
 			}

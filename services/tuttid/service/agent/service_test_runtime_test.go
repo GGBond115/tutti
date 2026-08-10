@@ -24,42 +24,46 @@ import (
 )
 
 type fakeRuntime struct {
-	mu                     sync.Mutex
-	nextID                 int
-	canResumeCalls         []RuntimeResumeInput
-	canResumeHook          func(RuntimeResumeInput) bool
-	cancelCalls            []RuntimeCancelInput
-	cancelResult           RuntimeCancelResult
-	cancelResultSet        bool
-	closeErr               error
-	closeCalls             []RuntimeCloseInput
-	execErr                error
-	execHook               func(RuntimeExecInput) (RuntimeExecResult, error)
-	execCalls              []RuntimeExecInput
-	guidanceTargetMismatch bool
-	guidanceTarget         string
-	guidanceProviderCalls  int
-	provenanceErr          error
-	provenanceHook         func(RuntimeSubmitProvenanceInput) error
-	provenanceCalls        []RuntimeSubmitProvenanceInput
-	goalControlCalls       []RuntimeGoalControlInput
-	goalControlHook        func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error)
-	goalReconcileCalls     []RuntimeGoalControlInput
-	goalReconcileHook      func(context.Context, RuntimeGoalControlInput) (RuntimeGoalReconcileResult, error)
-	goalRecoveryPolicyHook func(context.Context, RuntimeGoalControlInput) (RuntimeGoalRecoveryPolicy, error)
-	goalGenerationFences   []RuntimeGoalGenerationFenceInput
-	resumeCalls            []RuntimeResumeInput
-	sessions               map[string]ProviderRuntimeSession
-	submitInteractiveCalls []RuntimeSubmitInteractiveInput
-	submitInteractiveErr   error
-	interactiveDisposition RuntimeInteractiveDisposition
-	startErr               error
-	startCalls             []RuntimeStartInput
-	startHook              func(RuntimeStartInput, ProviderRuntimeSession) ProviderRuntimeSession
-	updateSettingsCalls    []RuntimeUpdateSettingsInput
-	closeHook              func(RuntimeCloseInput)
-	validateErr            error
-	validateCalls          []RuntimeExecInput
+	mu                      sync.Mutex
+	nextID                  int
+	canResumeCalls          []RuntimeResumeInput
+	canResumeHook           func(RuntimeResumeInput) bool
+	cancelCalls             []RuntimeCancelInput
+	cancelResult            RuntimeCancelResult
+	cancelResultSet         bool
+	closeErr                error
+	closeCalls              []RuntimeCloseInput
+	execErr                 error
+	execHook                func(RuntimeExecInput) (RuntimeExecResult, error)
+	execCalls               []RuntimeExecInput
+	guidanceTargetMismatch  bool
+	guidanceTarget          string
+	guidanceProviderCalls   int
+	provenanceErr           error
+	provenanceHook          func(RuntimeSubmitProvenanceInput) error
+	provenanceCalls         []RuntimeSubmitProvenanceInput
+	goalControlCalls        []RuntimeGoalControlInput
+	goalControlHook         func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error)
+	goalReconcileCalls      []RuntimeGoalControlInput
+	goalReconcileHook       func(context.Context, RuntimeGoalControlInput) (RuntimeGoalReconcileResult, error)
+	goalRecoveryPolicyHook  func(context.Context, RuntimeGoalControlInput) (RuntimeGoalRecoveryPolicy, error)
+	goalGenerationFences    []RuntimeGoalGenerationFenceInput
+	goalGenerationFenceHook func(context.Context, RuntimeGoalGenerationFenceInput) error
+	resumeCalls             []RuntimeResumeInput
+	sessions                map[string]ProviderRuntimeSession
+	submitInteractiveCalls  []RuntimeSubmitInteractiveInput
+	submitInteractiveErr    error
+	interactiveDisposition  RuntimeInteractiveDisposition
+	startErr                error
+	startCalls              []RuntimeStartInput
+	startHook               func(RuntimeStartInput, ProviderRuntimeSession) ProviderRuntimeSession
+	publishInitCalls        []RuntimeSessionInitializationPublishInput
+	publishInitHook         func(RuntimeSessionInitializationPublishInput, ProviderRuntimeSession) error
+	pendingInits            map[string]bool
+	updateSettingsCalls     []RuntimeUpdateSettingsInput
+	closeHook               func(RuntimeCloseInput)
+	validateErr             error
+	validateCalls           []RuntimeExecInput
 }
 
 type fakeAgentTargetStore struct {
@@ -282,12 +286,13 @@ func (f *fakeProviderAvailabilityChecker) InvalidateProviderAvailability(provide
 }
 
 type fakeSessionReader struct {
-	sessions    map[string]PersistedSession
-	tombstoned  map[string]bool
-	deletedAt   map[string]int64
-	parentByKey map[string]string
-	children    map[string][]PersistedSession
-	runtime     RuntimeController
+	sessions           map[string]PersistedSession
+	tombstoned         map[string]bool
+	deletedAt          map[string]int64
+	parentByKey        map[string]string
+	children           map[string][]PersistedSession
+	recoverableDeleted []agentactivitybiz.DeletedSessionResource
+	runtime            RuntimeController
 }
 
 type fakeSessionInitializer struct {
@@ -458,7 +463,8 @@ func (f fakeMessageReader) ListSessionMessages(
 
 func newFakeRuntime() *fakeRuntime {
 	return &fakeRuntime{
-		sessions: make(map[string]ProviderRuntimeSession),
+		sessions:     make(map[string]ProviderRuntimeSession),
+		pendingInits: make(map[string]bool),
 	}
 }
 
@@ -521,10 +527,14 @@ func (f *fakeRuntime) GoalRecoveryPolicy(ctx context.Context, input RuntimeGoalC
 	return RuntimeGoalRecoveryPolicy{QuerySupported: true, ReplaySetAfterRestart: true}, nil
 }
 
-func (f *fakeRuntime) FenceGoalGeneration(_ context.Context, input RuntimeGoalGenerationFenceInput) error {
+func (f *fakeRuntime) FenceGoalGeneration(ctx context.Context, input RuntimeGoalGenerationFenceInput) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.goalGenerationFences = append(f.goalGenerationFences, input)
+	hook := f.goalGenerationFenceHook
+	f.mu.Unlock()
+	if hook != nil {
+		return hook(ctx, input)
+	}
 	return nil
 }
 
@@ -532,7 +542,9 @@ func (f *fakeRuntime) Close(_ context.Context, input RuntimeCloseInput) error {
 	f.closeCalls = append(f.closeCalls, input)
 	err := f.closeErr
 	if err == nil {
-		delete(f.sessions, input.WorkspaceID+":"+input.AgentSessionID)
+		key := input.WorkspaceID + ":" + input.AgentSessionID
+		delete(f.sessions, key)
+		delete(f.pendingInits, key)
 	}
 	// Hooks observe completion, so publish them only after the fake's state is
 	// fully updated. Tests use this callback as the synchronization boundary.
@@ -764,6 +776,42 @@ func (f fakeSessionReader) SessionDeleted(_ context.Context, workspaceID string,
 	return f.tombstoned[workspaceID+":"+agentSessionID], nil
 }
 
+func (f fakeSessionReader) AgentSessionIDExists(_ context.Context, agentSessionID string) (bool, error) {
+	agentSessionID = strings.TrimSpace(agentSessionID)
+	if agentSessionID == "" {
+		return false, nil
+	}
+	for _, session := range f.sessions {
+		if strings.TrimSpace(session.ID) == agentSessionID {
+			return true, nil
+		}
+	}
+	keySuffix := ":" + agentSessionID
+	for key, deleted := range f.tombstoned {
+		if deleted && strings.HasSuffix(key, keySuffix) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (f fakeSessionReader) OtherWorkspaceLiveAgentSessionIDExists(
+	_ context.Context,
+	workspaceID string,
+	agentSessionID string,
+) (bool, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	agentSessionID = strings.TrimSpace(agentSessionID)
+	for key, session := range f.sessions {
+		if strings.TrimSpace(session.WorkspaceID) != workspaceID &&
+			strings.TrimSpace(session.ID) == agentSessionID &&
+			!f.tombstoned[key] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (f fakeSessionReader) ListSessions(workspaceID string) ([]PersistedSession, bool) {
 	result := make([]PersistedSession, 0)
 	for _, session := range f.sessions {
@@ -775,6 +823,12 @@ func (f fakeSessionReader) ListSessions(workspaceID string) ([]PersistedSession,
 		}
 	}
 	return result, len(result) > 0
+}
+
+func (f fakeSessionReader) ListRecoverableDeletedSessionResources(
+	context.Context,
+) ([]agentactivitybiz.DeletedSessionResource, error) {
+	return append([]agentactivitybiz.DeletedSessionResource(nil), f.recoverableDeleted...), nil
 }
 
 func (f fakeSessionReader) ListSessionsPage(
@@ -931,81 +985,140 @@ func (f fakeSessionReader) DeleteSessionsBatch(_ context.Context, input agentact
 }
 
 func (f fakeSessionReader) PurgeDeletedSessions(_ context.Context, input agentactivitybiz.PurgeDeletedSessionsInput) (agentactivitybiz.PurgeDeletedSessionsResult, error) {
-	result := agentactivitybiz.PurgeDeletedSessionsResult{}
+	if input.CutoffUnixMS <= 0 {
+		return agentactivitybiz.PurgeDeletedSessionsResult{}, nil
+	}
 	limit := input.MaxSessions
 	if limit <= 0 {
 		limit = 25
 	}
-	candidateKeys := make([]string, 0)
-	for key, deleted := range f.tombstoned {
-		if !deleted || input.CutoffUnixMS <= 0 {
-			continue
-		}
+	if limit > 100 {
+		limit = 100
+	}
+	type treeMember struct {
+		key             string
+		depth           int
+		deletedAtUnixMS int64
+	}
+	type purgeTree struct {
+		workspaceID     string
+		rootSessionID   string
+		deletedAtUnixMS int64
+		members         []treeMember
+	}
+	effectiveDeletedAt := func(key string) int64 {
 		deletedAt := f.deletedAt[key]
 		if deletedAt <= 0 {
-			deletedAt = 1
+			return 1
 		}
-		if deletedAt > input.CutoffUnixMS {
+		return deletedAt
+	}
+	childrenByParent := make(map[string][]string)
+	for childKey, parentKey := range f.parentByKey {
+		if _, exists := f.sessions[childKey]; !exists {
 			continue
 		}
-		blocked := false
-		for childKey := range f.sessions {
-			if f.parentByKey[childKey] == key {
-				blocked = true
+		childrenByParent[parentKey] = append(childrenByParent[parentKey], childKey)
+	}
+	for parentKey := range childrenByParent {
+		slices.Sort(childrenByParent[parentKey])
+	}
+
+	rootKeys := make([]string, 0)
+	for key, deleted := range f.tombstoned {
+		if !deleted || effectiveDeletedAt(key) > input.CutoffUnixMS {
+			continue
+		}
+		if _, exists := f.sessions[key]; !exists {
+			continue
+		}
+		parentKey := f.parentByKey[key]
+		if parentKey != "" && f.tombstoned[parentKey] {
+			continue
+		}
+		rootKeys = append(rootKeys, key)
+	}
+	slices.Sort(rootKeys)
+
+	trees := make([]purgeTree, 0, len(rootKeys))
+	for _, rootKey := range rootKeys {
+		rootSession := f.sessions[rootKey]
+		tree := purgeTree{
+			workspaceID: rootSession.WorkspaceID, rootSessionID: rootSession.ID,
+			deletedAtUnixMS: effectiveDeletedAt(rootKey),
+		}
+		pending := []treeMember{{key: rootKey}}
+		complete := true
+		visited := make(map[string]struct{})
+		for len(pending) > 0 {
+			member := pending[0]
+			pending = pending[1:]
+			if _, duplicate := visited[member.key]; duplicate {
+				complete = false
 				break
 			}
+			visited[member.key] = struct{}{}
+			if !f.tombstoned[member.key] || effectiveDeletedAt(member.key) > input.CutoffUnixMS {
+				complete = false
+				break
+			}
+			member.deletedAtUnixMS = effectiveDeletedAt(member.key)
+			tree.members = append(tree.members, member)
+			for _, childKey := range childrenByParent[member.key] {
+				pending = append(pending, treeMember{key: childKey, depth: member.depth + 1})
+			}
 		}
-		if blocked {
+		if !complete {
 			continue
 		}
-		candidateKeys = append(candidateKeys, key)
-	}
-	slices.Sort(candidateKeys)
-	if len(candidateKeys) > limit {
-		candidateKeys = candidateKeys[:limit]
-	}
-	for _, key := range candidateKeys {
-		session := f.sessions[key]
-		deletedAt := f.deletedAt[key]
-		if deletedAt <= 0 {
-			deletedAt = 1
-		}
-		delete(f.sessions, key)
-		delete(f.tombstoned, key)
-		delete(f.deletedAt, key)
-		delete(f.parentByKey, key)
-		result.Sessions = append(result.Sessions, agentactivitybiz.PurgedSession{
-			WorkspaceID: session.WorkspaceID, AgentSessionID: session.ID,
-			DeletedAtUnixMS: deletedAt,
+		sort.Slice(tree.members, func(i, j int) bool {
+			if tree.members[i].depth != tree.members[j].depth {
+				return tree.members[i].depth > tree.members[j].depth
+			}
+			return f.sessions[tree.members[i].key].ID < f.sessions[tree.members[j].key].ID
 		})
+		trees = append(trees, tree)
 	}
-	for key, deleted := range f.tombstoned {
-		deletedAt := f.deletedAt[key]
-		if deletedAt <= 0 {
-			deletedAt = 1
+	sort.Slice(trees, func(i, j int) bool {
+		if trees[i].deletedAtUnixMS != trees[j].deletedAtUnixMS {
+			return trees[i].deletedAtUnixMS < trees[j].deletedAtUnixMS
 		}
-		if !deleted || deletedAt > input.CutoffUnixMS {
-			continue
+		if trees[i].workspaceID != trees[j].workspaceID {
+			return trees[i].workspaceID < trees[j].workspaceID
 		}
-		blocked := false
-		for childKey := range f.sessions {
-			if f.parentByKey[childKey] == key {
-				blocked = true
-				break
-			}
-		}
-		if !blocked {
-			result.HasMore = true
+		return trees[i].rootSessionID < trees[j].rootSessionID
+	})
+
+	selected := make([]purgeTree, 0, len(trees))
+	selectedSessionCount := 0
+	for _, tree := range trees {
+		if len(selected) > 0 && selectedSessionCount+len(tree.members) > limit {
 			break
+		}
+		selected = append(selected, tree)
+		selectedSessionCount += len(tree.members)
+	}
+	result := agentactivitybiz.PurgeDeletedSessionsResult{HasMore: len(selected) < len(trees)}
+	for _, tree := range selected {
+		for _, member := range tree.members {
+			session := f.sessions[member.key]
+			delete(f.sessions, member.key)
+			delete(f.tombstoned, member.key)
+			delete(f.deletedAt, member.key)
+			delete(f.parentByKey, member.key)
+			result.Sessions = append(result.Sessions, agentactivitybiz.PurgedSession{
+				WorkspaceID: session.WorkspaceID, AgentSessionID: session.ID,
+				DeletedAtUnixMS: member.deletedAtUnixMS,
+			})
 		}
 	}
 	return result, nil
 }
 
-func (f *fakeRuntime) Start(_ context.Context, input RuntimeStartInput) (ProviderRuntimeSession, error) {
+func (f *fakeRuntime) Start(_ context.Context, input RuntimeStartInput) (RuntimeStartResult, error) {
 	f.startCalls = append(f.startCalls, input)
 	if f.startErr != nil {
-		return ProviderRuntimeSession{}, f.startErr
+		return RuntimeStartResult{}, f.startErr
 	}
 	f.nextID++
 	now := time.Now().UnixMilli()
@@ -1014,7 +1127,7 @@ func (f *fakeRuntime) Start(_ context.Context, input RuntimeStartInput) (Provide
 		id = "session-" + string(rune('0'+f.nextID))
 	}
 	if existing, ok := f.sessions[input.WorkspaceID+":"+id]; ok {
-		return existing, nil
+		return RuntimeStartResult{Session: existing, Created: false}, nil
 	}
 	session := ProviderRuntimeSession{
 		ID:            id,
@@ -1042,6 +1155,31 @@ func (f *fakeRuntime) Start(_ context.Context, input RuntimeStartInput) (Provide
 		session = f.startHook(input, session)
 	}
 	f.sessions[input.WorkspaceID+":"+session.ID] = session
+	if input.CanonicalInitPending {
+		if f.pendingInits == nil {
+			f.pendingInits = make(map[string]bool)
+		}
+		f.pendingInits[input.WorkspaceID+":"+session.ID] = true
+	}
+	return RuntimeStartResult{Session: session, Created: true}, nil
+}
+
+func (f *fakeRuntime) PublishSessionInitialization(
+	_ context.Context,
+	input RuntimeSessionInitializationPublishInput,
+) (ProviderRuntimeSession, error) {
+	f.publishInitCalls = append(f.publishInitCalls, input)
+	key := input.WorkspaceID + ":" + input.AgentSessionID
+	session, found := f.sessions[key]
+	if !found {
+		return ProviderRuntimeSession{}, ErrSessionNotFound
+	}
+	if f.publishInitHook != nil {
+		if err := f.publishInitHook(input, session); err != nil {
+			return ProviderRuntimeSession{}, err
+		}
+	}
+	delete(f.pendingInits, key)
 	return session, nil
 }
 

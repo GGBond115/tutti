@@ -3,6 +3,9 @@ package agenthost
 import (
 	"context"
 	"errors"
+	"strings"
+
+	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 var (
@@ -16,6 +19,7 @@ var (
 	ErrActiveTurnTargetMismatch          = errors.New("active-turn guidance target is no longer active")
 	ErrSessionTitleTooLong               = errors.New("agent session title is too long")
 	ErrRuntimeSessionDisconnected        = errors.New("agent runtime session is disconnected")
+	ErrRuntimeSessionPublishUnavailable  = errors.New("agent runtime session initialization publication is unavailable")
 	ErrInteractionNotFound               = errors.New("agent interaction was not found")
 	ErrRuntimeOperationInProgress        = errors.New("agent runtime operation is already in progress")
 	ErrRuntimeOperationFailed            = errors.New("agent runtime operation failed")
@@ -33,6 +37,8 @@ var (
 	ErrEditRetryInProgress               = errors.New("agent history edit is still being confirmed")
 	ErrEditRetryResendPending            = errors.New("agent history was rolled back but the edited turn still needs to be resent")
 	ErrEditRetryRecoveryRequired         = errors.New("agent provider history diverged and requires explicit recovery")
+	ErrDeletedSessionNotFound            = storesqlite.ErrDeletedSessionNotFound
+	ErrDeletedSessionNotRestorable       = storesqlite.ErrDeletedSessionNotRestorable
 )
 
 // ProviderError preserves a provider-owned failure across the runtime adapter
@@ -89,4 +95,25 @@ func (e *ProviderError) Unwrap() error {
 		return nil
 	}
 	return e.Cause
+}
+
+func terminalFailureCode(err error) string {
+	var providerErr *ProviderError
+	if errors.As(err, &providerErr) && providerErr != nil {
+		return strings.TrimSpace(providerErr.Code)
+	}
+	return ""
+}
+
+func guidanceTargetFailureCode(err error) string {
+	switch {
+	case errors.Is(err, ErrActiveTurnTargetRequired):
+		return "active_turn_target_required"
+	case errors.Is(err, ErrActiveTurnTargetMismatch):
+		return "active_turn_target_mismatch"
+	}
+	if code := terminalFailureCode(err); code != "" {
+		return code
+	}
+	return "guidance_target"
 }

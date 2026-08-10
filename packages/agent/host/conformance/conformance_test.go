@@ -12,15 +12,15 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 		scenarios []Scenario
 		wantCount int
 	}{
-		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 29},
-		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 24},
+		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 31},
+		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 26},
 		{name: "guidance", scenarios: GuidanceScenarios(), wantCount: 3},
 		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 5},
 		{name: "submission fence", scenarios: SubmissionFenceScenarios(), wantCount: 1},
 		{name: "title policy", scenarios: TitlePolicyScenarios(), wantCount: 1},
 		{name: "deletion admission", scenarios: DeletionAdmissionScenarios(), wantCount: 3},
 		{name: "coordinator", scenarios: CoordinatorScenarios(), wantCount: 7},
-		{name: "goal", scenarios: GoalScenarios(), wantCount: 14},
+		{name: "goal", scenarios: GoalScenarios(), wantCount: 17},
 		{name: "commit observer", scenarios: CommitObserverScenarios(), wantCount: 2},
 	}
 	for _, catalog := range catalogs {
@@ -52,6 +52,14 @@ func TestPublishedInteractionTreeScenarioCatalogHasUniqueNames(t *testing.T) {
 	}
 }
 
+func TestPublishedRailPlacementRecoveryScenarioCatalogHasUniqueNames(t *testing.T) {
+	t.Parallel()
+	scenarios := RailPlacementRecoveryScenarios()
+	if len(scenarios) != 1 || scenarios[0].Name == "" {
+		t.Fatalf("rail placement recovery scenarios=%#v", scenarios)
+	}
+}
+
 func TestPublishedEditRetryScenarioCatalogHasUniqueNames(t *testing.T) {
 	t.Parallel()
 	scenarios := EditRetryScenarios()
@@ -76,6 +84,8 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"create empty session",
 		"create with initial content",
 		"create with typed initial goal",
+		"typed initial goal waits for canonical rail initialization",
+		"failed canonical initialization aborts unpublished runtime",
 		"create with explicit rail placement",
 		"resume persisted session",
 		"send input",
@@ -107,6 +117,8 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"create empty session",
 		"create with initial content",
 		"create with typed initial goal",
+		"typed initial goal waits for canonical rail initialization",
+		"failed canonical initialization aborts unpublished runtime",
 		"create with explicit rail placement",
 		"resume persisted session",
 		"send input",

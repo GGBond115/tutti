@@ -49,10 +49,10 @@ func (s *Service) GetSkillBundle(ctx context.Context, workspaceID string, input 
 }
 
 func (s *Service) activeConnectorRoutingHints() []runtimeprep.ConnectorRoutingHint {
-	if s == nil || s.ConnectorRoutingHints == nil {
+	if s == nil || s.ConnectorRuntime == nil {
 		return nil
 	}
-	hints := s.ConnectorRoutingHints()
+	hints := s.ConnectorRuntime.RoutingHints()
 	result := make([]runtimeprep.ConnectorRoutingHint, 0, len(hints))
 	for _, hint := range hints {
 		hint.Aliases = append([]string(nil), hint.Aliases...)

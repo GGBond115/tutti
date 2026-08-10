@@ -51,6 +51,25 @@ func (s *Store) upsertAgentSession(
 	return accepted, stateApplied, lastEventUnixMS, session, nil
 }
 
+func sessionActivityWritableTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	workspaceID string,
+	agentSessionID string,
+) (bool, error) {
+	var writable int
+	if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS(
+  SELECT 1
+  FROM workspace_agent_sessions
+  WHERE workspace_id = ? AND agent_session_id = ? AND deleted_at_unix_ms = 0
+)
+`, workspaceID, agentSessionID).Scan(&writable); err != nil {
+		return false, fmt.Errorf("check workspace agent session activity writability: %w", err)
+	}
+	return writable != 0, nil
+}
+
 func (s *Store) upsertAgentSessionTx(
 	ctx context.Context,
 	tx *sql.Tx,

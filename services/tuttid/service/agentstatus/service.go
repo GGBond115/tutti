@@ -302,6 +302,7 @@ type Service struct {
 	// choice. A missing selection permits only one uniquely ready candidate;
 	// multiple ready candidates require the user to choose one.
 	CodexRuntimeSelectionStore CodexRuntimeSelectionStore
+	UserPathAdapter            UserPathAdapter
 }
 
 // ServiceDependencies are the daemon-owned dependencies required to construct
@@ -312,6 +313,7 @@ type ServiceDependencies struct {
 	ManagedRuntime             managedruntime.Resolver
 	ClaudeCodeRuntimeDir       string
 	CodexRuntimeSelectionStore CodexRuntimeSelectionStore
+	UserPathAdapter            UserPathAdapter
 }
 
 // NewService constructs the production provider status service with its shared
@@ -330,6 +332,7 @@ func NewService(dependencies ServiceDependencies) Service {
 		DetectionCommands:          NewDetectionCommandLimiter(4),
 		UpdateCache:                NewProviderUpdateCache(),
 		CodexRuntimeSelectionStore: dependencies.CodexRuntimeSelectionStore,
+		UserPathAdapter:            dependencies.UserPathAdapter,
 	}
 }
 
@@ -403,6 +406,10 @@ func (s Service) List(ctx context.Context, input ListInput) (snapshot Snapshot, 
 	for i := range statuses {
 		statuses[i].Update = baseProviderUpdateStatus(specs[i], statuses[i].CLI.Version, statuses[i].CLI.BinaryPath)
 	}
+	// A valid managed CLI can predate user-PATH publication (notably the legacy
+	// Windows .local npm prefix). Adopt its verified directory in place instead
+	// of presenting an unnecessary install action or creating a second copy.
+	s.publishDetectedManagedBinaryDirs(ctx, specs, statuses)
 
 	// Remote update discovery is a separate, explicit opt-in. It never runs for
 	// ordinary readiness/status requests, and each provider records a cached,
@@ -631,6 +638,12 @@ func (s Service) runInstallActionOnce(ctx context.Context, spec ProviderSpec, re
 	if isCodexStatusSpec(spec) && strings.TrimSpace(runtimeResolution.CLIPath) != "" {
 		probe := s.probeAdapterRuntimeCommand(installCtx, spec, runtimeResolution, s.now())
 		if probe.Status == ProbeReady && !s.providerCLIRequiresInstall(spec, runtimeResolution) {
+			if err := s.publishManagedInstallBinaryDir(installCtx, runtimeResolution.CLIPath); err != nil {
+				result.Status = RunActionFailed
+				result.ReasonCode = "user_path_update_failed"
+				result.Message = err.Error()
+				return result, nil
+			}
 			result.Probe = &probe
 			result.Status = RunActionCompleted
 			s.reportProviderSetupNodeResult(ctx, providerSetupNodeResultInput{
@@ -708,6 +721,12 @@ func (s Service) runInstallActionOnce(ctx context.Context, spec ProviderSpec, re
 			})
 			return result, nil
 		}
+		if err := s.publishManagedInstallBinaryDir(installCtx, updatedRuntime.CLIPath); err != nil {
+			result.Status = RunActionFailed
+			result.ReasonCode = "user_path_update_failed"
+			result.Message = err.Error()
+			return result, nil
+		}
 		s.reportProviderSetupNodeResult(ctx, providerSetupNodeResultInput{
 			Node:      "install_post_probe",
 			Provider:  spec.Provider,
@@ -748,6 +767,12 @@ postInstallProbe:
 			Result:    result,
 			StartedAt: probeStartedAt,
 		})
+		return result, nil
+	}
+	if err := s.publishManagedInstallBinaryDir(installCtx, updatedRuntime.CLIPath); err != nil {
+		result.Status = RunActionFailed
+		result.ReasonCode = "user_path_update_failed"
+		result.Message = err.Error()
 		return result, nil
 	}
 	s.reportProviderSetupNodeResult(ctx, providerSetupNodeResultInput{

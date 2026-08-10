@@ -73,7 +73,7 @@ func TestActivationGateStagesRecoveryUntilInitialCatalogRefresh(t *testing.T) {
 	if delegate.reconciles != 0 || receipt.Generation != request.Generation {
 		t.Fatalf("closed gate delegated recovery: reconciles=%d receipt=%#v", delegate.reconciles, receipt)
 	}
-	gate.setOpen(true)
+	gate.setOpen(market.OperationScope{}, true)
 	if _, err := gate.Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +90,21 @@ func TestActivationGateNeverStagesWorkspaceDeactivation(t *testing.T) {
 	}
 	if delegate.deactivations != 1 {
 		t.Fatalf("deactivations = %d, want 1", delegate.deactivations)
+	}
+}
+
+func TestActivationGateRejectsInactiveAccountScope(t *testing.T) {
+	delegate := &activationGateDelegate{}
+	gate := newActivationGateHost(delegate)
+	activeScope := market.OperationScope{AccountID: "account-new"}
+	gate.setOpen(activeScope, true)
+	request := market.RuntimeReconcileRequest{OperationID: "late-old-account", Scope: market.OperationScope{AccountID: "account-old"},
+		ConnectionID: "connection-old", Enabled: true, Connector: market.Connector{Key: "tencent-docs"}}
+	if _, err := gate.Reconcile(context.Background(), request); err == nil {
+		t.Fatal("inactive account runtime request was accepted")
+	}
+	if delegate.reconciles != 0 {
+		t.Fatalf("inactive account delegated reconciles = %d", delegate.reconciles)
 	}
 }
 
