@@ -231,8 +231,10 @@ func CompactToolCallPayload(status string, payload map[string]any) map[string]an
 
 	result = selectToolKeys(result, canonicalToolPayloadKeys)
 	CompactTerminalCommandOutputAliases(status, result)
+	FitToolCallPayloadOutputBudget(result, ToolCallPayloadMaxBytes)
 	return result
 }
+
 func compactToolSteps(value any) []any {
 	rawSteps, ok := value.([]any)
 	if !ok {

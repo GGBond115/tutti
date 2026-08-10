@@ -98,11 +98,14 @@ Realtime events reduce latency but are not automatically complete truth:
   tool output arrive as optimistic `message_delta` payloads on the
   `/v1/events/ws` business-event WebSocket
 - canonical tool `output`/`error` bodies bound each `text`, `stdout`, and
-  `stderr` field to 1 MiB total, including nested tool steps, by retaining a
-  valid UTF-8 prefix and the fixed `[Output truncated]` marker
+  `stderr` field to 1 MiB, then fit formal output streams into a 768 KiB
+  aggregate durable payload budget, including nested tool steps, by retaining
+  a valid UTF-8 prefix and the fixed `[Output truncated]` marker
 - terminal command snapshots may omit `text` only when it exactly equals the
-  trimmed `stdout` or `stderr`; the raw stream remains canonical, while running
-  commands and non-command tools retain provider-neutral `text`
+  trimmed `stdout` or `stderr`; Reporter resolves the alias before independent
+  field truncation and clears an earlier running `text`, while the raw stream
+  remains canonical and explicit non-command tools retain provider-neutral
+  `text`
 - continuous, version-complete `message_update` events may merge inline
 - terminal `message_update` is the durable confirmation; message version gaps,
   invalid/unanchored deltas, nonterminal deltas after known terminal message

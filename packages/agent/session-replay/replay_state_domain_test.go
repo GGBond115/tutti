@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func TestProjectAndResolvePortableAgentSessionBinding(t *testing.T) {
@@ -1291,6 +1293,94 @@ func TestCompareTuttiReplayStateCanonicalizesTerminalCommandOutputAliases(
 		buildState(nil),
 	); !errors.Is(err, ErrTuttiReplayStateConflict) {
 		t.Fatalf("distinct command text must remain semantic, got %v", err)
+	}
+}
+
+func TestCompareTuttiReplayStateCanonicalizesNestedAndBudgetedCommandOutput(
+	t *testing.T,
+) {
+	buildState := func(status string, payload map[string]any) TuttiReplayState {
+		return TuttiReplayState{
+			SchemaVersion: SchemaVersion,
+			Agent: TuttiReplayAgent{
+				RootSessionID: "session-1",
+				Sessions: []agenthost.HistoricalSession{{
+					ID:                "session-1",
+					Kind:              "root",
+					AgentTargetID:     "local:codex",
+					Provider:          "codex",
+					ProviderSessionID: "provider-session-1",
+					Messages: []agenthost.HistoricalMessage{{
+						ID:      "toolcall:call-1",
+						Role:    "assistant",
+						Kind:    "tool_call",
+						Status:  status,
+						Payload: payload,
+					}},
+				}},
+			},
+			TuttiMode: TuttiReplayTuttiMode{
+				Activations:   []TuttiReplayActivation{},
+				TurnSnapshots: []TuttiReplayTurnSnapshot{},
+			},
+			Workflows: []TuttiReplayWorkflow{},
+			Issues:    []TuttiReplayIssue{},
+		}
+	}
+
+	nestedPayload := func(includeAlias bool) map[string]any {
+		body := map[string]any{"stdout": "nested output\n"}
+		if includeAlias {
+			body["text"] = "nested output"
+		}
+		return map[string]any{
+			"toolName": "Task",
+			"steps": []any{map[string]any{
+				"status":   "running",
+				"toolName": "Task",
+				"toolResult": map[string]any{"steps": []any{
+					map[string]any{
+						"status":     "completed",
+						"toolName":   "Bash",
+						"toolInput":  map[string]any{"command": "printf nested"},
+						"toolResult": body,
+					},
+				}},
+			}},
+		}
+	}
+	if err := CompareTuttiReplayState(
+		buildState("running", nestedPayload(true)),
+		buildState("running", nestedPayload(false)),
+	); err != nil {
+		t.Fatalf("nested terminal command alias must compare equal: %v", err)
+	}
+
+	stream := strings.Repeat("x", canonical.ToolCallPayloadMaxBytes) + "\n"
+	rawPayload := map[string]any{
+		"toolName": "Bash",
+		"input":    map[string]any{"command": "generate output"},
+		"output": map[string]any{
+			"text":   strings.TrimSpace(stream),
+			"stdout": stream,
+		},
+	}
+	budgetedPayload := map[string]any{
+		"toolName": "Bash",
+		"input":    map[string]any{"command": "generate output"},
+		"output":   map[string]any{"stdout": stream},
+	}
+	if _, fits := canonical.FitToolCallPayloadOutputBudget(
+		budgetedPayload,
+		canonical.ToolCallPayloadMaxBytes,
+	); !fits {
+		t.Fatal("expected comparison fixture to fit aggregate payload budget")
+	}
+	if err := CompareTuttiReplayState(
+		buildState("completed", rawPayload),
+		buildState("completed", budgetedPayload),
+	); err != nil {
+		t.Fatalf("pre-budget cassette output must compare equal: %v", err)
 	}
 }
 

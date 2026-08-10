@@ -34,8 +34,9 @@ func normalizeReplayStateForComparison(state TuttiReplayState) TuttiReplayState 
 }
 
 // canonicalizeTerminalCommandOutputAliases keeps pre-compaction cassettes
-// comparable with current durable state. It changes comparison data only;
-// historical restore still receives the cassette's original payload.
+// comparable with the current alias and aggregate output storage shape. It
+// changes comparison data only; historical restore still receives the
+// cassette's original payload.
 func canonicalizeTerminalCommandOutputAliases(value map[string]any) {
 	agent, _ := value["agent"].(map[string]any)
 	sessions, _ := agent["sessions"].([]any)
@@ -50,6 +51,10 @@ func canonicalizeTerminalCommandOutputAliases(value map[string]any) {
 			status, _ := message["status"].(string)
 			payload, _ := message["payload"].(map[string]any)
 			canonical.CompactTerminalCommandOutputAliases(status, payload)
+			canonical.FitToolCallPayloadOutputBudget(
+				payload,
+				canonical.ToolCallPayloadMaxBytes,
+			)
 		}
 	}
 }

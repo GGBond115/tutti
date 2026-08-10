@@ -15,11 +15,12 @@ type historicalCommandOutputAlias struct {
 	payloadJSON string
 }
 
-const workspaceAgentCommandOutputAliasPayloadThresholdBytes = 1 << 20
+const workspaceAgentCommandOutputAliasPayloadThresholdBytes = canonical.ToolCallPayloadMaxBytes
 
-// applyWorkspaceAgentCommandOutputAliasesV1 heals only oversized active
-// terminal command messages whose display text is exactly reconstructible
-// from stdout or stderr. Versions and timestamps stay unchanged so this is a
+// applyWorkspaceAgentCommandOutputAliasesV1 heals retained command messages
+// whose payload exceeds the canonical replication-safe budget. Exact display
+// aliases are removed; independently truncated legacy streams receive the same
+// aggregate output budget. Versions and timestamps stay unchanged so this is a
 // physical representation repair, not a new logical activity event.
 func (s *Store) applyWorkspaceAgentCommandOutputAliasesV1(
 	ctx context.Context,
@@ -42,24 +43,20 @@ func (s *Store) applyWorkspaceAgentCommandOutputAliasesV1(
 		rows, err := tx.QueryContext(ctx, `
 SELECT message.id, message.status, message.payload_json
 FROM workspace_agent_messages AS message
-JOIN workspace_agent_sessions AS session
-  ON session.workspace_id = message.workspace_id
- AND session.agent_session_id = message.agent_session_id
 WHERE message.id > ?
-  AND message.deleted_at_unix_ms = 0
-  AND session.deleted_at_unix_ms = 0
   AND message.kind = 'tool_call'
-  AND message.status IN ('completed', 'failed', 'errored', 'canceled')
   AND length(CAST(message.payload_json AS BLOB)) > ?
   AND (
-    (json_type(message.payload_json, '$.output.text') = 'text' AND
-      (json_type(message.payload_json, '$.output.stdout') = 'text' OR
-       json_type(message.payload_json, '$.output.stderr') = 'text'))
-    OR
-    (json_type(message.payload_json, '$.error.text') = 'text' AND
-      (json_type(message.payload_json, '$.error.stdout') = 'text' OR
-       json_type(message.payload_json, '$.error.stderr') = 'text'))
+    json_type(message.payload_json, '$.output.text') = 'text'
+    OR json_type(message.payload_json, '$.output.stdout') = 'text'
+    OR json_type(message.payload_json, '$.output.stderr') = 'text'
+    OR json_type(message.payload_json, '$.error.text') = 'text'
+    OR json_type(message.payload_json, '$.error.stdout') = 'text'
+    OR json_type(message.payload_json, '$.error.stderr') = 'text'
     OR json_type(message.payload_json, '$.steps') = 'array'
+    OR json_type(message.payload_json, '$.output.steps') = 'array'
+    OR json_type(message.payload_json, '$.error.steps') = 'array'
+    OR json_type(message.payload_json, '$.metadata.steps') = 'array'
   )
 ORDER BY message.id
 LIMIT ?
@@ -103,10 +100,21 @@ LIMIT ?
 					err,
 				)
 			}
-			if !canonical.CompactTerminalCommandOutputAliases(
+			if !canonical.HasTerminalCommandOutput(
 				candidate.status,
 				payload,
 			) {
+				continue
+			}
+			aliasChanged := canonical.CompactTerminalCommandOutputAliases(
+				candidate.status,
+				payload,
+			)
+			budgetChanged, fits := canonical.FitToolCallPayloadOutputBudget(
+				payload,
+				canonical.ToolCallPayloadMaxBytes,
+			)
+			if !fits || (!aliasChanged && !budgetChanged) {
 				continue
 			}
 			compactedJSON, err := json.Marshal(payload)

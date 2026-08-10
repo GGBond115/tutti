@@ -26,11 +26,25 @@ func TestCommandOutputAliasMigrationCompactsOnlyOversizedTerminalCommands(
 	}
 
 	large := strings.Repeat("x", canonical.ToolOutputTextMaxBytes/2+256)
+	nearWireLimit := strings.Repeat(
+		"n",
+		canonical.ToolCallPayloadMaxBytes/2+2048,
+	)
+	legacyRaw := "  " + strings.Repeat(
+		"p",
+		canonical.ToolOutputTextMaxBytes+64,
+	) + "\n"
+	legacyText := canonical.TruncateToolOutputText(strings.TrimSpace(legacyRaw))
+	legacyStdout := canonical.TruncateToolOutputText(legacyRaw)
+	if legacyText == strings.TrimSpace(legacyStdout) {
+		t.Fatal("legacy independently truncated fixture still compares as alias")
+	}
 	tests := []struct {
-		messageID string
-		status    string
-		payload   map[string]any
-		wantText  bool
+		messageID    string
+		status       string
+		payload      map[string]any
+		wantText     bool
+		wantBudgeted bool
 	}{
 		{
 			messageID: "oversized-terminal-alias",
@@ -41,7 +55,36 @@ func TestCommandOutputAliasMigrationCompactsOnlyOversizedTerminalCommands(
 				"output":   map[string]any{"text": large, "stdout": large + "\n"},
 				"seq":      json.Number("9007199254740993"),
 			},
-			wantText: false,
+			wantText:     false,
+			wantBudgeted: true,
+		},
+		{
+			messageID: "below-wire-limit-terminal-alias",
+			status:    "completed",
+			payload: map[string]any{
+				"toolName": "Bash",
+				"input":    map[string]any{"command": "print output"},
+				"output": map[string]any{
+					"text":   nearWireLimit,
+					"stdout": nearWireLimit + "\n",
+				},
+			},
+			wantText:     false,
+			wantBudgeted: true,
+		},
+		{
+			messageID: "independently-truncated-terminal-output",
+			status:    "completed",
+			payload: map[string]any{
+				"toolName": "Bash",
+				"input":    map[string]any{"command": "print output"},
+				"output": map[string]any{
+					"text":   legacyText,
+					"stdout": legacyStdout,
+				},
+			},
+			wantText:     true,
+			wantBudgeted: true,
 		},
 		{
 			messageID: "small-terminal-alias",
@@ -57,7 +100,8 @@ func TestCommandOutputAliasMigrationCompactsOnlyOversizedTerminalCommands(
 			messageID: "oversized-non-command",
 			status:    "completed",
 			payload: map[string]any{
-				"toolName": "AskUserQuestion",
+				"toolName": "Edit",
+				"input":    map[string]any{"command": "domain command"},
 				"output":   map[string]any{"text": large, "stdout": large + "\n"},
 			},
 			wantText: true,
@@ -83,7 +127,35 @@ func TestCommandOutputAliasMigrationCompactsOnlyOversizedTerminalCommands(
 					"stdout": large + "\n",
 				},
 			},
-			wantText: true,
+			wantText:     true,
+			wantBudgeted: true,
+		},
+		{
+			messageID: "running-task-recursive-terminal-step",
+			status:    "running",
+			payload: map[string]any{
+				"toolName": "Task",
+				"output":   map[string]any{"text": "task running"},
+				"steps": []any{map[string]any{
+					"toolName": "Task",
+					"status":   "running",
+					"toolResult": map[string]any{
+						"steps": []any{map[string]any{
+							"toolName": "Bash",
+							"status":   "completed",
+							"toolInput": map[string]any{
+								"command": "print nested output",
+							},
+							"toolResult": map[string]any{
+								"text":   large,
+								"stdout": large + "\n",
+							},
+						}},
+					},
+				}},
+			},
+			wantText:     true,
+			wantBudgeted: true,
 		},
 	}
 
@@ -102,6 +174,20 @@ INSERT INTO workspace_agent_messages (
 			test.status, string(payloadJSON)); err != nil {
 			t.Fatalf("insert %s: %v", test.messageID, err)
 		}
+	}
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_sessions
+SET deleted_at_unix_ms = 99
+WHERE workspace_id = ? AND agent_session_id = ?
+`, "ws-command-alias", "session-command-alias"); err != nil {
+		t.Fatalf("mark fixture session deleted: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_messages
+SET deleted_at_unix_ms = 99
+WHERE workspace_id = ? AND agent_session_id = ? AND message_id = ?
+`, "ws-command-alias", "session-command-alias", "oversized-terminal-alias"); err != nil {
+		t.Fatalf("mark fixture message deleted: %v", err)
 	}
 
 	if _, err := store.db.ExecContext(ctx, `
@@ -145,12 +231,35 @@ WHERE workspace_id = ? AND agent_session_id = ? AND message_id = ?
 		if hasText != test.wantText {
 			t.Fatalf("%s output = %#v, want text present %t", test.messageID, output, test.wantText)
 		}
+		if test.wantBudgeted && len(payloadJSON) > canonical.ToolCallPayloadMaxBytes {
+			t.Fatalf(
+				"%s payload has %d bytes, safe budget is %d",
+				test.messageID,
+				len(payloadJSON),
+				canonical.ToolCallPayloadMaxBytes,
+			)
+		}
 		if test.messageID == "oversized-terminal-alias" &&
 			!strings.Contains(payloadJSON, `"seq":9007199254740993`) {
 			t.Fatalf("%s lost exact JSON integer: %s", test.messageID, payloadJSON[:128])
 		}
 		if test.messageID == "oversized-terminal-alias" && output["stdout"] != large+"\n" {
 			t.Fatal("oversized terminal alias migration changed raw stdout")
+		}
+		if test.messageID == "independently-truncated-terminal-output" {
+			for _, key := range []string{"text", "stdout"} {
+				value := output[key].(string)
+				if !strings.HasSuffix(value, canonical.ToolOutputTruncationMarker) {
+					t.Fatalf("legacy output.%s lost truncation marker", key)
+				}
+			}
+		}
+		if test.messageID == "running-task-recursive-terminal-step" {
+			steps := payload["steps"].([]any)
+			nested := steps[0].(map[string]any)["toolResult"].(map[string]any)["steps"].([]any)[0].(map[string]any)["toolResult"].(map[string]any)
+			if _, exists := nested["text"]; exists {
+				t.Fatalf("recursive completed step retained text alias: %#v", nested)
+			}
 		}
 		if version != index+1 || occurredAt != 101 || startedAt != 102 ||
 			completedAt != 103 || createdAt != 104 || updatedAt != 105 {
@@ -173,8 +282,8 @@ SELECT payload_json FROM workspace_agent_messages WHERE message_id = ?
 `, "oversized-terminal-alias").Scan(&compactedJSON); err != nil {
 		t.Fatalf("read compacted payload: %v", err)
 	}
-	if len(compactedJSON) >= canonical.ToolOutputTextMaxBytes {
-		t.Fatalf("compacted payload has %d bytes, want below %d", len(compactedJSON), canonical.ToolOutputTextMaxBytes)
+	if len(compactedJSON) > canonical.ToolCallPayloadMaxBytes {
+		t.Fatalf("compacted payload has %d bytes, want at most %d", len(compactedJSON), canonical.ToolCallPayloadMaxBytes)
 	}
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatalf("repeat command output alias migration: %v", err)
