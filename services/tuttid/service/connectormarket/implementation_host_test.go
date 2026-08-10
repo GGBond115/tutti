@@ -135,6 +135,10 @@ func (stub *blockingStartProcessStub) Start(ctx context.Context, _ agentruntime.
 }
 
 func testCLIHost(t *testing.T, processes agentruntime.ProcessTransport) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
+	return testCLIHostWithSetup(t, processes, nil)
+}
+
+func testCLIHostWithSetup(t *testing.T, processes agentruntime.ProcessTransport, setup func(string)) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "connector.js"), []byte("// connector"), 0o600); err != nil {
@@ -143,6 +147,9 @@ func testCLIHost(t *testing.T, processes agentruntime.ProcessTransport) (*Implem
 	runtimePath := filepath.Join(root, "node")
 	if err := os.WriteFile(runtimePath, []byte("runtime"), 0o700); err != nil {
 		t.Fatal(err)
+	}
+	if setup != nil {
+		setup(root)
 	}
 	inventory, err := connectorruntime.ExecutionInventoryDigest(root)
 	if err != nil {
@@ -442,11 +449,7 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 	if len(calls) != 5 || calls[0] != "server/discover" || calls[1] != "tools/list" || calls[2] != "tools/list" || calls[3] != "tools/list" || calls[4] != "tools/call" {
 		t.Fatalf("calls = %#v", calls)
 	}
-	broker, err := NewConnectorBroker(commands)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hints := broker.RoutingHints()
+	hints := commands.RouteRegistry().RoutingHints()
 	if len(hints) != 1 || hints[0].SkillRoot != filepath.Join(root, "skills") {
 		t.Fatalf("remote Connector routing hints = %#v", hints)
 	}

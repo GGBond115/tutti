@@ -51,6 +51,13 @@ func (registry *ConnectorRuntimeRegistry) MCPRegistry() *implementationhost.MCPR
 	return registry.mcp
 }
 
+func (registry *ConnectorRuntimeRegistry) RouteRegistry() *implementationhost.RouteRegistry {
+	if registry == nil {
+		return nil
+	}
+	return registry.runtime
+}
+
 func NewImplementationHost(config ImplementationHostConfig) (*ImplementationHost, error) {
 	if config.Registry == nil {
 		return nil, errors.New("connector runtime registry is required")

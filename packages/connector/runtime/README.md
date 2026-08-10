@@ -9,6 +9,13 @@ clients, the host-neutral ImplementationHost, RouteRegistry and MCPRegistry,
 Connector discovery, stable CLI shims, verified Connector Skill discovery, and
 the session-bound loopback MCP server used by native Agent MCP clients.
 
+`ImplementationHost` validates the optional Skill tree before publishing a
+route and commits its metadata into `RouteRegistry` as an immutable projection.
+Agent discovery and routing hints read that projection directly; they never
+rescan a mutable installation directory. MCP calls use `MCPRegistry`, while CLI
+calls use the stable per-Connector shim. There is no generic Connector broker
+or generic `connector.invoke` transport in the public runtime.
+
 Hosts supply the managed runtime resolver, implementation host, process
 transport, `RemoteMCPClientFactory`, state roots, and product-facing command
 transport. Runtime code must not import `services/tuttid` or expose host

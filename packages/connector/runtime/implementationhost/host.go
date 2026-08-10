@@ -1,6 +1,6 @@
 // Package implementationhost owns the host-neutral managed Connector runtime.
-// Products provide artifact, runtime, process, and credential ports and may
-// expose the registry through their own CLI or local broker transport.
+// Products provide artifact, runtime, process, and credential ports and expose
+// immutable route projections through their native CLI and Agent runtimes.
 package implementationhost
 
 import (
@@ -20,6 +20,7 @@ import (
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
 	"github.com/tutti-os/tutti/packages/connector/runtime/command"
 	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
 )
@@ -113,6 +114,8 @@ type connectorRoute struct {
 	displayName            string
 	description            string
 	routingAliases         []string
+	skillRoot              string
+	skills                 []connectorartifact.SkillSummary
 	processes              *connectorruntime.ProcessGroup
 	snapshots              *connectorruntime.ExecutionSnapshotter
 	userHome               string
@@ -238,6 +241,13 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		route.routingAliases = append([]string(nil), routing.Aliases...)
 	}
 	route.snapshots = host.snapshots
+	skillProjection, err := connectorartifact.InspectSkills(route.installedRoot)
+	if err != nil {
+		_ = route.Close(time.Now().Add(3 * time.Second))
+		return market.RuntimeReceipt{}, fmt.Errorf("inspect connector Skills: %w", err)
+	}
+	route.skillRoot = skillProjection.Root
+	route.skills = append([]connectorartifact.SkillSummary(nil), skillProjection.Skills...)
 	previous, _ := host.routes.Route(key).(*connectorRoute)
 	if err := route.activateCLIShim(); err != nil {
 		_ = route.Close(time.Now().Add(3 * time.Second))
@@ -705,7 +715,8 @@ type RouteDescriptor struct {
 	DisplayName    string
 	Description    string
 	RoutingAliases []string
-	InstalledRoot  string
+	SkillRoot      string
+	Skills         []connectorartifact.SkillSummary
 	HasMCP         bool
 	CLICommand     string
 }
@@ -741,7 +752,8 @@ func (registry *RouteRegistry) Routes() []RouteDescriptor {
 	for _, route := range routes {
 		result = append(result, RouteDescriptor{ConnectorKey: route.connectorKey, DisplayName: route.displayName,
 			Description: route.description, RoutingAliases: append([]string(nil), route.routingAliases...),
-			InstalledRoot: route.installedRoot, HasMCP: len(route.mcpTools) > 0, CLICommand: route.cliCommand})
+			SkillRoot: route.skillRoot, Skills: append([]connectorartifact.SkillSummary(nil), route.skills...),
+			HasMCP: len(route.mcpTools) > 0, CLICommand: route.cliCommand})
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].ConnectorKey < result[right].ConnectorKey })
 	return result

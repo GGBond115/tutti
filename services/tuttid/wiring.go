@@ -207,16 +207,13 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 	}
 	w.modelGateway = modelGateway
 	connectorRegistry := connectormarketservice.NewConnectorRuntimeRegistry()
-	connectorBroker, err := connectormarketservice.NewConnectorBroker(connectorRegistry)
-	if err != nil {
-		return fmt.Errorf("configure connector broker: %w", err)
-	}
+	connectorCommands := connectormarketservice.NewConnectorCommandProvider(connectorRegistry)
 	connectorMCPServer, err := connectormcpservice.Start(connectormcpservice.Config{Registry: connectorRegistry.MCPRegistry()})
 	if err != nil {
 		return fmt.Errorf("start connector MCP server: %w", err)
 	}
 	w.connectorMCPServer = connectorMCPServer
-	connectorAgent := &connectorAgentRuntime{broker: connectorBroker, server: connectorMCPServer}
+	connectorAgent := &connectorAgentRuntime{routes: connectorRegistry.RouteRegistry(), server: connectorMCPServer}
 	api, appCenterService, agentRuntime, providerAuthWatcher, err := buildDaemonAPI(
 		ctx, workspaceStore, nil, w.browserService, w.computerService,
 		modelGateway, connectorAgent, w.installTuttiModeWatchdogWorker,
@@ -358,7 +355,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		return errors.New("connector command registry cannot attach to daemon CLI")
 	}
 	api.CLIRegistry.AppCommands = cliservice.CompositeDynamicCommandRegistry{Registries: []cliservice.DynamicCommandRegistry{
-		api.CLIRegistry.AppCommands, connectorBroker,
+		api.CLIRegistry.AppCommands, connectorCommands,
 	}}
 	connectorAuthorizationReadiness := connectormarkethost.NewAuthorizationReadinessGate()
 	connectorMarketHost, err := connectormarketdaemon.NewHost(ctx, connectormarketdaemon.HostConfig{

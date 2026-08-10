@@ -2,7 +2,7 @@ package main
 
 import (
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
-	connectormarketservice "github.com/tutti-os/tutti/services/tuttid/service/connectormarket"
+	connectorimplementation "github.com/tutti-os/tutti/packages/connector/runtime/implementationhost"
 	connectormcpservice "github.com/tutti-os/tutti/services/tuttid/service/connectormcp"
 )
 
@@ -10,15 +10,15 @@ import (
 // Service and Host. The route registry may change after construction, but the
 // port itself is ready before Agent Host recovery begins.
 type connectorAgentRuntime struct {
-	broker *connectormarketservice.ConnectorBroker
+	routes *connectorimplementation.RouteRegistry
 	server *connectormcpservice.Server
 }
 
 func (runtime *connectorAgentRuntime) RoutingHints() []runtimeprep.ConnectorRoutingHint {
-	if runtime == nil || runtime.broker == nil {
+	if runtime == nil || runtime.routes == nil {
 		return nil
 	}
-	routes := runtime.broker.RoutingHints()
+	routes := runtime.routes.RoutingHints()
 	hints := make([]runtimeprep.ConnectorRoutingHint, 0, len(routes))
 	for _, route := range routes {
 		hints = append(hints, runtimeprep.ConnectorRoutingHint{
