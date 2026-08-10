@@ -133,6 +133,7 @@ func TestTerminalFailuresFromDeltaCoversInteractivePlanToolAndTurn(t *testing.T)
 					Kind: "tool_call", Status: "failed",
 					Payload: map[string]any{"toolName": "Bash", "errorMessage": "command exited 1"},
 				}},
+				StatusTransitionedMessageIDs: []string{"toolcall:1"},
 			},
 		},
 	}
@@ -219,6 +220,7 @@ func TestTerminalFailuresFromDeltaMarksChildSessionTurnAndTool(t *testing.T) {
 					Kind: "tool_call", Status: "failed",
 					Payload: map[string]any{"toolName": "Bash", "errorMessage": "child tool failed"},
 				}},
+				StatusTransitionedMessageIDs: []string{"toolcall:child"},
 			},
 		},
 	})
@@ -229,6 +231,119 @@ func TestTerminalFailuresFromDeltaMarksChildSessionTurnAndTool(t *testing.T) {
 		if !failure.IsChildSession {
 			t.Fatalf("expected child session marker on %#v", failure)
 		}
+	}
+}
+
+func TestTerminalFailuresFromDeltaSkipsAlreadyAppliedToolCalls(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	ObserveTerminalFailuresFromDelta(context.Background(), observer, CommittedDelta{
+		SessionMessages: &SessionMessagesCommitted{
+			Input: canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "session-1"},
+			Result: storesqlite.MessageReportResult{
+				Messages: []storesqlite.Message{
+					{
+						MessageID: "toolcall:replayed", AgentSessionID: "session-1", TurnID: "turn-1",
+						Kind: "tool_call", Status: "failed",
+						Payload: map[string]any{"toolName": "Bash", "errorMessage": "command exited 1"},
+					},
+					{
+						MessageID: "toolcall:new", AgentSessionID: "session-1", TurnID: "turn-1",
+						Kind: "tool_call", Status: "failed",
+						Payload: map[string]any{"toolName": "Bash", "errorMessage": "command exited 2"},
+					},
+				},
+				StatusTransitionedMessageIDs: []string{"toolcall:new"},
+			},
+		},
+	})
+	if len(observer.failures) != 1 || observer.failures[0].RequestID != "toolcall:new" {
+		t.Fatalf("failures = %#v, want only the newly failed tool call", observer.failures)
+	}
+}
+
+func TestTerminalFailuresFromDeltaMarksChildSessionFromCommittedMessages(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	ObserveTerminalFailuresFromDelta(context.Background(), observer, CommittedDelta{
+		SessionMessages: &SessionMessagesCommitted{
+			Input:          canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "child-1"},
+			IsChildSession: true,
+			Result: storesqlite.MessageReportResult{
+				Messages: []storesqlite.Message{{
+					MessageID: "toolcall:child", AgentSessionID: "child-1", TurnID: "turn-child",
+					Kind: "tool_call", Status: "failed",
+					Payload: map[string]any{"toolName": "Bash", "errorMessage": "child tool failed"},
+				}},
+				StatusTransitionedMessageIDs: []string{"toolcall:child"},
+			},
+		},
+	})
+	if len(observer.failures) != 1 || !observer.failures[0].IsChildSession {
+		t.Fatalf("failures = %#v, want one child-session tool failure", observer.failures)
+	}
+}
+
+func TestTerminalFailuresFromDeltaReadsNestedToolErrorText(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload map[string]any
+		want    string
+	}{
+		{
+			name:    "top level string",
+			payload: map[string]any{"toolName": "Bash", "error": "command exited 1"},
+			want:    "command exited 1",
+		},
+		{
+			name:    "nested text",
+			payload: map[string]any{"toolName": "Bash", "error": map[string]any{"text": "Exit code 137", "status": "failed"}},
+			want:    "Exit code 137",
+		},
+		{
+			name:    "nested message",
+			payload: map[string]any{"toolName": "Bash", "error": map[string]any{"message": "permission denied"}},
+			want:    "permission denied",
+		},
+		{
+			name:    "nested error message",
+			payload: map[string]any{"toolName": "Bash", "error": map[string]any{"errorMessage": "tool crashed"}},
+			want:    "tool crashed",
+		},
+		{
+			name:    "nested stderr",
+			payload: map[string]any{"toolName": "Bash", "error": map[string]any{"stderr": "no such file"}},
+			want:    "no such file",
+		},
+		{
+			// acpNormalizeToolOutput keys a scalar provider output as "output".
+			name:    "nested scalar output",
+			payload: map[string]any{"toolName": "Bash", "error": map[string]any{"output": "connection reset"}},
+			want:    "connection reset",
+		},
+		{
+			name:    "no readable text falls back to the status",
+			payload: map[string]any{"toolName": "Bash", "error": map[string]any{"exitCode": 137}},
+			want:    "tool call failed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observer := &recordingTerminalFailureObserver{}
+			ObserveTerminalFailuresFromDelta(context.Background(), observer, CommittedDelta{
+				SessionMessages: &SessionMessagesCommitted{
+					Input: canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "session-1"},
+					Result: storesqlite.MessageReportResult{
+						Messages: []storesqlite.Message{{
+							MessageID: "toolcall:nested", AgentSessionID: "session-1", TurnID: "turn-1",
+							Kind: "tool_call", Status: "failed", Payload: tt.payload,
+						}},
+						StatusTransitionedMessageIDs: []string{"toolcall:nested"},
+					},
+				},
+			})
+			if len(observer.failures) != 1 || observer.failures[0].ErrorMessage != tt.want {
+				t.Fatalf("failures = %#v, want error message %q", observer.failures, tt.want)
+			}
+		})
 	}
 }
 

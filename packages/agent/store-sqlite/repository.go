@@ -754,12 +754,17 @@ type MessageUpdate struct {
 }
 
 type MessageReportResult struct {
-	TransactionID    string           `json:"-"`
-	CommitDelta      TransactionDelta `json:"-"`
-	AcceptedCount    int
-	LatestVersion    uint64
-	Messages         []Message
-	RequestBodyBytes int
+	TransactionID string           `json:"-"`
+	CommitDelta   TransactionDelta `json:"-"`
+	AcceptedCount int
+	LatestVersion uint64
+	Messages      []Message
+	// StatusTransitionedMessageIDs lists the accepted messages that actually
+	// moved to a new status in this report. Messages replays a stored snapshot
+	// unchanged as well, so observers that treat a terminal status as an
+	// incident must key on this list instead.
+	StatusTransitionedMessageIDs []string
+	RequestBodyBytes             int
 }
 
 type Message struct {

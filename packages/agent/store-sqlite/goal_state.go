@@ -167,7 +167,7 @@ INSERT INTO workspace_agent_goal_control_operations (
 		input.OccurredAtUnixMS, input.OccurredAtUnixMS, input.ClientSubmitID); err != nil {
 		return GoalControlOperation{}, SessionGoalState{}, false, fmt.Errorf("insert goal control operation: %w", err)
 	}
-	auditMessage, accepted, err := s.upsertAgentMessageTx(
+	auditMessage, accepted, _, err := s.upsertAgentMessageTx(
 		ctx,
 		tx,
 		input.WorkspaceID,

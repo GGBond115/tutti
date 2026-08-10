@@ -7,10 +7,14 @@ import (
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
-// ObserveTerminalFailuresFromDelta extracts aggregated terminal failures from an
-// already-committed delta. Adapters that call NotifyCommitted for activity
-// projection should also call this with their TerminalFailureObserver so tool
-// and turn settlements reach product telemetry.
+// ObserveTerminalFailuresFromDelta extracts aggregated terminal failures from
+// an already-committed delta.
+//
+// Host.notifyCommitted owns this for every delta it publishes, so a
+// CommitObserver must never call it again for the deltas it receives. Only a
+// report path that commits and calls NotifyCommitted without going through
+// Host — the daemon's direct activity-state, session-message, and stale-turn
+// reports — calls it, exactly once, next to its own NotifyCommitted.
 func ObserveTerminalFailuresFromDelta(ctx context.Context, observer TerminalFailureObserver, delta CommittedDelta) {
 	if observer == nil {
 		return
@@ -169,9 +173,19 @@ func terminalFailureFromRootTurn(settled RootTurnSettled) (TerminalFailure, bool
 
 func terminalFailuresFromSessionMessages(committed SessionMessagesCommitted, childBySession map[string]bool) []TerminalFailure {
 	workspaceID := strings.TrimSpace(committed.Input.WorkspaceID)
+	// Result.Messages also carries messages the report replayed without
+	// changing anything. Only a real transition into the failed status is a
+	// new incident.
+	transitioned := make(map[string]struct{}, len(committed.Result.StatusTransitionedMessageIDs))
+	for _, messageID := range committed.Result.StatusTransitionedMessageIDs {
+		transitioned[strings.TrimSpace(messageID)] = struct{}{}
+	}
 	failures := make([]TerminalFailure, 0)
 	for _, message := range committed.Result.Messages {
 		if !isFailedToolCallMessage(message) {
+			continue
+		}
+		if _, ok := transitioned[strings.TrimSpace(message.MessageID)]; !ok {
 			continue
 		}
 		messageText := toolCallFailureMessage(message)
@@ -186,7 +200,7 @@ func terminalFailuresFromSessionMessages(committed SessionMessagesCommitted, chi
 			ErrorCode:      strings.TrimSpace(message.Status),
 			ErrorMessage:   messageText,
 			ToolNameFamily: toolNameFamily(message.Payload),
-			IsChildSession: childBySession[sessionID],
+			IsChildSession: committed.IsChildSession || childBySession[sessionID],
 			Retryable:      false,
 		})
 	}
@@ -206,8 +220,8 @@ func isFailedToolCallMessage(message storesqlite.Message) bool {
 }
 
 func toolCallFailureMessage(message storesqlite.Message) string {
-	for _, key := range []string{"errorMessage", "error", "message"} {
-		if value := runtimeOperationPayloadText(message.Payload, key); value != "" {
+	for _, key := range []string{"error", "errorMessage", "message"} {
+		if value := toolCallPayloadFailureText(message.Payload, key); value != "" {
 			return value
 		}
 	}
@@ -216,6 +230,27 @@ func toolCallFailureMessage(message storesqlite.Message) string {
 		return "tool call failed"
 	}
 	return "tool call " + status
+}
+
+// toolCallPayloadFailureText prefers the provider's own text. Normalized ACP
+// tool failures carry it in a nested body under payload.error, while imported
+// and legacy shapes keep a plain string on the same key.
+func toolCallPayloadFailureText(payload map[string]any, key string) string {
+	if value := runtimeOperationPayloadText(payload, key); value != "" {
+		return value
+	}
+	nested, ok := payload[key].(map[string]any)
+	if !ok {
+		return ""
+	}
+	return firstNonEmptyTrimmed(
+		runtimeOperationPayloadText(nested, "text"),
+		runtimeOperationPayloadText(nested, "message"),
+		runtimeOperationPayloadText(nested, "errorMessage"),
+		runtimeOperationPayloadText(nested, "stderr"),
+		runtimeOperationPayloadText(nested, "stdout"),
+		runtimeOperationPayloadText(nested, "output"),
+	)
 }
 
 func toolNameFamily(payload map[string]any) string {

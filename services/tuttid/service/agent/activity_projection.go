@@ -347,7 +347,7 @@ func (p *ActivityProjection) reportSessionState(
 	}
 	if notify {
 		delta := agenthost.ActivityStateDelta(input, reply, activityResult)
-		agenthost.NotifyCommitted(ctx, p, delta)
+		p.observeCommittedOutsideHost(ctx, delta)
 		p.notifyReplayCommitted(ctx, delta, replayContext)
 	}
 	return reply, nil
@@ -510,9 +510,31 @@ func (p *ActivityProjection) reportSessionMessages(
 		RequestBodyBytes: result.RequestBodyBytes,
 	}
 	delta := agenthost.SessionMessagesDelta(input, reply, result)
-	agenthost.NotifyCommitted(ctx, p, delta)
+	if delta.SessionMessages != nil {
+		// A message report carries no session state, so child identity for
+		// failed tool calls has to come from the canonical session.
+		delta.SessionMessages.IsChildSession = p.sessionIsChild(
+			ctx, input.WorkspaceID, canonicalMessageUpdateSessionID(input.AgentSessionID, result.Messages),
+		)
+	}
+	p.observeCommittedOutsideHost(ctx, delta)
 	p.notifyReplayCommitted(ctx, delta, replayContext)
 	return reply, nil
+}
+
+// sessionIsChild reports whether a canonical session is a provider-native
+// subagent session.
+func (p *ActivityProjection) sessionIsChild(ctx context.Context, workspaceID, agentSessionID string) bool {
+	workspaceID, agentSessionID = strings.TrimSpace(workspaceID), strings.TrimSpace(agentSessionID)
+	if p == nil || p.repo == nil || workspaceID == "" || agentSessionID == "" {
+		return false
+	}
+	session, found, err := p.repo.GetSession(ctx, workspaceID, agentSessionID)
+	if err != nil || !found {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(session.Kind), agentactivitybiz.SessionKindChild) ||
+		strings.TrimSpace(session.ParentToolCallID) != ""
 }
 
 func (p *ActivityProjection) ReportGoalReconcileRequired(ctx context.Context, input agentsessionstore.ReportGoalReconcileRequiredInput) (agentsessionstore.ReportGoalReconcileRequiredReply, error) {

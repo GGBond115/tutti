@@ -19,6 +19,10 @@ type SessionMessagesCommitted struct {
 	Input  canonical.ReportSessionMessagesInput
 	Reply  canonical.ReportSessionMessagesReply
 	Result storesqlite.MessageReportResult
+	// IsChildSession marks a provider-native subagent session. Message reports
+	// carry no session state, so the reporting adapter resolves it from the
+	// canonical session before publishing the delta.
+	IsChildSession bool
 }
 
 type RootTurnSettled struct {
@@ -26,6 +30,11 @@ type RootTurnSettled struct {
 	AgentSessionID string
 	Turn           storesqlite.Turn
 	IsChildSession bool
+	// StartupReconciled marks a turn force-settled by daemon-start
+	// reconciliation rather than by a live provider settlement. Failure
+	// analytics still count it; runtime fan-out that reacts to a real
+	// completion must skip it.
+	StartupReconciled bool
 }
 
 type RuntimeOperationCommitStage string
@@ -182,6 +191,9 @@ func SessionMessagesDelta(input canonical.ReportSessionMessagesInput, reply cano
 	return delta
 }
 
+// StaleTurnSettlementDelta projects daemon-start reconciliation. Every listed
+// turn was force-settled as interrupted, so it enters RootTurnsSettled with
+// that outcome and the StartupReconciled marker.
 func StaleTurnSettlementDelta(settlements []storesqlite.StaleTurnSettlement) CommittedDelta {
 	delta := CommittedDelta{}
 	if len(settlements) > 0 {
@@ -189,6 +201,25 @@ func StaleTurnSettlementDelta(settlements []storesqlite.StaleTurnSettlement) Com
 	}
 	for _, settlement := range settlements {
 		delta.addView(settlement.WorkspaceID, settlement.AgentSessionID)
+		turnID := strings.TrimSpace(settlement.TurnID)
+		if turnID == "" {
+			continue
+		}
+		workspaceID := strings.TrimSpace(settlement.WorkspaceID)
+		agentSessionID := strings.TrimSpace(settlement.AgentSessionID)
+		delta.RootTurnsSettled = append(delta.RootTurnsSettled, RootTurnSettled{
+			WorkspaceID:    workspaceID,
+			AgentSessionID: agentSessionID,
+			Turn: storesqlite.Turn{
+				WorkspaceID:    workspaceID,
+				AgentSessionID: agentSessionID,
+				TurnID:         turnID,
+				Phase:          storesqlite.TurnPhaseSettled,
+				Outcome:        storesqlite.TurnOutcomeInterrupted,
+				ErrorMessage:   "stale turn settled on daemon startup",
+			},
+			StartupReconciled: true,
+		})
 	}
 	return delta
 }
