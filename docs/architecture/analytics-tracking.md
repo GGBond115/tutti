@@ -454,3 +454,11 @@ The method calls the generated OpenAPI SDK and reuses generated request types.
 - Do not read Tea credentials from anywhere other than `ResolveAnalyticsConfig()`
 - After modifying `config/tutti.defaults.json`, always re-run
   `generate-defaults.mjs` and commit the generated files together
+
+## Agent Host terminal failure telemetry
+
+Agent Host may emit aggregated terminal failures through
+`TerminalFailureObserver`. Adapters should map those observations into product
+analytics events. Do not promote every `LifecycleStep` into an analytics event;
+lifecycle steps remain diagnostic. Terminal failures carry the original error
+message and failure stage for investigation without user-supplied logs.

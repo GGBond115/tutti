@@ -3,6 +3,7 @@ package agenthost
 import (
 	"context"
 	"errors"
+	"strings"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
@@ -94,4 +95,12 @@ func (e *ProviderError) Unwrap() error {
 		return nil
 	}
 	return e.Cause
+}
+
+func terminalFailureCode(err error) string {
+	var providerErr *ProviderError
+	if errors.As(err, &providerErr) && providerErr != nil {
+		return strings.TrimSpace(providerErr.Code)
+	}
+	return ""
 }
