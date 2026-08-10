@@ -1236,6 +1236,64 @@ func TestCompareTuttiReplayStateTreatsToolCallIDsAsAlphaEquivalent(
 	}
 }
 
+func TestCompareTuttiReplayStateCanonicalizesTerminalCommandOutputAliases(
+	t *testing.T,
+) {
+	buildState := func(text *string) TuttiReplayState {
+		output := map[string]any{"stdout": "command output\n"}
+		if text != nil {
+			output["text"] = *text
+		}
+		return TuttiReplayState{
+			SchemaVersion: SchemaVersion,
+			Agent: TuttiReplayAgent{
+				RootSessionID: "session-1",
+				Sessions: []agenthost.HistoricalSession{{
+					ID:                "session-1",
+					Kind:              "root",
+					AgentTargetID:     "local:codex",
+					Provider:          "codex",
+					ProviderSessionID: "provider-session-1",
+					Messages: []agenthost.HistoricalMessage{{
+						ID:     "toolcall:call-1",
+						Role:   "assistant",
+						Kind:   "tool_call",
+						Status: "completed",
+						Payload: map[string]any{
+							"callId":   "call-1",
+							"toolName": "exec_command",
+							"input":    map[string]any{"command": "printf output"},
+							"output":   output,
+						},
+					}},
+				}},
+			},
+			TuttiMode: TuttiReplayTuttiMode{
+				Activations:   []TuttiReplayActivation{},
+				TurnSnapshots: []TuttiReplayTurnSnapshot{},
+			},
+			Workflows: []TuttiReplayWorkflow{},
+			Issues:    []TuttiReplayIssue{},
+		}
+	}
+
+	reconstructible := "command output"
+	if err := CompareTuttiReplayState(
+		buildState(&reconstructible),
+		buildState(nil),
+	); err != nil {
+		t.Fatalf("reconstructible command text alias must compare equal: %v", err)
+	}
+
+	distinct := "formatted command output"
+	if err := CompareTuttiReplayState(
+		buildState(&distinct),
+		buildState(nil),
+	); !errors.Is(err, ErrTuttiReplayStateConflict) {
+		t.Fatalf("distinct command text must remain semantic, got %v", err)
+	}
+}
+
 func TestCompareTuttiReplayStateTreatsInteractionToolCallIDsAsAlphaEquivalent(
 	t *testing.T,
 ) {

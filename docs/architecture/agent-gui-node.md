@@ -100,6 +100,9 @@ Realtime events reduce latency but are not automatically complete truth:
 - canonical tool `output`/`error` bodies bound each `text`, `stdout`, and
   `stderr` field to 1 MiB total, including nested tool steps, by retaining a
   valid UTF-8 prefix and the fixed `[Output truncated]` marker
+- terminal command snapshots may omit `text` only when it exactly equals the
+  trimmed `stdout` or `stderr`; the raw stream remains canonical, while running
+  commands and non-command tools retain provider-neutral `text`
 - continuous, version-complete `message_update` events may merge inline
 - terminal `message_update` is the durable confirmation; message version gaps,
   invalid/unanchored deltas, nonterminal deltas after known terminal message

@@ -19,6 +19,7 @@ func normalizeReplayStateForComparison(state TuttiReplayState) TuttiReplayState 
 	var value map[string]any
 	_ = json.Unmarshal(raw, &value)
 
+	canonicalizeTerminalCommandOutputAliases(value)
 	canonicalizeGoalControlAuditIdentities(value)
 	replacements := map[string]string{}
 	registerReplayIDs(replacements, value)
@@ -30,6 +31,27 @@ func normalizeReplayStateForComparison(state TuttiReplayState) TuttiReplayState 
 	var result TuttiReplayState
 	_ = json.Unmarshal(normalized, &result)
 	return result
+}
+
+// canonicalizeTerminalCommandOutputAliases keeps pre-compaction cassettes
+// comparable with current durable state. It changes comparison data only;
+// historical restore still receives the cassette's original payload.
+func canonicalizeTerminalCommandOutputAliases(value map[string]any) {
+	agent, _ := value["agent"].(map[string]any)
+	sessions, _ := agent["sessions"].([]any)
+	for _, sessionItem := range sessions {
+		session, _ := sessionItem.(map[string]any)
+		messages, _ := session["messages"].([]any)
+		for _, messageItem := range messages {
+			message, _ := messageItem.(map[string]any)
+			if message == nil || message["kind"] != "tool_call" {
+				continue
+			}
+			status, _ := message["status"].(string)
+			payload, _ := message["payload"].(map[string]any)
+			canonical.CompactTerminalCommandOutputAliases(status, payload)
+		}
+	}
 }
 
 // canonicalizeGoalControlAuditIdentities keeps the identity graph of goal

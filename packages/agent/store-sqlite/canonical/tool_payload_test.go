@@ -2,6 +2,7 @@ package canonical
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -353,6 +354,138 @@ func TestCompactToolCallPayloadRetainsFormalTextAndStreamFields(t *testing.T) {
 		if output[key] != "same output" {
 			t.Fatalf("output.%s = %#v, want formal field retained", key, output[key])
 		}
+	}
+}
+
+func TestCompactToolCallPayloadOmitsReconstructibleTerminalCommandText(t *testing.T) {
+	got := CompactToolCallPayload("completed", map[string]any{
+		"callId":   "call-1",
+		"toolName": "Bash",
+		"input": map[string]any{
+			"command": "printf output",
+		},
+		"output": map[string]any{
+			"text":   "same output",
+			"stdout": "same output\n",
+			"stderr": "warning\n",
+		},
+	})
+
+	output := got["output"].(map[string]any)
+	if _, exists := output["text"]; exists {
+		t.Fatalf("output.text retained reconstructible command alias: %#v", output)
+	}
+	if output["stdout"] != "same output\n" || output["stderr"] != "warning\n" {
+		t.Fatalf("output = %#v, want raw streams retained", output)
+	}
+}
+
+func TestCompactToolCallPayloadOmitsReconstructibleTerminalCommandErrorText(t *testing.T) {
+	got := CompactToolCallPayload("failed", map[string]any{
+		"toolName": "shell_command",
+		"input":    map[string]any{"command": "exit 1"},
+		"error": map[string]any{
+			"text":   "command failed",
+			"stderr": "command failed\n",
+		},
+	})
+
+	errorBody := got["error"].(map[string]any)
+	if _, exists := errorBody["text"]; exists {
+		t.Fatalf("error.text retained reconstructible command alias: %#v", errorBody)
+	}
+	if errorBody["stderr"] != "command failed\n" {
+		t.Fatalf("error = %#v, want raw stderr retained", errorBody)
+	}
+}
+
+func TestCompactToolCallPayloadCompactsTerminalAliasBeforeStreamTruncation(t *testing.T) {
+	text := strings.Repeat("x", ToolOutputTextMaxBytes)
+	got := CompactToolCallPayload("completed", map[string]any{
+		"toolName": "Bash",
+		"input":    map[string]any{"command": "print output"},
+		"output":   map[string]any{"text": text, "stdout": text + "\n"},
+	})
+
+	output := got["output"].(map[string]any)
+	if _, exists := output["text"]; exists {
+		t.Fatalf("output.text retained alias across truncation boundary")
+	}
+	stdout := output["stdout"].(string)
+	marked := strings.HasSuffix(stdout, ToolOutputTruncationMarker)
+	if len(stdout) > ToolOutputTextMaxBytes || !marked {
+		t.Fatalf("stdout has %d bytes and truncation marker %t, want bounded marked stream", len(stdout), marked)
+	}
+}
+
+func TestCompactToolCallPayloadRetainsTextOutsideTerminalCommandAlias(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  string
+		payload map[string]any
+	}{
+		{
+			name:   "running command",
+			status: "running",
+			payload: map[string]any{
+				"toolName": "Bash",
+				"input":    map[string]any{"command": "printf output"},
+				"output":   map[string]any{"text": "same output", "stdout": "same output\n"},
+			},
+		},
+		{
+			name:   "non-command tool",
+			status: "completed",
+			payload: map[string]any{
+				"toolName": "AskUserQuestion",
+				"output":   map[string]any{"text": "same output", "stdout": "same output\n"},
+			},
+		},
+		{
+			name:   "distinct command display text",
+			status: "completed",
+			payload: map[string]any{
+				"toolName": "exec_command",
+				"input":    map[string]any{"cmd": "printf raw"},
+				"output":   map[string]any{"text": "formatted output", "stdout": "raw output\n"},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := CompactToolCallPayload(test.status, test.payload)
+			output := got["output"].(map[string]any)
+			if output["text"] == nil {
+				t.Fatalf("output.text removed: %#v", output)
+			}
+		})
+	}
+}
+
+func TestCompactToolCallPayloadOmitsNestedTerminalCommandTextAlias(t *testing.T) {
+	got := CompactToolCallPayload("completed", map[string]any{
+		"toolName": "Task",
+		"steps": []any{map[string]any{
+			"toolName": "Bash",
+			"status":   "completed",
+			"toolInput": map[string]any{
+				"command": "printf nested",
+			},
+			"toolResult": map[string]any{
+				"text":   "nested output",
+				"stdout": "nested output\n",
+			},
+		}},
+	})
+
+	step := got["steps"].([]any)[0].(map[string]any)
+	output := step["toolResult"].(map[string]any)
+	if _, exists := output["text"]; exists {
+		t.Fatalf("nested output.text retained reconstructible alias: %#v", output)
+	}
+	if output["stdout"] != "nested output\n" {
+		t.Fatalf("nested output = %#v, want raw stdout retained", output)
 	}
 }
 

@@ -1281,11 +1281,17 @@ Provider adapters may continue accepting those wire shapes, but shared
 business code consumes only the explicit canonical fields. Each canonical
 `output` or `error` `text`, `stdout`, and `stderr` field, including nested tool
 steps, is bounded to 1 MiB total by retaining a valid UTF-8 prefix and the fixed
-`[Output truncated]` marker. Agent
-reference/session output uses the same canonical projection rather than
-depending on a retained raw tool result. This is a forward-write rule: existing
-rows are not rewritten, their removed fields are ignored, and normal retention
-eventually ages them out.
+`[Output truncated]` marker. A terminal command snapshot omits `text` only when
+it is exactly reconstructible as `strings.TrimSpace(stdout)` or
+`strings.TrimSpace(stderr)`; the raw stream remains canonical. Running command
+output retains `text` for ordered live deltas, and non-command tools retain it
+as their provider-neutral display contract. Agent reference/session output uses
+the same canonical projection rather than depending on a retained raw tool
+result. Canonical compaction is normally a forward-write rule. One bounded
+migration also repairs active terminal command rows whose payload already
+exceeds 1 MiB by removing only that reconstructible alias, without changing
+message versions or timestamps; smaller and non-command historical rows are not
+rewritten.
 
 The Go live-protocol adapter owns the complete fast-lane envelope on both sides
 of a device link: schema validation, recipient identity projection,
