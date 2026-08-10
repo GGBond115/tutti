@@ -413,7 +413,11 @@ export type WorkspaceDeletedAgentSession = {
    */
   title: string;
   /**
-   * Persisted original project path; null means the conversations section.
+   * Immutable persisted rail section identity used for classification.
+   */
+  railSectionKey: string;
+  /**
+   * Persisted project path retained as presentation metadata. Classification is determined only by railSectionKey.
    */
   projectPath: string | null;
   /**
@@ -432,7 +436,14 @@ export type WorkspaceDeletedAgentSession = {
 };
 
 export type WorkspaceDeletedAgentSessionProjectOption = {
-  projectPath: string;
+  /**
+   * Exact persisted rail section identity represented by this option.
+   */
+  railSectionKey: string;
+  /**
+   * Persisted project path retained as presentation metadata; it is not the option identity.
+   */
+  projectPath: string | null;
   projectLabel: string;
   /**
    * Whether the original project is still registered in the current project catalog.
@@ -10737,11 +10748,19 @@ export type ListWorkspaceDeletedAgentSessionsData = {
      */
     searchQuery?: string;
     /**
-     * Select sessions without an original project. Mutually exclusive with projectPath; omit both project filters to list every location.
+     * Select sessions by their exact persisted rail section key. Mutually exclusive with the deprecated project filters; omit every section filter to list all locations.
+     */
+    railSectionKey?: string;
+    /**
+     * Deprecated explicit conversations-section selector. It is resolved to the fixed conversations rail section key and is mutually exclusive with railSectionKey and projectPath.
+     *
+     * @deprecated
      */
     projectScope?: "unscoped";
     /**
-     * Select sessions by their persisted original project path. Mutually exclusive with projectScope.
+     * Deprecated explicit project selector. The path is resolved to its canonical rail section key before querying and is mutually exclusive with railSectionKey and projectScope.
+     *
+     * @deprecated
      */
     projectPath?: string;
     /**

@@ -108,6 +108,7 @@ test("shared tuttid client manages workspace deleted Agent sessions", async () =
       {
         agentSessionId: "session-1",
         title: "Deleted session",
+        railSectionKey: "project:/projects/tutti",
         projectPath: "/projects/tutti",
         updatedAtUnixMs: 20,
         deletedAtUnixMs: 30,
@@ -117,6 +118,7 @@ test("shared tuttid client manages workspace deleted Agent sessions", async () =
     ],
     projectOptions: [
       {
+        railSectionKey: "project:/projects/tutti",
         projectPath: "/projects/tutti",
         projectLabel: "tutti",
         projectAvailable: true
@@ -146,7 +148,7 @@ test("shared tuttid client manages workspace deleted Agent sessions", async () =
       {
         cursor: "opaque-cursor",
         limit: 25,
-        projectPath: "/projects/tutti",
+        railSectionKey: "project:/projects/tutti",
         searchQuery: "deleted"
       },
       { signal: controller.signal }
@@ -177,7 +179,7 @@ test("shared tuttid client manages workspace deleted Agent sessions", async () =
     query: {
       cursor: "opaque-cursor",
       limit: "25",
-      projectPath: "/projects/tutti",
+      railSectionKey: "project:/projects/tutti",
       searchQuery: "deleted"
     }
   });

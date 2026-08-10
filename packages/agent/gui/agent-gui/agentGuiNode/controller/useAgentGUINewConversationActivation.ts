@@ -36,7 +36,7 @@ import {
 import { resolveAgentComposerDraftScopeKey } from "../model/agentComposerDraftScope";
 import {
   type AgentGUIConversationUserProject,
-  resolveAgentGUIConversationProject
+  resolveAgentGUISelectedUserProject
 } from "../model/agentGuiConversationProjectResolver";
 import type { AgentComposerSubmitOptions } from "../composer/AgentComposer.types";
 
@@ -91,7 +91,7 @@ export function resolveInitialRailPlacement(input: {
       sectionKey: "conversations"
     };
   }
-  const selectedProject = resolveAgentGUIConversationProject(
+  const selectedProject = resolveAgentGUISelectedUserProject(
     selectedProjectPath,
     input.userProjects
   );

@@ -5506,7 +5506,9 @@ export const installConnectorMarketConnector = <
   });
 
 /**
- * Uninstall one connector
+ * Uninstall one connector from this device
+ *
+ * Deactivates local runtime routes and removes the installed release and optional CLI. Account authorization is not disconnected and can be reused after reinstalling or from another device.
  */
 export const uninstallConnectorMarketConnector = <
   ThrowOnError extends boolean = false

@@ -1220,6 +1220,20 @@ their renderer and interaction layout; they must not import Desktop or Web
 components, infer project membership from `cwd`, or create a second Session
 lifecycle store.
 
+AgentGUI's existing-Session project projection uses the immutable
+`railSectionKey` as its only join key: it matches that value exactly against a
+registered user project's `sectionKey`. The `conversations` key, a missing key,
+or an unknown key fails closed to no project label even when the Session `cwd`
+equals or sits below a registered project path. Conversely, a recognized
+project key keeps its project identity when the runtime `cwd` is an isolated
+worktree or another detached execution directory. Path matching is reserved
+for resolving the user's explicit project selection before a new activation;
+it is not an existing-Session compatibility fallback.
+Native Mobile applies the same rule to Activity labels and Rail placement.
+Section `sessionIds` remain query ordering and hydration data; if their section
+disagrees with a Session's canonical `railSectionKey`, Mobile rehomes the row by
+the Session key instead of accepting the stale membership.
+
 Cross-platform hosts may also reuse the DOM-free canonical transcript
 projection from `@tutti-os/agent-gui/conversation-projection`. It accepts the
 canonical activity snapshot, selected Session id, and known Turns. The

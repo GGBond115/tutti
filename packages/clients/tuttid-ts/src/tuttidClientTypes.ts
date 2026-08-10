@@ -462,6 +462,7 @@ export interface TuttidClient
       limit?: number;
       projectPath?: string;
       projectScope?: "unscoped";
+      railSectionKey?: string;
       searchQuery?: string;
     },
     requestOptions?: TuttidRequestOptions

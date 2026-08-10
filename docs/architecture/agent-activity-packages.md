@@ -119,6 +119,13 @@ deletion.
 `Host.ListDeletedSessions` exposes topmost deleted Sessions in one Workspace—a
 root or child tombstone whose parent is not tombstoned—with title/project
 filtering and stable `updated_at DESC, session id ASC` cursor paging.
+Deleted-session classification and filtering use the immutable persisted
+`railSectionKey` exclusively. The read contract carries that key on every
+Session and project option; `rail_project_path` remains optional presentation
+metadata for labels and restore context and must not become a join or filter
+identity. Transport adapters may resolve an explicit legacy project-path
+filter to its canonical section key before calling Host, but must never infer a
+deleted Session's section from that path or from `cwd`.
 `Host.RestoreDeletedSession` clears the tombstone for the exact complete
 component in one transaction and deliberately does not start or resume a
 provider runtime. Tombstones created by the older lossy implementation remain
