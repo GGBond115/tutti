@@ -17,18 +17,22 @@ func (o *recordingTerminalFailureObserver) ObserveTerminalFailure(_ context.Cont
 	o.failures = append(o.failures, failure)
 }
 
-func TestObserveStepEmitsAggregatedTerminalFailure(t *testing.T) {
+func TestCommandBoundaryEmitsOneFailureForTheFirstFailedStep(t *testing.T) {
 	observer := &recordingTerminalFailureObserver{}
 	host := New(Config{TerminalFailureObserver: observer})
 	cause := NewProviderError("provider_timeout", "provider timed out after 30s", "debug", errors.New("deadline"))
 
-	host.observeStep(context.Background(), "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), cause)
+	ctx, command := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	host.observeStep(ctx, "message_send", "runtime_session_ready", "workspace-1", "session-1", "claude", host.now(), cause)
+	host.observeStep(ctx, "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), errors.New("later stage"))
+	command.finish(ctx, host, cause)
 
 	if len(observer.failures) != 1 {
-		t.Fatalf("terminal failures = %d, want 1", len(observer.failures))
+		t.Fatalf("terminal failures = %#v, want 1", observer.failures)
 	}
 	got := observer.failures[0]
-	if got.Flow != "message_send" || got.FailureStage != "runtime_exec" || got.WorkspaceID != "workspace-1" || got.AgentSessionID != "session-1" {
+	if got.Flow != "message_send" || got.FailureStage != "runtime_session_ready" ||
+		got.WorkspaceID != "workspace-1" || got.AgentSessionID != "session-1" || got.Provider != "claude" {
 		t.Fatalf("failure identity = %#v", got)
 	}
 	if got.ErrorCode != "provider_timeout" || got.ErrorMessage != "provider timed out after 30s" {
@@ -36,12 +40,63 @@ func TestObserveStepEmitsAggregatedTerminalFailure(t *testing.T) {
 	}
 }
 
-func TestObserveStepSkipsTerminalFailureOnSuccess(t *testing.T) {
+func TestObserveStepDoesNotEmitTerminalFailure(t *testing.T) {
 	observer := &recordingTerminalFailureObserver{}
 	host := New(Config{TerminalFailureObserver: observer})
-	host.observeStep(context.Background(), "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), nil)
+	ctx, _ := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	host.observeStep(ctx, "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), errors.New("boom"))
+	if len(observer.failures) != 0 {
+		t.Fatalf("terminal failures = %#v, want none until the command boundary", observer.failures)
+	}
+}
+
+func TestCommandBoundarySkipsTerminalFailureOnSuccess(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	host := New(Config{TerminalFailureObserver: observer})
+	ctx, command := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	host.observeStep(ctx, "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), nil)
+	command.finish(ctx, host, nil)
 	if len(observer.failures) != 0 {
 		t.Fatalf("terminal failures = %#v, want none", observer.failures)
+	}
+}
+
+func TestCommandBoundaryIgnoresCleanupStepsAfterPrimaryFailure(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	host := New(Config{TerminalFailureObserver: observer})
+	primary := errors.New("runtime start failed")
+
+	ctx, command := host.beginCommand(context.Background(), "session_create", "workspace-1", "session-1")
+	host.observeStep(ctx, "session_create", "runtime_started", "workspace-1", "session-1", "codex", host.now(), primary)
+	host.observeStep(ctx, "session_create_cleanup", "runtime_closed", "workspace-1", "session-1", "codex", host.now(), errors.New("cleanup failed"))
+	command.finish(ctx, host, primary)
+
+	if len(observer.failures) != 1 || observer.failures[0].FailureStage != "runtime_started" {
+		t.Fatalf("terminal failures = %#v, want one runtime_started failure", observer.failures)
+	}
+}
+
+func TestCommandBoundaryUsesPreconditionStageWithoutAFailedStep(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	host := New(Config{TerminalFailureObserver: observer})
+	ctx, command := host.beginCommand(context.Background(), "session_create", "workspace-1", "session-1")
+	command.finish(ctx, host, ErrInvalidArgument)
+	if len(observer.failures) != 1 || observer.failures[0].FailureStage != commandPreconditionStage {
+		t.Fatalf("terminal failures = %#v, want one precondition failure", observer.failures)
+	}
+}
+
+func TestCommandBoundaryDefersToASpecificEmission(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	host := New(Config{TerminalFailureObserver: observer})
+	ctx, command := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	host.observeGuidanceTargetFailure(
+		ctx, SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"},
+		"codex", "turn-1", "guidance-1", host.now(), ErrActiveTurnTargetMismatch,
+	)
+	command.finish(ctx, host, ErrActiveTurnTargetMismatch)
+	if len(observer.failures) != 1 || observer.failures[0].Flow != "guidance" {
+		t.Fatalf("terminal failures = %#v, want only the guidance emission", observer.failures)
 	}
 }
 

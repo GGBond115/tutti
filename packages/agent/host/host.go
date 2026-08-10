@@ -157,16 +157,20 @@ func New(config Config) *Host {
 	if host.sessionForkRecovery == nil {
 		host.sessionForkRecovery, _ = host.sessionForks.(SessionForkRecoveryStore)
 	}
-	if host.operations != nil && host.commitObserver != nil {
+	// Durable runtime and goal failures reach TerminalFailureObserver through
+	// the same wrappers, so an adapter that wires only failure analytics still
+	// observes them.
+	observesCommits := host.commitObserver != nil || host.terminalFailure != nil
+	if host.operations != nil && observesCommits {
 		host.operations = &observedRuntimeOperationStore{RuntimeOperationStore: host.operations, host: host}
 	}
-	if host.effectiveHistory != nil && host.commitObserver != nil {
+	if host.effectiveHistory != nil && observesCommits {
 		host.effectiveHistory = &observedEffectiveHistoryStore{
 			EffectiveHistoryStore: host.effectiveHistory,
 			host:                  host,
 		}
 	}
-	if host.goals != nil && host.commitObserver != nil {
+	if host.goals != nil && observesCommits {
 		host.goals = &observedGoalStateStore{GoalStateStore: host.goals, host: host}
 	}
 	if registrar, ok := config.GoalRuntime.(GoalRuntimeControlLifecycleRegistrar); ok {
@@ -175,24 +179,16 @@ func New(config Config) *Host {
 	return host
 }
 
+// observeStep reports a diagnostic lifecycle step. A failed step never emits a
+// TerminalFailure on its own; it only names the stage that the enclosing
+// command reports once at its boundary.
 func (h *Host) observeStep(ctx context.Context, flow, name, workspaceID, sessionID, provider string, startedAt time.Time, err error) {
 	if h != nil && h.observer != nil {
 		h.observer.ObserveLifecycleStep(ctx, LifecycleStep{
 			Flow: flow, Name: name, AgentSessionID: sessionID, Provider: provider, StartedAt: startedAt, Err: err,
 		})
 	}
-	if err != nil {
-		h.observeTerminalFailure(ctx, TerminalFailure{
-			Flow:           flow,
-			FailureStage:   name,
-			WorkspaceID:    workspaceID,
-			AgentSessionID: sessionID,
-			Provider:       provider,
-			ErrorCode:      terminalFailureCode(err),
-			ErrorMessage:   err.Error(),
-			Retryable:      isRetryableRuntimeOperationError(err),
-		})
-	}
+	recordCommandFailureStage(ctx, flow, workspaceID, sessionID, provider, name, err)
 }
 
 func (h *Host) observeGuidanceTargetFailure(
@@ -232,6 +228,9 @@ func (h *Host) observeTerminalFailure(ctx context.Context, failure TerminalFailu
 	if failure.ErrorMessage == "" && failure.ErrorCode == "" {
 		return
 	}
+	// A specific emission owns the incident; the enclosing command boundary
+	// must not report the same failure a second time.
+	markCommandTerminalFailureEmitted(ctx)
 	h.terminalFailure.ObserveTerminalFailure(ctx, failure)
 }
 

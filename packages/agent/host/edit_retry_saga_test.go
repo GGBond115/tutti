@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -430,6 +431,7 @@ type hostEditRetryRuntime struct {
 	execOutcomeUnknownAccepted  bool
 	execNotDispatchedBeforeTurn bool
 	guidanceMismatch            bool
+	guidanceTransportFailure    bool
 	reconcileAcceptanceCalls    int
 	reconcileAcceptanceInput    agenthost.RuntimeProviderTurnAcceptanceInput
 	goalControlCalls            int
@@ -461,6 +463,7 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 	outcomeUnknownAccepted := r.execOutcomeUnknownAccepted
 	notDispatchedBeforeTurn := r.execNotDispatchedBeforeTurn
 	guidanceMismatch := r.guidanceMismatch
+	guidanceTransportFailure := r.guidanceTransportFailure
 	r.execOutcomeUnknown = false
 	r.execOutcomeUnknownAccepted = false
 	r.execNotDispatchedBeforeTurn = false
@@ -473,12 +476,22 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 	}
 	r.mu.Unlock()
 	if input.Guidance && guidanceMismatch {
+		// The runtime adapter maps its own target verdict onto the Host
+		// sentinel, so the fixture reports the same shape production sees.
 		return agenthost.RuntimeExecResult{
 			TurnID: input.TurnID,
 			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
 				Disposition: agenthost.RuntimeDispatchDispositionNotDispatched,
 			},
-		}, errors.New("guidance target changed before provider admission")
+		}, fmt.Errorf("%w: guidance target changed before provider admission", agenthost.ErrActiveTurnTargetMismatch)
+	}
+	if input.Guidance && guidanceTransportFailure {
+		return agenthost.RuntimeExecResult{
+			TurnID: input.TurnID,
+			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
+				Disposition: agenthost.RuntimeDispatchDispositionNotDispatched,
+			},
+		}, errors.New("guidance transport failed before provider admission")
 	}
 	if notDispatchedBeforeTurn {
 		return agenthost.RuntimeExecResult{
