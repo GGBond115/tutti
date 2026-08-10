@@ -25,6 +25,14 @@ func (p *ActivityProjection) SetReplayCommitObserver(
 	}
 }
 
+func (p *ActivityProjection) SetTerminalFailureObserver(
+	observer agenthost.TerminalFailureObserver,
+) {
+	if p != nil {
+		p.terminalFailureObserver = observer
+	}
+}
+
 func (p *ActivityProjection) notifyReplayCommitted(
 	ctx context.Context,
 	delta agenthost.CommittedDelta,

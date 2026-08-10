@@ -419,17 +419,6 @@ func (h *Host) goalControlSerialized(
 			"action", action,
 			"error", normalizedErr.Error(),
 		)
-		h.observeTerminalFailure(ctx, TerminalFailure{
-			Flow:           "goal_control",
-			FailureStage:   "runtime_exec",
-			WorkspaceID:    workspaceID,
-			AgentSessionID: agentSessionID,
-			OperationID:    operationID,
-			ClientSubmitID: clientSubmitID,
-			ErrorCode:      terminalFailureCode(normalizedErr),
-			ErrorMessage:   normalizedErr.Error(),
-			Retryable:      isRetryableRuntimeOperationError(normalizedErr),
-		})
 		return acceptedGoalControlResult(operationID, persistedState), normalizedErr
 	}
 	responseGoal := clonePayload(controlResult.Goal)

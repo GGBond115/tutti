@@ -458,7 +458,19 @@ The method calls the generated OpenAPI SDK and reuses generated request types.
 ## Agent Host terminal failure telemetry
 
 Agent Host may emit aggregated terminal failures through
-`TerminalFailureObserver`. Adapters should map those observations into product
-analytics events. Do not promote every `LifecycleStep` into an analytics event;
-lifecycle steps remain diagnostic. Terminal failures carry the original error
-message and failure stage for investigation without user-supplied logs.
+`TerminalFailureObserver`. Sources:
+
+- failed `session_create` / `message_send` lifecycle commands
+- goal-control prepare / refresh command failures, and durable
+  `GoalOperationFailed` / terminal incidents
+- durable runtime-operation failures for `interactive_response`,
+  `plan_decision`, and `turn_cancel`
+- settled failed / interrupted root turns
+- failed / errored `tool_call` messages in session-message commits
+
+Adapters should map those observations into product analytics events. Call
+`ObserveTerminalFailuresFromDelta` alongside `NotifyCommitted` when activity
+projection commits are not routed through `Host.notifyCommitted`. Do not
+promote every `LifecycleStep` into a product analytics event; lifecycle steps
+remain diagnostic. Terminal failures carry the original error message and
+failure stage for investigation without user-supplied logs.

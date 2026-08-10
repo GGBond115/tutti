@@ -123,7 +123,7 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	startedAt := h.now()
 	release, err := h.acquireStartup(ctx, input.Provider)
 	if err != nil {
-		h.observeStep(ctx, "session_create", "runtime_started", input.AgentSessionID, input.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "runtime_started", workspaceID, input.AgentSessionID, input.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, false, false))
 	}
 	startResult, err := func() (RuntimeStartResult, error) {
@@ -143,33 +143,33 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		})
 	}()
 	if err != nil {
-		h.observeStep(ctx, "session_create", "runtime_started", input.AgentSessionID, input.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "runtime_started", workspaceID, input.AgentSessionID, input.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, false, false))
 	}
 	session := startResult.Session
 	runtimeCreated := startResult.Created
-	h.observeStep(ctx, "session_create", "runtime_started", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "runtime_started", workspaceID, session.ID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	canonicalSession, err := h.store.InitializeRuntimeSession(ctx, RuntimeSessionInitialization{
 		Session:       session,
 		RailPlacement: input.RailPlacement,
 	})
 	if err != nil {
-		h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, runtimeCreated, false))
 	}
 	canonicalCreated := !canonicalExisted
 	if strings.TrimSpace(canonicalSession.ID) != strings.TrimSpace(session.ID) || strings.TrimSpace(canonicalSession.WorkspaceID) != workspaceID || strings.TrimSpace(canonicalSession.RailSectionKey) == "" {
 		identityErr := fmt.Errorf("initialize workspace agent session: persisted session identity mismatch")
-		h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, identityErr)
+		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, identityErr)
 		return createSessionFailureResult(input, cleanup(identityErr, runtimeCreated, canonicalCreated))
 	}
 	if !railPlacementMatchesSession(input.RailPlacement, canonicalSession) {
 		placementErr := ErrRailPlacementConflict
-		h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, placementErr)
+		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, placementErr)
 		return createSessionFailureResult(input, cleanup(placementErr, runtimeCreated, canonicalCreated))
 	}
-	h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	published, err := publishRuntimeSessionInitialization(
 		ctx,
@@ -179,17 +179,17 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		},
 	)
 	if err != nil {
-		h.observeStep(ctx, "session_create", "session_published", session.ID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "session_published", workspaceID, session.ID, session.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, runtimeCreated, canonicalCreated))
 	}
 	if strings.TrimSpace(published.ID) != strings.TrimSpace(session.ID) ||
 		strings.TrimSpace(published.WorkspaceID) != workspaceID {
 		publishErr := errors.New("publish workspace agent session: runtime session identity mismatch")
-		h.observeStep(ctx, "session_create", "session_published", session.ID, session.Provider, startedAt, publishErr)
+		h.observeStep(ctx, "session_create", "session_published", workspaceID, session.ID, session.Provider, startedAt, publishErr)
 		return createSessionFailureResult(input, cleanup(publishErr, runtimeCreated, canonicalCreated))
 	}
 	session = published
-	h.observeStep(ctx, "session_create", "session_published", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "session_published", workspaceID, session.ID, session.Provider, startedAt, nil)
 	if len(normalized) == 0 && !isTypedGoal {
 		return CreateSessionResult{Session: session, Canonical: canonicalSession, SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusNotRequested}, nil
 	}
@@ -221,17 +221,17 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	}
 	startedAt = h.now()
 	if err := h.runtime.ValidatePromptContent(ctx, RuntimeExecInput{WorkspaceID: workspaceID, AgentSessionID: session.ID, Content: normalized}); err != nil {
-		h.observeStep(ctx, "session_create", "prompt_validated", session.ID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "prompt_validated", workspaceID, session.ID, session.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, runtimeCreated, canonicalCreated))
 	}
-	h.observeStep(ctx, "session_create", "prompt_validated", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "prompt_validated", workspaceID, session.ID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	preparedContent, err := h.prepareContent(workspaceID, session.ID, normalized)
 	if err != nil {
-		h.observeStep(ctx, "session_create", "prompt_prepared", session.ID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "prompt_prepared", workspaceID, session.ID, session.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, runtimeCreated, canonicalCreated))
 	}
-	h.observeStep(ctx, "session_create", "prompt_prepared", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "prompt_prepared", workspaceID, session.ID, session.Provider, startedAt, nil)
 	displayPrompt := strings.TrimSpace(input.InitialDisplayPrompt)
 	initialTitle := ""
 	if !session.InitialTitleEstablished {
@@ -251,7 +251,7 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		RequireProviderAcceptance: true,
 	})
 	if err != nil {
-		h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, err)
 		disposition := execResult.ProviderDispatch.Disposition
 		if disposition == RuntimeDispatchDispositionRejected ||
 			disposition == RuntimeDispatchDispositionApplied ||
@@ -286,7 +286,7 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	}
 	turnID = strings.TrimSpace(execResult.TurnID)
 	if turnID == "" {
-		h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
+		h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
 		return createSessionFailureResult(input, cleanup(ErrSubmitDeliveryUnknown, runtimeCreated, canonicalCreated))
 	}
 	if expectedTurnID := strings.TrimSpace(input.TurnID); expectedTurnID != "" && turnID != expectedTurnID {
@@ -324,7 +324,7 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	if refreshed, ok, readErr := h.store.GetSession(ctx, workspaceID, session.ID); readErr == nil && ok {
 		canonicalSession = refreshed
 	}
-	h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, nil)
 	return CreateSessionResult{Session: session, Canonical: canonicalSession, TurnID: turnID, SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusNotRequested}, nil
 }
 
@@ -527,23 +527,23 @@ func (h *Host) sendInputSerialized(
 	startedAt := h.now()
 	session, err := h.ensureRuntimeSessionLocked(ctx, ref)
 	if err != nil {
-		h.observeStep(ctx, "message_send", "runtime_session_ready", ref.AgentSessionID, "", startedAt, err)
+		h.observeStep(ctx, "message_send", "runtime_session_ready", ref.WorkspaceID, ref.AgentSessionID, "", startedAt, err)
 		return SendInputResult{}, err
 	}
-	h.observeStep(ctx, "message_send", "runtime_session_ready", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "runtime_session_ready", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	if err := h.runtime.ValidatePromptContent(ctx, RuntimeExecInput{WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID, Content: normalized}); err != nil {
-		h.observeStep(ctx, "message_send", "prompt_validated", ref.AgentSessionID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "message_send", "prompt_validated", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
 		return SendInputResult{}, err
 	}
-	h.observeStep(ctx, "message_send", "prompt_validated", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "prompt_validated", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	preparedContent, err := h.prepareContent(ref.WorkspaceID, ref.AgentSessionID, normalized)
 	if err != nil {
-		h.observeStep(ctx, "message_send", "prompt_prepared", ref.AgentSessionID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "message_send", "prompt_prepared", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
 		return SendInputResult{}, err
 	}
-	h.observeStep(ctx, "message_send", "prompt_prepared", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "prompt_prepared", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	displayPrompt, initialTitle := strings.TrimSpace(input.DisplayPrompt), ""
 	if !input.Guidance && !session.InitialTitleEstablished {
 		initialTitle = DeriveInitialTitle(session.Title, firstNonEmpty(displayPrompt, promptText, preparedContent.DisplayText))
@@ -551,7 +551,7 @@ func (h *Host) sendInputSerialized(
 	startedAt = h.now()
 	releaseStartup, err := h.acquireStartup(ctx, session.Provider)
 	if err != nil {
-		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
 		return SendInputResult{}, err
 	}
 	execResult, err := func() (RuntimeExecResult, error) {
@@ -571,7 +571,7 @@ func (h *Host) sendInputSerialized(
 		})
 	}()
 	if err != nil {
-		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
 		if !input.Guidance && strings.TrimSpace(execResult.TurnID) != "" {
 			if persistErr := h.persistRuntimeSubmitOutcome(
 				ctx, ref, execResult,
@@ -614,7 +614,7 @@ func (h *Host) sendInputSerialized(
 	}
 	turnID := strings.TrimSpace(execResult.TurnID)
 	if turnID == "" {
-		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
+		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
 		return SendInputResult{}, ErrSubmitDeliveryUnknown
 	}
 	if expectedTurnID := strings.TrimSpace(input.TurnID); !input.Guidance && expectedTurnID != "" && turnID != expectedTurnID {
@@ -646,7 +646,7 @@ func (h *Host) sendInputSerialized(
 			return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
 		}
 	}
-	h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	canonicalSession, ok, err := h.store.GetSession(ctx, ref.WorkspaceID, ref.AgentSessionID)
 	if err != nil {
 		return SendInputResult{}, err

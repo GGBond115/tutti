@@ -20,6 +20,7 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 	if p == nil {
 		return nil
 	}
+	agenthost.ObserveTerminalFailuresFromDelta(ctx, p.terminalFailureObserver, delta)
 	if committed := delta.ActivityState; committed != nil {
 		provisional := activityStateIsProvisional(committed.Input)
 		if !provisional {

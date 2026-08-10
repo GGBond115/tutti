@@ -43,7 +43,7 @@ func (h *Host) cleanupFailedCreate(
 		startedAt := h.now()
 		lockCtx, cancel := detachedPhaseContext(ctx, failedCreateLockTimeout)
 		release, err := h.acquireSession(lockCtx, ref)
-		h.observeStep(lockCtx, "session_create_cleanup", "lifecycle_lock_acquired", ref.AgentSessionID, provider, startedAt, err)
+		h.observeStep(lockCtx, "session_create_cleanup", "lifecycle_lock_acquired", ref.WorkspaceID, ref.AgentSessionID, provider, startedAt, err)
 		cancel()
 		if err != nil {
 			errs = append(errs, err)
@@ -58,7 +58,7 @@ func (h *Host) cleanupFailedCreate(
 		err := h.runtime.Close(closeCtx, RuntimeCloseInput{
 			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
 		})
-		h.observeStep(closeCtx, "session_create_cleanup", "runtime_closed", ref.AgentSessionID, provider, startedAt, err)
+		h.observeStep(closeCtx, "session_create_cleanup", "runtime_closed", ref.WorkspaceID, ref.AgentSessionID, provider, startedAt, err)
 		cancel()
 		errs = append(errs, err)
 	}
@@ -70,7 +70,7 @@ func (h *Host) cleanupFailedCreate(
 			ref.WorkspaceID,
 			ref.AgentSessionID,
 		)
-		h.observeStep(rollbackCtx, "session_create_cleanup", "canonical_rolled_back", ref.AgentSessionID, provider, startedAt, err)
+		h.observeStep(rollbackCtx, "session_create_cleanup", "canonical_rolled_back", ref.WorkspaceID, ref.AgentSessionID, provider, startedAt, err)
 		cancel()
 		errs = append(errs, err)
 	}
@@ -80,7 +80,7 @@ func (h *Host) cleanupFailedCreate(
 		err := h.preparation.Cleanup(cleanupCtx, RuntimeCleanupInput{
 			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID, Provider: provider,
 		})
-		h.observeStep(cleanupCtx, "session_create_cleanup", "preparation_cleaned", ref.AgentSessionID, provider, startedAt, err)
+		h.observeStep(cleanupCtx, "session_create_cleanup", "preparation_cleaned", ref.WorkspaceID, ref.AgentSessionID, provider, startedAt, err)
 		cancel()
 		errs = append(errs, err)
 	}

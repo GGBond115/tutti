@@ -266,6 +266,7 @@ func NotifyCommitted(ctx context.Context, observer CommitObserver, delta Committ
 
 func (h *Host) notifyCommitted(ctx context.Context, delta CommittedDelta) {
 	if h != nil {
+		ObserveTerminalFailuresFromDelta(ctx, h.terminalFailure, delta)
 		NotifyCommitted(ctx, h.commitObserver, delta)
 	}
 }

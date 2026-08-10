@@ -174,7 +174,7 @@ func New(config Config) *Host {
 	return host
 }
 
-func (h *Host) observeStep(ctx context.Context, flow, name, sessionID, provider string, startedAt time.Time, err error) {
+func (h *Host) observeStep(ctx context.Context, flow, name, workspaceID, sessionID, provider string, startedAt time.Time, err error) {
 	if h != nil && h.observer != nil {
 		h.observer.ObserveLifecycleStep(ctx, LifecycleStep{
 			Flow: flow, Name: name, AgentSessionID: sessionID, Provider: provider, StartedAt: startedAt, Err: err,
@@ -184,6 +184,7 @@ func (h *Host) observeStep(ctx context.Context, flow, name, sessionID, provider 
 		h.observeTerminalFailure(ctx, TerminalFailure{
 			Flow:           flow,
 			FailureStage:   name,
+			WorkspaceID:    workspaceID,
 			AgentSessionID: sessionID,
 			Provider:       provider,
 			ErrorCode:      terminalFailureCode(err),
