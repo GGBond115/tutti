@@ -18,7 +18,7 @@ export function AgentCodeBlock({
   showHeader?: boolean;
   collapsible?: boolean;
   flat?: boolean;
-}): JSX.Element | null {
+}): JSX.Element {
   "use memo";
   const [expanded, setExpanded] = useState(false);
   const normalized = content.trimEnd();
@@ -44,8 +44,40 @@ export function AgentCodeBlock({
   );
   const addedCount = lineCount;
   const fileLabel = fileNameFromPath(path) ?? path ?? "Code";
+  const emptyPlaceholder = translate(
+    "agentHost.agentTool.details.emptyContent"
+  );
   if (!normalized) {
-    return null;
+    return (
+      <div
+        className={`workspace-agents-status-panel__detail-tool-code overflow-hidden rounded-[8px] border border-[var(--line-2)] bg-[var(--background-panel)] ${
+          flat ? "workspace-agents-status-panel__detail-tool-code--flat" : ""
+        }`}
+        data-agent-code-empty="true"
+      >
+        {showHeader ? (
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--line-2)] bg-[var(--transparency-block)] px-3 py-1.5 text-[11px] text-[var(--text-secondary)]">
+            {flat ? (
+              <span
+                className="truncate font-[var(--tsh-font-mono)]"
+                title={path ?? undefined}
+              >
+                {fileLabel}
+              </span>
+            ) : (
+              <AgentPathTailLabel
+                path={path}
+                fallback="Code"
+                className="font-[var(--tsh-font-mono)]"
+              />
+            )}
+          </div>
+        ) : null}
+        <div className="px-3 py-2 font-[var(--tsh-font-mono)] text-[11px] leading-6 text-[var(--text-tertiary)]">
+          {emptyPlaceholder}
+        </div>
+      </div>
+    );
   }
   const disclosureButton =
     collapsible && lineCount > MAX_VISIBLE_LINES ? (

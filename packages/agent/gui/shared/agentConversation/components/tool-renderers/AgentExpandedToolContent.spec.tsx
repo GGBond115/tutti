@@ -464,6 +464,31 @@ describe("AgentExpandedToolContent", () => {
     expect(screen.getByText("export const routes = []")).toBeTruthy();
   });
 
+  it("renders an (empty) placeholder when write content is empty", async () => {
+    setAgentGuiI18nTestLocale("en");
+
+    const { container } = render(
+      <AgentExpandedToolContent
+        call={projectAgentToolCall(
+          toolCall({
+            toolName: "Write",
+            payload: {
+              input: {
+                file_path: "/workspace/112233.txt",
+                content: ""
+              }
+            }
+          })
+        )}
+      />
+    );
+
+    expect(
+      container.querySelector('[data-agent-code-empty="true"]')
+    ).toBeTruthy();
+    expect(screen.getByText("(empty)")).toBeTruthy();
+  });
+
   it("renders a write-created file only once when both content and synthetic diff are present", async () => {
     setAgentGuiI18nTestLocale("en");
 

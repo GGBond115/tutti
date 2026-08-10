@@ -724,7 +724,8 @@ export const en = {
         imagePreviewAlt: "Image generation preview",
         showFullContent: "Show full content ({{count}} lines)",
         collapseContent: "Collapse content",
-        showFullDiff: "Show full diff ({{count}} lines)"
+        showFullDiff: "Show full diff ({{count}} lines)",
+        emptyContent: "(empty)"
       },
       labels: {
         runCommand: "Run command",
