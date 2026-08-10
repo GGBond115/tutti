@@ -249,26 +249,27 @@ func TestHostFindTurnByClientSubmitIDUsesPublicCanonicalPort(t *testing.T) {
 }
 
 type legacyHostConformanceDriver struct {
-	t               *testing.T
-	service         *Service
-	runtime         *fakeRuntime
-	sessions        *fakeSessionReader
-	turns           *legacyHostConformanceTurnStore
-	operations      *runtimeOperationMemoryStore
-	operationPort   *conformanceRuntimeOperationStore
-	goalStore       *conformanceGoalStateStore
-	goalInbox       *conformanceGoalInboxStore
-	commitObserver  *conformanceCommitObserver
-	recoverySteps   *[]string
-	createdTurns    map[string]string
-	directHost      bool
-	goalNowUnixMS   int64
-	deletionHost    *agenthost.Host
-	deletionAdapter *Service
-	deletionStore   *conformanceDeletionStore
-	deletionGuard   *conformanceDeletionGuard
-	deletionEvents  *[]string
-	historicalState *conformanceHistoricalStateStore
+	t                        *testing.T
+	service                  *Service
+	runtime                  *fakeRuntime
+	sessions                 *fakeSessionReader
+	turns                    *legacyHostConformanceTurnStore
+	operations               *runtimeOperationMemoryStore
+	operationPort            *conformanceRuntimeOperationStore
+	goalStore                *conformanceGoalStateStore
+	goalInbox                *conformanceGoalInboxStore
+	commitObserver           *conformanceCommitObserver
+	recoverySteps            *[]string
+	createdTurns             map[string]string
+	directHost               bool
+	goalNowUnixMS            int64
+	deletionHost             *agenthost.Host
+	deletionAdapter          *Service
+	deletionStore            *conformanceDeletionStore
+	deletionGuard            *conformanceDeletionGuard
+	deletionEvents           *[]string
+	historicalState          *conformanceHistoricalStateStore
+	runtimeStartReportWrites int
 }
 
 func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconformance.Fixture) error {
@@ -277,6 +278,43 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	d.sessions = &fakeSessionReader{
 		sessions: map[string]PersistedSession{}, tombstoned: map[string]bool{}, deletedAt: map[string]int64{},
 		parentByKey: map[string]string{},
+	}
+	d.runtimeStartReportWrites = 0
+	if fixture.RaceRuntimeStartReport {
+		reportRuntimeStart := func(session ProviderRuntimeSession) error {
+			persisted, err := (fakeSessionInitializer{}).InitializeRuntimeSession(
+				context.Background(),
+				session,
+				nil,
+			)
+			if err != nil {
+				return err
+			}
+			key := persisted.WorkspaceID + ":" + persisted.ID
+			if existing, found := d.sessions.sessions[key]; found {
+				persisted.RailSectionKind = existing.RailSectionKind
+				persisted.RailProjectPath = existing.RailProjectPath
+				persisted.RailSectionKey = existing.RailSectionKey
+			}
+			d.sessions.sessions[key] = persisted
+			d.runtimeStartReportWrites++
+			return nil
+		}
+		d.runtime.startHook = func(input RuntimeStartInput, session ProviderRuntimeSession) ProviderRuntimeSession {
+			if input.CanonicalInitPending {
+				return session
+			}
+			if err := reportRuntimeStart(session); err != nil {
+				d.t.Fatalf("prepare raced runtime start report: %v", err)
+			}
+			return session
+		}
+		d.runtime.publishInitHook = func(
+			_ RuntimeSessionInitializationPublishInput,
+			session ProviderRuntimeSession,
+		) error {
+			return reportRuntimeStart(session)
+		}
 	}
 	d.turns = &legacyHostConformanceTurnStore{
 		sessions:     map[string]agentactivitybiz.Session{},
@@ -323,6 +361,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	d.service.SessionInitializer = legacyHostConformanceSessionInitializer{
 		canonicalStore: canonicalStore,
 		sessions:       d.sessions,
+		fail:           fixture.FailSessionInitialization,
 	}
 	d.service.TurnSummaryReader = d.turns
 	d.service.SubmitClaimStore = canonicalStore
@@ -1194,7 +1233,9 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 		InteractiveCalls:      len(d.runtime.submitInteractiveCalls), UpdateSettingsCalls: len(d.runtime.updateSettingsCalls),
 		CloseCalls:       len(d.runtime.closeCalls),
 		GoalControlCalls: len(d.runtime.goalControlCalls), GoalReconcileCalls: len(d.runtime.goalReconcileCalls),
-		RecoverySteps: append([]string(nil), (*d.recoverySteps)...),
+		RuntimeSessionPublishCalls: len(d.runtime.publishInitCalls),
+		RuntimeStartReportWrites:   d.runtimeStartReportWrites,
+		RecoverySteps:              append([]string(nil), (*d.recoverySteps)...),
 	}
 	if closeCallCount := len(d.runtime.closeCalls); closeCallCount > 0 {
 		metrics.LastClosePreservedCanonicalState = d.runtime.closeCalls[closeCallCount-1].PreserveCanonicalState
@@ -1406,6 +1447,7 @@ func (d *legacyHostConformanceDriver) recordSubmittedTurn(workspaceID, sessionID
 type legacyHostConformanceSessionInitializer struct {
 	canonicalStore *workspacedata.SQLiteStore
 	sessions       *fakeSessionReader
+	fail           bool
 }
 
 func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(
@@ -1413,6 +1455,17 @@ func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(
 	session ProviderRuntimeSession,
 	railPlacement *agenthost.RailPlacement,
 ) (PersistedSession, error) {
+	if i.fail {
+		return PersistedSession{}, errors.New("injected canonical session initialization failure")
+	}
+	if railPlacement != nil {
+		if existing, found := i.sessions.sessions[session.WorkspaceID+":"+session.ID]; found &&
+			(strings.TrimSpace(existing.RailSectionKind) != strings.TrimSpace(string(railPlacement.Kind)) ||
+				strings.TrimSpace(existing.RailProjectPath) != strings.TrimSpace(railPlacement.ProjectPath) ||
+				strings.TrimSpace(existing.RailSectionKey) != strings.TrimSpace(railPlacement.SectionKey)) {
+			return PersistedSession{}, agenthost.ErrRailPlacementConflict
+		}
+	}
 	persisted, err := (fakeSessionInitializer{}).InitializeRuntimeSession(ctx, session, railPlacement)
 	if err != nil {
 		return PersistedSession{}, err

@@ -44,12 +44,12 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 	permissionModeID := settings.PermissionModeID
 	if agentSessionID == "" {
 		if existing, ok := c.findStartSession(roomID, strings.TrimSpace(input.AgentTargetID), provider, input.CWD, title, settings, input.ProviderTargetRef); ok {
-			return StartResult{Session: existing}, nil
+			return StartResult{Session: existing, Created: false}, nil
 		}
 		agentSessionID = newID()
 	}
 	if existing, ok := c.get(roomID, agentSessionID); ok {
-		return StartResult{Session: existing}, nil
+		return StartResult{Session: existing, Created: false}, nil
 	}
 	c.deleteRetainedGoalGenerationFences(roomID, agentSessionID)
 	session := Session{
@@ -102,9 +102,15 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 	if input.Provisional {
 		c.provisionalSessions[key] = true
 	}
+	if input.CanonicalInitPending {
+		c.sessionInitializations[key] = &controllerSessionInitialization{
+			events: append([]activityshared.Event(nil), events...),
+		}
+	}
+	publicationPending := c.sessionPublicationPendingLocked(key)
 	c.mu.Unlock()
-	if input.Provisional {
-		return StartResult{Session: session}, nil
+	if publicationPending {
+		return StartResult{Session: session, Created: true}, nil
 	}
 	c.publish(session, events)
 	c.publishPendingConfigOptionsUpdates(session)
@@ -112,7 +118,111 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 		c.publishAdapterCommandSnapshot(session, adapter)
 	}
 	c.enqueueSessionReport(ctx, session, events)
-	return StartResult{Session: session}, nil
+	return StartResult{Session: session, Created: true}, nil
+}
+
+// PublishSessionInitialization releases the Runtime's report/event barrier
+// after Host has durably initialized the canonical Session. The transition is
+// idempotent. Prompt-provisional Sessions remain hidden until their submitted
+// intent crosses its separate durable barrier in Exec.
+func (c *Controller) PublishSessionInitialization(
+	ctx context.Context,
+	roomID string,
+	agentSessionID string,
+) (Session, error) {
+	roomID = strings.TrimSpace(roomID)
+	agentSessionID = strings.TrimSpace(agentSessionID)
+	if roomID == "" || agentSessionID == "" {
+		return Session{}, fmt.Errorf("room id and agent session id are required")
+	}
+	releaseLifecycleLock, err := c.acquireLifecycleLockContext(ctx, roomID, agentSessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	defer releaseLifecycleLock()
+
+	key := sessionKey(roomID, agentSessionID)
+	c.mu.Lock()
+	session, found := c.sessions[key]
+	initialization, pending := c.sessionInitializations[key]
+	provisional := c.provisionalSessions[key]
+	if pending && provisional {
+		// Canonical rail initialization is complete, but the initial-content
+		// submit barrier still owns visibility. Preserve the historical
+		// provisional behavior: provider callbacks stay hidden until Exec
+		// durably publishes the submitted Turn.
+		delete(c.sessionInitializations, key)
+	}
+	c.mu.Unlock()
+	if !found {
+		return Session{}, ErrSessionNotFound
+	}
+	if !pending || provisional {
+		return session, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return Session{}, err
+	}
+
+	for {
+		c.mu.Lock()
+		current, stillPending := c.sessionInitializations[key]
+		session, found = c.sessions[key]
+		if !found {
+			c.mu.Unlock()
+			return Session{}, ErrSessionNotFound
+		}
+		if !stillPending || current != initialization {
+			c.mu.Unlock()
+			return session, nil
+		}
+
+		events := append([]activityshared.Event(nil), initialization.events...)
+		initialization.events = nil
+		configUpdates := append([]AgentSessionConfigOptionsUpdate(nil), c.pendingConfigOptionsUpdates[key]...)
+		delete(c.pendingConfigOptionsUpdates, key)
+		commandSnapshot, hasCommandSnapshot := c.pendingCommandSnapshots[agentSessionID]
+		if hasCommandSnapshot {
+			delete(c.pendingCommandSnapshots, agentSessionID)
+			initialization.commandSnapshotResolved = true
+		}
+		resolveAdapterCommandSnapshot := !initialization.commandSnapshotResolved
+		if resolveAdapterCommandSnapshot {
+			initialization.commandSnapshotResolved = true
+		}
+		if !initialization.initialEventsPublished {
+			if len(events) == 0 {
+				events = []activityshared.Event{
+					newSessionActivityEvent(session, EventSessionStarted, session.Status, nil),
+				}
+			}
+			initialization.initialEventsPublished = true
+		}
+		if len(events) == 0 && len(configUpdates) == 0 && !hasCommandSnapshot && !resolveAdapterCommandSnapshot {
+			// This lock transition is the ordering fence: callbacks that acquire
+			// c.mu before deletion are drained above; callbacks that acquire it
+			// afterwards observe a published Session and may fan out directly.
+			delete(c.sessionInitializations, key)
+			c.mu.Unlock()
+			return session, nil
+		}
+		c.mu.Unlock()
+
+		if len(events) > 0 {
+			c.publish(session, events)
+			c.enqueueInitializedSessionReport(ctx, session, events)
+		}
+		if len(configUpdates) > 0 {
+			c.publishConfigOptionsUpdates(session, configUpdates)
+		}
+		if hasCommandSnapshot {
+			c.applyCommandSnapshot(session, commandSnapshot)
+		} else if resolveAdapterCommandSnapshot {
+			if adapter := c.adapter(session.Provider); adapter != nil {
+				c.publishAdapterCommandSnapshot(session, adapter)
+			}
+		}
+	}
 }
 
 func (c *Controller) Resume(ctx context.Context, input ResumeInput) (Session, error) {
@@ -234,7 +344,10 @@ func (c *Controller) Resume(ctx context.Context, input ResumeInput) (Session, er
 }
 
 func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, error) {
-	releaseLifecycleLock := c.acquireLifecycleLock(input.RoomID, input.AgentSessionID)
+	releaseLifecycleLock, err := c.acquireLifecycleLockContext(ctx, input.RoomID, input.AgentSessionID)
+	if err != nil {
+		return CloseResult{}, err
+	}
 	defer releaseLifecycleLock()
 
 	session, adapter, err := c.sessionAndAdapter(input.RoomID, input.AgentSessionID)
@@ -248,9 +361,10 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 		return CloseResult{}, closeErr
 	}
 	c.mu.Lock()
-	provisional := c.provisionalSessions[key]
-	if provisional || input.PreserveCanonicalState {
+	publicationPending := c.sessionPublicationPendingLocked(key)
+	if publicationPending || input.PreserveCanonicalState {
 		delete(c.provisionalSessions, key)
+		delete(c.sessionInitializations, key)
 		delete(c.sessions, key)
 		delete(c.turns, key)
 		delete(c.commands, key)
@@ -262,7 +376,7 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 	if closeErr != nil {
 		return CloseResult{AgentSessionID: session.AgentSessionID, Disconnected: true}, closeErr
 	}
-	if provisional || input.PreserveCanonicalState {
+	if publicationPending || input.PreserveCanonicalState {
 		return CloseResult{AgentSessionID: session.AgentSessionID, Disconnected: true}, nil
 	}
 	session.Status = SessionStatusCompleted
@@ -280,6 +394,7 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 	delete(c.pendingCommandSnapshots, session.AgentSessionID)
 	delete(c.pendingConfigOptionsUpdates, key)
 	delete(c.provisionalSessions, key)
+	delete(c.sessionInitializations, key)
 	delete(c.goalGenerationFences, key)
 	c.mu.Unlock()
 	return CloseResult{AgentSessionID: session.AgentSessionID, Disconnected: true}, nil

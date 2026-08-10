@@ -250,7 +250,7 @@ type HistoricalSessionStateStore interface {
 // create, resume, send, exact cancel, interactive, plan, title, and visibility
 // workflows. Process transport and provider implementations stay behind it.
 type RuntimeController interface {
-	Start(context.Context, RuntimeStartInput) (ProviderRuntimeSession, error)
+	Start(context.Context, RuntimeStartInput) (RuntimeStartResult, error)
 	Resume(context.Context, RuntimeResumeInput) (ProviderRuntimeSession, error)
 	Session(workspaceID string, agentSessionID string) (ProviderRuntimeSession, bool)
 	CanResume(RuntimeResumeInput) bool
@@ -263,6 +263,14 @@ type RuntimeController interface {
 	SetTitle(context.Context, RuntimeSetTitleInput) (ProviderRuntimeSession, error)
 	SetVisible(context.Context, RuntimeSetVisibleInput) (ProviderRuntimeSession, error)
 	Close(context.Context, RuntimeCloseInput) error
+}
+
+// RuntimeSessionInitializationPublisher is the explicit release half of a
+// create-time canonical initialization barrier. CreateSession requires this
+// capability before starting a provider Runtime; other Host workflows can use
+// a narrower RuntimeController without pretending to support creation.
+type RuntimeSessionInitializationPublisher interface {
+	PublishSessionInitialization(context.Context, RuntimeSessionInitializationPublishInput) (ProviderRuntimeSession, error)
 }
 
 // RuntimeSessionLiveness distinguishes a registered runtime Session from a

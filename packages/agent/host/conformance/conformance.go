@@ -63,6 +63,14 @@ type Fixture struct {
 	AcceptGoalControlsOnly bool
 	CompleteGoalOnSet      bool
 	EmptyPauseResumeGoal   bool
+	// RaceRuntimeStartReport makes the test Runtime attempt its ordinary
+	// session-start activity report before CreateSession initializes canonical
+	// state. A conforming Host must keep that report behind the canonical
+	// initialization barrier.
+	RaceRuntimeStartReport bool
+	// FailSessionInitialization fails the canonical initialize half after the
+	// Runtime has started, before its report/event barrier may be released.
+	FailSessionInitialization bool
 	// DisconnectGoalFenceDelivery drops the live Runtime Session during the
 	// first fence delivery, modeling a Host restart with accepted durable intent
 	// but no in-memory provider Session.
@@ -141,6 +149,8 @@ type Metrics struct {
 	CloseCalls                         int
 	GoalControlCalls                   int
 	GoalReconcileCalls                 int
+	RuntimeSessionPublishCalls         int
+	RuntimeStartReportWrites           int
 	RuntimeOperationCommits            int
 	GoalOperationCommits               int
 	RootTurnSettlements                int

@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
@@ -15,8 +16,15 @@ import (
 const claudeSDKStderrTailLimit = 8192
 
 func (s *claudeSDKAdapterSession) send(request claudeSDKSidecarRequest) error {
+	return s.sendContext(context.Background(), request)
+}
+
+func (s *claudeSDKAdapterSession) sendContext(ctx context.Context, request claudeSDKSidecarRequest) error {
 	if s == nil || s.conn == nil {
 		return ErrSessionDisconnected
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	if err := request.normalize(); err != nil {
 		return err
@@ -26,8 +34,21 @@ func (s *claudeSDKAdapterSession) send(request claudeSDKSidecarRequest) error {
 		return err
 	}
 	data = append(data, '\n')
-	s.sendMu.Lock()
+	if !s.sendMu.TryLock() {
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for !s.sendMu.TryLock() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+			}
+		}
+	}
 	defer s.sendMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return s.conn.Send(data)
 }
 
@@ -47,13 +68,13 @@ func (a *ClaudeCodeSDKAdapter) roundTripClaudeSDKResponse(ctx context.Context, a
 	readerStarted := adapterSession.readerStarted
 	a.mu.Unlock()
 	if !readerStarted {
-		if err := adapterSession.send(request); err != nil {
+		if err := adapterSession.sendContext(ctx, request); err != nil {
 			return claudeSDKSidecarEvent{}, err
 		}
 		return adapterSession.roundTripDirectResponse(ctx, request)
 	}
 	response := a.registerClaudeSDKResponse(adapterSession, request.ID)
-	if err := adapterSession.send(request); err != nil {
+	if err := adapterSession.sendContext(ctx, request); err != nil {
 		a.unregisterClaudeSDKResponse(adapterSession, request.ID, response)
 		return claudeSDKSidecarEvent{}, err
 	}

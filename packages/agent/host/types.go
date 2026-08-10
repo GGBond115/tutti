@@ -287,6 +287,28 @@ type RuntimeStartInput struct {
 	ConversationDetailMode  string
 	Visible                 *bool
 	Provisional             bool
+	// CanonicalInitPending starts the provider runtime while keeping
+	// its activity reports and stream events behind the Host-owned canonical
+	// initialization barrier. Host releases that barrier only after the exact
+	// canonical Session (including immutable rail placement) is durable.
+	CanonicalInitPending bool
+}
+
+// RuntimeSessionInitializationPublishInput identifies the started Runtime
+// Session whose canonical initialization barrier may be released. Publication
+// is idempotent; it never creates or changes canonical rail placement itself.
+type RuntimeSessionInitializationPublishInput struct {
+	WorkspaceID    string
+	AgentSessionID string
+}
+
+// RuntimeStartResult distinguishes a provider Runtime created by this exact
+// call from an idempotently reused Runtime. CreateSession may compensate only
+// resources it owns; a conflicting retry must never close an earlier live
+// Session.
+type RuntimeStartResult struct {
+	Session ProviderRuntimeSession
+	Created bool
 }
 
 type RuntimeResumeInput struct {

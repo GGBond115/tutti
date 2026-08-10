@@ -77,6 +77,7 @@ type StartInput struct {
 	PermissionModeID        string
 	Settings                *SessionSettings
 	Provisional             bool
+	CanonicalInitPending    bool
 }
 
 type ResumeInput struct {
@@ -485,6 +486,7 @@ type StreamEvent struct {
 
 type StartResult struct {
 	Session Session `json:"session"`
+	Created bool    `json:"created"`
 }
 
 type CloseResult struct {

@@ -18,6 +18,7 @@ var (
 	ErrActiveTurnTargetMismatch          = errors.New("active-turn guidance target is no longer active")
 	ErrSessionTitleTooLong               = errors.New("agent session title is too long")
 	ErrRuntimeSessionDisconnected        = errors.New("agent runtime session is disconnected")
+	ErrRuntimeSessionPublishUnavailable  = errors.New("agent runtime session initialization publication is unavailable")
 	ErrInteractionNotFound               = errors.New("agent interaction was not found")
 	ErrRuntimeOperationInProgress        = errors.New("agent runtime operation is already in progress")
 	ErrRuntimeOperationFailed            = errors.New("agent runtime operation failed")
