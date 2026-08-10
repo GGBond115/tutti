@@ -22,15 +22,21 @@ export function AgentCodeBlock({
   "use memo";
   const [expanded, setExpanded] = useState(false);
   const normalized = content.trimEnd();
+  const isEmpty = !normalized;
+  const emptyPlaceholder = translate(
+    "agentHost.agentGui.codeBlockEmptyContent"
+  );
   const lines = useMemo(
-    () => (normalized ? normalized.split("\n") : []),
-    [normalized]
+    () => (isEmpty ? [] : normalized.split("\n")),
+    [isEmpty, normalized]
   );
   const lineCount = lines.length;
   const truncated = collapsible && !expanded && lineCount > MAX_VISIBLE_LINES;
   const visibleContent = truncated
     ? lines.slice(0, MAX_VISIBLE_LINES).join("\n")
-    : normalized;
+    : isEmpty
+      ? emptyPlaceholder
+      : normalized;
   const visibleLines = useMemo(
     () =>
       (truncated ? lines.slice(0, MAX_VISIBLE_LINES) : lines).map(
@@ -44,39 +50,6 @@ export function AgentCodeBlock({
   );
   const addedCount = lineCount;
   const fileLabel = fileNameFromPath(path) ?? path ?? "Code";
-  const emptyPlaceholder = translate("agentHost.agentGui.turnSummaryEmpty");
-  if (!normalized) {
-    return (
-      <div
-        className={`workspace-agents-status-panel__detail-tool-code overflow-hidden rounded-[8px] border border-[var(--line-2)] bg-[var(--background-panel)] ${
-          flat ? "workspace-agents-status-panel__detail-tool-code--flat" : ""
-        }`}
-        data-agent-code-empty="true"
-      >
-        {showHeader ? (
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--line-2)] bg-[var(--transparency-block)] px-3 py-1.5 text-[11px] text-[var(--text-secondary)]">
-            {flat ? (
-              <span
-                className="truncate font-[var(--tsh-font-mono)]"
-                title={path ?? undefined}
-              >
-                {fileLabel}
-              </span>
-            ) : (
-              <AgentPathTailLabel
-                path={path}
-                fallback="Code"
-                className="font-[var(--tsh-font-mono)]"
-              />
-            )}
-          </div>
-        ) : null}
-        <div className="px-3 py-2 font-[var(--tsh-font-mono)] text-[11px] leading-6 text-[var(--text-tertiary)]">
-          {emptyPlaceholder}
-        </div>
-      </div>
-    );
-  }
   const disclosureButton =
     collapsible && lineCount > MAX_VISIBLE_LINES ? (
       <button
@@ -96,6 +69,7 @@ export function AgentCodeBlock({
       className={`workspace-agents-status-panel__detail-tool-code overflow-hidden rounded-[8px] border border-[var(--line-2)] bg-[var(--background-panel)] ${
         flat ? "workspace-agents-status-panel__detail-tool-code--flat" : ""
       }`}
+      {...(isEmpty ? { "data-agent-code-empty": "true" } : {})}
     >
       {flat ? (
         <>
@@ -107,26 +81,36 @@ export function AgentCodeBlock({
               >
                 {fileLabel}
               </span>
-              <span className="shrink-0 font-semibold text-[var(--state-success)]">
-                +{addedCount}
-              </span>
+              {addedCount > 0 ? (
+                <span className="shrink-0 font-semibold text-[var(--state-success)]">
+                  +{addedCount}
+                </span>
+              ) : null}
             </div>
           ) : null}
           <div className="workspace-agents-status-panel__detail-scroll-region max-h-[240px] overflow-auto bg-[var(--background-panel)]">
-            {visibleLines.map((line) => (
-              <div
-                key={line.key}
-                className="grid grid-cols-[56px_minmax(0,1fr)] border-l-[3px] border-l-[var(--state-success)] font-[var(--tsh-font-mono)] text-[11px] leading-6"
-              >
-                <div className="select-none px-2.5 text-right text-[color:color-mix(in_srgb,var(--state-success)_90%,transparent)]">
-                  {line.lineNumber}
-                </div>
-                <pre className="m-0 overflow-x-auto px-3 py-0 text-[var(--text-primary)]">
-                  <code>{line.line || " "}</code>
-                </pre>
-              </div>
-            ))}
-            {disclosureButton}
+            {isEmpty ? (
+              <pre className="m-0 px-3 py-2 font-[var(--tsh-font-mono)] text-[11px] leading-6 text-[var(--text-primary)]">
+                <code>{emptyPlaceholder}</code>
+              </pre>
+            ) : (
+              <>
+                {visibleLines.map((line) => (
+                  <div
+                    key={line.key}
+                    className="grid grid-cols-[56px_minmax(0,1fr)] border-l-[3px] border-l-[var(--state-success)] font-[var(--tsh-font-mono)] text-[11px] leading-6"
+                  >
+                    <div className="select-none px-2.5 text-right text-[color:color-mix(in_srgb,var(--state-success)_90%,transparent)]">
+                      {line.lineNumber}
+                    </div>
+                    <pre className="m-0 overflow-x-auto px-3 py-0 text-[var(--text-primary)]">
+                      <code>{line.line || " "}</code>
+                    </pre>
+                  </div>
+                ))}
+                {disclosureButton}
+              </>
+            )}
           </div>
         </>
       ) : (
