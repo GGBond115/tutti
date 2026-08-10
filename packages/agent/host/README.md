@@ -47,6 +47,28 @@ state instead of starting another provider Session. This preflight is durable
 across Host process restarts and does not depend on the runtime's in-memory
 Session registry.
 
+Session creation also has a Host-owned canonical initialization barrier. Every
+Runtime used by `CreateSession` must implement
+`RuntimeSessionInitializationPublisher`. Host calls
+`Start(CanonicalInitPending=true)`, durably initializes the exact canonical
+Session (including immutable rail placement), and only then calls
+`PublishSessionInitialization`. While that barrier is pending, the Runtime may
+start its provider connection but must buffer activity reports, stream events,
+configuration updates, and command snapshots so none of them can create or
+expose canonical state before Host commits it. Publication is idempotent and
+releases the buffered observations in order. An initial-content Session keeps
+its separate provisional submit barrier after canonical initialization and
+does not become visible until its submitted intent is durable.
+
+`RuntimeStartResult.Created` records ownership of the live Runtime for the
+exact `Start` call. Failed-create compensation may close only a Runtime with
+`Created=true` and may roll back only a canonical Session created by that
+attempt. A retry that reuses an existing Runtime or canonical Session must not
+close or delete the earlier owner's resources; it must validate the existing
+immutable rail and fail closed on a mismatch. Host consumers must preserve the
+`Start -> canonical initialize -> publish` sequence instead of publishing a
+runtime-start report directly from `Start`.
+
 Provider Turn acceptance is a cross-process barrier, not a generic lifecycle
 notification. The runtime may move through `queued`, `dispatched`,
 `provider_observed`, and `resolving_identity`, but it must not expose provider
@@ -56,6 +78,14 @@ adapter then blocks its provider event path while the Host atomically persists
 the Turn to `durably_accepted`. Streaming, waiting for approval/input, running
 tools, checkpoints, and terminal events all follow the barrier and retain the
 same authoritative provider Turn ID. Correlation IDs are never provider IDs.
+
+Canonical external identity inheritance is separate from provider acceptance
+and Turn lifecycle. A Turn may carry one immutable `IdentityAnchorTurnID`
+pointing to an ultimate Turn in the same Session. Plan-decision completion uses
+that generic relation when it confirms the implementation Turn, and commits the
+anchor before the completed notice in the same canonical transaction. Host and
+downstream projections consume only the relation; they never recover it from
+plan text, status notices, submit IDs, or transcript page history.
 
 The acceptance barrier does not decide whether the user's prompt is durable.
 After `Exec` returns an explicit rejection or an outcome-unknown timeout, Host
@@ -93,7 +123,12 @@ same durable saga without opening a turn. `GoalControlResult.Goal` is always
 the durable desired projection after persistence; provider output is retained
 separately in `GoalState.Observed`. A provider may return no observation for
 pause or resume without erasing the visible Goal, and only a durable tombstone
-returns a nil Goal. `AdoptProviderGoal` is the narrow
+returns a nil Goal. `GoalControlResult.IntentAccepted` becomes true as soon as
+that durable operation exists, even when immediate runtime readiness or
+delivery returns an error; `GoalState` then distinguishes pending delivery
+from terminal failure. A provider-accepted or applied Goal is also canonical
+resume evidence for a turnless Goal session after the live runtime disappears.
+`AdoptProviderGoal` is the narrow
 reverse boundary for a Goal created by a provider tool during an already
 accepted Turn. It atomically records the active provider generation as a
 completed, applied operation and converged desired/observed state; it never
@@ -126,14 +161,21 @@ persists `(operationId, revision, repairEpoch)` in
 `IntentAccepted` means Host owns later retries even when the provider is
 offline. Accepting or recovering a fence never resumes an offline provider
 Session. Host immediately prepares a revision-conditional local clear so the
-revoked target cannot replay; provider delivery waits until the Session is
-already live or a user action resumes it. A fence is an admission rule, not
-session deletion: completed rows remain durable and are restored to the
-runtime after restart or resume so a delayed provider generation cannot become
-canonical. The runtime Controller retains the exact fence set independently
-of an adapter connection and installs it into every replacement connection
-before dispatching a user operation; failed installation closes the
-unprotected connection. Host cancels a live Turn only when its
+revoked target cannot replay. During startup recovery, an absent Runtime
+Session completes that clear and the fence locally without resuming a provider;
+the operation remains explicit that provider application is unknown. Provider
+delivery waits until the Session is already live or a user action resumes it.
+A pre-crash live revocation may already have prepared its exact-Turn cancel;
+startup completes that internal operation locally with an interrupted outcome
+instead of retrying a missing Runtime or letting the operation shield a stale
+Turn from restart settlement.
+A fence is an admission rule, not session deletion: completed rows remain
+durable and are loaded into Runtime resume before the Session can accept Goal
+or Turn work, so a delayed provider generation cannot become canonical. The
+runtime Controller retains the exact fence set independently of an adapter
+connection and installs it into every replacement connection before dispatching
+a user operation; failed installation closes the unprotected connection. Host
+cancels a live Turn only when its
 immutable Goal provenance exactly matches the fenced identity; that internal
 cancel is require-live and never reconnects an offline provider. The fence
 remains unsettled until the Turn reaches an authoritative terminal state. It
@@ -145,6 +187,13 @@ accept-before-response crash without duplicating Host's operation-ID
 algorithm. Startup and steady-state workers process fences before ordinary
 Goal operations; otherwise a prepared revoked Goal could be replayed during
 recovery before its fence reached the runtime.
+
+`GetGoalActivityTurn` is the read-only projection proof for consumers that
+observe a turnless Goal Session. A candidate must be the latest active Turn,
+have a Goal-owned origin, and carry an exact operation/revision/repair-epoch
+identity backed by the durable Goal operation store. Consumers may use the
+returned Session and Turn to authorize live projection; they must not infer
+Goal ownership from `Session.ActiveTurnID`, Turn recency, or origin alone.
 
 > **Currently disabled.** Durable edit-and-retry is neutralized in production via
 > `Config.EditRetryDisabled`: its saga can strand a session in a rolled-back-but-
@@ -195,7 +244,10 @@ an idempotent clear once to resolve a crash window, while unsafe set replay
 remains rejected.
 
 `GetSession` reads canonical session truth plus an optional live runtime
-observation without starting a provider. `GetTurn`, `GetInteraction`,
+observation without starting a provider. `GetSessionWithRailPlacement` adds
+the Host-owned immutable rail proof for idempotent recovery; application
+adapters must not reproduce rail normalization from canonical fields.
+`GetTurn`, `GetInteraction`,
 `ListSessionTurns`, `ListSessionMessages`, `FindTurnByClientSubmitID`, and
 `GetSessionInteractionSnapshot` expose canonical queries without leaking an
 adapter's concrete store. `GetSessionInteractionTreeSnapshot` is the
@@ -305,15 +357,45 @@ and local view cleanup remain adapter responsibilities.
 batches of canonical tombstones. Host owns the command boundary and delegates
 the atomic hard delete to its narrow `SessionPurgeStore`; retention timing,
 daemon-idle scheduling, HTTP exposure, and optional compaction stay in the host
-adapter. The current retention adapter deliberately performs no filesystem
-deletion. Each candidate is fenced by the exact persisted
-`deleted_at` value, so a concurrently restored or recreated row is preserved.
-Leaf-first selection retains an ancestor while any child or nested descendant
-row remains without starving deep trees, so a restored descendant can never be
-orphaned by maintenance. Purge results expose only content-free session
-descriptors and aggregate message/payload counts. The shared conformance
-scenario verifies live and too-new preservation, exact-cutoff removal, and
-idempotent replay through Host.
+adapter. When durable adapter-owned filesystem cleanup is required, its intent
+must commit in the same product transaction as the canonical hard delete; the
+adapter performs that work after commit and retries failures. Host neither
+chooses those paths nor treats cleanup failure as a canonical purge failure.
+Each candidate is
+fenced by the exact persisted `deleted_at` value, so a concurrently restored or
+recreated row is preserved.
+Candidate selection groups each topmost tombstone with its complete descendant
+tree. A tree containing a live or too-new member is retained, while an eligible
+tree is removed in one transaction even when its row or payload count exceeds a
+normal batch bound; unrelated eligible trees cannot be starved by blocked
+ancestors. Purge results expose only content-free session descriptors and
+aggregate message/payload counts. The shared conformance scenario verifies
+live and too-new preservation, exact-cutoff removal, complete-tree atomicity,
+and idempotent replay through Host.
+
+Recoverable deletion is a separate lossless tombstone lifecycle. New deletes
+preserve every selected root/child Session component, its Turns, Messages,
+Interactions, effective-history records, provider resume identity, and
+attachment references; only live work is terminalized. Batch deletion computes
+component size from connectivity inside that exact delete set, so sibling child
+subtrees under one canonical root remain independently restorable. If a later
+delete selects a live ancestor, complete current-version descendant tombstones
+are absorbed into one new component generation without settling their work a
+second time. Legacy or incomplete descendants are never upgraded: the new
+topmost component stays unavailable for restore but remains permanently
+deletable.
+Stable Goal and effective-history state is left byte-for-byte unchanged. A
+pending Goal operation is failed and detached from the state, while its desired
+Goal, observed Goal, revision, and tombstone semantics remain available after
+restore.
+`ListDeletedSessions` exposes workspace-scoped topmost tombstones—those with no
+tombstoned parent—with stable `updatedAt + sessionId` paging and explicitly
+marks legacy lossy tombstones unavailable. `RestoreDeletedSession` restores the
+exact component atomically without starting or resuming a provider.
+`PurgeDeletedSessionTrees` permanently removes selected topmost components, or
+all such components in one Workspace. The optional
+`DeletedSessionLifecycleScenarios` conformance catalog verifies that
+delete-to-restore boundary independently from retention maintenance.
 
 `ForkSession` creates an independent root Session through an inclusive
 canonical `SessionForkPoint`. The provider driver must attest native

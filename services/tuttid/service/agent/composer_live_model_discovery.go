@@ -277,7 +277,7 @@ func (s *Service) discoverLiveComposerModelsUncachedForScope(
 		if prepareErr != nil {
 			return ProviderRuntimeSession{}, prepareErr
 		}
-		runtimeSession, startErr := s.controller().Start(ctx, RuntimeStartInput{
+		startResult, startErr := s.controller().Start(ctx, RuntimeStartInput{
 			WorkspaceID:       scope.workspaceID,
 			AgentSessionID:    startInput.AgentSessionID,
 			AgentTargetID:     scope.agentTargetID,
@@ -301,7 +301,7 @@ func (s *Service) discoverLiveComposerModelsUncachedForScope(
 		if startErr != nil {
 			return ProviderRuntimeSession{}, normalizeRuntimeError(startErr)
 		}
-		return runtimeSession, nil
+		return startResult.Session, nil
 	}()
 	if err != nil {
 		s.invalidateProviderAvailability(scope.provider)

@@ -77,6 +77,7 @@ type StartInput struct {
 	PermissionModeID        string
 	Settings                *SessionSettings
 	Provisional             bool
+	CanonicalInitPending    bool
 }
 
 type ResumeInput struct {
@@ -97,6 +98,10 @@ type ResumeInput struct {
 	Settings          *SessionSettings
 	CreatedAtUnixMS   int64
 	UpdatedAtUnixMS   int64
+	// GoalGenerationFences must be retained before this Session becomes
+	// available for Goal or Turn submission. Adapter installation follows
+	// Resume connection establishment and precedes Controller publication.
+	GoalGenerationFences []GoalGenerationFenceInput
 	// RecreateIfMissing creates a fresh provider session in place when the
 	// existing provider session can no longer be restored locally (e.g. an
 	// imported conversation), instead of returning a restore error.
@@ -481,6 +486,7 @@ type StreamEvent struct {
 
 type StartResult struct {
 	Session Session `json:"session"`
+	Created bool    `json:"created"`
 }
 
 type CloseResult struct {

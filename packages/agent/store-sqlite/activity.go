@@ -87,6 +87,10 @@ func (s *Store) ReportActivityState(
 	if err != nil {
 		return ActivityStateReportResult{}, err
 	}
+	sessionWritable, err := sessionActivityWritableTx(ctx, tx, workspaceID, agentSessionID)
+	if err != nil {
+		return ActivityStateReportResult{}, err
+	}
 	result := ActivityStateReportResult{State: StateReportResult{
 		Accepted:        accepted,
 		StateApplied:    stateApplied,
@@ -101,7 +105,7 @@ func (s *Store) ReportActivityState(
 	// first durable evidence attached to an otherwise exact-replay session
 	// snapshot (notably provider-initiated interactions). Apply them regardless
 	// of whether the enclosing session projection changed.
-	if accepted && input.Turn != nil {
+	if input.Turn != nil && sessionWritable {
 		result.Turn, result.TurnAccepted, err = s.recordTurnTransitionTx(ctx, tx, *input.Turn, now)
 		if err != nil {
 			return ActivityStateReportResult{}, err
@@ -114,7 +118,7 @@ func (s *Store) ReportActivityState(
 	// already set CurrentPhase (Claude Code identity_resolved). Apply whenever the
 	// session row is addressable so Replay commit correlation still gets a
 	// durable turn mutation / RootProviderTurnAccepted flag.
-	if input.RootProviderTurn != nil && strings.TrimSpace(session.ID) != "" {
+	if input.RootProviderTurn != nil && sessionWritable {
 		result.RootTurn, result.RootTurnAccepted, result.RootProviderTurnAccepted, err = s.applyRootProviderTurnTransitionTx(ctx, tx, *input.RootProviderTurn, now)
 		if err != nil {
 			return ActivityStateReportResult{}, err
@@ -134,7 +138,7 @@ func (s *Store) ReportActivityState(
 	// Always validate and apply them even when the enclosing session report is
 	// an exact replay; otherwise an immutable-identity conflict could hide
 	// behind a stale session timestamp.
-	if accepted && input.Interaction != nil {
+	if input.Interaction != nil && sessionWritable {
 		result.Interaction, result.InteractionResult, err = s.upsertInteractionTx(ctx, tx, *input.Interaction, now)
 		if err != nil {
 			return ActivityStateReportResult{}, err

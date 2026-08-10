@@ -113,7 +113,8 @@ type TuttiReplayMergedState struct {
 // ProjectPortableAgentState removes provider runtime context that is not part
 // of Tutti's semantic replay contract. Tool-owned nested arguments remain
 // untouched; canceled-Turn completion watermarks, durable turn.fileChanges
-// paths, and normalized tool-message / Interaction envelopes are projected.
+// paths, materialized attachment paths, and runtime message envelopes are
+// projected.
 func ProjectPortableAgentState(
 	agent TuttiReplayAgent,
 	stateDirectory string,
@@ -153,15 +154,7 @@ func ProjectPortableAgentState(
 			message := &session.Messages[messageIndex]
 			projectPortablePlanDecisionMessage(message)
 			projectPortableGeneratedImageMessage(message, providerHome)
-			if message.Kind != "tool_call" {
-				continue
-			}
-			payload := cloneReplayMap(message.Payload)
-			if input, ok := payload["input"].(map[string]any); ok {
-				payload["input"] = projectPortableToolCallInput(input, rootCWD)
-			}
-			projectedPayload, _ := projectPortablePathFields(payload, rootCWD).(map[string]any)
-			message.Payload = projectedPayload
+			projectPortableMessagePayload(message, rootCWD)
 		}
 		session.Interactions = make(
 			[]TuttiReplayInteraction,
@@ -246,6 +239,62 @@ func projectPortableGeneratedImageMessage(
 		payload["output"] = projectedOutput
 		message.Payload = payload
 	}
+}
+
+func projectPortableMessagePayload(
+	message *TuttiReplayMessage,
+	rootCWD string,
+) {
+	payload := cloneReplayMap(message.Payload)
+	// clientSubmitId on assistant/tool messages is a live transport envelope.
+	// User messages retain it because it identifies the submitted instruction.
+	// Keep the empty-role case for older hand-authored cassettes whose fixture
+	// schema predates the role field; real captured messages always set Role.
+	if message.Role != "" && message.Role != "user" {
+		delete(payload, "clientSubmitId")
+	}
+	if message.Kind == "tool_call" {
+		if input, ok := payload["input"].(map[string]any); ok {
+			payload["input"] = projectPortableToolCallInput(input, rootCWD)
+		}
+		projectedPayload, _ := projectPortablePathFields(payload, rootCWD).(map[string]any)
+		payload = projectedPayload
+	}
+	projectPortableMaterializedContent(payload)
+	message.Payload = payload
+}
+
+func projectPortableMaterializedContent(payload map[string]any) {
+	var content []any
+	switch value := payload["content"].(type) {
+	case []any:
+		content = value
+	case []map[string]any:
+		content = make([]any, len(value))
+		for index, block := range value {
+			content[index] = block
+		}
+	default:
+		return
+	}
+	projectedContent := make([]any, len(content))
+	for index, value := range content {
+		block, ok := value.(map[string]any)
+		if !ok {
+			projectedContent[index] = value
+			continue
+		}
+		projectedBlock := cloneReplayMap(block)
+		blockType, _ := projectedBlock["type"].(string)
+		if blockType == "text" || blockType == "image" {
+			// The provider materializes this path while building the message. The
+			// attachmentId/text is the portable semantic contract; the path is
+			// workspace-local and must not enter replay-state validation.
+			delete(projectedBlock, "path")
+		}
+		projectedContent[index] = projectedBlock
+	}
+	payload["content"] = projectedContent
 }
 
 func portableGeneratedImagePath(value, providerHome string) (string, bool) {

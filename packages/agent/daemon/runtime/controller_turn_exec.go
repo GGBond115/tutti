@@ -222,9 +222,29 @@ func (c *Controller) runBlockingExecTurn(
 			return
 		}
 		// Publish and report the accepted snapshot, never the stale exec copy:
-		// the controller's current session is the only accepted state.
+		// the controller's current session is the only accepted state. Terminal
+		// facts cross a stronger commit-before-publish barrier because consumers
+		// validate them against the canonical Store immediately on receipt.
 		session = accepted
 		emitted = append(emitted, events...)
+		if eventsRequireDurablePublish(events) {
+			if err := c.reportSessionBeforePublish(ctx, session, events); err != nil {
+				slog.Error(
+					"agent session terminal activity report failed before publish",
+					"event", "agent_session.activity_report.terminal_barrier_failed",
+					"room_id", session.RoomID,
+					"agent_session_id", session.AgentSessionID,
+					"turn_id", strings.TrimSpace(turnID),
+					"error", err,
+				)
+				return
+			}
+			if !c.isProvisionalSession(session) {
+				c.publish(session, events)
+			}
+			emittedSummary.observe(events, session)
+			return
+		}
 		if !c.isProvisionalSession(session) {
 			c.publish(session, events)
 		}
@@ -363,13 +383,29 @@ func (c *Controller) runAsyncExecTurn(ctx context.Context, session Session, adap
 			return
 		}
 		// Publish and report the accepted snapshot, never the stale exec copy:
-		// the controller's current session is the only accepted state.
+		// the controller's current session is the only accepted state. Terminal
+		// facts must be committed before their stream projection is visible.
 		session = accepted
 		if !terminal {
 			emittedSummary.observe(events, session)
 		}
+		if eventsRequireDurablePublish(events) {
+			if err := c.reportSessionBeforePublish(ctx, session, events); err != nil {
+				slog.Error(
+					"agent session terminal activity report failed before publish",
+					"event", "agent_session.activity_report.terminal_barrier_failed",
+					"room_id", session.RoomID,
+					"agent_session_id", session.AgentSessionID,
+					"turn_id", strings.TrimSpace(turnID),
+					"error", err,
+				)
+				return
+			}
+		}
 		c.publish(session, events)
-		c.enqueueSessionReport(ctx, session, events)
+		if !eventsRequireDurablePublish(events) {
+			c.enqueueSessionReport(ctx, session, events)
+		}
 	}
 	emitCommands := func(snapshot AgentSessionCommandSnapshot) {
 		mu.Lock()
@@ -485,6 +521,25 @@ func turnHasTerminalEvent(events []activityshared.Event, turnID string) bool {
 			if string(event.Type) == EventTurnCanceled {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func eventsRequireDurablePublish(events []activityshared.Event) bool {
+	for _, event := range events {
+		switch event.Type {
+		case activityshared.EventSessionCompleted,
+			activityshared.EventSessionFailed,
+			activityshared.EventTurnCompleted,
+			activityshared.EventTurnFailed,
+			activityshared.EventTurnCanceled,
+			activityshared.EventRootProviderTurnCompleted:
+			return true
+		}
+		if snapshot, ok := activityshared.TurnLifecycleSnapshotFromEvent(event); ok &&
+			strings.TrimSpace(snapshot.Phase) == string(activityshared.TurnPhaseSettled) {
+			return true
 		}
 	}
 	return false

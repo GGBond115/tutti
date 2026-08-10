@@ -14,7 +14,6 @@ import {
 import { cn } from "../../../app/renderer/lib/utils";
 import atLinedIconUrl from "../../../app/renderer/assets/icons/@-lined.svg";
 import addLinedIconUrl from "../../../app/renderer/assets/icons/add-lined.svg";
-import { openWorkspaceSettingsPanel } from "../../../shared/workspaceSettingsPanel/workspaceSettingsPanelStore";
 import styles from "../AgentGUINode.styles";
 import {
   AgentModelReasoningDropdown,
@@ -33,7 +32,7 @@ import {
   resolveComposerProviderTargetIconUrl
 } from "./AgentComposerChrome";
 import { AgentHandoffMenu } from "./AgentHandoffMenu";
-import { ComposerConnectorsMenu } from "./ComposerConnectorsMenu";
+import { ComposerPrimaryCapabilityControl } from "./ComposerPrimaryCapabilityControl";
 
 interface Props {
   workspaceId: string;
@@ -49,10 +48,16 @@ interface Props {
   codexSaverModeDisabled: boolean;
   permissionModeControlsDisabled: boolean;
   isSendingTurn: boolean;
-  isHeroLayout: boolean;
+  showComposerAction: boolean;
   isGoalModeActive: boolean;
   isPlanModeActive: boolean;
-  composerActionButton: ReactNode;
+  isTuttiModeActive: boolean;
+  isTuttiModeUpdating: boolean;
+  tuttiModeSupported: boolean;
+  connectorsVisible: boolean;
+  onTuttiModeChange?: (active: boolean) => void;
+  composerAction: ReactNode;
+  projectControl?: ReactNode;
   quickPromptControl?: ReactNode;
   footerAccessory?: ReactNode;
   showHandoffSelect: boolean;
@@ -68,6 +73,7 @@ interface Props {
   providerSelectLabel: string;
   selectedProviderLabel: string;
   providerMenuTargets: readonly AgentGUIAgentTarget[];
+  menuViewportTopInset?: number;
   onProviderSelect: AgentComposerProps["onProviderSelect"];
   onLinkAction: AgentComposerProps["onLinkAction"];
   availableSkills: AgentComposerProps["availableSkills"];
@@ -76,6 +82,7 @@ interface Props {
   onWorkspaceReferencePicker: () => void;
   onMentionPaletteButton: () => void;
   onSettingsChange: AgentComposerProps["onSettingsChange"];
+  onRetryComposerOptions: AgentComposerProps["onRetryComposerOptions"];
   onSubmit: AgentComposerProps["onSubmit"];
   onClearGoalMode: () => void;
   draftPrompt: string;
@@ -96,10 +103,16 @@ export function ComposerFooter({
   codexSaverModeDisabled,
   permissionModeControlsDisabled,
   isSendingTurn,
-  isHeroLayout,
+  showComposerAction,
   isGoalModeActive,
   isPlanModeActive,
-  composerActionButton,
+  isTuttiModeActive,
+  isTuttiModeUpdating,
+  tuttiModeSupported,
+  connectorsVisible,
+  onTuttiModeChange,
+  composerAction,
+  projectControl,
   quickPromptControl,
   footerAccessory,
   showHandoffSelect,
@@ -115,6 +128,7 @@ export function ComposerFooter({
   providerSelectLabel,
   selectedProviderLabel,
   providerMenuTargets,
+  menuViewportTopInset = 8,
   onProviderSelect,
   onLinkAction,
   availableSkills,
@@ -123,6 +137,7 @@ export function ComposerFooter({
   onWorkspaceReferencePicker: handleWorkspaceReferencePicker,
   onMentionPaletteButton: handleMentionPaletteButton,
   onSettingsChange,
+  onRetryComposerOptions,
   onSubmit,
   onClearGoalMode: clearGoalModeBadge,
   draftPrompt: _draftPrompt,
@@ -202,32 +217,16 @@ export function ComposerFooter({
               </Tooltip>
             </TooltipProvider>
           </div>
-          <ComposerConnectorsMenu
-            connectors={availableSkills ?? []}
-            disabled={
-              composerControlsHardDisabled || !onCapabilitySettingsRequest
-            }
-            labels={{
-              connectors: labels.addContentConnectors,
-              connectorConnected: labels.addContentConnectorConnected,
-              connectorConnect: labels.addContentConnectorConnect,
-              connectorAuthorize: labels.addContentConnectorAuthorize,
-              connectorEmpty: labels.addContentConnectorEmpty,
-              connectorMore: labels.addContentConnectorMore
-            }}
-            onOpenConnector={(connectorKey) =>
-              onCapabilitySettingsRequest?.({
-                kind: "connector",
-                connectorKey,
-                action: "open"
-              })
-            }
-            onOpenConnectors={() =>
-              openWorkspaceSettingsPanel({
-                section: "agent",
-                pane: "connectors"
-              })
-            }
+          <ComposerPrimaryCapabilityControl
+            availableSkills={availableSkills}
+            connectorsVisible={connectorsVisible}
+            disabled={composerControlsHardDisabled}
+            isTuttiModeActive={isTuttiModeActive}
+            isTuttiModeUpdating={isTuttiModeUpdating}
+            labels={labels}
+            onCapabilitySettingsRequest={onCapabilitySettingsRequest}
+            onTuttiModeChange={onTuttiModeChange}
+            tuttiModeSupported={tuttiModeSupported}
           />
           {showHandoffSelect ? (
             <AgentHandoffMenu
@@ -291,6 +290,14 @@ export function ComposerFooter({
               <SelectContent
                 align="start"
                 className={cn(styles.composerMenuContent, "min-w-[190px]")}
+                collisionPadding={{
+                  top: menuViewportTopInset,
+                  right: 8,
+                  bottom: 8,
+                  left: 8
+                }}
+                side="top"
+                sideOffset={6}
               >
                 {providerMenuTargets.map((target) => (
                   <SelectItem
@@ -312,6 +319,7 @@ export function ComposerFooter({
               </SelectContent>
             </Select>
           ) : null}
+          {projectControl}
           {quickPromptControl}
           {composerSettings.supportsCodexSaverMode ? (
             <TooltipProvider delayDuration={120}>
@@ -431,8 +439,9 @@ export function ComposerFooter({
               }}
             />
           ) : null}
-          {showSettingsLoadingPlaceholders ||
-          composerSettings.supportsPermissionMode ? (
+          {!composerSettings.composerOptionsError &&
+          (showSettingsLoadingPlaceholders ||
+            composerSettings.supportsPermissionMode) ? (
             <AgentPermissionModeDropdown
               composerSettings={composerSettings}
               disabled={permissionModeControlsDisabled}
@@ -452,10 +461,12 @@ export function ComposerFooter({
           ) : null}
           {showSettingsLoadingPlaceholders ||
           composerSettings.supportsModel ||
-          composerSettings.supportsReasoningEffort ? (
+          composerSettings.supportsReasoningEffort ||
+          composerSettings.composerOptionsError ? (
             <AgentModelReasoningDropdown
               composerSettings={composerSettings}
               disabled={settingsControlsDisabled}
+              onRetryComposerOptions={onRetryComposerOptions}
               labels={{
                 modelLabel: labels.modelLabel,
                 modelSelectionLabel: labels.modelSelectionLabel,
@@ -483,12 +494,15 @@ export function ComposerFooter({
                 modelDescriptions: labels.modelDescriptions,
                 defaultModel: labels.defaultModel,
                 loadingOptions: labels.loadingOptions,
+                optionsLoadFailed: labels.composerOptionsLoadFailed,
+                retry: labels.retry,
+                retryTooltip: labels.composerOptionsRetryTooltip,
                 inheritedUnavailable: labels.inheritedUnavailable
               }}
               onSettingsChange={onSettingsChange}
             />
           ) : null}
-          {isHeroLayout ? composerActionButton : null}
+          {showComposerAction ? composerAction : null}
         </div>
         {footerAccessory ? (
           <div className={styles.composerFooterAccessory}>

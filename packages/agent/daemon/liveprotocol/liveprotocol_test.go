@@ -3,6 +3,7 @@ package liveprotocol
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +64,8 @@ func TestFrameRoundTripCarriesAttachmentRecoveryFence(t *testing.T) {
 				Kind: DeliveryKindAttachmentChanged,
 				AttachmentChanged: &AttachmentChanged{
 					BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
-					CanonicalTurnID: "canonical-turn-1", CallerTurnID: "caller-turn-1", AttachmentRevision: 3,
+					CanonicalTurnID: "canonical-turn-1", CanonicalTurnIDs: []string{"canonical-turn-1", "child-turn-1"},
+					CallerTurnID: "caller-turn-1", AttachmentRevision: 3,
 				},
 			},
 			{
@@ -71,7 +73,8 @@ func TestFrameRoundTripCarriesAttachmentRecoveryFence(t *testing.T) {
 				Kind: DeliveryKindAttachmentCaughtUp,
 				AttachmentCaughtUp: &AttachmentCaughtUp{
 					BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
-					CanonicalTurnID: "canonical-turn-1", CallerTurnID: "caller-turn-1", AttachmentRevision: 3,
+					CanonicalTurnID: "canonical-turn-1", CanonicalTurnIDs: []string{"canonical-turn-1", "child-turn-1"},
+					CallerTurnID: "caller-turn-1", AttachmentRevision: 3,
 				},
 			},
 		},
@@ -85,12 +88,43 @@ func TestFrameRoundTripCarriesAttachmentRecoveryFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if changed := decoded.Deliveries[0].AttachmentChanged; changed == nil ||
-		changed.AttachmentRevision != 3 || changed.CallerTurnID != "caller-turn-1" {
+		changed.AttachmentRevision != 3 || changed.CallerTurnID != "caller-turn-1" ||
+		len(changed.CanonicalTurnIDs) != 2 || changed.CanonicalTurnIDs[1] != "child-turn-1" {
 		t.Fatalf("decoded attachment changed = %#v", changed)
 	}
 	if caughtUp := decoded.Deliveries[1].AttachmentCaughtUp; caughtUp == nil ||
 		caughtUp.AttachmentRevision != 3 || caughtUp.CanonicalTurnID != "canonical-turn-1" {
 		t.Fatalf("decoded attachment caught up = %#v", caughtUp)
+	}
+}
+
+func TestFrameRoundTripCarriesTurnlessGoalAuthorizationSet(t *testing.T) {
+	t.Parallel()
+	frame := Frame{
+		ProtocolRevision: ProtocolRevision,
+		StreamID:         "stream-1",
+		BindingID:        "binding-1",
+		Epoch:            7,
+		Deliveries: []Delivery{{
+			Seq: 1, Kind: DeliveryKindAttachmentChanged,
+			AttachmentChanged: &AttachmentChanged{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+				CanonicalTurnIDs: []string{"goal-turn-1", "goal-turn-2"}, AttachmentRevision: 3,
+			},
+		}},
+	}
+	encoded, err := EncodeFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeFrame(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := decoded.Deliveries[0].AttachmentChanged
+	if changed == nil || changed.CanonicalTurnID != "" || changed.CallerTurnID != "" ||
+		!reflect.DeepEqual(changed.CanonicalTurnIDs, []string{"goal-turn-1", "goal-turn-2"}) {
+		t.Fatalf("decoded turnless Goal attachment = %#v", changed)
 	}
 }
 
@@ -121,6 +155,13 @@ func TestAttachmentRecoveryControlsRejectInvalidIdentityOrRevision(t *testing.T)
 			AttachmentCaughtUp: &AttachmentCaughtUp{
 				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
 				CallerTurnID: "caller-turn-1", AttachmentRevision: 1,
+			},
+		},
+		{
+			Seq: 1, Kind: DeliveryKindAttachmentChanged,
+			AttachmentChanged: &AttachmentChanged{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+				CanonicalTurnIDs: []string{"goal-turn-1", "goal-turn-1"}, AttachmentRevision: 1,
 			},
 		},
 	} {

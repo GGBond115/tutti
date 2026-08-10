@@ -201,12 +201,17 @@ type Discontinuity struct {
 }
 
 type AttachmentChanged struct {
-	BindingID          string `json:"bindingId"`
-	WorkspaceID        string `json:"workspaceId"`
-	AgentSessionID     string `json:"agentSessionId"`
-	CanonicalTurnID    string `json:"canonicalTurnId,omitempty"`
-	CallerTurnID       string `json:"callerTurnId,omitempty"`
-	AttachmentRevision uint64 `json:"attachmentRevision"`
+	BindingID       string `json:"bindingId"`
+	WorkspaceID     string `json:"workspaceId"`
+	AgentSessionID  string `json:"agentSessionId"`
+	CanonicalTurnID string `json:"canonicalTurnId,omitempty"`
+	// CanonicalTurnIDs contains the canonical Turn identities that are durably
+	// authorized for this attachment. Invocation attachments include their
+	// singular anchor and Host-proven continuations. Turnless Goal attachments
+	// have no singular anchor and grow this list from Host-proven Goal Turns.
+	CanonicalTurnIDs   []string `json:"canonicalTurnIds,omitempty"`
+	CallerTurnID       string   `json:"callerTurnId,omitempty"`
+	AttachmentRevision uint64   `json:"attachmentRevision"`
 }
 
 // AttachmentCaughtUp fences one attachment recovery baseline. StreamReady
@@ -214,12 +219,13 @@ type AttachmentChanged struct {
 // synchronized after this control arrives for the same stream epoch and
 // attachment revision.
 type AttachmentCaughtUp struct {
-	BindingID          string `json:"bindingId"`
-	WorkspaceID        string `json:"workspaceId"`
-	AgentSessionID     string `json:"agentSessionId"`
-	CanonicalTurnID    string `json:"canonicalTurnId,omitempty"`
-	CallerTurnID       string `json:"callerTurnId,omitempty"`
-	AttachmentRevision uint64 `json:"attachmentRevision"`
+	BindingID          string   `json:"bindingId"`
+	WorkspaceID        string   `json:"workspaceId"`
+	AgentSessionID     string   `json:"agentSessionId"`
+	CanonicalTurnID    string   `json:"canonicalTurnId,omitempty"`
+	CanonicalTurnIDs   []string `json:"canonicalTurnIds,omitempty"`
+	CallerTurnID       string   `json:"callerTurnId,omitempty"`
+	AttachmentRevision uint64   `json:"attachmentRevision"`
 }
 
 type GoalChanged struct {
@@ -324,6 +330,7 @@ type ProjectionContext struct {
 	OwnerWorkspaceID        string
 	OwnerAgentSessionID     string
 	CanonicalTurnID         string
+	CanonicalTurnIDs        []string
 	RecipientWorkspaceID    string
 	RecipientAgentSessionID string
 	CallerTurnID            string

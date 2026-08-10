@@ -51,6 +51,7 @@ export {
 } from "./usage.ts";
 export {
   createAgentActivityWorkspaceEventCoordinator,
+  type AgentActivityWorkspaceEventIngestOptions,
   type AgentActivityWorkspaceEventInput
 } from "./workspaceEventCoordinator.ts";
 export {
@@ -209,6 +210,8 @@ export type {
   AttentionReadCommand,
   AttentionReadIntent,
   AttentionReadRecord,
+  AttentionObservationProvenance,
+  AttentionReadStateProvenance,
   AttentionReadState
 } from "./engine/attentionReadState.types.ts";
 export {
@@ -385,6 +388,7 @@ export type {
   AgentActivityCollaborationTriggerSource,
   AgentActivityCollaborationUsage,
   AgentActivityCreateSessionInput,
+  AgentActivitySessionIsolation,
   AgentActivityDeleteSessionInput,
   AgentActivityDeleteSessionResult,
   AgentActivityDeleteSessionsInput,

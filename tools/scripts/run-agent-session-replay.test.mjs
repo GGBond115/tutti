@@ -47,6 +47,7 @@ import {
   checkpointNeedsScreenshotSettle,
   captureCheckpointScreenshot,
   captureScreenshot,
+  hasOpenToolDetailText,
   normalizeScreenshotClip,
   parseArgs,
   resolveDesktopHeadless,
@@ -77,6 +78,15 @@ import {
 const replayCassetteAID = "277377ed-af34-454f-a8b9-1047b4064e74";
 const replayCassetteBID = "628c61c4-cbcb-4445-83f7-718bbbd414bd";
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("open tool detail accepts short rendered fileChange content", () => {
+  assert.equal(hasOpenToolDetailText(["R15_TEST"]), true);
+});
+
+test("open tool detail rejects missing or empty content", () => {
+  assert.equal(hasOpenToolDetailText([]), false);
+  assert.equal(hasOpenToolDetailText([null, undefined, " \n\t "]), false);
+});
 
 function respondToCheckpointVerification(request, response) {
   const match = request.url?.match(
@@ -1391,6 +1401,28 @@ test("renderer activity driver resumes an exactly-once invocation after CDP coll
   assert.equal(expressions[0], expressions[1]);
   assert.match(expressions[0], /__tuttiAgentSessionReplayInvocations/u);
   assert.match(expressions[0], /intent-exactly-once/u);
+});
+
+test("renderer activity driver hard-times out when CDP evaluate never resolves", async () => {
+  const driver = createRendererActivityDriver(
+    {
+      async send() {
+        return new Promise(() => {
+          // Simulate a wedged renderer: CDP never settles.
+        });
+      }
+    },
+    50,
+    replayCassetteAID
+  );
+  await assert.rejects(
+    () =>
+      driver.verifyEffect({
+        type: "session/activate",
+        eventId: "effect-wedged"
+      }),
+    /renderer replay invocation timed out after 1s/u
+  );
 });
 
 test("rejects a direct session.send correlated with a renderer intent", () => {
@@ -3012,6 +3044,25 @@ test("non-managed Replay Workspace propagates Cassette failures", () => {
       [{ cassetteId: replayCassetteBID, succeeded: false }],
       true
     )
+  );
+});
+
+test("non-managed Replay Workspace preserves the first Cassette root cause", () => {
+  const rootCause = new Error("first cassette failed");
+  assert.throws(
+    () =>
+      assertReplayWorkspaceSucceeded(
+        [
+          {
+            cassetteId: replayCassetteAID,
+            error: rootCause,
+            succeeded: false
+          },
+          { cassetteId: replayCassetteBID, succeeded: false }
+        ],
+        false
+      ),
+    (error) => error === rootCause
   );
 });
 

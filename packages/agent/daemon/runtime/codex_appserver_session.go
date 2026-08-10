@@ -534,6 +534,12 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 			turnEmitCommands = activeTurn.emitCommands
 		}
 		events, err := a.handleAppServerMessage(ctx, client, turnSession, turnID, message, normalizer, turnEmit, turnEmitCommands)
+		// Stamp the reduction while the decoder-owned provider input unit is
+		// still in scope. Most turn output is stamped again by the active-turn
+		// emitter, but lifecycle reductions such as turn/started can take a
+		// different emission path. The tracker is idempotent, so the emitter
+		// can retain its existing boundary without duplicating indexes.
+		events = a.inputUnits.stamp(session.AgentSessionID, events)
 		if turnEmit != nil {
 			turnEmit(events)
 		}

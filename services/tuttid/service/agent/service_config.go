@@ -55,6 +55,7 @@ type ServiceRuntimeConfig struct {
 type ServiceSessionConfig struct {
 	Initializer       SessionInitializer
 	Reader            SessionReader
+	DeletedSessions   agenthost.DeletedSessionStore
 	PurgeStore        agenthost.SessionPurgeStore
 	DeletionGuard     agenthost.SessionDeletionGuard
 	UserProjectReader UserProjectReader
@@ -75,6 +76,7 @@ type ServiceComposerConfig struct {
 	AgentTargetStore              AgentTargetStore
 	WorkspaceAgentResolver        WorkspaceAgentResolver
 	AgentComposerDefaultsReader   AgentComposerDefaultsReader
+	DesktopPreferencesReader      DesktopPreferencesReader
 	CapabilityLister              ComposerCapabilityLister
 	ConnectorMarketSnapshots      market.SnapshotReader
 	ExtensionComposerProfiles     ExtensionComposerProfileResolver
@@ -155,6 +157,7 @@ func (s *Service) applyConfig(config ServiceConfig) {
 	s.ConnectorMarketSnapshots = config.Composer.ConnectorMarketSnapshots
 	s.ExtensionComposerProfiles = config.Composer.ExtensionComposerProfiles
 	s.AgentComposerDefaultsReader = config.Composer.AgentComposerDefaultsReader
+	s.DesktopPreferencesReader = config.Composer.DesktopPreferencesReader
 	s.ProviderAvailabilityCacheTTL = config.Composer.ProviderAvailabilityCacheTTL
 	s.CapabilityCatalogCacheTTL = config.Composer.CapabilityCatalogCacheTTL
 	s.LiveModelCacheTTL = config.Composer.LiveModelCacheTTL

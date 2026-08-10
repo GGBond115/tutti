@@ -274,12 +274,19 @@ func (a serviceHostRuntime) RuntimeSessionLive(workspaceID, agentSessionID strin
 	return found
 }
 
-func (a serviceHostRuntime) Start(ctx context.Context, input RuntimeStartInput) (ProviderRuntimeSession, error) {
-	session, err := a.service.controller().Start(ctx, input)
-	session.Provisional = input.Provisional
+func (a serviceHostRuntime) Start(ctx context.Context, input RuntimeStartInput) (RuntimeStartResult, error) {
+	result, err := a.service.controller().Start(ctx, input)
+	result.Session.Provisional = input.Provisional
 	if err != nil {
 		a.service.invalidateProviderAvailability(input.Provider)
 	}
+	return result, normalizeRuntimeError(err)
+}
+func (a serviceHostRuntime) PublishSessionInitialization(
+	ctx context.Context,
+	input RuntimeSessionInitializationPublishInput,
+) (ProviderRuntimeSession, error) {
+	session, err := a.service.controller().PublishSessionInitialization(ctx, input)
 	return session, normalizeRuntimeError(err)
 }
 func (a serviceHostRuntime) Resume(ctx context.Context, input RuntimeResumeInput) (ProviderRuntimeSession, error) {
@@ -382,7 +389,9 @@ func hostSupportPortsForService(
 	if len(worktreeGC) > 0 {
 		gc = worktreeGC[0]
 	}
+	deletedSessions, _ := any(s.SessionReader).(agenthost.DeletedSessionStore)
 	return HostSupportPorts{
+		DeletedSessions:      deletedSessions,
 		SessionPurge:         s.SessionPurgeStore,
 		SessionDeletionGuard: s.SessionDeletionGuard,
 		SessionForkContext: serviceHostSessionForkContextPolicy{

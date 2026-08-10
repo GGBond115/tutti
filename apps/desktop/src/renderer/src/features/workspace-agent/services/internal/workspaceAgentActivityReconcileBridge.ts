@@ -441,6 +441,7 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
       // its user partition can be resolved. session/upserted itself is neutral
       // to provenance and cannot consume the completion marker.
       entry.engine.dispatch({
+        live: true,
         turn: input.session.latestTurn,
         type: "turn/upserted"
       });

@@ -141,6 +141,119 @@ func runCreateWithInitialGoal(ctx context.Context, driver Driver) error {
 	return nil
 }
 
+func runTypedInitialGoalWaitsForCanonicalRailInitialization(ctx context.Context, driver Driver) error {
+	if err := driver.Reset(ctx, Fixture{
+		CompleteGoalOnSet:      true,
+		RaceRuntimeStartReport: true,
+	}); err != nil {
+		return err
+	}
+	input := agenthost.CreateSessionInput{
+		AgentSessionID:       "session-initial-goal-rail-race",
+		AgentTargetID:        "target-1",
+		Provider:             "codex",
+		ClientSubmitID:       "create-goal-rail-race-1",
+		InitialDisplayPrompt: "/goal ship from the selected project",
+		InitialGoalControl: &agenthost.TypedGoalControl{
+			Action:    "set",
+			Objective: "ship from the selected project",
+		},
+		RailPlacement: &agenthost.RailPlacement{
+			Version:     1,
+			Kind:        agenthost.RailPlacementKindProject,
+			ProjectPath: "/workspace/selected-project",
+		},
+	}
+	created, turnID, err := driver.Create(ctx, "workspace-1", input)
+	if err != nil {
+		return fmt.Errorf("create typed initial goal during runtime start report: %w", err)
+	}
+	if turnID != "" {
+		return fmt.Errorf("typed initial goal race created turn %q", turnID)
+	}
+	wantRail := storesqlite.RailSectionKeyForProject("/workspace/selected-project")
+	if created.RailSectionKey != wantRail {
+		return fmt.Errorf(
+			"typed initial goal race rail=%q, want %q",
+			created.RailSectionKey,
+			wantRail,
+		)
+	}
+
+	replayed, replayedTurnID, err := driver.Create(ctx, "workspace-1", input)
+	if err != nil {
+		return fmt.Errorf("retry typed initial goal after runtime start report: %w", err)
+	}
+	if replayed.SessionID != created.SessionID || replayedTurnID != "" {
+		return fmt.Errorf(
+			"retried typed initial goal race=%#v turn=%q, want session %q without turn",
+			replayed,
+			replayedTurnID,
+			created.SessionID,
+		)
+	}
+	metrics := driver.Metrics()
+	if metrics.StartCalls != 1 || metrics.RuntimeSessionPublishCalls != 1 ||
+		metrics.GoalControlCalls != 1 || metrics.RuntimeStartReportWrites != 1 {
+		return fmt.Errorf(
+			"typed initial goal race calls start=%d publish=%d goal=%d runtimeReports=%d, want 1/1/1/1",
+			metrics.StartCalls,
+			metrics.RuntimeSessionPublishCalls,
+			metrics.GoalControlCalls,
+			metrics.RuntimeStartReportWrites,
+		)
+	}
+	return nil
+}
+
+func runFailedCanonicalInitializationAbortsUnpublishedRuntime(ctx context.Context, driver Driver) error {
+	if err := driver.Reset(ctx, Fixture{
+		RaceRuntimeStartReport:    true,
+		FailSessionInitialization: true,
+	}); err != nil {
+		return err
+	}
+	ref := agenthost.SessionRef{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-initialization-failure",
+	}
+	_, _, err := driver.Create(ctx, ref.WorkspaceID, agenthost.CreateSessionInput{
+		AgentSessionID: ref.AgentSessionID,
+		AgentTargetID:  "target-1",
+		Provider:       "codex",
+		ClientSubmitID: "create-initialization-failure-1",
+		InitialGoalControl: &agenthost.TypedGoalControl{
+			Action:    "set",
+			Objective: "must not execute",
+		},
+		RailPlacement: &agenthost.RailPlacement{
+			Version:     1,
+			Kind:        agenthost.RailPlacementKindProject,
+			ProjectPath: "/workspace/selected-project",
+		},
+	})
+	if err == nil {
+		return errors.New("failed canonical initialization returned nil error")
+	}
+	if _, readErr := driver.GetCanonicalSession(ctx, ref); !errors.Is(readErr, agenthost.ErrSessionNotFound) {
+		return fmt.Errorf("canonical session after initialization failure error=%v", readErr)
+	}
+	metrics := driver.Metrics()
+	if metrics.StartCalls != 1 || metrics.RuntimeSessionPublishCalls != 0 ||
+		metrics.CloseCalls != 1 || metrics.GoalControlCalls != 0 ||
+		metrics.RuntimeStartReportWrites != 0 {
+		return fmt.Errorf(
+			"failed canonical initialization calls start=%d publish=%d close=%d goal=%d runtimeReports=%d, want 1/0/1/0/0",
+			metrics.StartCalls,
+			metrics.RuntimeSessionPublishCalls,
+			metrics.CloseCalls,
+			metrics.GoalControlCalls,
+			metrics.RuntimeStartReportWrites,
+		)
+	}
+	return nil
+}
+
 func runCreateWithRailPlacement(ctx context.Context, driver Driver) error {
 	if err := driver.Reset(ctx, Fixture{}); err != nil {
 		return err
@@ -185,6 +298,46 @@ func runCreateWithRailPlacement(ctx context.Context, driver Driver) error {
 		agenthost.ErrRailPlacementConflict,
 	) {
 		return fmt.Errorf("retry with conflicting rail placement error=%v", err)
+	}
+	return nil
+}
+
+func runRecoverCanonicalSessionOnlyOnMatchingRail(
+	ctx context.Context,
+	driver RailPlacementRecoveryDriver,
+) error {
+	if err := driver.Reset(ctx, Fixture{}); err != nil {
+		return err
+	}
+	ref := agenthost.SessionRef{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-rail-recovery",
+	}
+	placement := &agenthost.RailPlacement{
+		Version: 1, Kind: agenthost.RailPlacementKindProject,
+		ProjectPath: "/workspace/project", SectionKey: "project:/workspace/project",
+	}
+	created, _, err := driver.Create(ctx, ref.WorkspaceID, agenthost.CreateSessionInput{
+		AgentSessionID: ref.AgentSessionID, AgentTargetID: "target-1", Provider: "codex",
+		RailPlacement: placement,
+	})
+	if err != nil {
+		return fmt.Errorf("create session for rail recovery: %w", err)
+	}
+	recovered, err := driver.GetSessionWithRailPlacement(ctx, ref, &agenthost.RailPlacement{
+		Version: 1, Kind: agenthost.RailPlacementKindProject,
+		ProjectPath: "/workspace/project", SectionKey: "project:/ignored-by-normalization",
+	})
+	if err != nil {
+		return fmt.Errorf("recover session on matching rail: %w", err)
+	}
+	if recovered.SessionID != created.SessionID || recovered.RailSectionKey != created.RailSectionKey {
+		return fmt.Errorf("recovered session=%#v, want %#v", recovered, created)
+	}
+	if _, err := driver.GetSessionWithRailPlacement(ctx, ref, &agenthost.RailPlacement{
+		Version: 1, Kind: agenthost.RailPlacementKindProject,
+		ProjectPath: "/workspace/other-project",
+	}); !errors.Is(err, agenthost.ErrRailPlacementConflict) {
+		return fmt.Errorf("recover session on mismatched rail error=%v", err)
 	}
 	return nil
 }

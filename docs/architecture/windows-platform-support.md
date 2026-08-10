@@ -95,6 +95,14 @@ starting `tuttid.exe`. The Windows
 managed command directory through `PATH`. Apps do not depend on Git for Windows
 or WSL, and the manifest does not duplicate platform entrypoints.
 
+Windows direct development uses the same managed runtime. The desktop `predev`
+hook prepares `apps/desktop/build/managed-posix-shell`, and the Electron main
+process resolves that runtime when it builds the daemon launch environment.
+Therefore `pnpm dev` does not depend on a caller remembering a separate shell
+export; the daemon still receives `TUTTI_MANAGED_POSIX_SHELL` before it starts.
+Windows staging and E2E acceptance should continue to use the dedicated E2E
+launcher because it also owns state isolation, cleanup, and readiness checks.
+
 The package is fat because it contains every currently shipped platform
 artifact. `TUTTI_PLATFORM` selects the artifact at runtime. Adding a future
 platform key should add an artifact and build job, not another app lifecycle.
@@ -146,6 +154,54 @@ provider installers assemble shell command strings to handle Windows.
 The final layout does not migrate or delete an older `%USERPROFILE%\.local`
 installation; a subsequent managed install targets the new `.local\bin`
 directory.
+
+System proxy resolution follows the same shared precedence on macOS and
+Windows: session/process environment, then the operating-system static proxy,
+then direct connection. The common resolver owns merging, `NO_PROXY`, caching,
+diagnostics, and the `TUTTI_DISABLE_PROXY_AUTODETECT` escape hatch. Build-tagged
+adapters only read native state: Darwin uses `scutil --proxy`; Windows reads the
+current-user WinINet `Internet Settings` values. Windows protocol maps and
+bypass entries are normalized to `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
+PAC execution and SOCKS conversion remain out of scope because the daemon does
+not embed a PAC/SOCKS engine. WinINet bypass entries that cannot be represented
+faithfully by standard `NO_PROXY` syntax (for example `10.*` and `<local>`) are
+not projected; loopback, `.local`, exact hosts, and `*.domain` suffixes remain
+covered.
+
+Agent Target setup uses one Desktop-owned, version-pinned `uv` resource rather
+than downloading `uv` separately for each Python agent. Release staging copies
+the official compressed archive for each packaged architecture under
+`bin/managed-uv/<platform>/<version>/`; both staging and tuttid verify the
+pinned size and SHA-256. Electron injects only the resource root through
+`TUTTI_BUNDLED_UV_ROOT`. The daemon keeps extraction, cache markers, and the
+dynamic official-download fallback. Node, Python, Kimi, Hermes, and other agent
+payloads remain dynamically installed, so this adds roughly one compressed uv
+archive per architecture rather than a complete cross-language toolchain.
+
+The signed macOS release is the one packaging exception. The upstream macOS
+archives contain nested `uv` and `uvx` executables without Tutti's Developer ID
+signature, so Apple notarization rejects the archive when it is embedded in the
+app. macOS therefore uses the same pinned, checksum-verified dynamic download
+fallback at first use; Windows and Linux continue to ship their bundled uv
+archive.
+
+For generic ACP providers such as OpenCode, provider resolution rewrites the
+adapter command once and every status, login, model-catalog, and session path
+uses that resolved executable. On Windows a complete isolated npm package is
+preferred over an earlier stale PATH shim; package metadata and containment are
+validated before its declared binary is accepted.
+
+The Windows Desktop package also vendors the pinned Mutagen executable used
+when file-symlink creation is unavailable. Electron resolves the packaged
+resource and injects `TUTTI_MUTAGEN_BIN` into `tuttid`; Workspace Apps inherit
+that same absolute path. Release staging downloads the official archive and
+license texts, verifies their pinned SHA-256 digests, and packages only the
+Windows amd64 executable and notices. Runtime execution therefore has no
+Mutagen download dependency, while an explicit `TUTTI_MUTAGEN_BIN` remains an
+operator override. If the packaged or configured executable is unavailable,
+runtime preparation uses a guarded per-run auth copy and copies a valid
+refreshed credential back only when the stable source has not changed
+concurrently.
 
 ### Browser and Files
 

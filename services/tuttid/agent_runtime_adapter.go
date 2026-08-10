@@ -449,7 +449,7 @@ func (a agentRuntimeAdapter) Sessions(workspaceID string) []agentservice.Provide
 	return result
 }
 
-func (a agentRuntimeAdapter) Start(ctx context.Context, input agentservice.RuntimeStartInput) (agentservice.ProviderRuntimeSession, error) {
+func (a agentRuntimeAdapter) Start(ctx context.Context, input agentservice.RuntimeStartInput) (agentservice.RuntimeStartResult, error) {
 	result, err := a.controller.Start(ctx, agentruntime.StartInput{
 		RoomID:                  input.WorkspaceID,
 		AgentSessionID:          input.AgentSessionID,
@@ -471,15 +471,31 @@ func (a agentRuntimeAdapter) Start(ctx context.Context, input agentservice.Runti
 			PermissionModeID:       input.PermissionModeID,
 			ConversationDetailMode: input.ConversationDetailMode,
 		},
-		Visible:     input.Visible,
-		Provisional: input.Provisional,
+		Visible:              input.Visible,
+		Provisional:          input.Provisional,
+		CanonicalInitPending: input.CanonicalInitPending,
 	})
 	if err != nil {
-		return agentservice.ProviderRuntimeSession{}, mapAgentRuntimeError(err)
+		return agentservice.RuntimeStartResult{}, mapAgentRuntimeError(err)
 	}
 	session := a.runtimeSessionWithState(result.Session)
 	session.Provisional = input.Provisional
-	return session, nil
+	return agentservice.RuntimeStartResult{Session: session, Created: result.Created}, nil
+}
+
+func (a agentRuntimeAdapter) PublishSessionInitialization(
+	ctx context.Context,
+	input agentservice.RuntimeSessionInitializationPublishInput,
+) (agentservice.ProviderRuntimeSession, error) {
+	session, err := a.controller.PublishSessionInitialization(
+		ctx,
+		input.WorkspaceID,
+		input.AgentSessionID,
+	)
+	if err != nil {
+		return agentservice.ProviderRuntimeSession{}, mapAgentRuntimeError(err)
+	}
+	return a.runtimeSessionWithState(session), nil
 }
 
 func (a agentRuntimeAdapter) Subscribe(workspaceID string, agentSessionID string) (<-chan agentservice.RuntimeStreamEvent, func(), bool) {

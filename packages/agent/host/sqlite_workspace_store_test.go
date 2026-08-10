@@ -238,3 +238,43 @@ func TestSQLiteWorkspaceStoreRejectsUnknownWorkspace(t *testing.T) {
 		t.Fatal("GetSession succeeded without a workspace store")
 	}
 }
+
+func TestSQLiteWorkspaceStoreReadsSessionAndTurnFromOneSnapshot(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "agent-host-snapshot-store.db"))
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	canonical := storesqlite.New(db, storesqlite.Options{})
+	if err := canonical.Migrate(t.Context()); err != nil {
+		t.Fatalf("migrate SQLite: %v", err)
+	}
+	if _, err := canonical.ReportSessionState(t.Context(), storesqlite.SessionStateReport{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", Kind: storesqlite.SessionKindRoot,
+		Origin: "runtime", Provider: "codex", CurrentPhase: "idle", OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	if _, accepted, err := canonical.RecordTurnTransition(t.Context(), storesqlite.TurnTransition{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", TurnID: "turn-1",
+		Phase: storesqlite.TurnPhaseRunning, OccurredAtUnixMS: 2,
+	}); err != nil || !accepted {
+		t.Fatalf("seed turn: accepted=%v err=%v", accepted, err)
+	}
+	store := &agenthost.SQLiteWorkspaceStore{
+		StoreForWorkspace: func(workspaceID string) *storesqlite.Store {
+			if workspaceID == "workspace-1" {
+				return canonical
+			}
+			return nil
+		},
+	}
+	session, turn, found, err := store.GetSessionAndTurn(t.Context(), "workspace-1", "session-1", "turn-1")
+	if err != nil || !found {
+		t.Fatalf("GetSessionAndTurn() found=%v err=%v", found, err)
+	}
+	if session.ActiveTurnID != turn.TurnID || turn.Phase != storesqlite.TurnPhaseRunning {
+		t.Fatalf("snapshot = session active %q, turn %#v; want active turn-1", session.ActiveTurnID, turn)
+	}
+}

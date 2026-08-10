@@ -75,6 +75,7 @@ type Service struct {
 	ConnectorMarketSnapshots       market.SnapshotReader
 	ExtensionComposerProfiles      ExtensionComposerProfileResolver
 	AgentComposerDefaultsReader    AgentComposerDefaultsReader
+	DesktopPreferencesReader       DesktopPreferencesReader
 	ProviderAvailabilityCacheTTL   time.Duration
 	CapabilityCatalogCacheTTL      time.Duration
 	LiveModelCacheTTL              time.Duration
@@ -156,12 +157,13 @@ type RuntimeController interface {
 	// cannot make that guarantee, so the service treats guidance errors as
 	// delivery-unknown. Accepted=true is not a durable provenance receipt.
 	Exec(context.Context, RuntimeExecInput) (RuntimeExecResult, error)
+	PublishSessionInitialization(context.Context, RuntimeSessionInitializationPublishInput) (ProviderRuntimeSession, error)
 	Resume(context.Context, RuntimeResumeInput) (ProviderRuntimeSession, error)
 	Session(workspaceID string, agentSessionID string) (ProviderRuntimeSession, bool)
 	SetTitle(context.Context, RuntimeSetTitleInput) (ProviderRuntimeSession, error)
 	SetVisible(context.Context, RuntimeSetVisibleInput) (ProviderRuntimeSession, error)
 	Sessions(workspaceID string) []ProviderRuntimeSession
-	Start(context.Context, RuntimeStartInput) (ProviderRuntimeSession, error)
+	Start(context.Context, RuntimeStartInput) (RuntimeStartResult, error)
 	SubmitInteractive(context.Context, RuntimeSubmitInteractiveInput) (RuntimeSubmitInteractiveResult, error)
 	InteractiveDisposition(workspaceID string, rootAgentSessionID string, agentSessionID string, turnID string, requestID string) RuntimeInteractiveDisposition
 	Subscribe(workspaceID string, agentSessionID string) (<-chan RuntimeStreamEvent, func(), bool)
@@ -179,6 +181,10 @@ type AgentTargetStore interface {
 
 type AgentComposerDefaultsReader interface {
 	GetAgentComposerDefaultsForTarget(context.Context, string) (preferencesbiz.AgentComposerDefaults, error)
+}
+
+type DesktopPreferencesReader interface {
+	Get(context.Context) (preferencesbiz.DesktopPreferences, error)
 }
 
 type WorkspaceAgentResolver interface {
@@ -454,6 +460,18 @@ type SessionReader interface {
 	SessionDeleted(ctx context.Context, workspaceID string, agentSessionID string) (bool, error)
 }
 
+type RecoverableDeletedSessionResourceReader interface {
+	ListRecoverableDeletedSessionResources(context.Context) ([]agentactivitybiz.DeletedSessionResource, error)
+}
+
+// GlobalAgentSessionIdentityReader checks the physical-resource identity,
+// which is currently agent-session scoped rather than Workspace scoped. It is
+// a tuttid product adapter contract and is intentionally not part of Host.
+type GlobalAgentSessionIdentityReader interface {
+	AgentSessionIDExists(context.Context, string) (bool, error)
+	OtherWorkspaceLiveAgentSessionIDExists(context.Context, string, string) (bool, error)
+}
+
 type PersistedSessionListPage struct {
 	Sessions   []PersistedSession
 	HasMore    bool
@@ -545,6 +563,8 @@ type SessionTitleUpdater interface {
 // Interaction entities.
 type ProviderRuntimeSession = agenthost.ProviderRuntimeSession
 type RuntimeStartInput = agenthost.RuntimeStartInput
+type RuntimeStartResult = agenthost.RuntimeStartResult
+type RuntimeSessionInitializationPublishInput = agenthost.RuntimeSessionInitializationPublishInput
 type RuntimeResumeInput = agenthost.RuntimeResumeInput
 type RuntimeExecInput = agenthost.RuntimeExecInput
 type RuntimeExecResult = agenthost.RuntimeExecResult
