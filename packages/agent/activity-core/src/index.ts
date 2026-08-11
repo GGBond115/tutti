@@ -343,6 +343,7 @@ export {
   sessionActivationPresentationMapsEqual,
   selectLatestActivationForSession,
   selectLatestPendingSubmitForSession,
+  selectPendingSubmits,
   selectPendingSubmitsForSession,
   selectSessionActivationPresentations,
   selectSessionHasUnconfirmedSubmit,

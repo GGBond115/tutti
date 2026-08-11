@@ -25,6 +25,16 @@ export function selectPendingActivationByRequestId(
 
 const EMPTY_PENDING_SUBMITS: readonly PendingSubmitIntentRecord[] = [];
 
+export function selectPendingSubmits(
+  state: AgentSessionEngineStateBase
+): readonly PendingSubmitIntentRecord[] {
+  return Object.values(state.pendingIntents.submitsByClientSubmitId).sort(
+    (left, right) =>
+      left.requestedAtUnixMs - right.requestedAtUnixMs ||
+      left.clientSubmitId.localeCompare(right.clientSubmitId)
+  );
+}
+
 export interface SessionActivationPresentation {
   errorCode: string | null;
   errorMessage: string | null;

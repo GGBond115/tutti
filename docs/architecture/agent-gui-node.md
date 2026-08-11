@@ -2268,6 +2268,26 @@ the removed lifecycle callbacks as no-op or forwarding adapters. Metadata
 actions that AgentGUI still reads directly remain on this surface until their
 Engine migration preserves all host observability and product integration.
 
+AgentGUI performance correlation is package-owned through
+`createAgentGUIPerformanceMonitor`. A host supplies the workspace Engine, the
+existing Session-event subscription, a clock, and a product-neutral event
+sink. The monitor joins AgentGUI's preserved `submittedAtUnixMs` and queue
+diagnostics to exact Session and Turn identities, then emits activation
+settlement, Prompt admission, first-token receipt, and Turn settlement facts.
+Hosts map those facts to their own analytics catalogs; they must not copy the
+Turn-binding, early-event buffering, duration-bucket, or token-classification
+logic.
+
+First-token time ends when the renderer receives the first non-empty Agent
+content `message_delta`; its bounded kind is text, reasoning, plan, or other.
+It deliberately does not use the producer timestamp, infer a latest Turn,
+count tool output, or inspect Prompt or response content. Early deltas are
+retained only until the Engine supplies the exact Turn binding, duplicate
+deltas emit once, and bounded caches prevent an abandoned Prompt from growing
+runtime memory without limit. Exact `durationMs` accompanies the stable
+buckets `lt_1s`, `1s_to_3s`, `3s_to_10s`, `10s_to_30s`, `30s_to_60s`, and
+`gte_60s`.
+
 `AgentHostApi` supplies host capabilities only: files, clipboard, project/account lookup, Agent Target setup/probes, diagnostics, and OS/Workbench helpers. It must not become a Session, Turn, timeline, or write source again.
 
 Terminal authentication is one such Host capability. AgentGUI receives an
@@ -2808,6 +2828,7 @@ unable to resurrect a deleted Session.
 | `services/tuttid/api/openapi/tuttid.v1.yaml`              | daemon HTTP contract                                |
 | `packages/agent/activity-core/src/engine/**`              | frontend workspace engine                           |
 | `packages/agent/gui/agentActivityRuntime.tsx`             | AgentGUI runtime interface                          |
+| `packages/agent/gui/agentGUIPerformanceMonitor.ts`        | product-neutral AgentGUI latency correlation        |
 | `packages/agent/gui/agent-gui/agentGuiNode/controller/**` | focused controller modules                          |
 | `packages/agent/gui/agent-gui/agentGuiNode/model/**`      | pure node projection/policy                         |
 | `packages/agent/gui/shared/agentConversation/**`          | reusable transcript projections/components          |

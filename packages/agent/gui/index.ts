@@ -205,6 +205,16 @@ export type {
   AgentActivityRuntimeUpdateSessionSettingsInput,
   AgentActivityRuntimeUpdateSessionSettingsResult
 } from "./agentActivityRuntime";
+export {
+  agentGUIPerformanceDuration,
+  createAgentGUIPerformanceMonitor
+} from "./agentGUIPerformanceMonitor";
+export type {
+  AgentGUIFirstTokenKind,
+  AgentGUIPerformanceDurationBucket,
+  AgentGUIPerformanceEvent,
+  AgentGUIPerformanceMonitor
+} from "./agentGUIPerformanceMonitor";
 export type {
   AgentHostApi,
   AgentHostAgentTargetAuthenticatedAccount,
