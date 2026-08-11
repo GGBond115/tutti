@@ -353,6 +353,32 @@ func TestMatchingExternalImportProjectPrefersExactSelection(t *testing.T) {
 	}
 }
 
+func TestUpsertExternalImportProjectUsesWindowsPathIdentity(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows filesystem identity is platform-specific")
+	}
+	projectPath := t.TempDir()
+	projects := map[string]*ExternalImportProject{}
+	upsertExternalImportProject(projects, ExternalImportProject{
+		Path:         strings.ToUpper(projectPath),
+		SessionCount: 1,
+	}, "codex")
+	upsertExternalImportProject(projects, ExternalImportProject{
+		Path:         strings.ToLower(projectPath),
+		SessionCount: 1,
+	}, "claude-code")
+	if len(projects) != 1 {
+		t.Fatalf("project identity map has %d entries, want one: %#v", len(projects), projects)
+	}
+	for _, project := range projects {
+		if project.SessionCount != 2 {
+			t.Fatalf("merged project session count = %d, want 2", project.SessionCount)
+		}
+	}
+}
+
 func TestExternalSessionProjectPathUsesGitRoot(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "repo")

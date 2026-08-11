@@ -237,9 +237,10 @@ func externalImportSessionSummary(session externalImportedSession, projectPath s
 }
 
 func upsertExternalImportProject(projects map[string]*ExternalImportProject, next ExternalImportProject, provider string) {
-	project, ok := projects[next.Path]
+	identityKey := agentactivitybiz.RailSectionKeyForProject(next.Path)
+	project, ok := projects[identityKey]
 	if !ok {
-		projects[next.Path] = &next
+		projects[identityKey] = &next
 		return
 	}
 	project.SessionCount += next.SessionCount
