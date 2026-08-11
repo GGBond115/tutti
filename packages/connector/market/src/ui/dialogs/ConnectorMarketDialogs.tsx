@@ -18,15 +18,21 @@ export function ConnectorMarketDialogs() {
   const { i18n, market, onError, onTryConnector, uiState, view } =
     useConnectorMarketServices();
   const dialog = useSnapshot(view.dataStore).dialog;
-  const [showInstallSuccess, setShowInstallSuccess] = useState(false);
+  const [showSuccessToast, setShowSuccessToast] = useState<string | null>(null);
 
-  if (!dialog && !showInstallSuccess) {
+  // Track authorization state to detect when it completes
+  const wasAuthorizing = useSnapshot(view.dataStore).dialog?.kind === "authorization";
+
+  if (!dialog && !showSuccessToast) {
     return null;
   }
 
+  // Hide management dialog when showing success toast
+  const shouldHideDialog = dialog?.kind === "management" && showSuccessToast;
+
   return (
     <>
-      {dialog ? (
+      {dialog && !shouldHideDialog ? (
         <Dialog
           open
           onOpenChange={(open) =>
@@ -45,11 +51,11 @@ export function ConnectorMarketDialogs() {
               updating={dialog.updating}
               onClose={() => uiState.closeDialog()}
               onInstall={() => {
-                setShowInstallSuccess(false);
+                setShowSuccessToast(null);
                 void market
                   .install(dialog.connectorKey)
                   .then(() => {
-                    setShowInstallSuccess(true);
+                    setShowSuccessToast("install");
                     uiState.closeDialog();
                   })
                   .catch(() => {
@@ -72,13 +78,17 @@ export function ConnectorMarketDialogs() {
               i18n={i18n}
               pending={dialog.pending}
               permissions={dialog.permissions}
-              onAuthorize={(secret) =>
-                market
+              onAuthorize={(secret) => {
+                setShowSuccessToast(null);
+                return market
                   .beginAuthorization(dialog.connectorKey, secret)
+                  .then(() => {
+                    setShowSuccessToast("authorize");
+                  })
                   .catch(() => {
                     onError?.(i18n.t("connectorAuthorizationFailed"));
-                  })
-              }
+                  });
+              }}
               onClose={() => uiState.closeDialog()}
             />
           ) : dialog.kind === "management" ? (
@@ -111,14 +121,20 @@ export function ConnectorMarketDialogs() {
           )}
         </Dialog>
       ) : null}
-      {showInstallSuccess ? (
+      {showSuccessToast ? (
         <ToastProvider>
           <ToastRoot
             open
             variant="success"
-            onOpenChange={setShowInstallSuccess}
+            onOpenChange={(open) => !open && setShowSuccessToast(null)}
           >
-            <ToastTitle>{i18n.t("actionInstallSuccess")}</ToastTitle>
+            <ToastTitle>
+              {i18n.t(
+                showSuccessToast === "install"
+                  ? "actionInstallSuccess"
+                  : "actionAuthorizeSuccess"
+              )}
+            </ToastTitle>
           </ToastRoot>
           <ToastViewport />
         </ToastProvider>

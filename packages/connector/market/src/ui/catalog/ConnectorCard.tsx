@@ -24,25 +24,27 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
   const actionLabel = resolveActionLabel(card, i18n.t);
   const status = resolveStatus(card.status, i18n.t);
   const handleAction = () => {
-    if (card.action === "disconnect") {
-      if (disconnecting) {
-        return;
-      }
-      setDisconnecting(true);
-      void market
-        .disconnectAuthorization(connectorKey)
-        .catch(() => onError?.(i18n.t("connectorDisconnectFailed")))
-        .finally(() => setDisconnecting(false));
-      return;
-    }
-    if (card.action === "install") {
-      uiState.openConnector(connectorKey);
-      return;
-    }
-    if (card.action !== "busy") {
-      uiState.openConnector(connectorKey);
-    }
-  };
+   if (card.action === "disconnect") {
+     if (disconnecting) {
+       return;
+     }
+     setDisconnecting(true);
+     void market
+       .disconnectAuthorization(connectorKey)
+       .catch(() => onError?.(i18n.t("connectorDisconnectFailed")))
+       .finally(() => setDisconnecting(false));
+     return;
+   }
+   if (card.action === "install") {
+      void market.install(connectorKey).catch(() => {
+        onError?.(i18n.t("connectorInstallFailed"));
+      });
+     return;
+   }
+   if (card.action !== "busy") {
+     uiState.openConnector(connectorKey);
+   }
+ };
 
   return (
     <Card

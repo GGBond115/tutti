@@ -161,7 +161,7 @@ export function ComposerConnectorsMenu({
                     className="ml-auto inline-flex shrink-0 items-center gap-[4px] pl-3 text-xs text-[var(--success)]"
                    data-testid={`agent-gui-composer-connector-${connectorKey}-status`}
                  >
-                    <CheckIcon aria-hidden className="size-4 text-[var(--success)]" />
+                    <CheckIcon aria-hidden className="size-3.5 text-[var(--success)]" />
                    {labels.connectorConnected}
                  </div>
                 ) : (
