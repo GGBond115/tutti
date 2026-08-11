@@ -1611,6 +1611,13 @@ presentation context. The standalone flow also owns its visibility-aware
 conversation clock, so a hidden host does not keep elapsed-time presentation
 timers active.
 
+The full AgentGUI catalog is the union of provider-rail targets and handoff
+targets, including handoff-only shared Agents. Interactive composer mentions,
+readonly rich text, and Markdown links must resolve presentation through the
+shared target-presentation resolver. They must not infer icons from target-id
+formats such as `local:*`; serialized mention presentation is only the fallback
+when the current catalog no longer contains a historical target.
+
 ## 5. Agent identity and provider architecture
 
 ### 5.1 `agentTargetId` is UI identity
