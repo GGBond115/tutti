@@ -49,6 +49,28 @@ test("maps retryable upstream failures to an unavailable catalog error", () => {
   });
 });
 
+test("keeps a failed catalog section visible without failing the whole view", () => {
+  const market = createConnectorMarketStoreState();
+  market.loadState = "ready";
+  market.catalogSections = [
+    {
+      categoryId: "other",
+      kind: "category",
+      sortOrder: 40,
+      itemCount: 1,
+      connectorKeys: [],
+      loadState: "error"
+    }
+  ];
+
+  const view = buildConnectorMarketView(market, uiState);
+
+  assert.equal(view.status, "ready");
+  assert.equal(view.sections[0]?.id, "other");
+  assert.equal(view.sections[0]?.error, true);
+  assert.equal(view.catalogError, null);
+});
+
 test("keeps connector details open through installation and advances to authorization", () => {
   const market = createConnectorMarketStoreState();
   const connector = connectorFixture();

@@ -477,6 +477,13 @@ func portableAgentStatePath(path, root string) string {
 	if err != nil || relative == ".." ||
 		strings.HasPrefix(relative, ".."+string(filepath.Separator)) ||
 		filepath.IsAbs(relative) {
+		// Shared-agent owner remaps session.Cwd under /workspace/<roomId>/...
+		// while rail project metadata stays on the logical /workspace/... path.
+		// Treat either direction as the portable replay root.
+		if sharedWorkspaceRemappedCWDEqual(normalizedPath, normalizedRoot) ||
+			sharedWorkspaceRemappedCWDEqual(normalizedRoot, normalizedPath) {
+			return PortableReplayCWDToken
+		}
 		return path
 	}
 	if relative == "." {

@@ -148,6 +148,111 @@ test("loads server categories and appends cursor pages", async () => {
   service.dispose();
 });
 
+test("keeps healthy catalog sections available and retries a failed section", async () => {
+  let otherFails = true;
+  const diagnostics: unknown[] = [];
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, []),
+      listCategories: async () => [
+        {
+          categoryId: "development",
+          kind: "category",
+          sortOrder: 20,
+          itemCount: 1
+        },
+        {
+          categoryId: "other",
+          kind: "category",
+          sortOrder: 40,
+          itemCount: 1
+        }
+      ],
+      listCatalogPage: async ({ sectionId }) => {
+        if (sectionId === "other" && otherFails) {
+          throw {
+            code: "connector_market_upstream_unavailable",
+            message: "other is unavailable",
+            retryable: true
+          };
+        }
+        const item = connector(sectionId === "other" ? "notion" : "github", 1);
+        return {
+          sectionId,
+          items: [{ categoryId: sectionId, featured: false, connector: item }],
+          revision: 1
+        };
+      }
+    }),
+    reportDiagnostic: (error) => diagnostics.push(error)
+  });
+
+  await service.ensureLoaded();
+
+  assert.equal(service.dataStore.loadState, "ready");
+  assert.deepEqual(
+    service.dataStore.catalogSections.find(
+      (section) => section.categoryId === "development"
+    )?.connectorKeys,
+    ["github"]
+  );
+  assert.equal(
+    service.dataStore.catalogSections.find(
+      (section) => section.categoryId === "other"
+    )?.loadState,
+    "error"
+  );
+  assert.equal(service.dataStore.lastError, null);
+
+  otherFails = false;
+  await service.loadMore("other");
+  assert.deepEqual(
+    service.dataStore.catalogSections.find(
+      (section) => section.categoryId === "other"
+    )?.connectorKeys,
+    ["notion"]
+  );
+
+  otherFails = true;
+  await service.reload();
+  const staleOther = service.dataStore.catalogSections.find(
+    (section) => section.categoryId === "other"
+  );
+  assert.equal(service.dataStore.loadState, "ready");
+  assert.equal(staleOther?.loadState, "error");
+  assert.deepEqual(staleOther?.connectorKeys, ["notion"]);
+  assert.equal(diagnostics.length, 2);
+  service.dispose();
+});
+
+test("uses the global error state when every initial catalog section fails", async () => {
+  const failure = {
+    code: "connector_market_upstream_unavailable",
+    message: "catalog is unavailable",
+    retryable: true
+  };
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      listCategories: async () => [
+        {
+          categoryId: "other",
+          kind: "category",
+          sortOrder: 40,
+          itemCount: 1
+        }
+      ],
+      listCatalogPage: async () => {
+        throw failure;
+      }
+    })
+  });
+
+  await assert.rejects(service.ensureLoaded());
+  assert.equal(service.dataStore.loadState, "error");
+  assert.deepEqual(service.dataStore.lastError, failure);
+  service.dispose();
+});
+
 test("preserves daemon catalog error details for the view layer", async () => {
   const service = new ConnectorMarketService({
     backend: backendWith({

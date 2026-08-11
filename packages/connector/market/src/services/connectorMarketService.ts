@@ -162,7 +162,11 @@ export class ConnectorMarketService implements IConnectorMarketService {
     const section = this.dataStore.catalogSections.find(
       (candidate) => candidate.categoryId === sectionId
     );
-    if (!section || section.loadState === "loading" || !section.nextPageToken) {
+    if (
+      !section ||
+      section.loadState === "loading" ||
+      (section.loadState !== "error" && !section.nextPageToken)
+    ) {
       return Promise.resolve();
     }
     const generation = this.dataGeneration;
@@ -348,15 +352,16 @@ export class ConnectorMarketService implements IConnectorMarketService {
         this.dependencies.backend.getSnapshot(),
         this.dependencies.backend.listCategories()
       ]);
-      const pages = await Promise.all(
-        categories
-          .filter((category) => category.itemCount > 0)
-          .map((category) =>
-            this.dependencies.backend.listCatalogPage({
-              sectionId: category.categoryId,
-              pageSize: 20
-            })
-          )
+      const requestedCategories = categories.filter(
+        (category) => category.itemCount > 0
+      );
+      const pageResults = await Promise.allSettled(
+        requestedCategories.map((category) =>
+          this.dependencies.backend.listCatalogPage({
+            sectionId: category.categoryId,
+            pageSize: 20
+          })
+        )
       );
       if (!this.isCurrent(generation)) {
         return;
@@ -367,10 +372,66 @@ export class ConnectorMarketService implements IConnectorMarketService {
       if (next.revision < this.dataStore.revision) {
         return;
       }
+      const previousSections = new Map(
+        this.dataStore.catalogSections.map((section) => [
+          section.categoryId,
+          {
+            connectorKeys: [...section.connectorKeys],
+            nextPageToken: section.nextPageToken
+          }
+        ])
+      );
+      const previousConnectors = { ...this.dataStore.connectorsByKey };
+      const hadVisibleCatalog = [...previousSections.values()].some(
+        (section) => section.connectorKeys.length > 0
+      );
+
       applyConnectorMarketSnapshot(this.dataStore, next);
       applyConnectorMarketCategories(this.dataStore, categories);
-      for (const page of pages) {
-        applyConnectorMarketCatalogPage(this.dataStore, page);
+      let failedPages = 0;
+      let firstPageError: unknown;
+      const pageErrors: unknown[] = [];
+      for (const [index, result] of pageResults.entries()) {
+        const category = requestedCategories[index];
+        if (!category) {
+          continue;
+        }
+        if (result.status === "fulfilled") {
+          applyConnectorMarketCatalogPage(this.dataStore, result.value);
+          continue;
+        }
+        failedPages += 1;
+        firstPageError ??= result.reason;
+        pageErrors.push(result.reason);
+        const previous = previousSections.get(category.categoryId);
+        if (previous) {
+          for (const connectorKey of previous.connectorKeys) {
+            const connector = previousConnectors[connectorKey];
+            if (connector) {
+              applyConnector(this.dataStore, connector);
+            }
+          }
+          const section = this.dataStore.catalogSections.find(
+            (candidate) => candidate.categoryId === category.categoryId
+          );
+          if (section) {
+            section.connectorKeys = previous.connectorKeys;
+            section.nextPageToken = previous.nextPageToken;
+          }
+        }
+        markConnectorMarketSectionError(this.dataStore, category.categoryId);
+      }
+      if (
+        requestedCategories.length > 0 &&
+        failedPages === requestedCategories.length &&
+        !hadVisibleCatalog
+      ) {
+        throw (
+          firstPageError ?? new Error("all connector catalog sections failed")
+        );
+      }
+      for (const pageError of pageErrors) {
+        this.reportDiagnostic(pageError);
       }
     } catch (error) {
       if (!this.isCurrent(generation)) {

@@ -65,6 +65,10 @@ type ProcessFrame struct {
 	RecordingID  string
 	ConnectionID string
 	ChunkSeq     uint64
+	// Synthetic marks optional-probe / startup-metadata responses invented by
+	// replay. They are not cassette units and must not advance the provider
+	// input barrier (ChunkSeq is unset / zero).
+	Synthetic bool
 }
 
 type ProcessConnection interface {
