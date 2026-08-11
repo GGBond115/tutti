@@ -32,6 +32,7 @@ export interface ConnectorCardView {
   implementationTags: string[];
   installationState: ConnectorInstallationState;
   operationStage: ConnectorOperationStage | null;
+  canUninstall: boolean;
   status:
     | "authorization_required"
     | "connected"
@@ -99,11 +100,16 @@ export interface ConnectorBlockedDialogView extends ConnectorDialogBaseView {
   reason: string;
 }
 
+export interface ConnectorUninstallConfirmationDialogView extends ConnectorDialogBaseView {
+  kind: "uninstall_confirmation";
+}
+
 export type ConnectorDialogView =
   | ConnectorAuthorizationDialogView
   | ConnectorBlockedDialogView
   | ConnectorInstallationDialogView
-  | ConnectorManagementDialogView;
+  | ConnectorManagementDialogView
+  | ConnectorUninstallConfirmationDialogView;
 
 export interface ConnectorMarketViewState {
   availableCount: number;

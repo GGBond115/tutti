@@ -1,11 +1,12 @@
 import {
+  ConfirmationDialog,
   Dialog,
   ToastProvider,
   ToastRoot,
   ToastTitle,
   ToastViewport
 } from "@tutti-os/ui-system/components";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSnapshot } from "valtio";
 
 import { useConnectorMarketServices } from "../ConnectorMarketServicesContext.tsx";
@@ -14,24 +15,136 @@ import { ConnectorBlockedDialog } from "./ConnectorBlockedDialog.tsx";
 import { ConnectorManagementDialog } from "./ConnectorManagementDialog.tsx";
 import { ConnectorInstallationDialog } from "./ConnectorInstallationDialog.tsx";
 
+interface TrackedUninstall {
+  connectorKey: string;
+  displayName: string;
+  operationId: string;
+}
+
 export function ConnectorMarketDialogs() {
   const { i18n, market, onError, onTryConnector, uiState, view } =
     useConnectorMarketServices();
   const dialog = useSnapshot(view.dataStore).dialog;
+  const marketSnapshot = useSnapshot(market.dataStore);
   const [showSuccessToast, setShowSuccessToast] = useState<
     "authorize" | "install" | null
   >(null);
+  const [trackedUninstalls, setTrackedUninstalls] = useState<
+    TrackedUninstall[]
+  >([]);
+  const [uninstallSubmitting, setUninstallSubmitting] = useState(false);
+  const [uninstallSuccessName, setUninstallSuccessName] = useState<
+    string | null
+  >(null);
 
-  if (!dialog && !showSuccessToast) {
+  useEffect(() => {
+    if (trackedUninstalls.length === 0) {
+      return;
+    }
+    const completed: TrackedUninstall[] = [];
+    const failed: TrackedUninstall[] = [];
+    for (const tracked of trackedUninstalls) {
+      const operation =
+        marketSnapshot.operationsByConnectorKey[tracked.connectorKey];
+      if (!operation || operation.operationId !== tracked.operationId) {
+        continue;
+      }
+      if (operation.state === "completed") {
+        completed.push(tracked);
+      } else if (operation.state === "failed") {
+        failed.push(tracked);
+      }
+    }
+    const settledIds = new Set(
+      [...completed, ...failed].map((tracked) => tracked.operationId)
+    );
+    if (settledIds.size === 0) {
+      return;
+    }
+    setTrackedUninstalls((current) =>
+      current.filter((tracked) => !settledIds.has(tracked.operationId))
+    );
+    if (completed.length > 0) {
+      setUninstallSuccessName(completed.at(-1)?.displayName ?? null);
+    }
+    if (failed.length > 0) {
+      onError?.(i18n.t("connectorUninstallFailed"));
+    }
+  }, [
+    i18n,
+    marketSnapshot.operationsByConnectorKey,
+    onError,
+    trackedUninstalls
+  ]);
+
+  if (!dialog && !showSuccessToast && !uninstallSuccessName) {
     return null;
   }
 
   // Hide management dialog when showing success toast
-  const shouldHideDialog = dialog?.kind === "management" && showSuccessToast;
+  const shouldHideDialog =
+    dialog?.kind === "management" &&
+    Boolean(showSuccessToast || uninstallSuccessName);
 
   return (
     <>
-      {dialog && !shouldHideDialog ? (
+      {dialog?.kind === "uninstall_confirmation" ? (
+        <ConfirmationDialog
+          cancelLabel={i18n.t("cancel")}
+          confirmBusy={uninstallSubmitting}
+          confirmLabel={
+            uninstallSubmitting
+              ? i18n.t("actionUninstalling")
+              : i18n.t("actionUninstall")
+          }
+          description={i18n.t("dialogUninstallDescription")}
+          open
+          title={i18n.t("dialogUninstallTitle", {
+            name: dialog.displayName
+          })}
+          tone="destructive"
+          onConfirm={() => {
+            if (uninstallSubmitting) {
+              return;
+            }
+            setUninstallSubmitting(true);
+            void market
+              .uninstall(dialog.connectorKey)
+              .then(() => {
+                const operation =
+                  market.dataStore.operationsByConnectorKey[
+                    dialog.connectorKey
+                  ];
+                if (operation?.kind === "uninstall") {
+                  setTrackedUninstalls((current) =>
+                    current.some(
+                      (tracked) => tracked.operationId === operation.operationId
+                    )
+                      ? current
+                      : [
+                          ...current,
+                          {
+                            connectorKey: dialog.connectorKey,
+                            displayName: dialog.displayName,
+                            operationId: operation.operationId
+                          }
+                        ]
+                  );
+                }
+                uiState.closeDialog();
+              })
+              .catch(() => {
+                onError?.(i18n.t("connectorUninstallFailed"));
+              })
+              .finally(() => setUninstallSubmitting(false));
+          }}
+          onOpenChange={(open) => {
+            if (!open && !uninstallSubmitting) {
+              uiState.closeDialog();
+            }
+          }}
+        />
+      ) : dialog && !shouldHideDialog ? (
         <Dialog
           open
           onOpenChange={(open) =>
@@ -92,18 +205,22 @@ export function ConnectorMarketDialogs() {
             />
           ) : dialog.kind === "management" ? (
             <ConnectorManagementDialog
+              canDisconnectAuthorization={dialog.canAuthorize}
               description={dialog.description}
               displayName={dialog.displayName}
               iconUrl={dialog.iconUrl}
               i18n={i18n}
               onDisconnect={() => {
-                const disconnect = dialog.canAuthorize
-                  ? market.disconnectAuthorization(dialog.connectorKey)
-                  : market.uninstall(dialog.connectorKey);
-                void disconnect
+                void market
+                  .disconnectAuthorization(dialog.connectorKey)
                   .then(() => uiState.closeDialog())
-                  .catch(() => undefined);
+                  .catch(() => {
+                    onError?.(i18n.t("connectorDisconnectFailed"));
+                  });
               }}
+              onRequestUninstall={() =>
+                uiState.requestUninstall(dialog.connectorKey)
+              }
               onTry={() => {
                 uiState.closeDialog();
                 onTryConnector?.(dialog.connectorKey);
@@ -133,6 +250,22 @@ export function ConnectorMarketDialogs() {
                   ? "actionInstallSuccess"
                   : "actionAuthorizeSuccess"
               )}
+            </ToastTitle>
+          </ToastRoot>
+          <ToastViewport />
+        </ToastProvider>
+      ) : null}
+      {uninstallSuccessName ? (
+        <ToastProvider>
+          <ToastRoot
+            open
+            variant="success"
+            onOpenChange={(open) => !open && setUninstallSuccessName(null)}
+          >
+            <ToastTitle>
+              {i18n.t("connectorUninstallSuccess", {
+                name: uninstallSuccessName
+              })}
             </ToastTitle>
           </ToastRoot>
           <ToastViewport />

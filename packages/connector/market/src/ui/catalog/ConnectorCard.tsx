@@ -2,9 +2,14 @@ import {
   Badge,
   Button,
   Card,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Spinner,
   StatusDot
 } from "@tutti-os/ui-system/components";
+import { MoreHorizontalIcon, UninstallIcon } from "@tutti-os/ui-system/icons";
 import { useState } from "react";
 import { useSnapshot } from "valtio";
 
@@ -70,6 +75,36 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
             </div>
           ) : null}
         </div>
+        {card.canUninstall ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label={i18n.t("actionMore")}
+                disabled={card.action === "busy"}
+                size="icon-xs"
+                title={i18n.t("actionMore")}
+                type="button"
+                variant="ghost"
+              >
+                <MoreHorizontalIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="min-w-[160px]"
+              collisionPadding={12}
+              style={{ zIndex: "var(--z-panel-popover)" }}
+            >
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => uiState.requestUninstall(connectorKey)}
+              >
+                <UninstallIcon />
+                {i18n.t("actionUninstall")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
@@ -127,6 +162,9 @@ function resolveActionLabel(
     case "unavailable":
       return t("actionManage");
     case "busy":
+      if (card.installationState === "uninstalling") {
+        return t("actionUninstalling");
+      }
       if (
         card.installationState === "installed" &&
         card.authorizationState === "disconnected" &&

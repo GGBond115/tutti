@@ -416,6 +416,89 @@ test("installs one connector with the current catalog revision", async () => {
   service.dispose();
 });
 
+test("uninstalls one connector and tracks the durable operation to completion", async () => {
+  const uninstallInputs: Parameters<
+    ConnectorMarketBackend["uninstallConnector"]
+  >[0][] = [];
+  const installed = connector("github", 1);
+  installed.installation = {
+    installedReleaseDigest: installed.release.releaseDigest,
+    state: "installed"
+  };
+  installed.authorization = { state: "connected" };
+  const uninstalling = connector("github", 2);
+  uninstalling.installation = {
+    installedReleaseDigest: installed.release.releaseDigest,
+    state: "uninstalling"
+  };
+  uninstalling.authorization = { state: "connected" };
+  const uninstalled = connector("github", 3);
+  uninstalled.installation = { state: "not_installed" };
+  uninstalled.authorization = { state: "connected" };
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, [installed]),
+      uninstallConnector: async (input) => {
+        uninstallInputs.push(input);
+        return {
+          connector: uninstalling,
+          operation: {
+            operationId: "operation-uninstall-terminal",
+            clientRequestId: input.clientRequestId,
+            connectorKey: "github",
+            kind: "uninstall",
+            state: "accepted",
+            stage: "accepted",
+            attempt: 0,
+            createdAt: "2026-08-11T00:00:00Z",
+            updatedAt: "2026-08-11T00:00:00Z"
+          },
+          revision: 2
+        };
+      },
+      getOperation: async () => ({
+        operationId: "operation-uninstall-terminal",
+        clientRequestId: "request-uninstall-1",
+        connectorKey: "github",
+        kind: "uninstall",
+        state: "completed",
+        stage: "completed",
+        attempt: 1,
+        createdAt: "2026-08-11T00:00:00Z",
+        updatedAt: "2026-08-11T00:00:01Z"
+      }),
+      getConnector: async () => uninstalled
+    }),
+    createRequestId: () => "request-uninstall-1",
+    waitForOperationPoll: async () => undefined
+  });
+
+  await service.ensureLoaded();
+  await service.uninstall("github");
+  await waitFor(
+    () =>
+      service.dataStore.connectorsByKey.github?.installation.state ===
+      "not_installed"
+  );
+
+  assert.deepEqual(uninstallInputs, [
+    {
+      connectorKey: "github",
+      clientRequestId: "request-uninstall-1",
+      expectedRevision: 1
+    }
+  ]);
+  assert.equal(
+    service.dataStore.operationsByConnectorKey.github?.state,
+    "completed"
+  );
+  assert.equal(
+    service.dataStore.connectorsByKey.github?.authorization.state,
+    "connected"
+  );
+  service.dispose();
+});
+
 test("polls an accepted connector operation to terminal state when its event is missed", async () => {
   const acceptedConnector = connector("github", 1);
   acceptedConnector.installation = { state: "installing" };

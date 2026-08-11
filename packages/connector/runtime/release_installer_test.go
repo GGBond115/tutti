@@ -54,6 +54,24 @@ func TestReleaseInstallerDoesNotActivateRuntime(t *testing.T) {
 	}
 }
 
+func TestReleaseInstallerUninstallRemovesPreparedArtifact(t *testing.T) {
+	release := runtimeTestRelease()
+	artifacts := &releaseArtifactStub{}
+	installer, err := NewReleaseInstaller(artifacts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.UninstallRelease(context.Background(), market.UninstallReleaseRequest{
+		OperationID: "uninstall-1",
+		Release:     release,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if artifacts.removes != 1 {
+		t.Fatalf("artifact removes = %d, want 1", artifacts.removes)
+	}
+}
+
 func runtimeTestRelease() market.Release {
 	return market.Release{
 		SchemaVersion: "1", ReleaseID: "example@1.0.0", ConnectorKey: "example", Version: "1.0.0",

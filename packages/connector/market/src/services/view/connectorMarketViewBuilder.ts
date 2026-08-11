@@ -85,6 +85,7 @@ export function buildConnectorMarketView(
       uiState.dialog
         ? market.connectorsByKey[uiState.dialog.connectorKey]
         : undefined,
+      uiState.dialog?.kind ?? null,
       uiState.dialog
         ? Boolean(market.authorizingConnectorKeys[uiState.dialog.connectorKey])
         : false,
@@ -186,6 +187,7 @@ function buildConnectorCardView(
     implementationTags: implementationTags(connector),
     installationState: connector.installation.state,
     operationStage,
+    canUninstall: Boolean(connector.installation.installedReleaseDigest),
     status: unavailable
       ? "unavailable"
       : busy
@@ -202,6 +204,7 @@ function buildConnectorCardView(
 
 function buildConnectorDialogView(
   connector: Connector | undefined,
+  requestKind: NonNullable<ConnectorMarketUiState["dialog"]>["kind"] | null,
   authorizing: boolean,
   pendingInstallation: boolean
 ): ConnectorDialogView | null {
@@ -218,6 +221,11 @@ function buildConnectorDialogView(
       name: permission
     }))
   };
+  if (requestKind === "uninstall_confirmation") {
+    return connector.installation.installedReleaseDigest
+      ? { ...base, kind: "uninstall_confirmation" }
+      : null;
+  }
   if (connector.compatibility.state !== "supported") {
     return {
       ...base,
