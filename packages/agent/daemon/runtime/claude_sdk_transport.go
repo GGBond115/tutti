@@ -281,6 +281,12 @@ func logClaudeSDKSidecarDebugStderr(content []byte) {
 				claudeSDKCancelLogPrefix,
 				"agent_session.claude_sdk.cancel_diagnostic",
 			)
+		case strings.HasPrefix(line, claudeSDKProviderTurnLogPrefix):
+			logClaudeSDKStructuredDiagnostic(
+				line,
+				claudeSDKProviderTurnLogPrefix,
+				"agent_session.claude_sdk.provider_turn_diagnostic",
+			)
 		}
 	}
 }

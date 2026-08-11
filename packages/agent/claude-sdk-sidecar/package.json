@@ -23,6 +23,7 @@
     "src/normalizer.ts",
     "src/options.ts",
     "src/providerTurnAcceptance.ts",
+    "src/providerTurnDiagnostics.ts",
     "src/promptQueue.ts",
     "src/protocol.ts",
     "src/queryGeneration.ts",

@@ -62,6 +62,7 @@ import {
   ProviderTurnAcceptanceCoordinator,
   type ProviderTurnPhase
 } from "./providerTurnAcceptance.ts";
+import { logClaudeUnresolvedProviderTurns } from "./providerTurnDiagnostics.ts";
 import {
   canBypassPermissions,
   effectivePermissionMode,
@@ -867,6 +868,16 @@ export class SessionRuntime {
         if (isAbortError(error) && !this.isQueryGenerationActive(generation)) {
           return;
         }
+        logClaudeUnresolvedProviderTurns(
+          "query_consumption_failed_before_identity",
+          {
+            providerSessionId: this.providerSessionId,
+            generationId: generation.id,
+            turns: this.turns.queue,
+            phaseForTurn: (turnId) => this.providerTurnAcceptance.phase(turnId),
+            error
+          }
+        );
         this.logAuthRefresh("query_consume.failed", {
           activeTurnId: this.turns.activeId,
           queuedTurnIds: this.turns.queue
@@ -877,6 +888,12 @@ export class SessionRuntime {
         this.turns.failLiveTurns(errorMessage(error));
       } finally {
         if (this.queryGeneration === generation) {
+          logClaudeUnresolvedProviderTurns("query_ended_before_identity", {
+            providerSessionId: this.providerSessionId,
+            generationId: generation.id,
+            turns: this.turns.queue,
+            phaseForTurn: (turnId) => this.providerTurnAcceptance.phase(turnId)
+          });
           this.queryGeneration = undefined;
           generation.revoke();
           generation.closeQuery();
