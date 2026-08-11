@@ -91,6 +91,7 @@ export interface ConnectorInstallationDialogView extends ConnectorDialogBaseView
 
 export interface ConnectorManagementDialogView extends ConnectorDialogBaseView {
   canAuthorize: boolean;
+  canUninstall: boolean;
   details: ConnectorDetailFieldView[];
   kind: "management";
 }

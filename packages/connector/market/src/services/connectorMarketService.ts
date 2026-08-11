@@ -33,6 +33,16 @@ export class ConnectorMarketBusyError extends Error {
   }
 }
 
+export class ConnectorMarketRequestUnavailableError extends Error {
+  readonly code = "connector_market_unavailable";
+  readonly retryable = true;
+
+  constructor() {
+    super("Connector market requests are not currently available");
+    this.name = "ConnectorMarketRequestUnavailableError";
+  }
+}
+
 const authorizationContinuationPollMs = 1_000;
 
 function waitForAuthorizationContinuation(): Promise<void> {
@@ -196,14 +206,46 @@ export class ConnectorMarketService implements IConnectorMarketService {
     );
   }
 
-  uninstall(connectorKey: string): Promise<void> {
-    return this.runConnectorMutation(connectorKey, () =>
+  async uninstall(connectorKey: string): Promise<ConnectorOperation> {
+    if (this.disposed || !this.canRequest()) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
+    const result = await this.runConnectorMutationResult(connectorKey, () =>
       this.dependencies.backend.uninstallConnector({
         connectorKey,
         clientRequestId: this.createRequestId(),
         expectedRevision: this.dataStore.revision
       })
     );
+    if (!result) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
+    const connector = this.dataStore.connectorsByKey[connectorKey];
+    const projectedOperation =
+      this.dataStore.operationsByConnectorKey[connectorKey];
+    this.dataStore.pendingUninstallNotificationsByOperationId[
+      result.operation.operationId
+    ] = {
+      connectorKey,
+      displayName:
+        connector?.release.manifest.displayName ??
+        result.operation.connectorKey ??
+        connectorKey,
+      operationId: result.operation.operationId,
+      state:
+        projectedOperation?.operationId === result.operation.operationId
+          ? projectedOperation.state
+          : result.operation.state
+    };
+    return result.operation;
+  }
+
+  dismissUninstallNotification(operationId: string): void {
+    if (!this.disposed) {
+      delete this.dataStore.pendingUninstallNotificationsByOperationId[
+        operationId
+      ];
+    }
   }
 
   async beginAuthorization(
@@ -387,6 +429,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
       );
 
       applyConnectorMarketSnapshot(this.dataStore, next);
+      this.reconcileUninstallNotificationStates(next.operations);
       applyConnectorMarketCategories(this.dataStore, categories);
       let failedPages = 0;
       let firstPageError: unknown;
@@ -553,7 +596,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
       applyConnector(this.dataStore, connector);
     }
     if (operation?.connectorKey === connectorKey) {
-      this.dataStore.operationsByConnectorKey[connectorKey] = operation;
+      this.applyTrackedOperation(operation);
       this.trackOperation(operation);
     }
     this.dataStore.revision = event.revision;
@@ -565,6 +608,18 @@ export class ConnectorMarketService implements IConnectorMarketService {
     operation: () => Promise<ConnectorMutationResult>,
     projectPendingInstallation = false
   ): Promise<void> {
+    await this.runConnectorMutationResult(
+      connectorKey,
+      operation,
+      projectPendingInstallation
+    );
+  }
+
+  private async runConnectorMutationResult(
+    connectorKey: string,
+    operation: () => Promise<ConnectorMutationResult>,
+    projectPendingInstallation = false
+  ): Promise<ConnectorMutationResult | undefined> {
     if (this.disposed || !this.canRequest()) {
       return;
     }
@@ -590,12 +645,15 @@ export class ConnectorMarketService implements IConnectorMarketService {
           return;
         }
         applyConnectorMarketSnapshot(this.dataStore, next);
+        this.reconcileUninstallNotificationStates(next.operations);
         result = await operation();
       }
       if (this.isCurrentMutation(connectorKey, token, generation)) {
         applyConnectorMutationResult(this.dataStore, result);
         this.trackOperation(result.operation);
+        return result;
       }
+      return;
     } catch (error) {
       if (this.isCurrentMutation(connectorKey, token, generation)) {
         this.recordError(error);
@@ -712,6 +770,27 @@ export class ConnectorMarketService implements IConnectorMarketService {
     } else if (operation.kind === "refresh_catalog") {
       this.dataStore.catalogOperation = operation;
     }
+    const notification =
+      this.dataStore.pendingUninstallNotificationsByOperationId[
+        operation.operationId
+      ];
+    if (notification) {
+      notification.state = operation.state;
+    }
+  }
+
+  private reconcileUninstallNotificationStates(
+    operations: ConnectorOperation[]
+  ): void {
+    for (const operation of operations) {
+      const notification =
+        this.dataStore.pendingUninstallNotificationsByOperationId[
+          operation.operationId
+        ];
+      if (notification) {
+        notification.state = operation.state;
+      }
+    }
   }
 
   private async reconcileTerminalOperation(
@@ -740,6 +819,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
       // Refresh completion is a local daemon fact. Do not make its terminal UI
       // state depend on another remote categories/icons request.
       applyConnectorMarketSnapshot(this.dataStore, snapshot);
+      this.reconcileUninstallNotificationStates(snapshot.operations);
     }
   }
 

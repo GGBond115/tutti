@@ -645,7 +645,12 @@ func (application *Application) executeOperation(ctx context.Context, operationI
 			operation.Kind == OperationKindDisconnectAuthorization {
 			code = ErrorCodeAuthorizationFailed
 		}
-		_ = application.failOperation(executionContext, operation.OperationID, code)
+		terminalContext, cancelTerminal := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		terminalErr := application.failOperation(terminalContext, operation.OperationID, code)
+		cancelTerminal()
+		if terminalErr != nil {
+			return errors.Join(executeErr, fmt.Errorf("record connector operation failure: %w", terminalErr))
+		}
 		return executeErr
 	}
 	return nil

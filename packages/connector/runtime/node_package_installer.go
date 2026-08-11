@@ -209,8 +209,30 @@ func (installer *NodePackageInstaller) RemoveCLI(ctx context.Context, request ma
 	if !pathWithin(installer.rootDir, target) {
 		return errors.New("connector CLI removal path escapes package root")
 	}
-	if err := os.RemoveAll(target); err != nil {
+	if err := removeAllWithinRoot(installer.rootDir, target); err != nil {
 		return fmt.Errorf("remove connector CLI installation: %w", err)
+	}
+	return nil
+}
+
+func (installer *NodePackageInstaller) RemoveConnector(
+	ctx context.Context,
+	request market.RemoveConnectorInstallationRequest,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if installer == nil || !safeCLIPathSegment(request.ConnectorKey) {
+		return errors.New("connector CLI removal identity is invalid")
+	}
+	installer.mu.Lock()
+	defer installer.mu.Unlock()
+	target := filepath.Join(installer.rootDir, "packages", request.ConnectorKey)
+	if !pathWithin(installer.rootDir, target) {
+		return errors.New("connector CLI removal path escapes package root")
+	}
+	if err := removeAllWithinRoot(installer.rootDir, target); err != nil {
+		return fmt.Errorf("remove Connector CLI installations: %w", err)
 	}
 	return nil
 }
@@ -549,6 +571,39 @@ func pathWithin(root, target string) bool {
 	root = filepath.Clean(root)
 	target = filepath.Clean(target)
 	return target != root && strings.HasPrefix(target, root+string(filepath.Separator))
+}
+
+func removeAllWithinRoot(root, target string) error {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if !pathWithin(root, target) {
+		return errors.New("removal path escapes configured root")
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil {
+		return err
+	}
+	current := root
+	parts := strings.Split(relative, string(filepath.Separator))
+	for index, part := range append([]string{""}, parts...) {
+		if index > 0 {
+			current = filepath.Join(current, part)
+		}
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("removal path contains a symbolic link")
+		}
+		if index < len(parts) && !info.IsDir() {
+			return errors.New("removal path parent is not a directory")
+		}
+	}
+	return os.RemoveAll(target)
 }
 
 func safeCLIPathSegment(value string) bool {

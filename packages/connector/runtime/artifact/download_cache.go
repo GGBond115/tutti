@@ -181,7 +181,7 @@ func (cache *DownloadCache) RemoveConnector(ctx context.Context, connectorKey st
 	if err != nil {
 		return err
 	}
-	return os.RemoveAll(root)
+	return removeAllWithin(cache.rootDir, root)
 }
 
 func (cache *DownloadCache) downloadCandidate(

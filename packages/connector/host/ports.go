@@ -170,6 +170,7 @@ type ArtifactPreparer interface {
 	Prepare(ctx context.Context, request PrepareArtifactRequest) (PreparedArtifactReceipt, error)
 	ResolvePrepared(ctx context.Context, release Release) (PreparedArtifactReceipt, error)
 	Remove(ctx context.Context, request RemoveArtifactRequest) error
+	RemoveConnector(ctx context.Context, request RemoveConnectorInstallationRequest) error
 }
 
 // CLIInstallationManager installs and resolves daemon-managed CLI packages.
@@ -179,6 +180,18 @@ type CLIInstallationManager interface {
 	InstallCLI(ctx context.Context, request InstallCLIRequest) (CLIInstallationReceipt, error)
 	ResolveCLI(ctx context.Context, release Release) (CLIInstallationReceipt, error)
 	RemoveCLI(ctx context.Context, request RemoveCLIRequest) error
+	RemoveConnector(ctx context.Context, request RemoveConnectorInstallationRequest) error
+}
+
+// RemoveConnectorInstallationRequest identifies an explicit Connector
+// uninstall. Unlike the release-scoped removal requests used by installation
+// rollback, this request removes every locally retained release for the
+// Connector while preserving storage shared by other Connectors.
+type RemoveConnectorInstallationRequest struct {
+	OperationID  string
+	Scope        OperationScope
+	Generation   HostGeneration
+	ConnectorKey string
 }
 
 type InstallCLIRequest struct {
@@ -251,8 +264,13 @@ type RuntimeDeactivationRequest struct {
 	ConnectionID  string
 	ConnectorKey  string
 	ReleaseDigest string
-	Generation    HostGeneration
-	Deadline      time.Time
+	// AllConnections fences every local route for this Connector, including
+	// routes for superseded releases. Device uninstall uses this because an
+	// authorization provider may rotate the connection identity after a route was
+	// published, and a failed earlier retirement may retain an older release.
+	AllConnections bool
+	Generation     HostGeneration
+	Deadline       time.Time
 }
 
 // RuntimeBindingResolver converts device installation plus an explicit

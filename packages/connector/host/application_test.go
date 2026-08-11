@@ -278,7 +278,7 @@ func TestApplicationLocalUninstallRemovesDeviceReleaseWithoutDisconnectingAuthor
 	if stored.Authorization.State != AuthorizationStateConnected {
 		t.Fatalf("local uninstall changed authorization = %#v", stored.Authorization)
 	}
-	if runtime.deactivations != 1 || runtime.removes != 1 || runtime.cliRemoves != 1 {
+	if runtime.deactivations != 1 || !runtime.lastDeactivation.AllConnections || runtime.removes != 1 || runtime.cliRemoves != 1 {
 		t.Fatalf("cleanup counts: deactivate=%d artifact=%d cli=%d", runtime.deactivations, runtime.removes, runtime.cliRemoves)
 	}
 	if provider.disconnects != 0 {
@@ -1121,6 +1121,31 @@ func TestApplicationSharesConcurrentOperationFailureAndClearsFlight(t *testing.T
 	}
 }
 
+func TestApplicationRecordsFailureAfterLeaseRenewalCancelsExecution(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	repository.renewOperationLeaseErr = errors.New("lease store temporarily unavailable")
+	repository.rejectCanceledTransactionContext = true
+	installer := newBlockingInstaller()
+	application := newTestApplication(t, repository, &memoryScheduler{}, installer, CatalogSnapshot{})
+	application.config.LeaseDuration = 30 * time.Millisecond
+	accepted, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation: Mutation{ClientRequestID: "lease-cancel-install", ExpectedRevision: 0}, ConnectorKey: "github",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err == nil {
+		t.Fatal("ExecuteOperation() error = nil, want lease cancellation")
+	}
+	operation, err := repository.Operation(context.Background(), accepted.Operation.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.State != OperationStateFailed || operation.Stage != OperationStageFailed {
+		t.Fatalf("operation after canceled execution = %#v", operation)
+	}
+}
+
 func TestApplicationRejectsConcurrentConnectorOperation(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
 	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
@@ -1769,16 +1794,18 @@ func (compatibilityEvaluatorStub) Evaluate(Manifest) Compatibility {
 }
 
 type memoryRepository struct {
-	revision            uint64
-	catalogState        CatalogState
-	sourceRevision      string
-	connectors          map[string]Connector
-	operations          map[string]Operation
-	events              []ChangedEvent
-	transactionErr      error
-	transactionCalls    int
-	failTransactionCall int
-	failTransactionErr  error
+	revision                         uint64
+	catalogState                     CatalogState
+	sourceRevision                   string
+	connectors                       map[string]Connector
+	operations                       map[string]Operation
+	events                           []ChangedEvent
+	transactionErr                   error
+	transactionCalls                 int
+	failTransactionCall              int
+	failTransactionErr               error
+	renewOperationLeaseErr           error
+	rejectCanceledTransactionContext bool
 }
 
 func newMemoryRepository(connectors ...Connector) *memoryRepository {
@@ -1884,6 +1911,9 @@ func (repository *memoryRepository) ClaimOperation(
 }
 
 func (repository *memoryRepository) RenewOperationLease(_ context.Context, operationID, owner string, token uint64, now, leaseExpiresAt time.Time) error {
+	if repository.renewOperationLeaseErr != nil {
+		return repository.renewOperationLeaseErr
+	}
 	operation, ok := repository.operations[operationID]
 	if !ok {
 		return ErrNotFound
@@ -1924,7 +1954,10 @@ func (repository *memoryRepository) InstalledRelease(_ context.Context, connecto
 	return Release{}, ErrNotFound
 }
 
-func (repository *memoryRepository) Transaction(_ context.Context, fn func(Transaction) error) error {
+func (repository *memoryRepository) Transaction(ctx context.Context, fn func(Transaction) error) error {
+	if repository.rejectCanceledTransactionContext && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	repository.transactionCalls++
 	if repository.failTransactionCall == repository.transactionCalls {
 		if repository.failTransactionErr != nil {

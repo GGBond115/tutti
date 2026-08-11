@@ -45,6 +45,14 @@ never executes Connector-owned commands. A managed CLI may separately provide
 a bounded `readinessProbe`; it runs only after the release has been resolved
 and affects runtime interface readiness, not installation truth.
 
+Explicit Connector uninstall is connector-scoped rather than release-scoped.
+The host fences all matching routes across connection IDs, cancels pending
+credential-broker sessions, closes their execution snapshots, removes the
+stable CLI shim, and deletes every prepared release and Connector-private Node
+package tree. Shared package-manager stores, account authorization, and
+user/workspace state are retained. On startup, `ImplementationHost` removes
+orphan staging and ready execution snapshots left by an unclean shutdown.
+
 Authorized `managed_stdio` Connectors declare a connector-owned
 credential broker entrypoint. The broker translates its provider-specific
 flow into the `tutti.connector.credentials.v1` event protocol. The final v1

@@ -84,6 +84,7 @@ type Config struct {
 }
 
 type Host struct {
+	lifecycleMu            sync.Mutex
 	artifacts              PreparedArtifactResolver
 	planner                *connectorruntime.ManagedRoutePlanner
 	processes              agentruntime.ProcessTransport
@@ -152,6 +153,9 @@ func New(config Config) (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := snapshots.CleanupOrphans(); err != nil {
+		return nil, fmt.Errorf("clean orphaned connector execution snapshots: %w", err)
+	}
 	routes := connectorruntime.NewRouteTable()
 	planner, err := connectorruntime.NewManagedRoutePlanner(connectorruntime.ManagedRoutePlannerConfig{
 		StateRoot: config.StateRoot, UserHome: config.UserHome, Runtimes: config.Runtimes, CLIInstallations: config.CLIInstallations,
@@ -189,6 +193,8 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 	if err := market.ValidateRuntimeReleaseShape(runtimeRequest.Connector.Release); err != nil {
 		return market.RuntimeReceipt{}, err
 	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
 	key := connectorRouteKey(runtimeRequest.ConnectionID, runtimeRequest.Connector.Key)
 	if !runtimeRequest.Enabled {
 		if err := host.routes.Remove(key, runtimeRequest.Generation, "", time.Time{}); err != nil {
@@ -371,6 +377,11 @@ func (host *Host) DeactivateRuntime(ctx context.Context, request market.RuntimeD
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
+	if request.AllConnections {
+		return host.deactivateConnector(request)
 	}
 	err := host.routes.Remove(connectorRouteKey(request.ConnectionID, request.ConnectorKey), request.Generation, request.ReleaseDigest, request.Deadline)
 	host.notifyRouteChanged()

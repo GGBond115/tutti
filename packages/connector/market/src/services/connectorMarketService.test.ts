@@ -11,6 +11,7 @@ import type {
 } from "../contracts/index.ts";
 import {
   ConnectorMarketBusyError,
+  ConnectorMarketRequestUnavailableError,
   ConnectorMarketService
 } from "./connectorMarketService.ts";
 
@@ -474,7 +475,18 @@ test("uninstalls one connector and tracks the durable operation to completion", 
   });
 
   await service.ensureLoaded();
-  await service.uninstall("github");
+  const accepted = await service.uninstall("github");
+  assert.equal(accepted.operationId, "operation-uninstall-terminal");
+  const pendingNotification =
+    service.dataStore.pendingUninstallNotificationsByOperationId[
+      accepted.operationId
+    ];
+  assert.equal(pendingNotification?.connectorKey, "github");
+  assert.equal(pendingNotification?.displayName, "github");
+  assert.equal(
+    pendingNotification?.operationId,
+    "operation-uninstall-terminal"
+  );
   await waitFor(
     () =>
       service.dataStore.connectorsByKey.github?.installation.state ===
@@ -493,8 +505,45 @@ test("uninstalls one connector and tracks the durable operation to completion", 
     "completed"
   );
   assert.equal(
+    service.dataStore.pendingUninstallNotificationsByOperationId[
+      accepted.operationId
+    ]?.state,
+    "completed"
+  );
+  assert.equal(
     service.dataStore.connectorsByKey.github?.authorization.state,
     "connected"
+  );
+  service.dismissUninstallNotification(accepted.operationId);
+  assert.equal(
+    service.dataStore.pendingUninstallNotificationsByOperationId[
+      accepted.operationId
+    ],
+    undefined
+  );
+  service.dispose();
+});
+
+test("rejects uninstall when host request admission is unavailable", async () => {
+  let uninstallCalls = 0;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      uninstallConnector: async () => {
+        uninstallCalls += 1;
+        throw new Error("must not be called");
+      }
+    }),
+    canRequest: () => false
+  });
+
+  await assert.rejects(
+    service.uninstall("github"),
+    ConnectorMarketRequestUnavailableError
+  );
+  assert.equal(uninstallCalls, 0);
+  assert.deepEqual(
+    service.dataStore.pendingUninstallNotificationsByOperationId,
+    {}
   );
   service.dispose();
 });

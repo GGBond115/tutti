@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -202,6 +203,46 @@ func TestPreparerRejectsArchivePathTraversal(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "escape")); !os.IsNotExist(err) {
 		t.Fatalf("escape file exists: %v", err)
+	}
+}
+
+func TestPreparerRemoveRejectsSymlinkParent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX symbolic-link removal coverage")
+	}
+	root := t.TempDir()
+	preparer, err := NewPreparer(Config{
+		RootDir: root,
+		Fetcher: &memoryFetcher{mediaType: "application/zip"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := strings.Repeat("a", 64)
+	victim := t.TempDir()
+	victimRelease := filepath.Join(victim, digest)
+	if err := os.MkdirAll(victimRelease, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(victimRelease, "keep")
+	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	connectorRoot := filepath.Join(root, "prepared", "github")
+	if err := os.MkdirAll(connectorRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(connectorRoot, "1.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	err = preparer.Remove(context.Background(), market.RemoveArtifactRequest{
+		ConnectorKey: "github", Version: "1.0.0", ReleaseDigest: digest,
+	})
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("Remove() error = %v, want symbolic-link rejection", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("Remove() followed a symlink parent: %v", err)
 	}
 }
 

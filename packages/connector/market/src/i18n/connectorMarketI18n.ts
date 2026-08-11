@@ -210,7 +210,7 @@ const connectorMarketZhCN = {
   dialogUpdateDescription: "继续前需先更新到当前连接器版本",
   dialogUpdateTitle: "更新 {{name}}",
   dialogUninstallDescription:
-    "这会停用此设备上的连接器，并删除本地运行文件和已安装的 CLI。账号授权不会被撤销，重新安装后可以继续使用原授权。",
+    "这会停用此设备上的连接器，并删除本地运行文件和已安装的 CLI。账号授权不会被撤销，重新安装后可以继续使用原授权",
   dialogUninstallTitle: "卸载“{{name}}”？",
   exactAccessNotice: "具体可访问范围由你的账号权限和组织策略决定",
   installedTab: "已安装",

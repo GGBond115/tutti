@@ -93,7 +93,11 @@ export function buildConnectorMarketView(
         ? market.pendingInstallationsByConnectorKey[
             uiState.dialog.connectorKey
           ] === true
-        : false
+        : false,
+      uiState.dialog
+        ? (market.operationsByConnectorKey[uiState.dialog.connectorKey]
+            ?.stage ?? null)
+        : null
     ),
     installedCount,
     refreshing: market.catalogState === "refreshing",
@@ -143,18 +147,11 @@ function buildConnectorCardView(
   operationStage: ConnectorCardView["operationStage"],
   pendingInstallation: boolean
 ): ConnectorCardView {
-  const busy =
-    pendingInstallation ||
-    ["installing", "updating", "uninstalling"].includes(
-      connector.installation.state
-    ) ||
-    [
-      "accepted",
-      "installing",
-      "installed",
-      "deactivating",
-      "disconnecting"
-    ].includes(operationStage ?? "");
+  const busy = connectorMutationBusy(
+    connector,
+    operationStage,
+    pendingInstallation
+  );
   const installed = connectorHasInstalledArtifact(connector);
   const currentReleaseInstalled =
     connectorHasCurrentReleaseInstalled(connector);
@@ -187,7 +184,7 @@ function buildConnectorCardView(
     implementationTags: implementationTags(connector),
     installationState: connector.installation.state,
     operationStage,
-    canUninstall: Boolean(connector.installation.installedReleaseDigest),
+    canUninstall: connectorCanUninstall(connector, busy),
     status: unavailable
       ? "unavailable"
       : busy
@@ -206,7 +203,8 @@ function buildConnectorDialogView(
   connector: Connector | undefined,
   requestKind: NonNullable<ConnectorMarketUiState["dialog"]>["kind"] | null,
   authorizing: boolean,
-  pendingInstallation: boolean
+  pendingInstallation: boolean,
+  operationStage: ConnectorCardView["operationStage"]
 ): ConnectorDialogView | null {
   if (!connector) {
     return null;
@@ -221,10 +219,14 @@ function buildConnectorDialogView(
       name: permission
     }))
   };
+  const mutationBusy = connectorMutationBusy(
+    connector,
+    operationStage,
+    pendingInstallation
+  );
+  const canUninstall = connectorCanUninstall(connector, mutationBusy);
   if (requestKind === "uninstall_confirmation") {
-    return connector.installation.installedReleaseDigest
-      ? { ...base, kind: "uninstall_confirmation" }
-      : null;
+    return canUninstall ? { ...base, kind: "uninstall_confirmation" } : null;
   }
   if (connector.compatibility.state !== "supported") {
     return {
@@ -258,9 +260,39 @@ function buildConnectorDialogView(
   return {
     ...base,
     canAuthorize: connector.release.manifest.authorizationKind !== "none",
+    canUninstall,
     details: buildDetailFields(connector),
     kind: "management"
   };
+}
+
+function connectorMutationBusy(
+  connector: Connector,
+  operationStage: ConnectorCardView["operationStage"],
+  pendingInstallation: boolean
+): boolean {
+  return (
+    pendingInstallation ||
+    ["installing", "updating", "uninstalling"].includes(
+      connector.installation.state
+    ) ||
+    [
+      "accepted",
+      "installing",
+      "installed",
+      "deactivating",
+      "disconnecting"
+    ].includes(operationStage ?? "")
+  );
+}
+
+function connectorCanUninstall(
+  connector: Connector,
+  mutationBusy: boolean
+): boolean {
+  return (
+    Boolean(connector.installation.installedReleaseDigest) && !mutationBusy
+  );
 }
 
 function connectorHasInstalledArtifact(connector: Connector): boolean {

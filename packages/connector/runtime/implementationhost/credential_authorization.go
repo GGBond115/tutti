@@ -336,8 +336,13 @@ func applyCredentialBrokerEvent(host managedCredentialAuthorizationHost, route *
 }
 
 func (host *Host) authorizationRoute(ctx context.Context, scope market.OperationScope, connector market.Connector) (*connectorRoute, error) {
+	if host == nil {
+		return nil, errors.New("managed connector authorization is unavailable")
+	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
 	managed := connector.Release.Manifest.Implementation.ManagedStdio
-	if host == nil || connector.Release.Manifest.Implementation.Kind != market.ImplementationKindManagedStdio ||
+	if connector.Release.Manifest.Implementation.Kind != market.ImplementationKindManagedStdio ||
 		connector.Release.Manifest.AuthorizationKind == "none" || managed == nil || managed.CredentialBroker == nil ||
 		connector.Installation.State != market.InstallationStateInstalled {
 		return nil, errors.New("managed connector authorization is unavailable")
@@ -693,6 +698,15 @@ func (provider *managedCredentialAuthorizationProvider) takeAuthorizationSession
 	session := provider.sessions[routeID]
 	delete(provider.sessions, routeID)
 	return session
+}
+
+func (provider *managedCredentialAuthorizationProvider) cancelAuthorizationSession(routeID string) {
+	if provider == nil {
+		return
+	}
+	if session := provider.takeAuthorizationSession(routeID); session != nil {
+		session.cancel()
+	}
 }
 
 func (provider *managedCredentialAuthorizationProvider) clearAuthorizationSession(routeID string, session *credentialBrokerSession) {

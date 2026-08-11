@@ -164,8 +164,14 @@ manager lifecycle scripts are disabled. An allowed lifecycle entrypoint is
 launched directly by the same verified Node inside the connector installer
 verified process transport. A `node_script` launch continues through that Node; a `native` launch
 must declare the expected platform-binary SHA-256, and activation executes only
-the file matching that digest. All connections and workspaces reuse one installed connector release.
-Removing one connector release must not remove the shared store or caches.
+the file matching that digest. All connections and workspaces reuse one
+installed connector release. A release-scoped rollback removes only its
+incomplete release. An explicit Connector uninstall is connector-scoped: it
+fences every matching runtime route across connection IDs, cancels matching
+credential-broker sessions, closes processes and execution snapshots, removes
+stable CLI shims, and removes every prepared artifact and private Node package
+tree for that Connector. It preserves account authorization, user/workspace
+state, and the shared Node package store and package-manager caches.
 
 Catalog display metadata includes a required, bounded PNG, WebP, or SVG data
 URL. This makes the icon available before installation and removes connector-key
@@ -227,7 +233,9 @@ verification and preparation complete.
 
 The staging and active directories must be on the same filesystem when atomic
 rename is used. Activation failure preserves the previous active version. The
-daemon resolves the artifact key against its configured artifact base URL. The
+implementation host removes orphan staging and ready execution snapshots at
+startup before restoring routes after an unclean shutdown. The daemon resolves
+the artifact key against its configured artifact base URL. The
 production base URL is the public-assets CloudFront prefix
 `https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/`; CloudFront
 serves immutable versioned objects from the private `tsh-public-assets` S3

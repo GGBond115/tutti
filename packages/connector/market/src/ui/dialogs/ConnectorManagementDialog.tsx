@@ -11,6 +11,7 @@ import { ConnectorIcon } from "../catalog/ConnectorIcon.tsx";
 
 export interface ConnectorManagementDialogProps {
   canDisconnectAuthorization: boolean;
+  canUninstall: boolean;
   description: string;
   displayName: string;
   iconUrl: string;
@@ -22,6 +23,7 @@ export interface ConnectorManagementDialogProps {
 
 export function ConnectorManagementDialog({
   canDisconnectAuthorization,
+  canUninstall,
   description,
   displayName,
   iconUrl,
@@ -43,6 +45,7 @@ export function ConnectorManagementDialog({
 
       <DialogFooter className="gap-2.5 pt-2 sm:justify-center">
         <Button
+          disabled={!canUninstall}
           size="dialog"
           type="button"
           variant="destructive-secondary"

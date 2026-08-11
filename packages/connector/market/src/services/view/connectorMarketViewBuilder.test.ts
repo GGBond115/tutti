@@ -300,6 +300,53 @@ test("projects an uninstall confirmation independently from authorization state"
   assert.equal(dialog?.displayName, "GitHub");
 });
 
+test("disables uninstall controls while one connector mutation is active", () => {
+  const market = createConnectorMarketStoreState();
+  const connector = connectorFixture();
+  connector.installation = {
+    installedReleaseDigest: connector.release.releaseDigest,
+    state: "updating"
+  };
+  connector.authorization = { state: "connected" };
+  market.connectorKeys = [connector.key];
+  market.connectorsByKey[connector.key] = connector;
+  market.operationsByConnectorKey[connector.key] = {
+    attempt: 1,
+    clientRequestId: "update-github",
+    connectorKey: connector.key,
+    createdAt: "2026-08-11T00:00:00Z",
+    kind: "install",
+    operationId: "update-operation",
+    stage: "installing",
+    state: "running",
+    updatedAt: "2026-08-11T00:00:01Z"
+  };
+
+  const view = buildConnectorMarketView(market, {
+    ...uiState,
+    dialog: {
+      connectorKey: connector.key,
+      kind: "uninstall_confirmation"
+    },
+    segment: "installed"
+  });
+
+  assert.equal(view.cardsByKey[connector.key]?.canUninstall, false);
+  assert.equal(view.dialog, null);
+
+  connector.installation.state = "installed";
+  const management = buildConnectorMarketView(market, {
+    ...uiState,
+    dialog: { connectorKey: connector.key, kind: "connector" },
+    segment: "installed"
+  }).dialog;
+  assert.equal(management?.kind, "management");
+  assert.equal(
+    management?.kind === "management" && management.canUninstall,
+    false
+  );
+});
+
 test("offers repair when calibration finds the installed implementation absent", () => {
   const market = createConnectorMarketStoreState();
   const connector = connectorFixture();

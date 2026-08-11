@@ -159,27 +159,20 @@ func (installer *ReleaseInstaller) UninstallRelease(
 		return err
 	}
 	var cleanupErrors []error
-	if releaseRequiresCLIInstallation(request.Release) {
-		if installer.cli == nil {
-			cleanupErrors = append(cleanupErrors, errors.New("connector CLI installation manager is unavailable"))
-		} else {
-			cleanupErrors = append(cleanupErrors, installer.cli.RemoveCLI(ctx, market.RemoveCLIRequest{
-				OperationID:   request.OperationID,
-				Scope:         request.Scope,
-				Generation:    request.Generation,
-				ConnectorKey:  request.Release.ConnectorKey,
-				ReleaseDigest: request.Release.ReleaseDigest,
-			}))
-		}
+	connectorRemoval := market.RemoveConnectorInstallationRequest{
+		OperationID:  request.OperationID,
+		Scope:        request.Scope,
+		Generation:   request.Generation,
+		ConnectorKey: request.Release.ConnectorKey,
 	}
-	cleanupErrors = append(cleanupErrors, installer.artifacts.Remove(ctx, market.RemoveArtifactRequest{
-		OperationID:   request.OperationID,
-		Scope:         request.Scope,
-		Generation:    request.Generation,
-		ConnectorKey:  request.Release.ConnectorKey,
-		Version:       request.Release.Version,
-		ReleaseDigest: request.Release.ReleaseDigest,
-	}))
+	if installer.cli == nil {
+		if releaseRequiresCLIInstallation(request.Release) {
+			cleanupErrors = append(cleanupErrors, errors.New("connector CLI installation manager is unavailable"))
+		}
+	} else {
+		cleanupErrors = append(cleanupErrors, installer.cli.RemoveConnector(ctx, connectorRemoval))
+	}
+	cleanupErrors = append(cleanupErrors, installer.artifacts.RemoveConnector(ctx, connectorRemoval))
 	return errors.Join(cleanupErrors...)
 }
 

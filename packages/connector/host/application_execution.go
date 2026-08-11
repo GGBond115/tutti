@@ -209,8 +209,9 @@ func (application *Application) executeUninstall(ctx context.Context, operation 
 	clear(binding.CredentialBrokerGrant)
 	if err := application.config.Host.DeactivateRuntime(ctx, RuntimeDeactivationRequest{
 		Scope: operation.Scope, ConnectionID: binding.ConnectionID, ConnectorKey: operation.Target.ConnectorKey, ReleaseDigest: operation.Target.ReleaseDigest,
-		Generation: operation.HostGeneration,
-		Deadline:   application.config.Now().UTC().Add(5 * time.Second),
+		AllConnections: true,
+		Generation:     operation.HostGeneration,
+		Deadline:       application.config.Now().UTC().Add(5 * time.Second),
 	}); err != nil {
 		return NewDomainError(ErrorCodeInstallFailed, "connector runtime routes could not be deactivated", true, err)
 	}

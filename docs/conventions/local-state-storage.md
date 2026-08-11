@@ -459,8 +459,10 @@ npm prefix. All CLI Connector installations bind to the one signed
 The shared directories deduplicate registry downloads and physical dependency
 content. The release directory remains isolated and contains only its lock,
 links/hardlinks, package metadata, generated bin entry, and installation
-receipt. Uninstall removes the release directory but preserves shared content
-for other installed connectors.
+receipt. A release-scoped rollback removes only the target release. Explicit
+Connector uninstall removes every private release directory and prepared or
+download-cached artifact for that Connector, while preserving shared package
+content, account authorization, and user/workspace state.
 
 The action filename hashes exact Target plus fixed extension installation
 identity; workspace identity remains inside the record, not in a directory

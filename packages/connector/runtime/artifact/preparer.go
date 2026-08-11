@@ -146,6 +146,10 @@ func (importer *Importer) Remove(ctx context.Context, request market.RemoveArtif
 	return importer.mechanics.removePrepared(ctx, request)
 }
 
+func (importer *Importer) RemoveConnector(ctx context.Context, request market.RemoveConnectorInstallationRequest) error {
+	return importer.mechanics.removePreparedConnector(ctx, request.ConnectorKey)
+}
+
 // ResolvePrepared revalidates the installed receipt, packaged
 // manifest, and full inventory before a durable connector runtime is restored.
 // An invalid prepared tree is rebuilt from the verified artifact blob; a
@@ -293,6 +297,30 @@ func (preparer *Preparer) Remove(ctx context.Context, request market.RemoveArtif
 	return preparer.cache.RemoveConnector(ctx, request.ConnectorKey)
 }
 
+func (preparer *Preparer) RemoveConnector(ctx context.Context, request market.RemoveConnectorInstallationRequest) error {
+	if err := preparer.removePreparedConnector(ctx, request.ConnectorKey); err != nil {
+		return err
+	}
+	return preparer.cache.RemoveConnector(ctx, request.ConnectorKey)
+}
+
+func (preparer *Preparer) removePreparedConnector(ctx context.Context, connectorKey string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !safeSegment(connectorKey) {
+		return errors.New("connector artifact removal identity is invalid")
+	}
+	target := filepath.Join(preparer.rootDir, "prepared", connectorKey)
+	if err := ensureWithin(preparer.rootDir, target); err != nil {
+		return err
+	}
+	if err := removeAllWithin(preparer.rootDir, target); err != nil {
+		return fmt.Errorf("remove Connector prepared artifacts: %w", err)
+	}
+	return nil
+}
+
 func (preparer *Preparer) removePrepared(ctx context.Context, request market.RemoveArtifactRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -304,7 +332,7 @@ func (preparer *Preparer) removePrepared(ctx context.Context, request market.Rem
 	if err := ensureWithin(preparer.rootDir, target); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(target); err != nil {
+	if err := removeAllWithin(preparer.rootDir, target); err != nil {
 		return fmt.Errorf("remove connector prepared artifact: %w", err)
 	}
 	return nil
@@ -498,6 +526,39 @@ func ensureWithin(root, target string) error {
 		return errors.New("connector artifact path escapes configured root")
 	}
 	return nil
+}
+
+func removeAllWithin(root, target string) error {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if err := ensureWithin(root, target); err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == "." {
+		return errors.New("connector artifact removal target is invalid")
+	}
+	current := root
+	parts := strings.Split(relative, string(filepath.Separator))
+	for index, part := range append([]string{""}, parts...) {
+		if index > 0 {
+			current = filepath.Join(current, part)
+		}
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("connector artifact removal path contains a symbolic link")
+		}
+		if index < len(parts) && !info.IsDir() {
+			return errors.New("connector artifact removal parent is not a directory")
+		}
+	}
+	return os.RemoveAll(target)
 }
 
 func writeArchiveFile(target string, body io.Reader, declared int64) error {
