@@ -208,227 +208,245 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		return fmt.Errorf("start model gateway: %w", err)
 	}
 	w.modelGateway = modelGateway
-	connectorRegistry := connectormarketservice.NewConnectorRuntimeRegistry()
-	connectorCommands := connectormarketservice.NewConnectorCommandProvider(connectorRegistry)
-	connectorMCPServer, err := connectormcpservice.Start(connectormcpservice.Config{Registry: connectorRegistry.MCPRegistry()})
+	connectorsEnabled, err := connectorModuleEnabled(ctx, workspaceStore)
 	if err != nil {
-		return fmt.Errorf("start connector MCP server: %w", err)
+		slog.Warn(
+			"connector module remains disabled because desktop preferences could not be read",
+			"event", "tutti.connector.activation.preference_read_failed",
+			"error", err,
+		)
+		connectorsEnabled = false
 	}
-	w.connectorMCPServer = connectorMCPServer
-	connectorGateway, err := connectoragentgateway.Start(connectoragentgateway.Config{})
-	if err != nil {
-		return fmt.Errorf("start connector Agent gateway: %w", err)
+	var connectorRegistry *connectormarketservice.ConnectorRuntimeRegistry
+	var connectorCommands *connectormarketservice.ConnectorCommandProvider
+	var connectorAgent *connectorAgentRuntime
+	var agentConnectorRuntime agentservice.ConnectorRuntime
+	if connectorsEnabled {
+		connectorRegistry = connectormarketservice.NewConnectorRuntimeRegistry()
+		connectorCommands = connectormarketservice.NewConnectorCommandProvider(connectorRegistry)
+		connectorMCPServer, startErr := connectormcpservice.Start(connectormcpservice.Config{Registry: connectorRegistry.MCPRegistry()})
+		if startErr != nil {
+			return fmt.Errorf("start connector MCP server: %w", startErr)
+		}
+		w.connectorMCPServer = connectorMCPServer
+		connectorGateway, startErr := connectoragentgateway.Start(connectoragentgateway.Config{})
+		if startErr != nil {
+			return fmt.Errorf("start connector Agent gateway: %w", startErr)
+		}
+		if bindErr := connectorGateway.SetBackend(fmt.Sprintf("tuttid-%d", time.Now().UnixNano()), connectorMCPServer); bindErr != nil {
+			_ = connectorGateway.Close(context.Background())
+			return fmt.Errorf("bind connector MCP backend: %w", bindErr)
+		}
+		w.connectorAgentGateway = connectorGateway
+		connectorAgent = &connectorAgentRuntime{routes: connectorRegistry.RouteRegistry(), server: connectorGateway,
+			cliBinDir: filepath.Join(tuttitypes.DefaultStateDir(), "connectors", "user-state", "bin")}
+		agentConnectorRuntime = connectorAgent
 	}
-	if err := connectorGateway.SetBackend(fmt.Sprintf("tuttid-%d", time.Now().UnixNano()), connectorMCPServer); err != nil {
-		_ = connectorGateway.Close(context.Background())
-		return fmt.Errorf("bind connector MCP backend: %w", err)
-	}
-	w.connectorAgentGateway = connectorGateway
-	connectorAgent := &connectorAgentRuntime{routes: connectorRegistry.RouteRegistry(), server: connectorGateway,
-		cliBinDir: filepath.Join(tuttitypes.DefaultStateDir(), "connectors", "user-state", "bin")}
 	api, appCenterService, agentRuntime, providerAuthWatcher, err := buildDaemonAPI(
 		ctx, workspaceStore, nil, w.browserService, w.computerService,
-		modelGateway, connectorAgent, w.installTuttiModeWatchdogWorker,
+		modelGateway, agentConnectorRuntime, w.installTuttiModeWatchdogWorker,
 	)
 	if err != nil {
 		_ = modelGateway.Close()
 		w.modelGateway = nil
 		return err
 	}
-	connectorMarketStore, err := connectormarketdata.Open(ctx, workspacedata.DefaultDBPath())
-	if err != nil {
-		agentRuntime.Close()
-		providerAuthWatcher.Close()
-		return fmt.Errorf("open connector market store: %w", err)
-	}
-	connectorMarketBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_BASE_URL"))
-	if connectorMarketBaseURL == "" {
-		connectorMarketBaseURL = connectorMarketDefaultBaseURL
-	}
-	connectorMarketType := strings.ToLower(strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_TYPE")))
-	if connectorMarketType == "" {
-		connectorMarketType = "overseas"
-	}
-	accountService, ok := api.AccountService.(*accountservice.Service)
-	if !ok || accountService == nil {
-		return errors.New("connector market account session adapter is unavailable")
-	}
-	marketAuthorizer, err := connectormarketservice.NewAccountSessionAuthorizer(
-		accountService.AuthJSONPath,
-		os.Getenv("TUTTI_PPE_LANE"),
-	)
-	if err != nil {
-		return fmt.Errorf("configure connector market account authorization: %w", err)
-	}
-	connectorCatalog, err := connectormarketdaemon.NewCatalogSource(connectormarketdaemon.CatalogSourceConfig{
-		BaseURL:            connectorMarketBaseURL,
-		ExpectedMarketType: connectorMarketType,
-		HTTPClient:         agenthttpx.NewClient(30 * time.Second),
-		AuthorizeRequest:   marketAuthorizer.Authorize,
-	})
-	if err != nil {
-		_ = connectorMarketStore.Close()
-		agentRuntime.Close()
-		providerAuthWatcher.Close()
-		return fmt.Errorf("configure connector market catalog: %w", err)
-	}
-	events, eventsOK := api.EventStreamService.(*eventstreamservice.Service)
-	if !eventsOK {
-		_ = connectorMarketStore.Close()
-		agentRuntime.Close()
-		providerAuthWatcher.Close()
-		return errors.New("connector market event stream wiring is invalid")
-	}
-	artifactBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_ARTIFACT_BASE_URL"))
-	if artifactBaseURL == "" {
-		artifactBaseURL = connectorArtifactBaseURL
-	}
-	artifactFetcher, err := marketartifact.NewDirectFetcher(marketartifact.DirectFetcherConfig{
-		BaseURL: artifactBaseURL, HTTPClient: agenthttpx.NewClient(5 * time.Minute),
-	})
-	if err != nil {
-		return fmt.Errorf("configure connector artifact download: %w", err)
-	}
-	connectorStateRoot := filepath.Join(tuttitypes.DefaultStateDir(), "connectors")
-	artifactPreparer, err := marketartifact.NewPreparer(marketartifact.Config{RootDir: filepath.Join(connectorStateRoot, "artifacts"), Fetcher: artifactFetcher})
-	if err != nil {
-		return fmt.Errorf("configure connector artifact preparer: %w", err)
-	}
-	runtimeResolver, err := managedruntimeservice.NewConnectorRuntimeResolver(managedruntimeservice.ConnectorRuntimeResolverConfig{
-		Resolver: managedruntimeservice.DefaultResolver{},
-	})
-	if err != nil {
-		return fmt.Errorf("configure connector managed runtime: %w", err)
-	}
-	processTransport, err := agentruntime.NewConnectorProcessTransport()
-	if err != nil {
-		return fmt.Errorf("configure connector process transport: %w", err)
-	}
-	nodePackageInstaller, err := connectorruntime.NewNodePackageInstaller(connectorruntime.NodePackageInstallerConfig{
-		RootDir: filepath.Join(connectorStateRoot, "node-packages"), Runtimes: runtimeResolver, Processes: processTransport,
-	})
-	if err != nil {
-		return fmt.Errorf("configure connector node package installer: %w", err)
-	}
-	releaseInstaller, err := connectorruntime.NewReleaseInstaller(artifactPreparer, nodePackageInstaller)
-	if err != nil {
-		return fmt.Errorf("configure connector release installer: %w", err)
-	}
-	userHome, err := os.UserHomeDir()
-	if err != nil || !filepath.IsAbs(userHome) {
-		return errors.New("configure connector implementation host: user home is unavailable")
-	}
-	connectorMCPBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MCP_BASE_URL"))
-	if connectorMCPBaseURL == "" {
-		connectorMCPBaseURL = connectorMCPDefaultBaseURL
-	}
-	remoteMCPClientFactory, err := connectormarketservice.NewDirectRemoteMCPClientFactory(connectormarketservice.DirectRemoteMCPClientFactoryConfig{
-		BaseURL: connectorMCPBaseURL, HTTPClient: agenthttpx.NewClient(2 * time.Minute),
-		Timeout: 30 * time.Second, MaxResponseBytes: 4 * 1024 * 1024,
-		AuthorizeAccountRequest: marketAuthorizer.AuthorizeForAccount,
-	})
-	if err != nil {
-		return fmt.Errorf("configure remote connector MCP client factory: %w", err)
-	}
-	implementationHost, err := connectormarketservice.NewImplementationHost(connectormarketservice.ImplementationHostConfig{
-		Artifacts: artifactPreparer, CLIInstallations: nodePackageInstaller,
-		Runtimes: runtimeResolver, Processes: processTransport, Registry: connectorRegistry,
-		RemoteMCPClientFactory: remoteMCPClientFactory,
-		StateRoot:              filepath.Join(connectorStateRoot, "user-state"),
-		BinDir:                 filepath.Join(tuttitypes.DefaultStateDir(), "bin"),
-		UserHome:               userHome,
-	})
-	if err != nil {
-		return fmt.Errorf("configure connector implementation host: %w", err)
-	}
-	connectorAuthorizationClient, err := connectormarketservice.NewConnectorAuthorizationClient(connectormarketservice.ConnectorAuthorizationClientConfig{
-		BaseURL: connectorMarketBaseURL, HTTPClient: agenthttpx.NewClient(30 * time.Second),
-		AuthorizeAccountRequest: marketAuthorizer.AuthorizeForAccount,
-	})
-	if err != nil {
-		return fmt.Errorf("configure connector authorization: %w", err)
-	}
-	connectorDeviceID, err := tuttitypes.LoadOrCreateDeviceID(tuttitypes.DefaultStateDir())
-	if err != nil {
-		return fmt.Errorf("configure connector authorization realtime identity: %w", err)
-	}
-	connectorRealtimeURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_REALTIME_URL"))
-	if connectorRealtimeURL == "" {
-		connectorRealtimeURL = strings.TrimSpace(os.Getenv("TUTTI_MOBILE_REALTIME_URL"))
-	}
-	connectorAuthorizationEvents, err := connectormarketservice.NewAuthorizationEventSource(connectormarketservice.AuthorizationEventSourceConfig{
-		URL: connectorRealtimeURL, DeviceID: connectorDeviceID, HeadersForAccount: marketAuthorizer.HeadersForAccount,
-	})
-	if err != nil {
-		return fmt.Errorf("configure connector authorization realtime: %w", err)
-	}
-	connectorRuntime, connectorAuthorization, compatibility, implementations := connectormarketservice.ProductionPorts(implementationHost, connectorAuthorizationClient)
-	if api.CLIRegistry == nil {
-		return errors.New("connector command registry cannot attach to daemon CLI")
-	}
-	api.CLIRegistry.AppCommands = cliservice.CompositeDynamicCommandRegistry{Registries: []cliservice.DynamicCommandRegistry{
-		api.CLIRegistry.AppCommands, connectorCommands,
-	}}
-	connectorAuthorizationReadiness := connectormarkethost.NewAuthorizationReadinessGate()
-	connectorMarketHost, err := connectormarketdaemon.NewHost(ctx, connectormarketdaemon.HostConfig{
-		Repository: connectorMarketStore, CatalogSource: connectorCatalog,
-		ReleaseInstallations: releaseInstaller, ImplementationHost: connectorRuntime,
-		Authorization: connectorAuthorization, Compatibility: compatibility,
-		AuthorizationProjections: connectorMarketStore,
-		AuthorizationSnapshots:   connectorAuthorizationClient,
-		AuthorizationEvents:      connectorAuthorizationEvents,
-		AuthorizationReadiness:   connectorAuthorizationReadiness,
-		RuntimeBindings:          connectormarkethost.AccountRuntimeBindingResolver{Projections: connectorMarketStore, Readiness: connectorAuthorizationReadiness},
-		ImplementationRegistry:   implementations, Outbox: connectorMarketStore, Lifecycle: connectorMarketStore,
-		Publisher: eventstreamservice.ConnectorMarketPublisher{Service: events},
-	})
-	if err != nil {
-		_ = connectorMarketStore.Close()
-		agentRuntime.Close()
-		providerAuthWatcher.Close()
-		return fmt.Errorf("start connector market host: %w", err)
-	}
-	if service, ok := api.AgentSessionService.(*agentservice.Service); ok {
-		service.ConnectorMarketSnapshots = connectorMarketHost.Application
-	}
-	api.ConnectorMarketService = connectorMarketHost.Application
-	connectorMarketScope := func() connectormarkethost.OperationScope {
-		session, sessionErr := accountService.ReadSession()
-		if sessionErr != nil || session == nil {
-			return connectormarkethost.OperationScope{}
+	if connectorsEnabled {
+		connectorMarketStore, err := connectormarketdata.Open(ctx, workspacedata.DefaultDBPath())
+		if err != nil {
+			agentRuntime.Close()
+			providerAuthWatcher.Close()
+			return fmt.Errorf("open connector market store: %w", err)
 		}
-		return connectormarkethost.OperationScope{AccountID: strings.TrimSpace(session.UserID)}
-	}
-	api.ConnectorMarketScope = connectorMarketScope
-	api.ConnectorAuthorizationReady = connectorAuthorizationReadiness.Ready
-	existingAccountLoginCompleted := accountService.OnLoginCompleted
-	accountService.OnLoginCompleted = func(loginContext context.Context) {
-		if existingAccountLoginCompleted != nil {
-			existingAccountLoginCompleted(loginContext)
+		connectorMarketBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_BASE_URL"))
+		if connectorMarketBaseURL == "" {
+			connectorMarketBaseURL = connectorMarketDefaultBaseURL
 		}
-		go bootstrapConnectorMarket(connectorMarketHost, connectorMarketScope)
-	}
-	existingAccountLogoutCompleted := accountService.OnLogoutCompleted
-	accountService.OnLogoutCompleted = func(logoutContext context.Context) {
-		if existingAccountLogoutCompleted != nil {
-			existingAccountLogoutCompleted(logoutContext)
+		connectorMarketType := strings.ToLower(strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_TYPE")))
+		if connectorMarketType == "" {
+			connectorMarketType = "overseas"
 		}
-		connectorAgent.RevokeAll()
-		fenceContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if fenceErr := connectorMarketHost.FenceForScope(fenceContext, connectormarkethost.OperationScope{}); fenceErr != nil {
-			slog.Warn("connector market logout fence failed", "error", fenceErr)
+		accountService, ok := api.AccountService.(*accountservice.Service)
+		if !ok || accountService == nil {
+			return errors.New("connector market account session adapter is unavailable")
 		}
-	}
-	w.connectorMarketStore = connectorMarketStore
-	w.connectorMarketHost = connectorMarketHost
-	connectorRegistry.MCPRegistry().SetAuthorizationErrorObserver(connectorMarketHost.NotifyAuthorizationChanged)
-	startExistingListenerWork := api.OnListenerReady
-	api.OnListenerReady = func() {
-		if startExistingListenerWork != nil {
-			startExistingListenerWork()
+		marketAuthorizer, err := connectormarketservice.NewAccountSessionAuthorizer(
+			accountService.AuthJSONPath,
+			os.Getenv("TUTTI_PPE_LANE"),
+		)
+		if err != nil {
+			return fmt.Errorf("configure connector market account authorization: %w", err)
 		}
-		go bootstrapConnectorMarket(connectorMarketHost, connectorMarketScope)
+		connectorCatalog, err := connectormarketdaemon.NewCatalogSource(connectormarketdaemon.CatalogSourceConfig{
+			BaseURL:            connectorMarketBaseURL,
+			ExpectedMarketType: connectorMarketType,
+			HTTPClient:         agenthttpx.NewClient(30 * time.Second),
+			AuthorizeRequest:   marketAuthorizer.Authorize,
+		})
+		if err != nil {
+			_ = connectorMarketStore.Close()
+			agentRuntime.Close()
+			providerAuthWatcher.Close()
+			return fmt.Errorf("configure connector market catalog: %w", err)
+		}
+		events, eventsOK := api.EventStreamService.(*eventstreamservice.Service)
+		if !eventsOK {
+			_ = connectorMarketStore.Close()
+			agentRuntime.Close()
+			providerAuthWatcher.Close()
+			return errors.New("connector market event stream wiring is invalid")
+		}
+		artifactBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_ARTIFACT_BASE_URL"))
+		if artifactBaseURL == "" {
+			artifactBaseURL = connectorArtifactBaseURL
+		}
+		artifactFetcher, err := marketartifact.NewDirectFetcher(marketartifact.DirectFetcherConfig{
+			BaseURL: artifactBaseURL, HTTPClient: agenthttpx.NewClient(5 * time.Minute),
+		})
+		if err != nil {
+			return fmt.Errorf("configure connector artifact download: %w", err)
+		}
+		connectorStateRoot := filepath.Join(tuttitypes.DefaultStateDir(), "connectors")
+		artifactPreparer, err := marketartifact.NewPreparer(marketartifact.Config{RootDir: filepath.Join(connectorStateRoot, "artifacts"), Fetcher: artifactFetcher})
+		if err != nil {
+			return fmt.Errorf("configure connector artifact preparer: %w", err)
+		}
+		runtimeResolver, err := managedruntimeservice.NewConnectorRuntimeResolver(managedruntimeservice.ConnectorRuntimeResolverConfig{
+			Resolver: managedruntimeservice.DefaultResolver{},
+		})
+		if err != nil {
+			return fmt.Errorf("configure connector managed runtime: %w", err)
+		}
+		processTransport, err := agentruntime.NewConnectorProcessTransport()
+		if err != nil {
+			return fmt.Errorf("configure connector process transport: %w", err)
+		}
+		nodePackageInstaller, err := connectorruntime.NewNodePackageInstaller(connectorruntime.NodePackageInstallerConfig{
+			RootDir: filepath.Join(connectorStateRoot, "node-packages"), Runtimes: runtimeResolver, Processes: processTransport,
+		})
+		if err != nil {
+			return fmt.Errorf("configure connector node package installer: %w", err)
+		}
+		releaseInstaller, err := connectorruntime.NewReleaseInstaller(artifactPreparer, nodePackageInstaller)
+		if err != nil {
+			return fmt.Errorf("configure connector release installer: %w", err)
+		}
+		userHome, err := os.UserHomeDir()
+		if err != nil || !filepath.IsAbs(userHome) {
+			return errors.New("configure connector implementation host: user home is unavailable")
+		}
+		connectorMCPBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MCP_BASE_URL"))
+		if connectorMCPBaseURL == "" {
+			connectorMCPBaseURL = connectorMCPDefaultBaseURL
+		}
+		remoteMCPClientFactory, err := connectormarketservice.NewDirectRemoteMCPClientFactory(connectormarketservice.DirectRemoteMCPClientFactoryConfig{
+			BaseURL: connectorMCPBaseURL, HTTPClient: agenthttpx.NewClient(2 * time.Minute),
+			Timeout: 30 * time.Second, MaxResponseBytes: 4 * 1024 * 1024,
+			AuthorizeAccountRequest: marketAuthorizer.AuthorizeForAccount,
+		})
+		if err != nil {
+			return fmt.Errorf("configure remote connector MCP client factory: %w", err)
+		}
+		implementationHost, err := connectormarketservice.NewImplementationHost(connectormarketservice.ImplementationHostConfig{
+			Artifacts: artifactPreparer, CLIInstallations: nodePackageInstaller,
+			Runtimes: runtimeResolver, Processes: processTransport, Registry: connectorRegistry,
+			RemoteMCPClientFactory: remoteMCPClientFactory,
+			StateRoot:              filepath.Join(connectorStateRoot, "user-state"),
+			BinDir:                 filepath.Join(tuttitypes.DefaultStateDir(), "bin"),
+			UserHome:               userHome,
+		})
+		if err != nil {
+			return fmt.Errorf("configure connector implementation host: %w", err)
+		}
+		connectorAuthorizationClient, err := connectormarketservice.NewConnectorAuthorizationClient(connectormarketservice.ConnectorAuthorizationClientConfig{
+			BaseURL: connectorMarketBaseURL, HTTPClient: agenthttpx.NewClient(30 * time.Second),
+			AuthorizeAccountRequest: marketAuthorizer.AuthorizeForAccount,
+		})
+		if err != nil {
+			return fmt.Errorf("configure connector authorization: %w", err)
+		}
+		connectorDeviceID, err := tuttitypes.LoadOrCreateDeviceID(tuttitypes.DefaultStateDir())
+		if err != nil {
+			return fmt.Errorf("configure connector authorization realtime identity: %w", err)
+		}
+		connectorRealtimeURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_REALTIME_URL"))
+		if connectorRealtimeURL == "" {
+			connectorRealtimeURL = strings.TrimSpace(os.Getenv("TUTTI_MOBILE_REALTIME_URL"))
+		}
+		connectorAuthorizationEvents, err := connectormarketservice.NewAuthorizationEventSource(connectormarketservice.AuthorizationEventSourceConfig{
+			URL: connectorRealtimeURL, DeviceID: connectorDeviceID, HeadersForAccount: marketAuthorizer.HeadersForAccount,
+		})
+		if err != nil {
+			return fmt.Errorf("configure connector authorization realtime: %w", err)
+		}
+		connectorRuntime, connectorAuthorization, compatibility, implementations := connectormarketservice.ProductionPorts(implementationHost, connectorAuthorizationClient)
+		if api.CLIRegistry == nil {
+			return errors.New("connector command registry cannot attach to daemon CLI")
+		}
+		api.CLIRegistry.AppCommands = cliservice.CompositeDynamicCommandRegistry{Registries: []cliservice.DynamicCommandRegistry{
+			api.CLIRegistry.AppCommands, connectorCommands,
+		}}
+		connectorAuthorizationReadiness := connectormarkethost.NewAuthorizationReadinessGate()
+		connectorMarketHost, err := connectormarketdaemon.NewHost(ctx, connectormarketdaemon.HostConfig{
+			Repository: connectorMarketStore, CatalogSource: connectorCatalog,
+			ReleaseInstallations: releaseInstaller, ImplementationHost: connectorRuntime,
+			Authorization: connectorAuthorization, Compatibility: compatibility,
+			AuthorizationProjections: connectorMarketStore,
+			AuthorizationSnapshots:   connectorAuthorizationClient,
+			AuthorizationEvents:      connectorAuthorizationEvents,
+			AuthorizationReadiness:   connectorAuthorizationReadiness,
+			RuntimeBindings:          connectormarkethost.AccountRuntimeBindingResolver{Projections: connectorMarketStore, Readiness: connectorAuthorizationReadiness},
+			ImplementationRegistry:   implementations, Outbox: connectorMarketStore, Lifecycle: connectorMarketStore,
+			Publisher: eventstreamservice.ConnectorMarketPublisher{Service: events},
+		})
+		if err != nil {
+			_ = connectorMarketStore.Close()
+			agentRuntime.Close()
+			providerAuthWatcher.Close()
+			return fmt.Errorf("start connector market host: %w", err)
+		}
+		if service, ok := api.AgentSessionService.(*agentservice.Service); ok {
+			service.ConnectorMarketSnapshots = connectorMarketHost.Application
+		}
+		api.ConnectorMarketService = connectorMarketHost.Application
+		connectorMarketScope := func() connectormarkethost.OperationScope {
+			session, sessionErr := accountService.ReadSession()
+			if sessionErr != nil || session == nil {
+				return connectormarkethost.OperationScope{}
+			}
+			return connectormarkethost.OperationScope{AccountID: strings.TrimSpace(session.UserID)}
+		}
+		api.ConnectorMarketScope = connectorMarketScope
+		api.ConnectorAuthorizationReady = connectorAuthorizationReadiness.Ready
+		existingAccountLoginCompleted := accountService.OnLoginCompleted
+		accountService.OnLoginCompleted = func(loginContext context.Context) {
+			if existingAccountLoginCompleted != nil {
+				existingAccountLoginCompleted(loginContext)
+			}
+			go bootstrapConnectorMarket(connectorMarketHost, connectorMarketScope)
+		}
+		existingAccountLogoutCompleted := accountService.OnLogoutCompleted
+		accountService.OnLogoutCompleted = func(logoutContext context.Context) {
+			if existingAccountLogoutCompleted != nil {
+				existingAccountLogoutCompleted(logoutContext)
+			}
+			connectorAgent.RevokeAll()
+			fenceContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if fenceErr := connectorMarketHost.FenceForScope(fenceContext, connectormarkethost.OperationScope{}); fenceErr != nil {
+				slog.Warn("connector market logout fence failed", "error", fenceErr)
+			}
+		}
+		w.connectorMarketStore = connectorMarketStore
+		w.connectorMarketHost = connectorMarketHost
+		connectorRegistry.MCPRegistry().SetAuthorizationErrorObserver(connectorMarketHost.NotifyAuthorizationChanged)
+		startExistingListenerWork := api.OnListenerReady
+		api.OnListenerReady = func() {
+			if startExistingListenerWork != nil {
+				startExistingListenerWork()
+			}
+			go bootstrapConnectorMarket(connectorMarketHost, connectorMarketScope)
+		}
 	}
 	agentTargetSetup, ok := api.AgentTargetSetupService.(*agentextensionservice.SetupService)
 	if !ok {
@@ -483,6 +501,21 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 	w.appCenterService = appCenterService
 	w.tuttiModeWakeRecoveryStarter = api.OnListenerReady
 	return nil
+}
+
+type desktopPreferencesReader interface {
+	GetDesktopPreferences(context.Context) (preferencesbiz.DesktopPreferences, error)
+}
+
+func connectorModuleEnabled(ctx context.Context, preferences desktopPreferencesReader) (bool, error) {
+	if preferences == nil {
+		return false, errors.New("desktop preferences reader is unavailable")
+	}
+	current, err := preferences.GetDesktopPreferences(ctx)
+	if err != nil {
+		return false, err
+	}
+	return preferencesbiz.IsLabFlagEnabled(current.FeatureFlags, preferencesbiz.LabFlagConnectors), nil
 }
 
 func (w *tuttiWiring) observeDesktopPreferenceChanges(preferences *preferencesservice.Service) {
