@@ -44,6 +44,7 @@ export interface ConnectorCardView {
 export interface ConnectorSectionView {
   id: string;
   connectorKeys: string[];
+  error: boolean;
   hasMore: boolean;
   itemCount: number;
   loading: boolean;

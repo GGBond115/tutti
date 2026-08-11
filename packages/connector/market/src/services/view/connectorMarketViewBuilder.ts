@@ -44,6 +44,7 @@ export function buildConnectorMarketView(
                 )
               )
               .map((connector) => connector.key),
+            error: false,
             hasMore: false,
             itemCount: installedCount,
             loading: false
@@ -59,7 +60,9 @@ export function buildConnectorMarketView(
               matchesQuery(connector)
             );
           }),
-          hasMore: Boolean(section.nextPageToken),
+          error: section.loadState === "error",
+          hasMore:
+            section.loadState === "ready" && Boolean(section.nextPageToken),
           itemCount: section.itemCount,
           loading: section.loadState === "loading"
         }));
@@ -95,7 +98,10 @@ export function buildConnectorMarketView(
     refreshing: market.catalogState === "refreshing",
     sections: sections.filter(
       (section) =>
-        section.connectorKeys.length > 0 || section.loading || section.hasMore
+        section.connectorKeys.length > 0 ||
+        section.error ||
+        section.loading ||
+        section.hasMore
     ),
     status:
       market.loadState === "loading" || market.loadState === "idle"
@@ -104,7 +110,9 @@ export function buildConnectorMarketView(
           ? "error"
           : sections.every(
                 (section) =>
-                  section.connectorKeys.length === 0 && !section.loading
+                  section.connectorKeys.length === 0 &&
+                  !section.error &&
+                  !section.loading
               )
             ? "empty"
             : "ready"
