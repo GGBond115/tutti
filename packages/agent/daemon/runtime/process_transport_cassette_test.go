@@ -1424,6 +1424,14 @@ func TestReplayProcessTransportAbsorbsExtraOptionalProbeDuringInbound(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(string(frame.Stdout), `"id":9`) ||
+		!strings.Contains(string(frame.Stdout), `"result"`) {
+		t.Fatalf("synthetic probe stdout = %q, want id=9 result", frame.Stdout)
+	}
+	frame, err = connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(string(frame.Stdout), "turn/started") {
 		t.Fatalf("stdout = %q, want turn/started", frame.Stdout)
 	}
@@ -1439,6 +1447,244 @@ func TestReplayProcessTransportAbsorbsExtraOptionalProbeDuringInbound(t *testing
 	if err := replay.VerifyComplete(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestReplayProcessTransportSynthesizesOptionalGoalGetDuringInbound(t *testing.T) {
+	request := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "outbound",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	stdout := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "stdout",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	replay := replayProcessTransportWithChunksForTest(t, []replayConnectionChunksForTest{{
+		spec: ProcessSpec{Provider: ProviderCodex, AgentSessionID: "session-1"},
+		chunks: []processCassetteChunk{
+			request(`{"id":1,"method":"initialize"}`),
+			stdout(`{"id":1,"result":{}}`),
+			stdout(`{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}`),
+			request(`{"id":30,"method":"turn/start"}`),
+			stdout(`{"id":30,"result":{"turn":{"id":"turn-1"}}}`),
+		},
+	}})
+	connection, err := replay.Start(context.Background(), ProcessSpec{
+		Provider: ProviderCodex, AgentSessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Send([]byte("{\"id\":1,\"method\":\"initialize\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	// Activation metadata refresh may probe goal/get before the provider cursor
+	// reaches later taped traffic. Absorbing must still unblock NoHandler waits.
+	if err := connection.Send([]byte(
+		`{"id":42,"method":"thread/goal/get","params":{"threadId":"thread-1"}}` + "\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), `"id":42`) ||
+		!strings.Contains(string(frame.Stdout), `"result"`) {
+		t.Fatalf("synthetic goal/get stdout = %q, want id=42 result", frame.Stdout)
+	}
+	frame, err = connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), "turn/started") {
+		t.Fatalf("stdout = %q, want turn/started", frame.Stdout)
+	}
+	if err := connection.Send([]byte("{\"id\":3,\"method\":\"turn/start\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	if state := replay.ReplayPlaybackState(); !state.Drained {
+		t.Fatalf("playback state = %#v, want drained", state)
+	}
+	if err := replay.VerifyComplete(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReplayProcessTransportSynthesizesOptionalProbeWhileInboundPaused(t *testing.T) {
+	request := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "outbound",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	stdout := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "stdout",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	replay := replayProcessTransportWithChunksForTest(t, []replayConnectionChunksForTest{{
+		spec: ProcessSpec{Provider: ProviderCodex, AgentSessionID: "session-1"},
+		chunks: []processCassetteChunk{
+			request(`{"id":1,"method":"initialize"}`),
+			stdout(`{"id":1,"result":{}}`),
+			stdout(`{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}`),
+		},
+	}})
+	connection, err := replay.Start(context.Background(), ProcessSpec{
+		Provider: ProviderCodex, AgentSessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Send([]byte("{\"id\":1,\"method\":\"initialize\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	if err := replay.PauseReplayPlayback(); err != nil {
+		t.Fatal(err)
+	}
+	type recvResult struct {
+		frame ProcessFrame
+		err   error
+	}
+	result := make(chan recvResult, 1)
+	go func() {
+		frame, recvErr := connection.Recv()
+		result <- recvResult{frame: frame, err: recvErr}
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := connection.Send([]byte(
+		`{"id":42,"method":"thread/goal/get","params":{"threadId":"thread-1"}}` + "\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if !strings.Contains(string(got.frame.Stdout), `"id":42`) ||
+			!strings.Contains(string(got.frame.Stdout), `"result"`) {
+			t.Fatalf(
+				"synthetic goal/get while paused stdout = %q, want id=42 result",
+				got.frame.Stdout,
+			)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Recv() did not drain synthetic optional probe while inbound paused")
+	}
+	if err := replay.ResumeReplayPlayback(); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), "turn/started") {
+		t.Fatalf("stdout = %q, want turn/started after resume", frame.Stdout)
+	}
+	if err := replay.VerifyComplete(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReplayProcessTransportCompleteUnitYieldsForSyntheticWhileHeld(t *testing.T) {
+	request := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "outbound",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	stdout := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "stdout",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	replay := replayProcessTransportWithChunksForTest(t, []replayConnectionChunksForTest{{
+		spec: ProcessSpec{Provider: ProviderCodex, AgentSessionID: "session-1"},
+		chunks: []processCassetteChunk{
+			request(`{"id":1,"method":"initialize"}`),
+			stdout(`{"id":1,"result":{}}`),
+			stdout(`{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}`),
+		},
+	}})
+	connection, err := replay.Start(context.Background(), ProcessSpec{
+		Provider: ProviderCodex, AgentSessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayConn, ok := connection.(*replayProcessConnection)
+	if !ok {
+		t.Fatal("connection is not replayProcessConnection")
+	}
+	if err := connection.Send([]byte("{\"id\":1,\"method\":\"initialize\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), "turn/started") {
+		t.Fatalf("stdout = %q, want turn/started", frame.Stdout)
+	}
+	if err := replay.SetReplayProviderCursor([]sessionreplay.ProviderUnitPosition{{
+		ConnectionID: frame.ConnectionID,
+		ChunkSeq:     frame.ChunkSeq,
+		UnitIndex:    1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- replayConn.CompleteProviderInputUnit(context.Background(), ProviderInputUnit{
+			Position: sessionreplay.ProviderUnitPosition{
+				ConnectionID: frame.ConnectionID,
+				ChunkSeq:     frame.ChunkSeq,
+				UnitIndex:    1,
+			},
+			Kind: sessionreplay.ProviderInputUnitProtocolMessage,
+		})
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := connection.Send([]byte(
+		`{"id":42,"method":"thread/goal/get","params":{"threadId":"thread-1"}}` + "\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, errReplaySyntheticPending) {
+			t.Fatalf("CompleteProviderInputUnit error = %v, want synthetic pending", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("CompleteProviderInputUnit did not yield for synthetic optional probe")
+	}
+	synthetic, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(synthetic.Stdout), `"id":42`) {
+		t.Fatalf("synthetic stdout = %q, want id=42", synthetic.Stdout)
+	}
+	replay.ClearReplayProviderCursor()
 }
 
 func TestReplayProcessTransportAbsorbsExtraOptionalProbeAfterCassetteEnd(t *testing.T) {

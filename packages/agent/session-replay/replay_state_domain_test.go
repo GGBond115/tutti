@@ -61,6 +61,29 @@ func TestProjectAndResolvePortableAgentSessionBinding(t *testing.T) {
 	}
 }
 
+func TestProjectPortableAgentStateProjectsSharedWorkspaceRemappedCWD(t *testing.T) {
+	logicalProject := "/workspace/agent-session-replay"
+	agent := TuttiReplayAgent{
+		RootSessionID: "session-1",
+		Sessions: []agenthost.HistoricalSession{{
+			ID: "session-1",
+			Cwd: "/workspace/38cd6084-2a8b-4970-bf18-c559b1dae5dd/" +
+				"agent-session-replay",
+			RailSectionKind: "project",
+			RailProjectPath: logicalProject,
+			RailSectionKey:  "project:" + logicalProject,
+		}},
+	}
+
+	portable := ProjectPortableAgentState(agent, t.TempDir())
+	session := portable.Sessions[0]
+	if session.Cwd != PortableReplayCWDToken ||
+		session.RailProjectPath != PortableReplayCWDToken ||
+		session.RailSectionKey != "project:"+PortableReplayCWDToken {
+		t.Fatalf("portable shared binding = %#v", session)
+	}
+}
+
 func TestProjectPortableAgentStateNormalizesSymlinkEquivalentPaths(t *testing.T) {
 	rawDir := t.TempDir()
 	canonicalDir := storesqlite.NormalizeProjectPath(rawDir)

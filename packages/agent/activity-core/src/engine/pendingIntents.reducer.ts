@@ -636,8 +636,7 @@ function confirmActivationsFromSessions(
       !session ||
       session.workspaceId.trim() !== record.workspaceId ||
       (record.mode === "new" &&
-        (session.createdAtUnixMs === undefined ||
-          session.createdAtUnixMs < record.requestedAtUnixMs))
+        !sessionConfirmsNewActivation(session, record.requestedAtUnixMs))
     ) {
       continue;
     }
@@ -656,6 +655,27 @@ function confirmActivationsFromSessions(
         ...(followUpIntents.length ? { followUpIntents } : {}),
         state: next
       };
+}
+
+/**
+ * mode=new confirmation prefers createdAt >= requestedAt (session born for this
+ * activation). Shared replay may pre-admit a sticky binding whose createdAt is
+ * earlier; accept when the same session was updated at/after the request.
+ */
+function sessionConfirmsNewActivation(
+  session: AgentActivitySessionInput,
+  requestedAtUnixMs: number
+): boolean {
+  if (
+    session.createdAtUnixMs !== undefined &&
+    session.createdAtUnixMs >= requestedAtUnixMs
+  ) {
+    return true;
+  }
+  return (
+    session.updatedAtUnixMs !== undefined &&
+    session.updatedAtUnixMs >= requestedAtUnixMs
+  );
 }
 
 function settleActivationSettingsCommand(

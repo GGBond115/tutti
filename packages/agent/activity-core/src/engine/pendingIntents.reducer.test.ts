@@ -435,6 +435,38 @@ test("a realtime session upsert confirms its pending activation", () => {
   );
 });
 
+test("a pre-admitted binding with stale createdAt confirms via updatedAt", () => {
+  const state = reduce(createInitialPendingIntentsState(), activation()).state;
+  const confirmed = reduce(state, {
+    session: {
+      ...session("session-new"),
+      createdAtUnixMs: 0,
+      updatedAtUnixMs: 1
+    },
+    type: "session/upserted"
+  });
+  assert.equal(
+    confirmed.state.activationsByRequestId["activation-1"]?.status,
+    "confirmed"
+  );
+});
+
+test("a stale pre-admitted binding without post-request update stays requested", () => {
+  const state = reduce(createInitialPendingIntentsState(), activation()).state;
+  const stillPending = reduce(state, {
+    session: {
+      ...session("session-new"),
+      createdAtUnixMs: 0,
+      updatedAtUnixMs: 0
+    },
+    type: "session/upserted"
+  });
+  assert.equal(
+    stillPending.state.activationsByRequestId["activation-1"]?.status,
+    "requested"
+  );
+});
+
 test("authoritative history retracts only the optimistic initial prompt", () => {
   let state = reduce(createInitialPendingIntentsState(), activation()).state;
   state = reduce(state, {
