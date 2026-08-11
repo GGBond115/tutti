@@ -18,10 +18,9 @@ export function ConnectorMarketDialogs() {
   const { i18n, market, onError, onTryConnector, uiState, view } =
     useConnectorMarketServices();
   const dialog = useSnapshot(view.dataStore).dialog;
-  const [showSuccessToast, setShowSuccessToast] = useState<string | null>(null);
-
-  // Track authorization state to detect when it completes
-  const wasAuthorizing = useSnapshot(view.dataStore).dialog?.kind === "authorization";
+  const [showSuccessToast, setShowSuccessToast] = useState<
+    "authorize" | "install" | null
+  >(null);
 
   if (!dialog && !showSuccessToast) {
     return null;
@@ -45,7 +44,6 @@ export function ConnectorMarketDialogs() {
             <ConnectorInstallationDialog
               description={dialog.description}
               displayName={dialog.displayName}
-              iconUrl={dialog.iconUrl}
               i18n={i18n}
               installing={dialog.installing}
               updating={dialog.updating}
@@ -84,6 +82,7 @@ export function ConnectorMarketDialogs() {
                   .beginAuthorization(dialog.connectorKey, secret)
                   .then(() => {
                     setShowSuccessToast("authorize");
+                    uiState.closeDialog();
                   })
                   .catch(() => {
                     onError?.(i18n.t("connectorAuthorizationFailed"));

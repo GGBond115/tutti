@@ -13,7 +13,6 @@ import type { ConnectorMarketI18nRuntime } from "../../i18n/connectorMarketI18n.
 export function ConnectorInstallationDialog({
   description,
   displayName,
-  iconUrl,
   i18n,
   installing,
   updating,
@@ -22,7 +21,6 @@ export function ConnectorInstallationDialog({
 }: {
   description: string;
   displayName: string;
-  iconUrl: string;
   i18n: ConnectorMarketI18nRuntime;
   installing: boolean;
   updating: boolean;
