@@ -162,16 +162,18 @@ func (r *claudeSDKLineReader) next(ctx context.Context) (claudeSDKSidecarEvent, 
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				r.flushStderrDiagnostics()
 				return claudeSDKSidecarEvent{}, ErrSessionDisconnected
 			}
 			return claudeSDKSidecarEvent{}, err
 		}
 		if len(frame.Stderr) > 0 {
-			logClaudeSDKSidecarDebugStderr(frame.Stderr)
+			r.appendStderrDiagnostics(frame.Stderr)
 			r.appendStderrTail(frame.Stderr)
 			continue
 		}
 		if frame.ExitCode != nil {
+			r.flushStderrDiagnostics()
 			return claudeSDKSidecarEvent{}, claudeSDKSidecarExitError(*frame.ExitCode, r.stderrTail)
 		}
 		if len(frame.Stdout) > 0 {
@@ -230,6 +232,28 @@ func nextBufferedLine(buffer *string) (string, bool) {
 	line := strings.TrimSpace((*buffer)[:index])
 	*buffer = (*buffer)[index+1:]
 	return line, line != ""
+}
+
+func (r *claudeSDKLineReader) appendStderrDiagnostics(content []byte) {
+	if len(content) == 0 {
+		return
+	}
+	r.stderrDiagnosticBuffer += string(content)
+	for {
+		line, ok := nextBufferedLine(&r.stderrDiagnosticBuffer)
+		if !ok {
+			return
+		}
+		logClaudeSDKSidecarDebugStderr([]byte(line))
+	}
+}
+
+func (r *claudeSDKLineReader) flushStderrDiagnostics() {
+	line := strings.TrimSpace(r.stderrDiagnosticBuffer)
+	r.stderrDiagnosticBuffer = ""
+	if line != "" {
+		logClaudeSDKSidecarDebugStderr([]byte(line))
+	}
 }
 
 func (r *claudeSDKLineReader) appendStderrTail(content []byte) {

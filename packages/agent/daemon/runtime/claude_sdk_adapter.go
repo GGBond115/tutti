@@ -180,10 +180,11 @@ type claudeSDKTurnResult struct {
 }
 
 type claudeSDKLineReader struct {
-	conn            ProcessConnection
-	buffer          string
-	trackInputUnits bool
-	lines           []claudeSDKBufferedLine
+	conn                   ProcessConnection
+	buffer                 string
+	stderrDiagnosticBuffer string
+	trackInputUnits        bool
+	lines                  []claudeSDKBufferedLine
 	// stderrTail keeps only a bounded, sanitized classification of sidecar
 	// diagnostics. Raw stderr may contain prompts, paths, credentials, or stack
 	// traces and must never enter durable activity or user-visible errors.
