@@ -2229,6 +2229,9 @@ otherwise recover interactively.
 
 `AgentToolBrowserPanel` owns its BrowserNode feature, surface identity, and
 tab state. It also owns the single browser chrome instance for that surface.
+Its controller may activate an existing page by URL inside that one surface;
+the product Host remains responsible for choosing among Browser surfaces and
+focusing the owning top-level node or window.
 Hosts compose window controls into the tab strip through `defaultActions`,
 pass draggable-header semantics through `dragHandleProps`, and use
 `navigationActions` for address-row actions. A host must not wrap the panel in

@@ -102,6 +102,12 @@ function receives the tab node id and a `navigate(url)` callback, allowing a
 host to render live sandbox ports or other product-owned shortcuts without
 forking the Browser surface.
 
+Hosts that coordinate multiple Browser surfaces can use
+`findBrowserNodePageByUrl(...)` and `activateBrowserNodePageByUrl(...)`. These
+helpers compare the live runtime URL when available and otherwise use a newly
+created tab's pending URL. Surface eligibility, top-level window focus, and
+whether a missing page opens in an existing or new Browser remain host policy.
+
 Electron hosts may attach `automationTarget` metadata to User Browser and
 Agent Browser surfaces. The package registry then exposes the current
 workspace's User tabs and only the calling Agent session's Agent tabs, with

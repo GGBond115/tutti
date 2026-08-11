@@ -8,6 +8,7 @@ import {
   type ReactNode
 } from "react";
 import {
+  activateBrowserNodePageByUrl,
   closeBrowserNodeTab,
   createBrowserNodeFeature,
   isBrowserNodeSurfaceEvent,
@@ -58,6 +59,7 @@ export interface AgentToolBrowserPanelProps {
 }
 
 export interface AgentToolBrowserController {
+  activatePageByUrl(url: string): string | null;
   closePage(nodeId: string): "closed" | "last-page" | "not-found";
   createPage(url?: string | null): string;
   ownsPage(nodeId: string): boolean;
@@ -103,6 +105,11 @@ export function AgentToolBrowserPanel({
       return state && tab ? { state, tab } : null;
     };
     return {
+      activatePageByUrl(url) {
+        return (
+          activateBrowserNodePageByUrl(feature, nodeId, url)?.nodeId ?? null
+        );
+      },
       closePage(pageNodeId) {
         const page = getPage(pageNodeId);
         if (!page) return "not-found";
