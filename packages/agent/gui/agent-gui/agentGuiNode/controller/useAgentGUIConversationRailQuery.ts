@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   selectAttentionReadState,
+  selectRootAgentSessionIdsWithPendingInteractions,
   selectWorkspaceAgentConsumerSessions
 } from "@tutti-os/agent-activity-core";
 import {
@@ -271,13 +272,18 @@ function selectEmptyAgentGUIConversationActivityRootFacts(): ReadonlyMap<
 function selectAgentGUIConversationActivityRootFacts(
   state: Parameters<typeof selectWorkspaceAgentConsumerSessions>[0]
 ): ReadonlyMap<string, AgentGUIConversationActivityRootFact> {
+  const rootSessionIdsAwaitingUserAction = new Set(
+    selectRootAgentSessionIdsWithPendingInteractions(state)
+  );
   return new Map(
     selectWorkspaceAgentConsumerSessions(state)
       .filter((item) => item.session.visible !== false)
       .map((item) => [
         item.session.agentSessionId,
         {
-          needsUserAction: item.pendingInteractions.length > 0,
+          needsUserAction: rootSessionIdsAwaitingUserAction.has(
+            item.session.agentSessionId
+          ),
           status: item.displayStatus === "idle" ? "ready" : item.displayStatus
         }
       ])

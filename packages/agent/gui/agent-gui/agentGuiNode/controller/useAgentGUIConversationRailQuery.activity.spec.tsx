@@ -12,18 +12,20 @@ import { createTestAgentSessionEngine } from "../../../shared/testing/createTest
 import { useAgentGUIConversationRailQuery } from "./useAgentGUIConversationRailQuery";
 
 describe("useAgentGUIConversationRailQuery Activity facts", () => {
-  it("keeps child sessions hidden without aggregating their activity onto the root", async () => {
+  it("keeps child lifecycle out of root status while preserving descendant attention", async () => {
     const engine = createTestAgentSessionEngine("workspace-1");
     engine.dispatch({
       type: "session/upserted",
       session: normalizeAgentActivitySession({
         activeTurnId: null,
         agentSessionId: "root",
+        createdAtUnixMs: 1,
         cwd: "/workspace",
         latestTurnInteractions: [],
         pendingInteractions: [],
         provider: "codex",
         title: "Root",
+        updatedAtUnixMs: 1,
         workspaceId: "workspace-1"
       })
     });
@@ -89,6 +91,36 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
       needsUserAction: false,
       status: "ready"
     });
+    await waitFor(() =>
+      expect(
+        rendered.result.current.activityController.getSnapshot().available
+      ).toBe(true)
+    );
+    act(() => {
+      rendered.result.current.activityController.toggle();
+    });
+    expect(
+      rendered.result.current.activityController.getSnapshot().activation
+        ?.priority
+    ).toEqual([]);
+
+    const rootFactsBeforeChildLifecycleUpdate =
+      rendered.result.current.activityRootFacts;
+    const conversationsBeforeChildLifecycleUpdate =
+      rendered.result.current.activityConversations;
+    act(() => {
+      engine.dispatch({
+        live: true,
+        type: "turn/upserted",
+        turn: runningChildTurn(3)
+      });
+    });
+    expect(rendered.result.current.activityRootFacts).toBe(
+      rootFactsBeforeChildLifecycleUpdate
+    );
+    expect(rendered.result.current.activityConversations).toBe(
+      conversationsBeforeChildLifecycleUpdate
+    );
 
     act(() => {
       engine.dispatch({
@@ -107,15 +139,62 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
     });
     await waitFor(() =>
       expect(rendered.result.current.activityRootFacts.get("root")).toEqual({
-        needsUserAction: false,
+        needsUserAction: true,
         status: "ready"
       })
     );
     expect(rendered.result.current.activityConversations[0]).toMatchObject({
       id: "root",
-      needsUserAction: false,
+      needsUserAction: true,
       status: "ready"
     });
+    await waitFor(() =>
+      expect(
+        rendered.result.current.activityController.getSnapshot().activation
+          ?.priority
+      ).toMatchObject([
+        {
+          id: "root",
+          priorityReason: "waiting"
+        }
+      ])
+    );
+
+    act(() => {
+      engine.dispatch({
+        type: "session/upserted",
+        session: normalizeAgentActivitySession({
+          activeTurnId: "root-turn",
+          agentSessionId: "root",
+          createdAtUnixMs: 1,
+          cwd: "/workspace",
+          latestTurnInteractions: [],
+          pendingInteractions: [],
+          provider: "codex",
+          title: "Root",
+          updatedAtUnixMs: 4,
+          workspaceId: "workspace-1"
+        })
+      });
+      engine.dispatch({
+        live: true,
+        type: "turn/upserted",
+        turn: {
+          agentSessionId: "root",
+          origin: "user_prompt",
+          phase: "running",
+          startedAtUnixMs: 4,
+          turnId: "root-turn",
+          updatedAtUnixMs: 4
+        }
+      });
+    });
+    await waitFor(() =>
+      expect(rendered.result.current.activityRootFacts.get("root")).toEqual({
+        needsUserAction: true,
+        status: "working"
+      })
+    );
 
     rendered.unmount();
     engine.dispose();
@@ -251,13 +330,13 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
   });
 });
 
-function runningChildTurn(): AgentActivityTurn {
+function runningChildTurn(updatedAtUnixMs = 2): AgentActivityTurn {
   return {
     agentSessionId: "child",
     origin: "provider_initiated",
     phase: "running",
     startedAtUnixMs: 2,
     turnId: "child-turn",
-    updatedAtUnixMs: 2
+    updatedAtUnixMs
   };
 }

@@ -544,12 +544,21 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 		// different emission path. The tracker is idempotent, so the emitter
 		// can retain its existing boundary without duplicating indexes.
 		events = a.inputUnits.stamp(session.AgentSessionID, events)
+		// A child may outlive its root Turn. Only child events owned by the
+		// currently active canonical root Turn may enter that Turn's emitter;
+		// otherwise a newer Turn's acceptance buffer or close fence can drop them.
+		turnEvents, detachedChildEvents := appServerEventsForActiveRootTurn(
+			session.AgentSessionID,
+			turnID,
+			events,
+		)
 		if turnEmit != nil {
-			turnEmit(events)
-		} else if childEvents := appServerChildSessionEvents(session.AgentSessionID, events); len(childEvents) > 0 {
+			turnEmit(turnEvents)
+		}
+		if len(detachedChildEvents) > 0 {
 			a.emitSessionEvents(
 				session.AgentSessionID,
-				a.stampTurnLifecycleSnapshots(session.AgentSessionID, childEvents),
+				a.stampTurnLifecycleSnapshots(session.AgentSessionID, detachedChildEvents),
 			)
 		}
 		return err
@@ -608,17 +617,26 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 	return client, initializeResult, false, nil
 }
 
-func appServerChildSessionEvents(
+func appServerEventsForActiveRootTurn(
 	rootAgentSessionID string,
+	activeRootTurnID string,
 	events []activityshared.Event,
-) []activityshared.Event {
+) ([]activityshared.Event, []activityshared.Event) {
 	rootAgentSessionID = strings.TrimSpace(rootAgentSessionID)
-	childEvents := make([]activityshared.Event, 0, len(events))
+	activeRootTurnID = strings.TrimSpace(activeRootTurnID)
+	turnEvents := make([]activityshared.Event, 0, len(events))
+	detachedChildEvents := make([]activityshared.Event, 0, len(events))
 	for _, event := range events {
 		eventAgentSessionID := strings.TrimSpace(event.AgentSessionID)
 		if eventAgentSessionID != "" && eventAgentSessionID != rootAgentSessionID {
-			childEvents = append(childEvents, event)
+			if activeRootTurnID == "" || strings.TrimSpace(event.RootTurnID) != activeRootTurnID {
+				detachedChildEvents = append(detachedChildEvents, event)
+				continue
+			}
+		}
+		if activeRootTurnID != "" {
+			turnEvents = append(turnEvents, event)
 		}
 	}
-	return childEvents
+	return turnEvents, detachedChildEvents
 }

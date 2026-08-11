@@ -1322,11 +1322,14 @@ boundary for the Conversation Rail Activity View. Desktop opts in explicitly;
 external hosts that omit or disable it retain the ordinary Rail unchanged.
 
 The view is a presentation-only activation over the current workspace Engine:
-it reads visible root Session summaries, each root Session's own
-working/waiting state, attention/read state, and already-cached Session
-messages. Descendant activity remains available in the conversation detail
-and interaction surfaces, but it does not change the root row's Rail status.
-Opening Activity View must not call list pagination or transcript hydration.
+it reads visible root Session summaries, each root Session's own lifecycle
+status, root-conversation attention/read state, and already-cached Session
+messages. Descendant lifecycle activity remains available in the conversation
+detail and interaction surfaces, but it does not change the root row's Rail
+status. A pending descendant Interaction still contributes canonical
+root-conversation attention so an approval or question cannot disappear with
+the filtered child row; submission retains the exact child identity. Opening
+Activity View must not call list pagination or transcript hydration.
 Its membership input is the canonical mounted Engine summary collection, never
 the ordinary Rail's transient `runtimeRailConversations` overlay; stale page
 projections therefore cannot leak into Activity View.

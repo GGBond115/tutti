@@ -284,6 +284,85 @@ func TestCodexAppServerAdapterEmitsLateChildCompletionAfterRootTurnCompleted(t *
 	}
 }
 
+func TestCodexAppServerAdapterKeepsLateChildCompletionOutOfNewRootTurnEmitter(t *testing.T) {
+	adapter, transport, session := startedAppServerAdapter(t)
+	_, _ = adapter.rememberAppServerChildThreads(session, "codex-thread-1", session.AgentSessionID, "turn-local-1", session.AgentSessionID, "turn-local-1", map[string]any{
+		"type":              "collabAgentToolCall",
+		"id":                "spawn-child-1",
+		"receiverThreadIds": []any{"child-thread-1"},
+	})
+	child, ok := adapter.appServerChildThread(session.AgentSessionID, "child-thread-1")
+	if !ok {
+		t.Fatal("child thread was not registered")
+	}
+
+	if _, err := adapter.Exec(context.Background(), session, []PromptContentBlock{{
+		Type: "text", Text: "parent task A",
+	}}, "", "turn-local-1", nil, nil); err != nil {
+		t.Fatalf("Exec turn A: %v", err)
+	}
+	if activeTurn := adapter.sessionActiveTurn(session.AgentSessionID); activeTurn != nil {
+		t.Fatal("root turn A remained active after completion")
+	}
+
+	type emittedBatch struct {
+		agentSessionID string
+		events         []activityshared.Event
+	}
+	emitted := make(chan emittedBatch, 1)
+	adapter.SetSessionEventSink(func(agentSessionID string, events []activityshared.Event) {
+		emitted <- emittedBatch{
+			agentSessionID: agentSessionID,
+			events:         append([]activityshared.Event(nil), events...),
+		}
+	})
+
+	transport.server.holdTurn = true
+	execDone := make(chan []activityshared.Event, 1)
+	go func() {
+		events, _ := adapter.Exec(context.Background(), session, []PromptContentBlock{{
+			Type: "text", Text: "parent task B",
+		}}, "", "turn-local-2", nil, nil)
+		execDone <- events
+	}()
+	waitForCondition(t, func() bool {
+		activeTurn := adapter.sessionActiveTurn(session.AgentSessionID)
+		return activeTurn != nil && activeTurn.turnID == "turn-local-2"
+	})
+
+	transport.conn.notify(appServerNotifyTurnCompleted, map[string]any{
+		"threadId": "child-thread-1",
+		"turn":     map[string]any{"id": "child-provider-turn-1", "status": "completed"},
+	})
+
+	select {
+	case batch := <-emitted:
+		if batch.agentSessionID != session.AgentSessionID {
+			t.Fatalf("sink session = %q, want root %q", batch.agentSessionID, session.AgentSessionID)
+		}
+		completed := eventsOfType(batch.events, activityshared.EventTurnCompleted)
+		if len(completed) != 1 ||
+			completed[0].AgentSessionID != child.agentSessionID ||
+			completed[0].RootTurnID != "turn-local-1" {
+			t.Fatalf("detached child completion events = %#v", batch.events)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("late child completion was coupled to root turn B")
+	}
+
+	transport.server.completePendingTurn()
+	select {
+	case events := <-execDone:
+		for _, event := range events {
+			if event.AgentSessionID == child.agentSessionID {
+				t.Fatalf("root turn B captured detached child event: %#v", event)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("root turn B did not finish")
+	}
+}
+
 func TestCodexAppServerAdapterCancelInterruptsLateUnownedRootTurn(t *testing.T) {
 	adapter, transport, session := startedAppServerAdapter(t)
 	transport.server.holdTurn = true
