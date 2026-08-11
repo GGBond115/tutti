@@ -412,7 +412,7 @@ describe("useComposerDraftAttachments", () => {
 
     expect(onLinkAction).not.toHaveBeenCalled();
     expect(hostToastInfo).toHaveBeenCalledWith(
-      "This attachment is still uploading. You can open it after preparation finishes."
+      "This attachment is still being prepared. Open it after preparation finishes."
     );
     expect(hostToastError).not.toHaveBeenCalled();
   });
