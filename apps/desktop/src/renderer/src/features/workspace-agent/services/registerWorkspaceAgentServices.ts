@@ -140,7 +140,6 @@ export function registerWorkspaceAgentServices(
     preferencesStore
   });
   const agentQuickPromptService = new DesktopAgentQuickPromptService({
-    desktopPreferencesService: input.desktopPreferencesService,
     eventStreamClient: input.eventStreamClient,
     tuttidClient: input.tuttidClient
   });
