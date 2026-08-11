@@ -49,7 +49,7 @@ import (
 )
 
 const connectorMarketDefaultBaseURL = "https://api.tutti.sh/api/desktop"
-const connectorMCPDefaultBaseURL = "https://api.tutti.sh/api/desktop"
+const connectorMCPDefaultBaseURL = "https://tutti.sh/api/desktop"
 const connectorArtifactBaseURL = "https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/"
 
 type tuttiWiring struct {

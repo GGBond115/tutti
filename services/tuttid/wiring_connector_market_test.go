@@ -12,7 +12,7 @@ func TestConnectorMarketDefaultUsesDesktopGateway(t *testing.T) {
 }
 
 func TestConnectorMCPDefaultUsesDesktopGateway(t *testing.T) {
-	const expected = "https://api.tutti.sh/api/desktop"
+	const expected = "https://tutti.sh/api/desktop"
 	if connectorMCPDefaultBaseURL != expected {
 		t.Fatalf("connector MCP base URL = %q, want %q", connectorMCPDefaultBaseURL, expected)
 	}
