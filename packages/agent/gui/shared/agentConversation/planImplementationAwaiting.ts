@@ -4,7 +4,7 @@ import {
   selectWorkspaceAgentConsumerSessions,
   type AgentActivitySession,
   type AgentActivityTurn,
-  type AgentSessionEngineStateBase
+  type AgentSessionEngineState
 } from "@tutti-os/agent-activity-core";
 import { latestPlanTurnId } from "./planImplementationPresentation";
 
@@ -41,7 +41,7 @@ export function consumerAwaitingPlanImplementation(input: {
 }
 
 export function selectRootAgentSessionIdsAwaitingPlanImplementation(
-  state: AgentSessionEngineStateBase
+  state: AgentSessionEngineState
 ): readonly string[] {
   const sessionIds: string[] = [];
   for (const consumer of selectWorkspaceAgentConsumerSessions(state)) {
@@ -66,7 +66,7 @@ export function selectRootAgentSessionIdsAwaitingPlanImplementation(
 }
 
 function sessionMessagesForPlanDetection(
-  state: AgentSessionEngineStateBase,
+  state: AgentSessionEngineState,
   session: Pick<AgentActivitySession, "agentSessionId" | "providerSessionId">
 ) {
   for (const id of [session.agentSessionId, session.providerSessionId]) {

@@ -293,6 +293,7 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
       type: "session/snapshotReceived",
       sessions: [
         normalizeAgentActivitySession({
+          activeTurnId: null,
           agentSessionId: "plan-session",
           capabilities: {
             imageInput: false,
@@ -333,6 +334,7 @@ describe("useAgentGUIConversationRailQuery Activity facts", () => {
           workspaceId: "workspace-1"
         }),
         normalizeAgentActivitySession({
+          activeTurnId: null,
           agentSessionId: "other-session",
           cwd: "/workspace",
           latestTurnInteractions: [],

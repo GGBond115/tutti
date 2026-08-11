@@ -74,6 +74,7 @@ describe("planImplementationAwaiting", () => {
       type: "session/snapshotReceived",
       sessions: [
         normalizeAgentActivitySession({
+          activeTurnId: null,
           agentSessionId: "plan-session",
           capabilities: planCapabilities(),
           cwd: "/workspace",
@@ -85,6 +86,7 @@ describe("planImplementationAwaiting", () => {
           workspaceId: "workspace-1"
         }),
         normalizeAgentActivitySession({
+          activeTurnId: null,
           agentSessionId: "idle-session",
           capabilities: planCapabilities(),
           cwd: "/workspace",
