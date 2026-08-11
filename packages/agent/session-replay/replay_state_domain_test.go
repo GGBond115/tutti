@@ -910,6 +910,8 @@ func TestCompareTuttiReplayStateTreatsAttachmentIDsAsAlphaEquivalent(
 						Payload: map[string]any{
 							"content": []any{map[string]any{
 								"type":         "image",
+								"mimeType":     "image/png",
+								"name":         "shot.png",
 								"attachmentId": attachmentID,
 							}},
 						},
@@ -931,6 +933,60 @@ func TestCompareTuttiReplayStateTreatsAttachmentIDsAsAlphaEquivalent(
 	); err != nil {
 		t.Fatalf(
 			"attachment identities must be alpha-equivalent, got %v",
+			err,
+		)
+	}
+}
+
+func TestCompareTuttiReplayStateIgnoresSharedObjectUploadImageLocators(
+	t *testing.T,
+) {
+	buildState := func(content map[string]any) TuttiReplayState {
+		return TuttiReplayState{
+			SchemaVersion: SchemaVersion,
+			Agent: TuttiReplayAgent{
+				RootSessionID: "session-1",
+				Sessions: []agenthost.HistoricalSession{{
+					ID:                "session-1",
+					Kind:              "root",
+					AgentTargetID:     "codex",
+					Provider:          "codex",
+					ProviderSessionID: "provider-session-1",
+					Messages: []agenthost.HistoricalMessage{{
+						ID:   "message-1",
+						Kind: "text",
+						Payload: map[string]any{
+							"content": []any{content},
+						},
+					}},
+				}},
+			},
+			TuttiMode: TuttiReplayTuttiMode{
+				Activations:   []TuttiReplayActivation{},
+				TurnSnapshots: []TuttiReplayTurnSnapshot{},
+			},
+			Workflows: []TuttiReplayWorkflow{},
+			Issues:    []TuttiReplayIssue{},
+		}
+	}
+
+	recorded := buildState(map[string]any{
+		"type":         "image",
+		"mimeType":     "image/png",
+		"name":         "r05-image-only.png",
+		"attachmentId": "0075df1d-7a65-401f-bba1-8524f5de040b",
+	})
+	sharedReplay := buildState(map[string]any{
+		"type":     "image",
+		"mimeType": "image/png",
+		"name":     "r05-image-only.png",
+		"assetId":  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"url":      "https://example.com/object-uploads/image.png",
+		"uri":      "asset://shared/image.png",
+	})
+	if err := CompareTuttiReplayState(recorded, sharedReplay); err != nil {
+		t.Fatalf(
+			"shared object-upload image locators must not conflict with recorded attachmentId, got %v",
 			err,
 		)
 	}
