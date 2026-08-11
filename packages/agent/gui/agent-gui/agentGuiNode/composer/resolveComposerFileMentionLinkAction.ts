@@ -3,6 +3,7 @@ import {
   type WorkspaceLinkAction,
   type WorkspaceLinkActionSource
 } from "../../../actions/workspaceLinkActions";
+import { translate } from "../../../i18n/index";
 import { parseMentionItemFromHref } from "../agentRichText/agentFileMentionExtension";
 import { agentComposerDraftFiles } from "../model/agentComposerDraft";
 import type {
@@ -82,4 +83,70 @@ export function collectComposerDraftFiles(input: {
     }
   }
   return [...byId.values()];
+}
+
+export function notifyComposerFileMentionBlocked(input: {
+  reason: "uploading" | "failed" | "unavailable";
+  showError: (message: string) => void;
+  showInfo: (message: string) => void;
+}): void {
+  if (input.reason === "uploading") {
+    input.showInfo(translate("agentHost.agentGui.composerFileStillPreparing"));
+    return;
+  }
+  input.showError(
+    translate(
+      input.reason === "failed"
+        ? "agentHost.agentGui.composerFileOpenFailed"
+        : "agentHost.agentGui.composerFileOpenUnavailable"
+    )
+  );
+}
+
+export function dispatchComposerDraftMarkdownLinkClick(input: {
+  href: string;
+  activeFiles: readonly AgentComposerDraftFile[];
+  draftsByScope?: Readonly<Record<string, AgentComposerDraft>>;
+  workspaceRoot?: string | null;
+  onWorkspaceReference?: (
+    item: NonNullable<ReturnType<typeof parseMentionItemFromHref>>
+  ) => void;
+  onLinkAction?: (action: WorkspaceLinkAction) => void;
+  showError: (message: string) => void;
+  showInfo: (message: string) => void;
+}): void {
+  const item = parseMentionItemFromHref({ name: "", href: input.href });
+  if (item?.kind === "workspace-reference") {
+    input.onWorkspaceReference?.(item);
+    return;
+  }
+  const composerFileResolution = resolveComposerFileMentionLinkAction({
+    href: input.href,
+    files: collectComposerDraftFiles({
+      activeFiles: input.activeFiles,
+      draftsByScope: input.draftsByScope
+    }),
+    workspaceRoot: input.workspaceRoot,
+    source: "agent-markdown"
+  });
+  if (composerFileResolution?.kind === "open") {
+    input.onLinkAction?.(composerFileResolution.action);
+    return;
+  }
+  if (composerFileResolution?.kind === "blocked") {
+    notifyComposerFileMentionBlocked({
+      reason: composerFileResolution.reason,
+      showError: input.showError,
+      showInfo: input.showInfo
+    });
+    return;
+  }
+  const action = resolveWorkspaceLinkAction({
+    href: input.href,
+    workspaceRoot: input.workspaceRoot,
+    source: "agent-markdown"
+  });
+  if (action) {
+    input.onLinkAction?.(action);
+  }
 }

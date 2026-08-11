@@ -32,7 +32,6 @@ import type {
   AgentRichTextPastedImage
 } from "../agentRichText/AgentRichTextEditor";
 import type { AgentContextMentionItem } from "../agentRichText/agentFileMentionExtension";
-import { parseMentionItemFromHref } from "../agentRichText/agentFileMentionExtension";
 import {
   agentExternalPromptFileErrorI18nKey,
   createAgentExternalPromptFilePreparation,
@@ -44,14 +43,8 @@ import {
   updateAgentComposerFileMentions
 } from "../agentRichText/agentMentionMarkdown";
 import { updateDraftPromptAndReconcileFiles } from "../model/agentComposerDraftFileReconciliation";
-import {
-  resolveWorkspaceLinkAction,
-  type WorkspaceLinkAction
-} from "../../../actions/workspaceLinkActions";
-import {
-  collectComposerDraftFiles,
-  resolveComposerFileMentionLinkAction
-} from "./resolveComposerFileMentionLinkAction";
+import { type WorkspaceLinkAction } from "../../../actions/workspaceLinkActions";
+import { dispatchComposerDraftMarkdownLinkClick } from "./resolveComposerFileMentionLinkAction";
 import {
   AGENT_COMPOSER_PASTED_TEXT_FILE_PREFIX,
   agentComposerTextByteLength,
@@ -763,48 +756,20 @@ export function useComposerDraftAttachments({
 
   const handleLinkClick = useCallback(
     (href: string): void => {
-      const item = parseMentionItemFromHref({ name: "", href });
-      if (item?.kind === "workspace-reference") {
-        openReferencesForEntityRef.current?.(item);
-        return;
-      }
-      const composerFileResolution = resolveComposerFileMentionLinkAction({
+      dispatchComposerDraftMarkdownLinkClick({
         href,
-        files: collectComposerDraftFiles({
-          activeFiles: draftFilesRef.current,
-          draftsByScope: draftByScopeKeyRef.current
-        }),
+        activeFiles: draftFilesRef.current,
+        draftsByScope: draftByScopeKeyRef.current,
         workspaceRoot: workspacePath,
-        source: "agent-markdown"
+        onWorkspaceReference: (item) => {
+          if (item.kind === "workspace-reference") {
+            openReferencesForEntityRef.current?.(item);
+          }
+        },
+        onLinkAction,
+        showError: showErrorToast,
+        showInfo: showInfoToast
       });
-      if (composerFileResolution?.kind === "open") {
-        onLinkAction?.(composerFileResolution.action);
-        return;
-      }
-      if (composerFileResolution?.kind === "blocked") {
-        if (composerFileResolution.reason === "uploading") {
-          showInfoToast(
-            translate("agentHost.agentGui.composerFileStillPreparing")
-          );
-        } else if (composerFileResolution.reason === "failed") {
-          showErrorToast(
-            translate("agentHost.agentGui.composerFileOpenFailed")
-          );
-        } else {
-          showErrorToast(
-            translate("agentHost.agentGui.composerFileOpenUnavailable")
-          );
-        }
-        return;
-      }
-      const action = resolveWorkspaceLinkAction({
-        href,
-        workspaceRoot: workspacePath,
-        source: "agent-markdown"
-      });
-      if (action) {
-        onLinkAction?.(action);
-      }
     },
     [
       draftByScopeKeyRef,
