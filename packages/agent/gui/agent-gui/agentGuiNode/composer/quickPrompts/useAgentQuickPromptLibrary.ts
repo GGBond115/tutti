@@ -35,6 +35,7 @@ export interface AgentQuickPromptDraft {
 
 export interface AgentQuickPromptCreateOptions {
   insertIntoComposerAfterSave?: boolean;
+  usagePromptType?: AgentGUIQuickPromptType;
 }
 
 export interface AgentQuickPromptLibraryController {
@@ -78,7 +79,6 @@ export interface AgentQuickPromptLibraryController {
   setSearchQuery: (query: string) => void;
   snapshot: AgentHostQuickPromptSnapshot;
   submitDelete: () => Promise<boolean>;
-  trackUsage?: (promptType: AgentGUIQuickPromptType) => void;
 }
 
 export function useAgentQuickPromptLibrary(input: {
@@ -330,6 +330,9 @@ export function useAgentQuickPromptLibrary(input: {
           inserted = false;
         }
         if (inserted) {
+          if (createOptions?.usagePromptType) {
+            onQuickPromptUsed?.(createOptions.usagePromptType);
+          }
           close();
           return true;
         }
@@ -507,8 +510,7 @@ export function useAgentQuickPromptLibrary(input: {
     setPopoverOpen,
     setSearchQuery: updateSearchQuery,
     snapshot,
-    submitDelete,
-    trackUsage: onQuickPromptUsed
+    submitDelete
   };
 }
 

@@ -41,11 +41,13 @@ partial or disabled library.
 Desktop AgentGUI reports quick-prompt engagement through the typed panel
 engagement sink. Opening the picker from the Composer emits
 `agent.quick_prompt_engagement` with `action=panel_opened` and
-`source=composer_input`; selecting a saved prompt or a recommended template
-emits the same event with `action=prompt_used` and the corresponding
-`prompt_type`. The action-discriminated contract forbids `prompt_type` on panel
-open events. Events carry only stable AgentGUI context and never prompt titles
-or prompt bodies, while the action keeps picker exposure distinct from use.
+`source=composer_input`; successfully inserting a saved prompt or a saved
+recommended template into the Composer emits the same event with
+`action=prompt_used` and the corresponding `prompt_type`. Engagement is
+buffered until the containing panel satisfies its exposure gate. The
+action-discriminated contract forbids `prompt_type` on panel-open events.
+Events carry only stable AgentGUI context and never prompt titles or prompt
+bodies, while the action keeps picker exposure distinct from successful use.
 
 The native Mobile composer consumes the same device-global list through its
 authenticated Desktop connection rather than creating Mobile-owned prompt
