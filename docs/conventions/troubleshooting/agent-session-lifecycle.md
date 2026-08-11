@@ -4385,6 +4385,28 @@ permanently ambiguous`. Provider status may already be `active` while the
   [codex_appserver_session.go](../../../packages/agent/daemon/runtime/codex_appserver_session.go)
   [standard_acp_session.go](../../../packages/agent/daemon/runtime/standard_acp_session.go)
 
+### Final ACP Markdown loses spacing between blocks
+
+- Symptom:
+  A completed ACP answer reaches the transcript, but headings, lists, or fenced
+  code blocks run together even though the provider's `session/prompt` result
+  contains the expected newlines.
+- Root cause:
+  The final-result extractor trimmed each nested content block before joining
+  them. Whitespace that separated adjacent Markdown blocks was therefore
+  removed before the turn normalizer and GUI received the answer.
+- Fix:
+  Use trimming only to decide whether a content block is empty. Preserve the
+  original non-empty block text while recursively extracting and joining the
+  final assistant content.
+- Validation:
+  Exercise a complete standard-ACP turn whose final result contains a heading,
+  list, and fenced code block. Require the projected assistant snapshot to keep
+  all internal Markdown newlines.
+- References:
+  [acp_update_events.go](../../../packages/agent/daemon/runtime/acp_update_events.go)
+  [standard_acp_turn_test.go](../../../packages/agent/daemon/runtime/standard_acp_turn_test.go)
+
 ### Cassette replay reports a false final Session state mismatch
 
 - Symptom:
