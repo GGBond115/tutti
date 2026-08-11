@@ -154,4 +154,3 @@ func TestACPClientSyntheticRateLimitsDoesNotRewindProviderCursor(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
-
