@@ -1342,11 +1342,15 @@ canonical reconciliation; it is not a compatibility conversion path.
 `StreamReady` is transport-only and must not be interpreted as canonical
 catch-up. `AttachmentChanged` starts a baseline for one positive attachment
 revision; hosts publish their canonical baseline and then
-`AttachmentCaughtUp` with the exact same binding, workspace, Session, Turn,
-caller-Turn, and revision identity. Consumers reject a missing or mismatched
-barrier. The protocol carries this fence but does not choose recovery state:
-the host adapter must reread its canonical store, which remains the lifecycle
-authority after a runtime or host-process restart.
+`AttachmentCaughtUp` with the exact same binding, workspace, Session,
+authorization set, explicit `currentInteractionRootTurnId`, caller-Turn, and
+revision identity. `canonicalTurnIds` is an authorization set, never an ordered
+current-Turn pointer. Every complete `interaction_snapshot` carries its
+required exact `rootTurnId`, including an empty collection. Consumers reject a
+snapshot whose root does not resolve to the controlled root and reject a
+missing or mismatched barrier. The protocol carries this fence but does not
+choose recovery state: the host adapter must reread its canonical store, which
+remains the lifecycle authority after a runtime or host-process restart.
 
 Replay resumes the same epoch, so replayed attachment or caught-up controls may
 precede the replacement RPC's newly emitted `StreamReady`. Consumers persist

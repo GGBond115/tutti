@@ -282,8 +282,10 @@ covered; the fact carries the immutable root Session and root Turn identity so
 consumers wake and reread one tree without reconstructing lineage. A root
 Session deletion uses an empty root Turn as an explicit all-turns wake. These
 facts are invalidation hints, not partial row updates. Consumers publish the
-reread result as one complete `interaction_snapshot`; an empty interactions
-array is an authoritative clear. `CreateSessionInput.ClientSubmitID` and
+reread result as one complete `interaction_snapshot` carrying the returned
+exact root Turn; an empty interactions array is an authoritative clear only for
+that explicit root. Collection contents or authorization-list order must never
+be used to infer the current root. `CreateSessionInput.ClientSubmitID` and
 `SendInput.ClientSubmitID` are the typed idempotency identities and override
 the legacy metadata value when both are present. The matching durable submit
 claim's immutable `CreatedAtUnixMS` is the canonical occurrence of that user
