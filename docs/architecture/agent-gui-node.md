@@ -1584,6 +1584,15 @@ text, but they are not an additional transcript text block when the canonical
 structured content already renders the same image. Explicit display prompts
 remain transcript content and continue to replace expanded rich prompt text.
 
+Structured user-prompt transcript images keep resource acquisition and browser
+image decoding as separate presentation states. A URL or hydrated data source
+is not proof that pixels are ready: AgentGUI reserves the final thumbnail
+geometry and shows its loading treatment until the exact image element reports
+`load`. `error` replaces that slot with the retryable failure treatment. A retry
+of the same URL or a replacement effective source starts a new decode attempt
+instead of reusing stale loaded or failed state. These loading and retry states
+are UI-local and never enter canonical Message or workspace-engine state.
+
 Standalone hosts may opt a transcript into participant avatars through the
 `agent-conversation` entrypoint's explicit presentation contract. Omitted or
 disabled presentation preserves the existing transcript DOM. Enabled
