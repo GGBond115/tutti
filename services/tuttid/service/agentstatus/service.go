@@ -33,6 +33,7 @@ type AuthStatus = providerstatus.AuthStatus
 
 const (
 	AuthAuthenticated = providerstatus.AuthAuthenticated
+	AuthConfigured    = providerstatus.AuthConfigured
 	AuthRequired      = providerstatus.AuthRequired
 	AuthUnknown       = providerstatus.AuthUnknown
 )
@@ -273,13 +274,14 @@ type Service struct {
 	// UserCommandBinDir is the stable user-level directory published on PATH.
 	UserCommandBinDir string
 	AnalyticsReporter reporterservice.Reporter
-	// RunOutcomes lets a runtime auth failure override a stale "logged in" marker
-	// so the dock/wizard surface that login dropped. Shared pointer across copies.
+	// RunOutcomes lets real requests promote configured credentials to authenticated
+	// or override stale local status after an auth failure. Shared across copies.
 	RunOutcomes *RunOutcomeStore
 	// StatusCache is shared by the daemon API and agent session service so local
 	// readiness probes run once per provider instead of once per caller/window.
 	StatusCache                 *ProviderStatusCache
 	StatusCacheTTL              time.Duration
+	RemoteAuthProbeTTL          time.Duration
 	OnProviderStatusInvalidated func(string)
 	// CLIVersionCache, AdapterProbeCache and global-bin caches keep stable
 	// executable facts across forced auth refreshes. DetectionCommands bounds
@@ -300,6 +302,9 @@ type Service struct {
 	// CodexAuthProbe is injectable for deterministic auth tests. Nil uses the
 	// production app-server transport and account/read, matching TUI startup.
 	CodexAuthProbe func(context.Context, []string, []string) CodexAuthProbeEvidence
+	// RemoteAuthProbe is the provider-neutral test seam for descriptor-owned
+	// provider requests. Nil resolves credentials locally and uses HTTPClient.
+	RemoteAuthProbe func(context.Context, ProviderSpec) (providerstatus.AuthEvidence, bool)
 	// CodexRuntimeSelectionStore persists only an explicit Codex launcher
 	// choice. A missing selection permits only one uniquely ready candidate;
 	// multiple ready candidates require the user to choose one.
@@ -548,11 +553,21 @@ func (s Service) providerStatusCacheTTL() time.Duration {
 }
 
 func (s Service) cachedProviderStatusStillValid(spec ProviderSpec, cachedAt time.Time, credentialFingerprint string) bool {
-	failedAt, invalidated := s.RunOutcomes.AuthInvalidatedSince(spec.Provider)
-	if invalidated && failedAt.After(cachedAt) {
+	if spec.RemoteAuthProbe.Kind != "" && s.now().Sub(cachedAt) >= s.remoteAuthProbeTTL() {
+		return false
+	}
+	_, evidenceAt, hasEvidence := s.RunOutcomes.AuthEvidence(spec.Provider)
+	if hasEvidence && evidenceAt.After(cachedAt) {
 		return false
 	}
 	return credentialFingerprint == s.providerCredentialFingerprint(spec)
+}
+
+func (s Service) remoteAuthProbeTTL() time.Duration {
+	if s.RemoteAuthProbeTTL > 0 {
+		return s.RemoteAuthProbeTTL
+	}
+	return defaultRemoteAuthProbeTTL
 }
 
 func (s Service) invalidateProviderStatus(provider string) {

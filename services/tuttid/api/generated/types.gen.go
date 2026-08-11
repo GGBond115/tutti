@@ -262,6 +262,7 @@ func (e AgentProviderActiveActionStepStatus) Valid() bool {
 // Defines values for AgentProviderAuthStatus.
 const (
 	AgentProviderAuthStatusAuthenticated AgentProviderAuthStatus = "authenticated"
+	AgentProviderAuthStatusConfigured    AgentProviderAuthStatus = "configured"
 	AgentProviderAuthStatusRequired      AgentProviderAuthStatus = "required"
 	AgentProviderAuthStatusUnknown       AgentProviderAuthStatus = "unknown"
 )
@@ -270,6 +271,8 @@ const (
 func (e AgentProviderAuthStatus) Valid() bool {
 	switch e {
 	case AgentProviderAuthStatusAuthenticated:
+		return true
+	case AgentProviderAuthStatusConfigured:
 		return true
 	case AgentProviderAuthStatusRequired:
 		return true

@@ -360,6 +360,28 @@ Tutti Agent use their validated local credential files as the primary auth
 signal; malformed files may fall back to one CLI check. Cursor's single
 `about --format json` result supplies both auth and version when available.
 
+Authentication status is evidence-based and provider-neutral. A local status
+command, marker, token, or API key proves only `configured`. A provider-backed
+account probe or successful agent request proves `authenticated`. An explicit
+remote authentication failure proves `required` and outranks stale local
+credentials until credentials change or a later provider request succeeds.
+`packages/agent/daemon/providerstatus` owns evidence reduction; `tuttid` owns
+the live outcome store, cache invalidation, and public status projection. Tutti
+Desktop management surfaces and AgentGUI consume that same status. They may
+keep a `configured` provider launchable when availability is `ready`, but must
+not relabel it as connected or authenticated.
+
+For Claude Code subscription OAuth, the descriptor-owned remote check is
+`GET https://api.anthropic.com/api/oauth/usage`. It is attempted on ordinary
+status detection and becomes stale after 15 minutes. Visible, focused Desktop
+windows reconcile stale providers on focus/visibility activation and on the
+15-minute poll. API-key configuration skips this OAuth endpoint. `401` and
+`403` are authoritative login failures; rate limits, server errors, and network
+failures leave the weaker `configured` state intact. This check validates an
+access token but does not rotate refresh tokens; refresh ownership requires a
+separate serialized credential lifecycle that can gate on live Claude
+processes.
+
 ### 2.6 Developer cassette replay
 
 The developer-only `agent.sessionRecording` desktop preference defaults off.
