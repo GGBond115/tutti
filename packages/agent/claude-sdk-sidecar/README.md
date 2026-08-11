@@ -93,6 +93,9 @@ transcript persistence lag.
 Fallback and pre-identity Query terminals emit sanitized stderr records with
 the `CLAUDE_CODE_PROVIDER_TURN_DIAGNOSTIC` prefix. The daemon forwards them as
 `agent_session.claude_sdk.provider_turn_diagnostic` structured logs.
+A dispatched Turn that still has no provider Turn identity after two minutes
+emits one structured warning with the same event name. This diagnostic timer
+does not cancel, fail, or otherwise change the Turn.
 
 The daemon synchronously persists the canonical Turn, provider Session, and
 provider Turn binding when it receives `provider_turn_identity_resolved`. Only

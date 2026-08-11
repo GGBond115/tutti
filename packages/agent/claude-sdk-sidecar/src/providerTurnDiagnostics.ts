@@ -13,14 +13,20 @@ type ProviderTurnDiagnosticCandidate = {
   awaitingProviderTurnIdentity?: boolean;
 };
 
+type ProviderTurnDiagnosticSeverity = "warning";
+
+const PROVIDER_TURN_IDENTITY_WARNING_AFTER_MS = 2 * 60 * 1_000;
+
 export function logClaudeProviderTurnDiagnostic(
   stage: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  severity?: ProviderTurnDiagnosticSeverity
 ): void {
   try {
     stderr.write(
       `${CLAUDE_CODE_PROVIDER_TURN_DIAGNOSTIC_PREFIX} ${JSON.stringify({
         stage,
+        ...(severity ? { severity } : {}),
         sidecarPid: pid,
         ...payload
       })}\n`
@@ -69,6 +75,9 @@ export function logClaudeUnresolvedProviderTurns(
     turns: readonly ProviderTurnDiagnosticCandidate[];
     phaseForTurn: (turnId: string) => string | undefined;
     error?: unknown;
+    severity?: ProviderTurnDiagnosticSeverity;
+    warningAfterMs?: number;
+    elapsedMs?: number;
   }
 ): void {
   for (const turn of input.turns) {
@@ -81,21 +90,67 @@ export function logClaudeUnresolvedProviderTurns(
       continue;
     }
     try {
-      logClaudeProviderTurnDiagnostic(stage, {
-        turnId: turn.turnId.trim(),
-        providerSessionId: input.providerSessionId.trim(),
-        promptCorrelationId: turn.promptUuid.trim(),
-        generationId: input.generationId,
-        providerTurnPhase: input.phaseForTurn(turn.turnId) ?? "unknown",
-        awaitingProviderTurnIdentity:
-          turn.awaitingProviderTurnIdentity === true,
-        ...(input.error
-          ? { error: providerTurnDiagnosticError(input.error) }
-          : {})
-      });
+      logClaudeProviderTurnDiagnostic(
+        stage,
+        {
+          turnId: turn.turnId.trim(),
+          providerSessionId: input.providerSessionId.trim(),
+          promptCorrelationId: turn.promptUuid.trim(),
+          generationId: input.generationId,
+          providerTurnPhase: input.phaseForTurn(turn.turnId) ?? "unknown",
+          awaitingProviderTurnIdentity:
+            turn.awaitingProviderTurnIdentity === true,
+          ...(input.warningAfterMs !== undefined
+            ? { warningAfterMs: input.warningAfterMs }
+            : {}),
+          ...(input.elapsedMs !== undefined
+            ? { elapsedMs: input.elapsedMs }
+            : {}),
+          ...(input.error
+            ? { error: providerTurnDiagnosticError(input.error) }
+            : {})
+        },
+        input.severity
+      );
     } catch {
       // Diagnostics must never change query settlement semantics.
     }
+  }
+}
+
+export function scheduleClaudeProviderTurnIdentityWarning(input: {
+  providerSessionId: () => string;
+  generationId: number;
+  turn: ProviderTurnDiagnosticCandidate;
+  phaseForTurn: (turnId: string) => string | undefined;
+}): void {
+  const startedAtMs = Date.now();
+  try {
+    const timer = setTimeout(() => {
+      try {
+        logClaudeUnresolvedProviderTurns(
+          "provider_turn_identity_pending_after_timeout",
+          {
+            providerSessionId: input.providerSessionId(),
+            generationId: input.generationId,
+            turns: [input.turn],
+            phaseForTurn: input.phaseForTurn,
+            severity: "warning",
+            warningAfterMs: PROVIDER_TURN_IDENTITY_WARNING_AFTER_MS,
+            elapsedMs: Math.max(0, Date.now() - startedAtMs)
+          }
+        );
+      } catch {
+        // Diagnostics must never change provider execution semantics.
+      }
+    }, PROVIDER_TURN_IDENTITY_WARNING_AFTER_MS);
+    (
+      timer as ReturnType<typeof setTimeout> & {
+        unref?: () => void;
+      }
+    ).unref?.();
+  } catch {
+    // Diagnostics must never change provider execution semantics.
   }
 }
 

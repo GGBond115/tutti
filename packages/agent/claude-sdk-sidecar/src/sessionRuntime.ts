@@ -62,7 +62,10 @@ import {
   ProviderTurnAcceptanceCoordinator,
   type ProviderTurnPhase
 } from "./providerTurnAcceptance.ts";
-import { logClaudeUnresolvedProviderTurns } from "./providerTurnDiagnostics.ts";
+import {
+  logClaudeUnresolvedProviderTurns,
+  scheduleClaudeProviderTurnIdentityWarning
+} from "./providerTurnDiagnostics.ts";
 import {
   canBypassPermissions,
   effectivePermissionMode,
@@ -522,6 +525,13 @@ export class SessionRuntime {
             content: outboundContent
           }
         } as SDKUserMessage);
+        scheduleClaudeProviderTurnIdentityWarning({
+          providerSessionId: () => this.providerSessionId,
+          generationId: generation.id,
+          turn,
+          phaseForTurn: (candidateTurnId) =>
+            this.providerTurnAcceptance.phase(candidateTurnId)
+        });
         this.consume(generation);
       })
       .catch((error) => {

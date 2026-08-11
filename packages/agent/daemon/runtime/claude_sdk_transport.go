@@ -296,6 +296,16 @@ func logClaudeSDKStructuredDiagnostic(line string, prefix string, event string) 
 	if !json.Valid([]byte(payloadJSON)) {
 		payloadJSON = `{"stage":"invalid_diagnostic_payload"}`
 	}
+	var envelope struct {
+		Severity string `json:"severity"`
+	}
+	if json.Unmarshal([]byte(payloadJSON), &envelope) == nil && envelope.Severity == "warning" {
+		slog.Warn(prefix,
+			"event", event,
+			"payload_json", payloadJSON,
+		)
+		return
+	}
 	slog.Info(prefix,
 		"event", event,
 		"payload_json", payloadJSON,
