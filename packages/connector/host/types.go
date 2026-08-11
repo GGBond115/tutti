@@ -395,6 +395,10 @@ const (
 	RuntimeReadinessFailed  RuntimeReadinessState = "failed"
 )
 
+// RuntimeReadinessReasonRuntimeDisabled confirms that a disabled reconcile
+// removed capability publication instead of attempting to start a runtime.
+const RuntimeReadinessReasonRuntimeDisabled = "runtime_disabled"
+
 type InterfaceReadiness struct {
 	Kind       string                `json:"kind"`
 	State      RuntimeReadinessState `json:"state"`

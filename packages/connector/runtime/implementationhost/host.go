@@ -198,7 +198,8 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		return market.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
 			ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: runtimeRequest.Connector.Installation.InstalledReleaseDigest,
 			Generation: runtimeRequest.Generation,
-			Readiness:  market.RuntimeReadiness{State: market.RuntimeReadinessBlocked, ReasonCode: "runtime_disabled"}}, nil
+			Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessBlocked,
+				ReasonCode: market.RuntimeReadinessReasonRuntimeDisabled}}, nil
 	}
 	if runtimeRequest.Connector.Installation.State != market.InstallationStateInstalled ||
 		runtimeRequest.Connector.Installation.InstalledReleaseDigest != runtimeRequest.Connector.Release.ReleaseDigest {

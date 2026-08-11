@@ -50,6 +50,8 @@ type Host struct {
 	authorizationSyncWake      chan struct{}
 	authorizationEventsDone    chan struct{}
 	authorizationScopeWake     chan struct{}
+	runtimeRecoveryDone        chan struct{}
+	runtimeRecoveryWake        chan struct{}
 	closeOnce                  sync.Once
 	bootstrapMu                sync.Mutex
 	bootstrapped               bool
@@ -65,6 +67,7 @@ type Host struct {
 	authorizationEvents        market.AuthorizationEventSource
 	authorizationReadiness     *market.AuthorizationReadinessGate
 	authorizationDirty         map[string]map[string]struct{}
+	runtimeRecoveryPending     map[string]struct{}
 }
 
 type capabilityPublicationGate interface {
@@ -113,6 +116,8 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 		authorizationSyncWake:   make(chan struct{}, 1),
 		authorizationEventsDone: make(chan struct{}),
 		authorizationScopeWake:  make(chan struct{}, 1),
+		runtimeRecoveryDone:     make(chan struct{}),
+		runtimeRecoveryWake:     make(chan struct{}, 1),
 		repository:              config.Repository,
 		implementationHost:      config.ImplementationHost,
 		activationGate:          activationGate,
@@ -121,6 +126,7 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 		authorizationEvents:     config.AuthorizationEvents,
 		authorizationReadiness:  config.AuthorizationReadiness,
 		authorizationDirty:      make(map[string]map[string]struct{}),
+		runtimeRecoveryPending:  make(map[string]struct{}),
 	}
 	if snapshotStore, ok := config.AuthorizationProjections.(market.AuthorizationSnapshotStore); ok {
 		host.authorizationSnapshotStore = snapshotStore
@@ -149,6 +155,10 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 	if _, ok := config.Authorization.(market.AuthorizationObserver); ok {
 		go host.runAuthorizationReconcileWorker(hostContext)
 	}
+	go func() {
+		defer close(host.runtimeRecoveryDone)
+		host.runRuntimeRecoveryWorker(hostContext)
+	}()
 	cleanupWorker := LifecycleCleanupWorker{Store: config.Lifecycle, Policy: config.LifecyclePolicy}
 	go func() {
 		defer close(host.lifecycleDone)
@@ -224,9 +234,10 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	defer host.bootstrapMu.Unlock()
 	sameScope := host.bootstrapScope == scope
 	if host.bootstrapped && sameScope && !host.activationGate.requiresRecovery() {
-		return nil
+		return host.reconcilePendingRuntimesLocked(ctx, scope)
 	}
 	host.bootstrapScope = scope
+	host.runtimeRecoveryPending = make(map[string]struct{})
 	if host.authorizationReadiness != nil && strings.TrimSpace(scope.AccountID) != "" {
 		host.authorizationReadiness.SetReady(scope.AccountID, false)
 	}
@@ -284,8 +295,16 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 		}
 	}
 	host.activationGate.setOpen(scope, true)
-	if err := host.Application.ReconcileInstalledRuntimesForScope(ctx, scope); err != nil {
-		return err
+	reconcileErr := host.Application.ReconcileInstalledRuntimesForScope(ctx, scope)
+	var reconcileFailures *market.RuntimeReconcileFailures
+	if reconcileErr != nil && !errors.As(reconcileErr, &reconcileFailures) {
+		return reconcileErr
+	}
+	if reconcileFailures != nil {
+		for _, connectorKey := range reconcileFailures.ConnectorKeys() {
+			host.runtimeRecoveryPending[connectorKey] = struct{}{}
+		}
+		host.notifyRuntimeRecovery()
 	}
 	if err := host.applyCapabilityPublication(ctx, scope, true); err != nil {
 		return err
@@ -293,6 +312,9 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	host.activationGate.markRecovered()
 	host.bootstrapped = true
 	committed = true
+	if reconcileFailures != nil {
+		slog.Warn("connector market bootstrap completed with unavailable connectors", "error", reconcileFailures)
+	}
 	return nil
 }
 
@@ -503,6 +525,7 @@ func (host *Host) FenceForScope(ctx context.Context, scope market.OperationScope
 	}
 	host.bootstrapped = false
 	host.bootstrapScope = scope
+	host.runtimeRecoveryPending = make(map[string]struct{})
 	host.notifyAuthorizationScopeChanged()
 	publicationErr := host.applyCapabilityPublication(ctx, scope, false)
 	fenceErr := host.activationGate.FailClosed(ctx, time.Now().Add(10*time.Second))
@@ -751,6 +774,7 @@ func (host *Host) Close() {
 		<-host.lifecycleDone
 		<-host.authorizationSyncDone
 		<-host.authorizationEventsDone
+		<-host.runtimeRecoveryDone
 		host.scheduler.Wait()
 	})
 }

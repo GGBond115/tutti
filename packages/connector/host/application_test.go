@@ -337,6 +337,102 @@ func TestApplicationReconcilesInstalledRuntimeAtStartup(t *testing.T) {
 	}
 }
 
+func TestApplicationStartupReconcileAcceptsDisabledRuntimeWithoutBlockingEnabledRuntime(t *testing.T) {
+	disabled := testConnector("dingtalk")
+	disabled.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: disabled.Release.Version,
+		InstalledReleaseID: disabled.Release.ReleaseID, InstalledReleaseDigest: disabled.Release.ReleaseDigest,
+	}
+	enabled := testConnector("lark")
+	enabled.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: enabled.Release.Version,
+		InstalledReleaseID: enabled.Release.ReleaseID, InstalledReleaseDigest: enabled.Release.ReleaseDigest,
+	}
+	repository := newMemoryRepository(disabled, enabled)
+	host := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+	application.config.RuntimeBindings = runtimeBindingResolverFunc(func(_ context.Context, request RuntimeBindingRequest) (RuntimeBinding, error) {
+		return RuntimeBinding{
+			ConnectionID: request.Connector.Key + "-connection",
+			Enabled:      request.Connector.Key == enabled.Key,
+		}, nil
+	})
+
+	if err := application.ReconcileInstalledRuntimes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.reconcileRequests) != 2 {
+		t.Fatalf("runtime reconciles = %#v", host.reconcileRequests)
+	}
+	if host.reconcileRequests[0].Connector.Key != disabled.Key || host.reconcileRequests[0].Enabled ||
+		host.reconcileRequests[1].Connector.Key != enabled.Key || !host.reconcileRequests[1].Enabled {
+		t.Fatalf("runtime reconciles = %#v", host.reconcileRequests)
+	}
+}
+
+func TestApplicationStartupReconcileContinuesAfterConnectorFailure(t *testing.T) {
+	failing := testConnector("dingtalk")
+	failing.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: failing.Release.Version,
+		InstalledReleaseID: failing.Release.ReleaseID, InstalledReleaseDigest: failing.Release.ReleaseDigest,
+	}
+	healthy := testConnector("lark")
+	healthy.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: healthy.Release.Version,
+		InstalledReleaseID: healthy.Release.ReleaseID, InstalledReleaseDigest: healthy.Release.ReleaseDigest,
+	}
+	repository := newMemoryRepository(failing, healthy)
+	host := &memoryInstallRuntime{reconcileErrors: map[string]error{failing.Key: errors.New("runtime unavailable")}}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+
+	err := application.ReconcileInstalledRuntimes(context.Background())
+	var failures *RuntimeReconcileFailures
+	if !errors.As(err, &failures) {
+		t.Fatalf("startup reconcile error = %v", err)
+	}
+	failedKeys := failures.ConnectorKeys()
+	if len(failedKeys) != 1 || failedKeys[0] != failing.Key {
+		t.Fatalf("failed connector keys = %#v", failedKeys)
+	}
+	if len(host.reconcileRequests) != 2 || host.reconcileRequests[1].Connector.Key != healthy.Key {
+		t.Fatalf("runtime reconciles = %#v", host.reconcileRequests)
+	}
+}
+
+func TestValidateRuntimeReceiptRequiresExactDisabledReadiness(t *testing.T) {
+	generation := HostGeneration{BootEpoch: "boot-1", Generation: 1}
+	base := RuntimeReceipt{
+		OperationID: "operation-1", ConnectionID: "connection-1", ConnectorKey: "dingtalk",
+		ReleaseDigest: strings.Repeat("a", 64), Generation: generation,
+	}
+	tests := []struct {
+		name      string
+		readiness RuntimeReadiness
+		wantError bool
+	}{
+		{name: "disabled", readiness: RuntimeReadiness{
+			State: RuntimeReadinessBlocked, ReasonCode: RuntimeReadinessReasonRuntimeDisabled}},
+		{name: "ready", readiness: RuntimeReadiness{State: RuntimeReadinessReady,
+			Interfaces: []InterfaceReadiness{{Kind: "mcp", State: RuntimeReadinessReady}}}, wantError: true},
+		{name: "unrelated block", readiness: RuntimeReadiness{
+			State: RuntimeReadinessBlocked, ReasonCode: "publication_gate_closed"}, wantError: true},
+		{name: "disabled with published interface", readiness: RuntimeReadiness{
+			State: RuntimeReadinessBlocked, ReasonCode: RuntimeReadinessReasonRuntimeDisabled,
+			Interfaces: []InterfaceReadiness{{Kind: "mcp", State: RuntimeReadinessReady}}}, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			receipt := base
+			receipt.Readiness = test.readiness
+			err := validateRuntimeReceipt(receipt, base.OperationID, base.ConnectionID, base.ConnectorKey,
+				base.ReleaseDigest, generation, false)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateRuntimeReceipt() error = %v, wantError = %t", err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestApplicationInstallKeepsRuntimeReconcileSeparate(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
 	host := &memoryInstallRuntime{}
@@ -1385,6 +1481,7 @@ type memoryInstallRuntime struct {
 	deactivations           int
 	activeDigest            string
 	reconciles              int
+	reconcileRequests       []RuntimeReconcileRequest
 	lastReconcile           RuntimeReconcileRequest
 	lastDeactivation        RuntimeDeactivationRequest
 	lastPrepare             PrepareArtifactRequest
@@ -1397,16 +1494,25 @@ type memoryInstallRuntime struct {
 	installationResult      ReleaseInstallationObservation
 	installationInspectErr  error
 	installationCommitErr   error
+	reconcileErrors         map[string]error
 }
 
 func (host *memoryInstallRuntime) Reconcile(_ context.Context, request RuntimeReconcileRequest) (RuntimeReceipt, error) {
 	host.reconciles++
+	host.reconcileRequests = append(host.reconcileRequests, request)
 	host.lastReconcile = request
 	host.lastCredentialGrant = string(request.CredentialBrokerGrant)
+	if err := host.reconcileErrors[request.Connector.Key]; err != nil {
+		return RuntimeReceipt{}, err
+	}
+	readiness := RuntimeReadiness{State: RuntimeReadinessReady,
+		Interfaces: []InterfaceReadiness{{Kind: "mcp", State: RuntimeReadinessReady}}}
+	if !request.Enabled {
+		readiness = RuntimeReadiness{State: RuntimeReadinessBlocked, ReasonCode: RuntimeReadinessReasonRuntimeDisabled}
+	}
 	return RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
-		Readiness: RuntimeReadiness{State: RuntimeReadinessReady,
-			Interfaces: []InterfaceReadiness{{Kind: "mcp", State: RuntimeReadinessReady}}}}, nil
+		Readiness: readiness}, nil
 }
 
 func (host *memoryInstallRuntime) InspectReleaseInstallation(_ context.Context, request InspectReleaseInstallationRequest) (ReleaseInstallationObservation, error) {
@@ -1498,6 +1604,8 @@ type runtimeBindingResolverStub struct {
 	binding RuntimeBinding
 }
 
+type runtimeBindingResolverFunc func(context.Context, RuntimeBindingRequest) (RuntimeBinding, error)
+
 type recordingAuthorizationProjectionStore struct {
 	projection AuthorizationProjection
 }
@@ -1516,6 +1624,10 @@ func (store *recordingAuthorizationProjectionStore) SaveAuthorizationProjection(
 
 func (resolver *runtimeBindingResolverStub) ResolveRuntimeBinding(context.Context, RuntimeBindingRequest) (RuntimeBinding, error) {
 	return resolver.binding, nil
+}
+
+func (resolver runtimeBindingResolverFunc) ResolveRuntimeBinding(ctx context.Context, request RuntimeBindingRequest) (RuntimeBinding, error) {
+	return resolver(ctx, request)
 }
 
 func (host *memoryInstallRuntime) Remove(context.Context, RemoveArtifactRequest) error {
