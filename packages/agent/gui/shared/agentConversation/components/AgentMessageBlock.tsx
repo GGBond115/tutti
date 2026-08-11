@@ -1,5 +1,5 @@
 import { Fragment, useCallback, type JSX, type ReactNode } from "react";
-import { Avatar } from "@tutti-os/ui-system";
+import { Avatar, toast } from "@tutti-os/ui-system";
 import { AgentPlanCard } from "./AgentPlanCard";
 import { AgentCollaborationRow } from "./AgentCollaborationRow";
 import { translate } from "../../../i18n/index";
@@ -14,6 +14,8 @@ import {
 } from "../../AgentMessageMarkdown";
 import { AgentRichTextReadonly } from "../../AgentRichTextReadonly";
 import { resolveAgentConversationLinkAction } from "../actions/agentConversationLinkActions";
+import { parseMentionItemFromHref } from "../../../agent-gui/agentGuiNode/agentRichText/agentFileMentionExtension";
+import { notifyComposerFileMentionBlocked } from "../../../agent-gui/agentGuiNode/composer/resolveComposerFileMentionLinkAction";
 import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNode/model/agentGuiNodeTypes";
 import type {
   AgentMessageContentVM,
@@ -119,9 +121,36 @@ export function AgentMessageBlock({
       });
       if (action) {
         onLinkAction?.(action);
+        return;
+      }
+      // Sent transcript can still carry draft-only composer-file hrefs when
+      // displayPrompt was not materialized. Never fail silently.
+      const mention = parseMentionItemFromHref({ name: "", href });
+      if (
+        mention?.kind === "file" &&
+        mention.attachmentId &&
+        !mention.path.trim()
+      ) {
+        notifyComposerFileMentionBlocked({
+          reason: "unavailable",
+          showError: (message) => {
+            if (agentHostApi?.toast?.error) {
+              agentHostApi.toast.error(message);
+              return;
+            }
+            toast.error(message);
+          },
+          showInfo: (message) => {
+            if (agentHostApi?.toast?.info) {
+              agentHostApi.toast.info(message);
+              return;
+            }
+            toast.error(message);
+          }
+        });
       }
     },
-    [basePath, onLinkAction, workspaceRoot]
+    [agentHostApi, basePath, onLinkAction, workspaceRoot]
   );
   const handleExternalLinkClick = useCallback(
     (href: string): void => {

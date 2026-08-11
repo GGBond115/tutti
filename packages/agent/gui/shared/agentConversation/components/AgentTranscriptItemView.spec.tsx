@@ -6,6 +6,10 @@ import {
   waitFor
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resetAgentHostApiForTests,
+  setAgentHostApiForTests
+} from "../../../agentActivityHost";
 import { AgentEnvPanelActionProvider } from "../../agentEnv";
 import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { AgentMessageBlock } from "./AgentMessageBlock";
@@ -205,6 +209,43 @@ describe("AgentTranscriptItemView render stability", () => {
       appId: "ai-canvas",
       source: "agent-markdown"
     });
+  });
+
+  it("toasts when a sent composer-file mention can no longer be resolved", () => {
+    const onLinkAction = vi.fn();
+    const hostToastError = vi.fn();
+    setAgentHostApiForTests({
+      toast: { error: hostToastError }
+    } as never);
+
+    try {
+      render(
+        <AgentMessageBlock
+          workspaceRoot="/workspace/demo"
+          basePath="/workspace/demo"
+          row={userMessageRow({
+            kind: "message-content",
+            id: "user-composer-file-1",
+            turnId: "turn-1",
+            body: "[diagnostics.md](mention://composer-file/file-1?status=ready)",
+            occurredAtUnixMs: 1
+          })}
+          onLinkAction={onLinkAction}
+          thinkingLabel="Thought process"
+        />
+      );
+
+      mockState.markdownOnLinkClicks.at(-1)?.(
+        "mention://composer-file/file-1?status=ready"
+      );
+
+      expect(onLinkAction).not.toHaveBeenCalled();
+      expect(hostToastError).toHaveBeenCalledWith(
+        "agentHost.agentGui.composerFileOpenUnavailable"
+      );
+    } finally {
+      resetAgentHostApiForTests();
+    }
   });
 
   it("keeps markdown streaming for active turns and unsettled messages", () => {
