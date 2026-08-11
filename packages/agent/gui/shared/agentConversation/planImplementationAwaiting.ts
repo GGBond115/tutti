@@ -3,10 +3,13 @@ import {
   selectSessionMessages,
   selectWorkspaceAgentConsumerSessions,
   type AgentActivitySession,
-  type AgentActivityTurn,
-  type AgentSessionEngineState
+  type AgentActivityTurn
 } from "@tutti-os/agent-activity-core";
 import { latestPlanTurnId } from "./planImplementationPresentation";
+
+type AgentSessionEngineSnapshot = Parameters<
+  typeof selectWorkspaceAgentConsumerSessions
+>[0];
 
 /**
  * Shared predicate for the synthesized plan-implementation wait. Durable
@@ -41,7 +44,7 @@ export function consumerAwaitingPlanImplementation(input: {
 }
 
 export function selectRootAgentSessionIdsAwaitingPlanImplementation(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineSnapshot
 ): readonly string[] {
   const sessionIds: string[] = [];
   for (const consumer of selectWorkspaceAgentConsumerSessions(state)) {
@@ -66,7 +69,7 @@ export function selectRootAgentSessionIdsAwaitingPlanImplementation(
 }
 
 function sessionMessagesForPlanDetection(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineSnapshot,
   session: Pick<AgentActivitySession, "agentSessionId" | "providerSessionId">
 ) {
   for (const id of [session.agentSessionId, session.providerSessionId]) {
