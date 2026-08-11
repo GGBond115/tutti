@@ -309,16 +309,18 @@ func (application *Application) beginAuthorizationSession(
 		return AuthorizationSession{}, invalidOperationReceipt("authorization provider returned an invalid session")
 	}
 	remote := release.Manifest.Implementation.RemoteStreamableHTTP != nil
+	accountScoped := strings.TrimSpace(operation.Scope.AccountID) != ""
 	if session.State == AuthorizationStateConnected && !remote {
 		session.Resolution = AuthorizationSessionResolutionProviderConnected
 	} else {
 		session.Resolution = AuthorizationSessionResolutionUnresolved
 	}
-	if err := application.completeAuthorizationStart(ctx, operation.OperationID, session, !remote); err != nil {
+	projectDeviceState := !remote && (!accountScoped || connector.Authorization.State != AuthorizationStateConnected)
+	if err := application.completeAuthorizationStart(ctx, operation.OperationID, session, projectDeviceState); err != nil {
 		return AuthorizationSession{}, err
 	}
-	if session.State == AuthorizationStateConnected {
-		if err := application.projectAuthorizationAndScheduleRuntime(ctx, operation.Scope, operation.ConnectorKey, session.ConnectionID, AuthorizationStateConnected, ""); err != nil {
+	if session.State == AuthorizationStateConnected || (!remote && accountScoped) {
+		if err := application.projectAuthorizationAndScheduleRuntime(ctx, operation.Scope, operation.ConnectorKey, session.ConnectionID, session.State, ""); err != nil {
 			return AuthorizationSession{}, err
 		}
 	}
