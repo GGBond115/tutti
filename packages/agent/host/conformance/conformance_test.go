@@ -12,8 +12,8 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 		scenarios []Scenario
 		wantCount int
 	}{
-		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 32},
-		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 27},
+		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 33},
+		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 28},
 		{name: "guidance", scenarios: GuidanceScenarios(), wantCount: 3},
 		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 5},
 		{name: "submission fence", scenarios: SubmissionFenceScenarios(), wantCount: 1},
@@ -95,6 +95,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"guidance forwards exact target",
 		"guidance target mismatch does not dispatch provider and cleans claim",
 		"new turns require durable provider acceptance",
+		"providerless canonical terminal settles and replays submission",
 		"rejected initial submit discards runtime without completing canonical session",
 		"duplicate client submit id",
 		"exact turn cancel",
@@ -129,6 +130,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"guidance forwards exact target",
 		"guidance target mismatch does not dispatch provider and cleans claim",
 		"new turns require durable provider acceptance",
+		"providerless canonical terminal settles and replays submission",
 		"rejected initial submit discards runtime without completing canonical session",
 		"duplicate client submit id",
 		"initial title cas",

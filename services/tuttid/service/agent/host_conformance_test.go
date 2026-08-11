@@ -669,6 +669,40 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	return nil
 }
 
+func (d *legacyHostConformanceDriver) ResetProviderlessTerminalExec(
+	ctx context.Context,
+	session *hostconformance.SessionSeed,
+) error {
+	fixture := hostconformance.Fixture{}
+	if session != nil {
+		seed := *session
+		fixture.Session = &seed
+	}
+	if err := d.Reset(ctx, fixture); err != nil {
+		return err
+	}
+	d.runtime.execHook = func(input RuntimeExecInput) (RuntimeExecResult, error) {
+		d.recordSubmittedTurn(input.WorkspaceID, input.AgentSessionID, input.TurnID)
+		d.recordProviderlessFailedTurn(
+			input.WorkspaceID,
+			input.AgentSessionID,
+			input.TurnID,
+		)
+		return RuntimeExecResult{
+			AgentSessionID: input.AgentSessionID,
+			Status:         "started",
+			Accepted:       true,
+			SessionStatus:  "working",
+			TurnID:         input.TurnID,
+			TurnLifecycle:  TurnLifecycle{Phase: "submitted"},
+			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
+				Disposition: agenthost.RuntimeDispatchDispositionAppliedWithoutProviderTurn,
+			},
+		}, nil
+	}
+	return nil
+}
+
 func (d *legacyHostConformanceDriver) DisconnectRuntimeSession(ctx context.Context, ref agenthost.SessionRef) error {
 	return d.runtime.Close(ctx, RuntimeCloseInput{
 		WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
@@ -1482,11 +1516,39 @@ func (d *legacyHostConformanceDriver) recordSubmittedTurn(workspaceID, sessionID
 	if turnID == "" {
 		return
 	}
+	key := sessionID + ":" + turnID
+	if existing, ok := d.turns.turns[key]; ok &&
+		existing.Phase == agentactivitybiz.TurnPhaseSettled {
+		// Submit provenance and Host's post-Exec submission record are
+		// idempotent facts. They must never downgrade a terminal event that the
+		// Runtime committed before Exec returned.
+		return
+	}
 	startedAtUnixMS := int64(len(d.turns.turns) + 1)
-	d.turns.turns[sessionID+":"+turnID] = agentactivitybiz.Turn{
+	d.turns.turns[key] = agentactivitybiz.Turn{
 		WorkspaceID: workspaceID, AgentSessionID: sessionID, TurnID: turnID,
 		Phase: agentactivitybiz.TurnPhaseSubmitted, StartedAtUnixMS: startedAtUnixMS,
 	}
+	d.service.TurnStore = d.turns
+}
+
+func (d *legacyHostConformanceDriver) recordProviderlessFailedTurn(
+	workspaceID string,
+	sessionID string,
+	turnID string,
+) {
+	key := sessionID + ":" + turnID
+	turn := d.turns.turns[key]
+	turn.WorkspaceID = workspaceID
+	turn.AgentSessionID = sessionID
+	turn.TurnID = turnID
+	turn.Phase = agentactivitybiz.TurnPhaseSettled
+	turn.Outcome = "failed"
+	if turn.StartedAtUnixMS == 0 {
+		turn.StartedAtUnixMS = int64(len(d.turns.turns) + 1)
+	}
+	turn.SettledAtUnixMS = turn.StartedAtUnixMS + 1
+	d.turns.turns[key] = turn
 	d.service.TurnStore = d.turns
 }
 

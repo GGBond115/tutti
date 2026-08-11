@@ -204,6 +204,16 @@ type Driver interface {
 	Metrics() Metrics
 }
 
+// ProviderlessTerminalDriver is the narrow fault-injection capability for a
+// Runtime that durably fails the exact canonical Turn before it acquires a
+// provider identity. It stays separate from Fixture so downstream conformance
+// drivers can adopt this lifecycle scenario before upgrading their pinned
+// Tutti dependency; an extra test-driver method is source-compatible with the
+// previous conformance contract.
+type ProviderlessTerminalDriver interface {
+	ResetProviderlessTerminalExec(context.Context, *SessionSeed) error
+}
+
 type Scenario struct {
 	Name string
 	run  func(context.Context, Driver) error

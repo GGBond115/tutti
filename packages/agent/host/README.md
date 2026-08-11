@@ -82,8 +82,16 @@ output or interaction until the exact provider identity has been resolved. The
 adapter then blocks its provider event path while the Host atomically persists
 `canonicalTurnId + providerSessionId + providerTurnId`; only that commit moves
 the Turn to `durably_accepted`. Streaming, waiting for approval/input, running
-tools, checkpoints, and terminal events all follow the barrier and retain the
-same authoritative provider Turn ID. Correlation IDs are never provider IDs.
+tools, checkpoints, and provider-root terminal events all follow the barrier
+and retain the same authoritative provider Turn ID. Correlation IDs are never
+provider IDs. A provider may instead fail before any provider Turn identity
+exists. In that case the adapter returns an exact canonical `turn.failed`
+terminal without inventing a provider ID. Runtime dispatch remains an
+independent admission fact, and the runtime releases its local active-Turn
+fence only after that canonical terminal crosses the synchronous durable-report
+barrier. A failed or acknowledgement-lost terminal commit remains pending and
+is retried idempotently; exact daemon settlement reconciliation is the only
+other path allowed to release that fence.
 
 Canonical external identity inheritance is separate from provider acceptance
 and Turn lifecycle. A Turn may carry one immutable `IdentityAnchorTurnID`

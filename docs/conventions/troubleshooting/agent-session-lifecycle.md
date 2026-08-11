@@ -689,6 +689,47 @@ be resent`). The app never opens.
   [report_coalescer.go](../../../packages/agent/daemon/runtime/report_coalescer.go),
   [controller_report_queue_test.go](../../../packages/agent/daemon/runtime/controller_report_queue_test.go)
 
+### Claude fails before provider Turn identity but AgentGUI keeps thinking
+
+- **Symptom:** Claude returns no assistant result and the provider invocation
+  has already failed, but AgentGUI keeps showing the Turn as processing. Later
+  sends may be rejected because the runtime still reports an active Turn.
+- **Quick checks:** Correlate the canonical Turn ID across the submit report,
+  Claude sidecar event, and runtime controller. The characteristic sequence has
+  a durable submitted Turn, `turn_failed` without `providerTurnId`, dispatch
+  disposition `applied_without_provider_turn`, and a canonical failed report,
+  while `HasActiveTurn` remains true. Do not interpret
+  `applied_without_provider_turn` itself as a failure; cancel-before-acceptance
+  legitimately uses the same admission result.
+- **Root cause:** Provider acceptance and canonical completion are independent
+  contracts. The acceptance wrapper treated an exact providerless
+  `turn.failed` as premature provider output, while the blocking controller
+  released its active-Turn fence only for failures carrying explicit rejection
+  metadata. A non-rejection failure could therefore be durable but never close
+  the runtime fence.
+- **Fix:** Hold an exact canonical terminal behind the acceptance barrier and
+  return it to the controller without inventing provider identity. Classify
+  completion from the typed terminal event for the exact Turn, never from the
+  dispatch disposition or error text. Partition every pre-acceptance batch so
+  an exact terminal cannot carry provider-dependent assistant/tool output
+  through the barrier. Release the active-Turn fence only after the terminal
+  crosses the synchronous durable-report barrier. If that commit fails or its
+  acknowledgement is lost, retain the terminal and retry it idempotently until
+  the commit succeeds or daemon reconciliation proves the Turn already settled.
+  Provider-root completion with an identity continues through canonical
+  aggregation.
+- **Validation:** Cover Claude translation of a providerless `turn_failed`,
+  mixed terminal/provider-output batches, controller settlement after a
+  successful terminal report, transient report failure, commit-success/ACK-loss,
+  explicit rejection, cancel-before-acceptance, and outcome-unknown. Run the
+  Host conformance scenario for initial and ordinary idempotent submissions.
+  Retain a root-provider lifecycle test proving provider-root completion does
+  not clear the canonical Turn before daemon reconciliation.
+- **References:**
+  [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go),
+  [controller_turn_completion.go](../../../packages/agent/daemon/runtime/controller_turn_completion.go),
+  [controller_turn_exec.go](../../../packages/agent/daemon/runtime/controller_turn_exec.go)
+
 ### Tutti mode is active in the composer but disappears after the first submit
 
 - **Symptom:** The home composer shows Tutti enabled and the submit trace records
