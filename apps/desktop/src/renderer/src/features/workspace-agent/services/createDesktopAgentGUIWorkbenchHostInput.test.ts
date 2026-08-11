@@ -829,8 +829,9 @@ test("desktop agent GUI workbench host input tracks privacy-safe engagement even
     [
       {
         clientTS: 1749124800000,
-        name: "agent.quick_prompt_panel_opened",
+        name: "agent.quick_prompt_engagement",
         params: {
+          action: "panel_opened",
           agent_session_id: "session-1",
           agent_target_id: "codex-local",
           composer_ready: true,
@@ -845,8 +846,9 @@ test("desktop agent GUI workbench host input tracks privacy-safe engagement even
     [
       {
         clientTS: 1749124800000,
-        name: "agent.quick_prompt_used",
+        name: "agent.quick_prompt_engagement",
         params: {
+          action: "prompt_used",
           agent_session_id: "session-1",
           agent_target_id: "codex-local",
           composer_ready: true,
@@ -862,8 +864,9 @@ test("desktop agent GUI workbench host input tracks privacy-safe engagement even
     [
       {
         clientTS: 1749124800000,
-        name: "agent.quick_prompt_used",
+        name: "agent.quick_prompt_engagement",
         params: {
+          action: "prompt_used",
           agent_session_id: "session-1",
           agent_target_id: "codex-local",
           composer_ready: true,
