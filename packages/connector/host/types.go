@@ -385,6 +385,35 @@ type RuntimeReceipt struct {
 	ReleaseDigest string           `json:"releaseDigest"`
 	Generation    HostGeneration   `json:"generation"`
 	Readiness     RuntimeReadiness `json:"readiness"`
+	// Summary is the immutable, verified discovery projection committed by this
+	// exact reconcile. It is independent of capability publication so lifecycle
+	// observers can establish ready state while Agent-facing routes are fenced.
+	Summary *ConnectorSummary `json:"summary,omitempty"`
+}
+
+// ConnectorSummary contains bounded, non-secret metadata for one committed
+// runtime route. RuntimeReceipt owns the route identity; this projection must
+// never contain credentials, filesystem paths, or Skill bodies.
+type ConnectorSummary struct {
+	Key         string                      `json:"key"`
+	Name        string                      `json:"name"`
+	Description string                      `json:"description"`
+	Skills      []ConnectorSkillSummary     `json:"skills"`
+	Interfaces  []ConnectorInterfaceSummary `json:"interfaces"`
+}
+
+type ConnectorSkillSummary struct {
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+type ConnectorInterfaceSummary struct {
+	Kind       string `json:"kind"`
+	ServerName string `json:"serverName,omitempty"`
+	ToolPrefix string `json:"toolPrefix,omitempty"`
+	Command    string `json:"command,omitempty"`
+	Status     string `json:"status"`
 }
 
 type RuntimeReadinessState string

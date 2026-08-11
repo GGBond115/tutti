@@ -277,12 +277,28 @@ func validateRuntimeReceipt(receipt RuntimeReceipt, operationID, connectionID, c
 	if receipt.Readiness.State != RuntimeReadinessReady {
 		return invalidOperationReceipt("implementation host did not return a ready runtime receipt")
 	}
+	if receipt.Summary == nil {
+		return invalidOperationReceipt("implementation host returned no matching connector summary")
+	}
+	if err := ValidateConnectorSummary(*receipt.Summary, connectorKey); err != nil {
+		return invalidOperationReceipt("implementation host returned an invalid connector summary")
+	}
 	if len(receipt.Readiness.Interfaces) == 0 {
 		return invalidOperationReceipt("implementation host returned no ready interfaces")
 	}
+	readyInterfaces := make(map[string]struct{}, len(receipt.Readiness.Interfaces))
 	for _, readiness := range receipt.Readiness.Interfaces {
 		if (readiness.Kind != "mcp" && readiness.Kind != "cli") || readiness.State != RuntimeReadinessReady {
 			return invalidOperationReceipt("implementation host returned invalid interface readiness")
+		}
+		readyInterfaces[readiness.Kind] = struct{}{}
+	}
+	if len(readyInterfaces) != len(receipt.Summary.Interfaces) {
+		return invalidOperationReceipt("implementation host returned inconsistent interface summary")
+	}
+	for _, summary := range receipt.Summary.Interfaces {
+		if _, ok := readyInterfaces[summary.Kind]; !ok {
+			return invalidOperationReceipt("implementation host returned inconsistent interface summary")
 		}
 	}
 	return nil

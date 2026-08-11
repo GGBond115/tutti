@@ -339,6 +339,14 @@ does the resolver request a one-shot credential-broker grant. `expired`,
 `disconnected`, and missing projections reconcile inactive. Daemon or guest
 restart uses `BootstrapForScope` to rebuild the same projection explicitly.
 
+An enabled Runtime Reconcile returns one identity-fenced receipt containing
+the bounded, non-secret `ConnectorSummary` for the exact route generation it
+committed. The receipt is available while capability publication is disabled,
+so a cross-machine host can project readiness without consulting an
+Agent-facing registry. A later key-only Route lookup is forbidden because an
+upgrade or concurrent connection reconcile could otherwise attach metadata
+from a different release or generation.
+
 Remote Connector authorization uses that account projection for Start,
 observation, presentation, and route publication; the device Connector's
 authorization field is not remote authorization truth. A completed Start

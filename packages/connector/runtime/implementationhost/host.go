@@ -282,9 +282,10 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 	if route.mcpClient != nil {
 		go host.monitorMCPRoute(route, route.mcpClient)
 	}
+	summary := connectorSummaryFromDescriptor(routeDescriptor(route))
 	return market.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
 		ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: route.releaseDigest,
-		Generation: runtimeRequest.Generation, Readiness: cloneRuntimeReadiness(route.readiness)}, nil
+		Generation: runtimeRequest.Generation, Readiness: cloneRuntimeReadiness(route.readiness), Summary: &summary}, nil
 }
 
 func (*Host) validateAuthorization(request market.RuntimeReconcileRequest) error {
@@ -824,14 +825,18 @@ func (registry *RouteRegistry) Routes() []RouteDescriptor {
 	routes := registry.activeRoutes()
 	result := make([]RouteDescriptor, 0, len(routes))
 	for _, route := range routes {
-		result = append(result, RouteDescriptor{ConnectorKey: route.connectorKey, DisplayName: route.displayName,
-			Description: route.description, RoutingAliases: append([]string(nil), route.routingAliases...),
-			SkillRoot: route.skillRoot, Skills: append([]connectorartifact.SkillSummary(nil), route.skills...),
-			HasMCP: len(route.mcpTools) > 0, CLICommand: route.cliCommand,
-			Readiness: cloneRuntimeReadiness(route.readiness)})
+		result = append(result, routeDescriptor(route))
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].ConnectorKey < result[right].ConnectorKey })
 	return result
+}
+
+func routeDescriptor(route *connectorRoute) RouteDescriptor {
+	return RouteDescriptor{ConnectorKey: route.connectorKey, DisplayName: route.displayName,
+		Description: route.description, RoutingAliases: append([]string(nil), route.routingAliases...),
+		SkillRoot: route.skillRoot, Skills: append([]connectorartifact.SkillSummary(nil), route.skills...),
+		HasMCP: len(route.mcpTools) > 0, CLICommand: route.cliCommand,
+		Readiness: cloneRuntimeReadiness(route.readiness)}
 }
 
 var _ connectorruntime.ManagedRoute = (*connectorRoute)(nil)

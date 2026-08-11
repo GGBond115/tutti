@@ -23,4 +23,8 @@ machine, sync the verified candidate, and install it on the runtime machine.
 Receipts may use opaque references when execution is remote. Installation
 never implies runtime publication: authorization observation drives a separate
 reconcile. Runtime receipts carry structured per-interface readiness so a
-CLI-only Connector can be ready without an MCP route.
+CLI-only Connector can be ready without an MCP route. A successful enabled
+reconcile also carries the bounded `ConnectorSummary` committed by that exact
+route generation. Lifecycle observers consume this receipt projection even
+while Agent publication is fenced; they must not perform a later key-only
+lookup against the mutable published registry.

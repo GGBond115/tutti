@@ -1,24 +1,10 @@
 package implementationhost
 
-import connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
+import market "github.com/tutti-os/tutti/packages/connector/host"
 
-type SkillSummary = connectorartifact.SkillSummary
-
-type ConnectorSummary struct {
-	Key         string                      `json:"key"`
-	Name        string                      `json:"name"`
-	Description string                      `json:"description"`
-	Skills      []SkillSummary              `json:"skills"`
-	Interfaces  []ConnectorInterfaceSummary `json:"interfaces"`
-}
-
-type ConnectorInterfaceSummary struct {
-	Kind       string `json:"kind"`
-	ServerName string `json:"serverName,omitempty"`
-	ToolPrefix string `json:"toolPrefix,omitempty"`
-	Command    string `json:"command,omitempty"`
-	Status     string `json:"status"`
-}
+type SkillSummary = market.ConnectorSkillSummary
+type ConnectorSummary = market.ConnectorSummary
+type ConnectorInterfaceSummary = market.ConnectorInterfaceSummary
 
 // ConnectorRoutingHint is a bounded, non-secret projection of one active
 // route for Agent runtime preparation.
@@ -35,21 +21,23 @@ func (registry *RouteRegistry) ConnectorSummaries() []ConnectorSummary {
 	routes := registry.Routes()
 	connectors := make([]ConnectorSummary, 0, len(routes))
 	for _, route := range routes {
-		interfaces := make([]ConnectorInterfaceSummary, 0, 2)
-		if route.HasMCP {
-			interfaces = append(interfaces, ConnectorInterfaceSummary{Kind: "mcp", ServerName: "connector",
-				ToolPrefix: route.ConnectorKey + "_", Status: string(route.InterfaceState("mcp"))})
-		}
-		if route.CLICommand != "" {
-			interfaces = append(interfaces, ConnectorInterfaceSummary{Kind: "cli", Command: route.CLICommand,
-				Status: string(route.InterfaceState("cli"))})
-		}
-		connectors = append(connectors, ConnectorSummary{
-			Key: route.ConnectorKey, Name: route.DisplayName, Description: route.Description,
-			Skills: append([]SkillSummary(nil), route.Skills...), Interfaces: interfaces,
-		})
+		connectors = append(connectors, connectorSummaryFromDescriptor(route))
 	}
 	return connectors
+}
+
+func connectorSummaryFromDescriptor(route RouteDescriptor) ConnectorSummary {
+	interfaces := make([]ConnectorInterfaceSummary, 0, 2)
+	if route.HasMCP {
+		interfaces = append(interfaces, ConnectorInterfaceSummary{Kind: "mcp", ServerName: "connector",
+			ToolPrefix: route.ConnectorKey + "_", Status: string(route.InterfaceState("mcp"))})
+	}
+	if route.CLICommand != "" {
+		interfaces = append(interfaces, ConnectorInterfaceSummary{Kind: "cli", Command: route.CLICommand,
+			Status: string(route.InterfaceState("cli"))})
+	}
+	return ConnectorSummary{Key: route.ConnectorKey, Name: route.DisplayName, Description: route.Description,
+		Skills: append([]SkillSummary(nil), route.Skills...), Interfaces: interfaces}
 }
 
 // RoutingHints returns a detached snapshot for Agent runtime preparation.

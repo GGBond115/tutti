@@ -1532,12 +1532,15 @@ func (host *memoryInstallRuntime) Reconcile(_ context.Context, request RuntimeRe
 	}
 	readiness := RuntimeReadiness{State: RuntimeReadinessReady,
 		Interfaces: []InterfaceReadiness{{Kind: "mcp", State: RuntimeReadinessReady}}}
+	summary := &ConnectorSummary{Key: request.Connector.Key, Name: request.Connector.Key,
+		Interfaces: []ConnectorInterfaceSummary{{Kind: "mcp", ServerName: "connector", Status: string(RuntimeReadinessReady)}}}
 	if !request.Enabled {
 		readiness = RuntimeReadiness{State: RuntimeReadinessBlocked, ReasonCode: RuntimeReadinessReasonRuntimeDisabled}
+		summary = nil
 	}
 	return RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
-		Readiness: readiness}, nil
+		Readiness: readiness, Summary: summary}, nil
 }
 
 func (host *memoryInstallRuntime) InspectReleaseInstallation(_ context.Context, request InspectReleaseInstallationRequest) (ReleaseInstallationObservation, error) {

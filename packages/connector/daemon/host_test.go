@@ -55,7 +55,9 @@ func (delegate *activationGateDelegate) Reconcile(_ context.Context, request mar
 	return market.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
 		Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady,
-			Interfaces: []market.InterfaceReadiness{{Kind: "mcp", State: market.RuntimeReadinessReady}}}}, nil
+			Interfaces: []market.InterfaceReadiness{{Kind: "mcp", State: market.RuntimeReadinessReady}}},
+		Summary: &market.ConnectorSummary{Key: request.Connector.Key, Name: request.Connector.Key,
+			Interfaces: []market.ConnectorInterfaceSummary{{Kind: "mcp", ServerName: "connector", Status: string(market.RuntimeReadinessReady)}}}}, nil
 }
 
 type runtimeBindingResolverFunc func(context.Context, market.RuntimeBindingRequest) (market.RuntimeBinding, error)

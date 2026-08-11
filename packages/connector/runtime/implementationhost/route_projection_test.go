@@ -41,3 +41,29 @@ func TestRouteRegistryProjectsDetachedConnectorMetadata(t *testing.T) {
 		t.Fatal("route projection leaked mutable state")
 	}
 }
+
+func TestCommittedRouteSummaryDoesNotDependOnCapabilityPublication(t *testing.T) {
+	route := &connectorRoute{
+		id: "account-1\x00calendar", releaseDigest: "digest",
+		generation:   market.HostGeneration{BootEpoch: "boot-1", Generation: 1},
+		connectorKey: "calendar", displayName: "Calendar", description: "Manage meetings",
+		skills:   []connectorartifact.SkillSummary{{Name: "standup", Title: "Standup", Description: "Prepare a standup"}},
+		mcpTools: map[string]registeredMCPTool{"calendar_list": {}}, processes: connectorruntime.NewProcessGroup(),
+		readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady,
+			Interfaces: []market.InterfaceReadiness{{Kind: "mcp", State: market.RuntimeReadinessReady}}},
+	}
+	table := connectorruntime.NewRouteTable()
+	if err := table.Commit(route); err != nil {
+		t.Fatal(err)
+	}
+	table.SetPublished(false)
+	registry := NewRouteRegistry()
+	registry.attach(table)
+	if summaries := registry.ConnectorSummaries(); len(summaries) != 0 {
+		t.Fatalf("published summaries = %#v", summaries)
+	}
+	summary := connectorSummaryFromDescriptor(routeDescriptor(route))
+	if summary.Key != "calendar" || len(summary.Skills) != 1 || len(summary.Interfaces) != 1 {
+		t.Fatalf("committed summary = %#v", summary)
+	}
+}

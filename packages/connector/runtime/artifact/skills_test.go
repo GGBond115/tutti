@@ -83,6 +83,33 @@ func TestInspectSkillsBoundsSkillCount(t *testing.T) {
 	}
 }
 
+func TestValidateSkillSummariesBoundsFieldsAndTotalProjection(t *testing.T) {
+	valid := SkillSummary{Name: "calendar", Title: "Calendar", Description: "Manage calendar events"}
+	tests := []struct {
+		name      string
+		summaries []SkillSummary
+		want      string
+	}{
+		{name: "name", summaries: []SkillSummary{{Name: strings.Repeat("n", ConnectorSkillNameMaxBytes+1), Title: valid.Title, Description: valid.Description}}, want: "name exceeds"},
+		{name: "title", summaries: []SkillSummary{{Name: valid.Name, Title: strings.Repeat("t", ConnectorSkillTitleMaxBytes+1), Description: valid.Description}}, want: "title exceeds"},
+		{name: "description", summaries: []SkillSummary{{Name: valid.Name, Title: valid.Title, Description: strings.Repeat("d", ConnectorSkillDescriptionMaxBytes+1)}}, want: "description exceeds"},
+		{name: "total", summaries: func() []SkillSummary {
+			result := make([]SkillSummary, connectorSkillMaxCount)
+			for index := range result {
+				result[index] = SkillSummary{Name: fmt.Sprintf("skill-%03d", index), Title: strings.Repeat("t", ConnectorSkillTitleMaxBytes), Description: strings.Repeat("d", ConnectorSkillDescriptionMaxBytes)}
+			}
+			return result
+		}(), want: "projection exceeds"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateSkillSummaries(test.summaries); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateSkillSummaries() error = %v", err)
+			}
+		})
+	}
+}
+
 func writeSkillTestFile(t *testing.T, path, name, title string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

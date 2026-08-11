@@ -16,6 +16,12 @@ rescan a mutable installation directory. MCP calls use `MCPRegistry`, while CLI
 calls use the stable per-Connector shim. There is no generic Connector broker
 or generic `connector.invoke` transport in the public runtime.
 
+Every successful enabled `Reconcile` returns the bounded discovery summary for
+the exact committed connection, release digest, and host generation. This
+receipt projection is independent of the Agent publication switch. Cross-
+machine hosts should serialize it directly into their observed-runtime
+protocol instead of querying `RouteRegistry` by Connector key after reconcile.
+
 Hosts supply the managed runtime resolver, implementation host, process
 transport, `RemoteMCPClientFactory`, state roots, and product-facing command
 transport. Runtime code must not import `services/tuttid` or expose host
