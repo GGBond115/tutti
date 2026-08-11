@@ -87,6 +87,60 @@ describe("createAgentGUIPerformanceMonitor", () => {
     monitor.dispose();
   });
 
+  it("stops inspecting stream deltas after reporting the first token", () => {
+    const nowUnixMs = vi.fn(() => 2_000);
+    const harness = createEngineHarness(
+      engineState({
+        submits: {
+          "submit-1": pendingSubmit({ status: "accepted", turnId: "turn-1" })
+        }
+      })
+    );
+    const onEvent = vi.fn();
+    const monitor = createAgentGUIPerformanceMonitor({
+      engine: harness.engine,
+      nowUnixMs,
+      onEvent,
+      subscribeSessionEvents: harness.subscribeSessionEvents
+    });
+    const firstToken = messageDelta({ turnId: "turn-1" });
+
+    harness.emitSessionEvent(firstToken);
+    const callsAfterFirstToken = nowUnixMs.mock.calls.length;
+    for (let index = 0; index < 100; index += 1) {
+      harness.emitSessionEvent(firstToken);
+    }
+
+    expect(nowUnixMs).toHaveBeenCalledTimes(callsAfterFirstToken);
+    expect(
+      onEvent.mock.calls.filter(
+        ([event]) => event.type === "prompt_first_token_received"
+      )
+    ).toHaveLength(1);
+
+    monitor.dispose();
+  });
+
+  it("skips unchanged pending intents on unrelated engine notifications", () => {
+    const nowUnixMs = vi.fn(() => 1_000);
+    const harness = createEngineHarness(engineState({}));
+    const monitor = createAgentGUIPerformanceMonitor({
+      engine: harness.engine,
+      nowUnixMs,
+      onEvent: vi.fn(),
+      subscribeSessionEvents: harness.subscribeSessionEvents
+    });
+    const callsAfterInitialState = nowUnixMs.mock.calls.length;
+
+    for (let index = 0; index < 100; index += 1) {
+      harness.notifyEngine();
+    }
+
+    expect(nowUnixMs).toHaveBeenCalledTimes(callsAfterInitialState);
+
+    monitor.dispose();
+  });
+
   it("reports activation, initial-prompt admission, first token, and settled Turn", () => {
     let nowUnixMs = 10_000;
     const activation = pendingActivation({ status: "requested" });
@@ -205,6 +259,9 @@ function createEngineHarness(initialState: AgentSessionEngineState) {
       for (const listener of sessionListeners) listener(event);
     },
     engine,
+    notifyEngine() {
+      for (const listener of engineListeners) listener();
+    },
     setState(nextState: AgentSessionEngineState) {
       state = nextState;
       for (const listener of engineListeners) listener();

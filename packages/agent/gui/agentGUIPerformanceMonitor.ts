@@ -107,6 +107,10 @@ export function createAgentGUIPerformanceMonitor(input: {
   const reportedActivationSettlements = new Set<string>();
   const reportedPromptSettlements = new Set<string>();
   const reportedTurnSettlements = new Set<string>();
+  let lastPendingActivations:
+    | ReturnType<typeof selectPendingActivations>
+    | undefined;
+  let lastPendingSubmits: ReturnType<typeof selectPendingSubmits> | undefined;
   let disposed = false;
 
   const emit = (event: AgentGUIPerformanceEvent): void => {
@@ -213,9 +217,27 @@ export function createAgentGUIPerformanceMonitor(input: {
   const reportState = (): void => {
     if (disposed) return;
     const state = input.engine.getSnapshot();
+    const selectedActivations = selectPendingActivations(state);
+    const selectedSubmits = selectPendingSubmits(state);
+    const activationsChanged = selectedActivations !== lastPendingActivations;
+    const submitsChanged = selectedSubmits !== lastPendingSubmits;
+    lastPendingActivations = selectedActivations;
+    lastPendingSubmits = selectedSubmits;
+    if (!activationsChanged && !submitsChanged && turnContexts.size === 0) {
+      return;
+    }
+    const pendingActivations = activationsChanged ? selectedActivations : [];
+    const pendingSubmits = submitsChanged ? selectedSubmits : [];
+    if (
+      pendingActivations.length === 0 &&
+      pendingSubmits.length === 0 &&
+      turnContexts.size === 0
+    ) {
+      return;
+    }
     const observedAtUnixMs = nowUnixMs();
 
-    for (const activation of selectPendingActivations(state)) {
+    for (const activation of pendingActivations) {
       if (observedActivationRecords.has(activation)) continue;
       observedActivationRecords.add(activation);
       const startedAtUnixMs = performanceStartedAt(
@@ -288,7 +310,7 @@ export function createAgentGUIPerformanceMonitor(input: {
       }
     }
 
-    for (const submit of selectPendingSubmits(state)) {
+    for (const submit of pendingSubmits) {
       if (observedSubmitRecords.has(submit)) continue;
       observedSubmitRecords.add(submit);
       const startedAtUnixMs = performanceStartedAt(
@@ -386,7 +408,7 @@ export function createAgentGUIPerformanceMonitor(input: {
   };
 
   const observeSessionEvent = (event: unknown): void => {
-    if (disposed) return;
+    if (disposed || attemptsByOperationId.size === 0) return;
     const observation = firstTokenObservation(event, workspaceId, nowUnixMs());
     if (!observation) return;
     const key = performanceTurnKey(
