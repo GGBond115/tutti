@@ -4,6 +4,8 @@ import type {
 } from "@tutti-os/client-tuttid-ts";
 import { ObservableService } from "./observableService";
 
+const AGENT_QUICK_PROMPT_LIBRARY_FLAG = "agent.quickPromptLibrary";
+
 export interface MobileQuickPromptLibrarySnapshot {
   enabled: boolean;
   errorCode: "request_failed" | null;
@@ -12,7 +14,7 @@ export interface MobileQuickPromptLibrarySnapshot {
 }
 
 const initialSnapshot: MobileQuickPromptLibrarySnapshot = {
-  enabled: true,
+  enabled: false,
   errorCode: null,
   prompts: [],
   status: "idle"
@@ -36,14 +38,27 @@ export class MobileQuickPromptLibraryService extends ObservableService<MobileQui
     if (this.disposed) return Promise.resolve();
     this.publish({
       ...this.snapshot,
-      enabled: true,
       errorCode: null,
       status: "loading"
     });
     const generation = ++this.refreshGeneration;
+    let enabled = false;
     const refreshPromise = this.client
-      .listAgentQuickPrompts()
-      .then(({ prompts }) => {
+      .getDesktopPreferences()
+      .then(async ({ preferences }) => {
+        if (this.disposed || generation !== this.refreshGeneration) return;
+        enabled =
+          preferences.featureFlags[AGENT_QUICK_PROMPT_LIBRARY_FLAG] === true;
+        if (!enabled) {
+          this.publish({
+            enabled: false,
+            errorCode: null,
+            prompts: [],
+            status: "ready"
+          });
+          return;
+        }
+        const { prompts } = await this.client.listAgentQuickPrompts();
         if (this.disposed || generation !== this.refreshGeneration) return;
         this.publish({
           enabled: true,
@@ -55,9 +70,9 @@ export class MobileQuickPromptLibraryService extends ObservableService<MobileQui
       .catch(() => {
         if (this.disposed || generation !== this.refreshGeneration) return;
         this.publish({
-          enabled: true,
+          enabled,
           errorCode: "request_failed",
-          prompts: this.snapshot.prompts,
+          prompts: enabled ? this.snapshot.prompts : [],
           status: "error"
         });
       })

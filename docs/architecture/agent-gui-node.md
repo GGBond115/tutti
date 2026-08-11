@@ -40,14 +40,15 @@ partial or disabled library.
 
 The native Mobile composer consumes the same device-global list through its
 authenticated Desktop connection rather than creating Mobile-owned prompt
-state. Its authenticated-device service reads the canonical quick-prompt list
-through the generated tuttid client. The Mobile `+` menu
+state. Its authenticated-device service reads the stored
+`agent.quickPromptLibrary` desktop feature gate and the canonical quick-prompt
+list through the generated tuttid client. When enabled, the Mobile `+` menu
 offers a searchable, read-only selector; choosing a prompt adds its text at the
 current plain-text input position without replacing the existing draft,
 restores input focus, and never sends automatically. Create, edit, delete, and
 reorder remain Desktop management actions. DeviceLink permits only exact
-`GET /v1/agent-quick-prompts` reads for this flow; mutation and per-prompt
-routes remain blocked.
+`GET /v1/preferences/desktop` and `GET /v1/agent-quick-prompts` reads for this
+flow; mutation and per-prompt routes remain blocked.
 
 The native Mobile new-conversation Composer presents Agent Target and working
 directory as peer context selectors directly above the input. The Agent Target
@@ -2374,10 +2375,11 @@ The optional quick-prompt library follows that host-capability boundary. Tutti
 Desktop projects the device-global `tuttid` quick-prompt CRUD service through
 `AgentHostApi.quickPrompts`; AgentGUI owns only the picker/editor presentation
 and inserts a selected prompt into the current TipTap selection without
-submitting it. The library snapshot and cross-window invalidation are not
-Session or Turn state and must not enter `AgentGUIRuntime` or the workspace
-engine. Hosts that omit the capability render no quick-prompt composer entry.
-AgentGUI may also present a small, localized set
+submitting it. The library snapshot, developer feature gate, and cross-window
+invalidation are not Session or Turn state and must not enter
+`AgentGUIRuntime` or the workspace engine. Hosts that omit the capability,
+and hosts whose capability reports the developer gate disabled, render no
+quick-prompt composer entry. AgentGUI may also present a small, localized set
 of recommended templates; those only prefill the existing editor and remain
 client-local until the user explicitly saves them through the CRUD capability.
 

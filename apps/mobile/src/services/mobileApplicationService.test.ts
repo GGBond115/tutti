@@ -532,7 +532,6 @@ function createHarness(
         getDesktopPreferences: async () => ({
           preferences: { featureFlags: {} }
         }),
-        listAgentQuickPrompts: async () => ({ prompts: [] }),
         listAgentTargets: async () => ({ targets: [] }),
         listUserProjects: async () => ({ projects: [] }),
         listWorkspaceAgentSessionSections: async () => ({
