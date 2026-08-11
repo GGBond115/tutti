@@ -270,6 +270,12 @@ func NormalizeProjectPath(path string) string {
 }
 
 func agentSessionRailPathContains(parent string, child string) bool {
+	return IsProjectPathWithin(parent, child)
+}
+
+// IsProjectPathWithin reports whether child is the same as, or nested below,
+// parent using the current platform's filesystem identity rules.
+func IsProjectPathWithin(parent string, child string) bool {
 	parent = NormalizeProjectPath(parent)
 	child = NormalizeProjectPath(child)
 	if parent == "" || child == "" {

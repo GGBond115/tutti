@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -333,6 +335,21 @@ func TestMatchingExternalImportProjectPrefersExactSelection(t *testing.T) {
 	)
 	if !ok || got != child {
 		t.Fatalf("matchingExternalImportProject() = %q, %v; want exact child path %q", got, ok, child)
+	}
+	if runtime.GOOS == "windows" {
+		got, ok = matchingExternalImportProject(
+			externalImportedSession{
+				Provider: "codex",
+				Cwd:      strings.ToLower(child),
+			},
+			[]ExternalImportProjectSelection{
+				{Path: strings.ToUpper(parent), Providers: []string{"codex"}},
+				{Path: strings.ToUpper(child), Providers: []string{"codex"}},
+			},
+		)
+		if !ok || !agentactivitybiz.AreProjectPathsEqual(got, child) {
+			t.Fatalf("Windows identity matching = %q, %v; want child path equivalent to %q", got, ok, child)
+		}
 	}
 }
 
