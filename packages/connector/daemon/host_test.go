@@ -251,11 +251,14 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 	host.refreshWorkerStarted = true
 	t.Cleanup(host.Close)
 
-	if err := host.Bootstrap(ctx); err == nil {
-		t.Fatal("first bootstrap unexpectedly reconciled the runtime")
+	if err := host.Bootstrap(ctx); err != nil {
+		t.Fatalf("partial bootstrap failed: %v", err)
+	}
+	if len(host.runtimeRecoveryPending) != 1 || len(publication.values) == 0 || !publication.values[len(publication.values)-1] {
+		t.Fatalf("partial bootstrap pending=%#v publication=%#v", host.runtimeRecoveryPending, publication.values)
 	}
 	if err := host.Bootstrap(ctx); err != nil {
-		t.Fatalf("second bootstrap failed: %v", err)
+		t.Fatalf("degraded runtime recovery failed: %v", err)
 	}
 	if source.refreshes != 0 || runtime.reconciles != 2 {
 		t.Fatalf("bootstrap refreshes=%d reconciles=%d, want 0 and 2", source.refreshes, runtime.reconciles)
@@ -308,8 +311,8 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 	if runtime.reconciles != 5 || !publication.values[len(publication.values)-1] {
 		t.Fatalf("same-account recovery reconciles=%d publication=%#v", runtime.reconciles, publication.values)
 	}
-	if runtime.installationInspections != 4 {
-		t.Fatalf("installation inspections = %d, want one per non-idempotent bootstrap", runtime.installationInspections)
+	if runtime.installationInspections != 3 {
+		t.Fatalf("installation inspections = %d, want one per full bootstrap", runtime.installationInspections)
 	}
 
 	if err := host.FenceForScope(ctx, accountScope); err != nil {

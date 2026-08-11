@@ -260,10 +260,18 @@ func (application *Application) completeUninstall(ctx context.Context, operation
 const defaultConnectorConnectionID = "default"
 
 func validateRuntimeReceipt(receipt RuntimeReceipt, operationID, connectionID, connectorKey,
-	releaseDigest string, generation HostGeneration) error {
+	releaseDigest string, generation HostGeneration, expectedEnabled bool) error {
 	if receipt.OperationID != operationID || receipt.ConnectionID != connectionID ||
 		receipt.ConnectorKey != connectorKey || receipt.ReleaseDigest != releaseDigest || receipt.Generation != generation {
 		return invalidOperationReceipt("implementation host returned a mismatched runtime receipt")
+	}
+	if !expectedEnabled {
+		if receipt.Readiness.State != RuntimeReadinessBlocked ||
+			receipt.Readiness.ReasonCode != RuntimeReadinessReasonRuntimeDisabled ||
+			len(receipt.Readiness.Interfaces) != 0 {
+			return invalidOperationReceipt("implementation host returned invalid disabled runtime readiness")
+		}
+		return nil
 	}
 	if receipt.Readiness.State != RuntimeReadinessReady {
 		return invalidOperationReceipt("implementation host did not return a ready runtime receipt")
