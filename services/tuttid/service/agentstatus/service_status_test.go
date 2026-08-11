@@ -73,9 +73,13 @@ func TestServiceListDetectsProvidersConcurrently(t *testing.T) {
 	if result.snapshot.Providers[1].Provider != "cursor" {
 		t.Fatalf("Providers[1] = %q, want cursor", result.snapshot.Providers[1].Provider)
 	}
+	wantAuth := map[string]AuthStatus{
+		"codex":  AuthAuthenticated,
+		"cursor": AuthConfigured,
+	}
 	for _, status := range result.snapshot.Providers {
-		if status.Auth.Status != AuthAuthenticated {
-			t.Fatalf("Auth.Status for %q = %q, want %q", status.Provider, status.Auth.Status, AuthAuthenticated)
+		if status.Auth.Status != wantAuth[status.Provider] {
+			t.Fatalf("Auth.Status for %q = %q, want %q", status.Provider, status.Auth.Status, wantAuth[status.Provider])
 		}
 	}
 }

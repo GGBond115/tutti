@@ -477,7 +477,7 @@ func TestServiceListUsesCodexAppServerAccountCommand(t *testing.T) {
 	}
 }
 
-func TestServiceListReportsCodexAPIKeyAsAuthenticatedWithoutLogin(t *testing.T) {
+func TestServiceListReportsCodexAPIKeyAsConfiguredWithoutRemoteEvidence(t *testing.T) {
 	service := testService(func(name string) (string, error) {
 		return "/usr/local/bin/" + name, nil
 	}, map[string]bool{})
@@ -500,14 +500,14 @@ func TestServiceListReportsCodexAPIKeyAsAuthenticatedWithoutLogin(t *testing.T) 
 	if status.Availability.Status != AvailabilityReady {
 		t.Fatalf("availability = %q, want %q", status.Availability.Status, AvailabilityReady)
 	}
-	if status.Auth.Status != AuthAuthenticated ||
+	if status.Auth.Status != AuthConfigured ||
 		status.Auth.AuthMethod != "apiKey" ||
 		status.Auth.AccountLabel != "API Usage Billing" {
-		t.Fatalf("auth = %#v, want API billing authentication", status.Auth)
+		t.Fatalf("auth = %#v, want configured API billing credentials", status.Auth)
 	}
 }
 
-func TestServiceStatusReportsOpenCodeConfigAPIKeyAsAuthenticatedWithoutLogin(t *testing.T) {
+func TestServiceStatusReportsOpenCodeConfigAPIKeyAsConfiguredWithoutRemoteEvidence(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), `{
 		"provider": {
@@ -534,10 +534,10 @@ func TestServiceStatusReportsOpenCodeConfigAPIKeyAsAuthenticatedWithoutLogin(t *
 	if status.Availability.Status != AvailabilityReady {
 		t.Fatalf("availability = %q, want %q", status.Availability.Status, AvailabilityReady)
 	}
-	if status.Auth.Status != AuthAuthenticated ||
+	if status.Auth.Status != AuthConfigured ||
 		status.Auth.AuthMethod != "apiKey" ||
 		status.Auth.AccountLabel != "API Usage Billing" {
-		t.Fatalf("auth = %#v, want API billing authentication", status.Auth)
+		t.Fatalf("auth = %#v, want configured API billing credentials", status.Auth)
 	}
 }
 
@@ -1376,6 +1376,9 @@ func TestServiceListUsesRuntimeCommandResolverForKnownNodeGlobalBin(t *testing.T
 			return time.Date(2026, 6, 2, 8, 0, 0, 0, time.UTC)
 		},
 		CodexProtocolProbe: codexProtocolReadyFixture,
+		RemoteAuthProbe: func(context.Context, ProviderSpec) (providerstatus.AuthEvidence, bool) {
+			return providerstatus.AuthEvidence{}, false
+		},
 	}
 
 	snapshot, err := service.List(context.Background(), ListInput{Providers: []string{"codex"}})
@@ -2822,7 +2825,7 @@ func TestServiceListReportsClaudeAuthentication(t *testing.T) {
 			environ:      []string{"PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=sk-test"},
 			commandAuth:  AuthInfo{Status: AuthRequired},
 			availability: AvailabilityReady,
-			authStatus:   AuthAuthenticated,
+			authStatus:   AuthConfigured,
 			authMethod:   "apiKey",
 			accountLabel: "API Usage Billing",
 		},
@@ -2832,7 +2835,7 @@ func TestServiceListReportsClaudeAuthentication(t *testing.T) {
 			settings:     `{"env":{"ANTHROPIC_API_KEY":"sk-test"}}`,
 			commandAuth:  AuthInfo{Status: AuthRequired},
 			availability: AvailabilityReady,
-			authStatus:   AuthAuthenticated,
+			authStatus:   AuthConfigured,
 			authMethod:   "apiKey",
 			accountLabel: "API Usage Billing",
 		},
@@ -2842,7 +2845,7 @@ func TestServiceListReportsClaudeAuthentication(t *testing.T) {
 			settings:     `{"env":{"ANTHROPIC_AUTH_TOKEN":"sk-test","ANTHROPIC_BASE_URL":"https://api.moonshot.cn/anthropic"}}`,
 			commandAuth:  AuthInfo{Status: AuthAuthenticated, AuthMethod: "oauth_token", AccountLabel: "oauth_token"},
 			availability: AvailabilityReady,
-			authStatus:   AuthAuthenticated,
+			authStatus:   AuthConfigured,
 			authMethod:   "apiKey",
 			accountLabel: "API Usage Billing",
 		},
@@ -2852,7 +2855,7 @@ func TestServiceListReportsClaudeAuthentication(t *testing.T) {
 			settings:     `{"env":{"ANTHROPIC_BASE_URL":"https://gw.local"}}`,
 			commandAuth:  AuthInfo{Status: AuthAuthenticated, AuthMethod: "oauth", AccountLabel: "me@x.com"},
 			availability: AvailabilityReady,
-			authStatus:   AuthAuthenticated,
+			authStatus:   AuthConfigured,
 			authMethod:   "oauth",
 			accountLabel: "me@x.com",
 		},
@@ -2897,7 +2900,7 @@ func TestServiceListRetriesClaudeAuthStatusCommandWhenOutputIsUnrecognized(t *te
 		status,
 		harness.claudePath,
 		AvailabilityReady,
-		AuthAuthenticated,
+		AuthConfigured,
 		"",
 		"dev@example.com",
 	)
@@ -2922,7 +2925,7 @@ func TestServiceListFallsBackToClaudeAuthMarkerWhenAuthStatusCommandIsUnrecogniz
 		status,
 		harness.claudePath,
 		AvailabilityReady,
-		AuthAuthenticated,
+		AuthConfigured,
 		"",
 		"user_123",
 	)
@@ -3095,6 +3098,9 @@ func probeTestService(home string) Service {
 		// real ACP initialize round-trip in fake shell scripts under parallel
 		// `go test` load and caused flaky acp_adapter_launch_failed failures.
 		ProbeTimeout: defaultProbeTimeout,
+		RemoteAuthProbe: func(context.Context, ProviderSpec) (providerstatus.AuthEvidence, bool) {
+			return providerstatus.AuthEvidence{}, false
+		},
 	}
 }
 

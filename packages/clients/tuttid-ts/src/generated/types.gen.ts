@@ -2041,7 +2041,11 @@ export type AgentProviderAvailabilityStatus =
   | "unsupported"
   | "unknown";
 
-export type AgentProviderAuthStatus = "authenticated" | "required" | "unknown";
+export type AgentProviderAuthStatus =
+  | "authenticated"
+  | "configured"
+  | "required"
+  | "unknown";
 
 export type AgentProviderActionKind =
   | "daemon_action"
