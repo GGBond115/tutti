@@ -2273,7 +2273,15 @@ AgentGUI performance correlation is package-owned through
 existing Session-event subscription, a clock, and a product-neutral event
 sink. The monitor joins AgentGUI's preserved `submittedAtUnixMs` and queue
 diagnostics to exact Session and Turn identities, then emits activation
-settlement, Prompt admission, first-token receipt, and Turn settlement facts.
+settlement, Prompt admission, first-token receipt, Turn settlement, and
+Composer-options load facts. `trackComposerOptionsLoad` emits a start fact
+before calling either the runtime `getComposerOptions` or exposed Engine
+`loadComposerOptions` path, then emits a correlated completed or failed fact
+with exact duration. An unmatched start therefore remains observable when a
+Provider options request never settles. The facts distinguish runtime from
+session-Engine entry, force refresh, directory presence, bounded error
+category, and model count without carrying paths, settings, model names, or
+error messages.
 Hosts map those facts to their own analytics catalogs; they must not copy the
 Turn-binding, early-event buffering, duration-bucket, or token-classification
 logic.

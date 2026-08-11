@@ -3,6 +3,7 @@ import {
   selectEngineTurn,
   selectPendingActivations,
   selectPendingSubmits,
+  type AgentActivityComposerOptions,
   type AgentSessionEngine,
   type AgentSessionEngineState
 } from "@tutti-os/agent-activity-core";
@@ -18,6 +19,8 @@ export type AgentGUIPerformanceDurationBucket =
   | "gte_60s";
 
 export type AgentGUIFirstTokenKind = "other" | "plan" | "reasoning" | "text";
+
+export type AgentGUIComposerOptionsLoadSource = "runtime" | "session-engine";
 
 interface AgentGUIPerformanceEventBase {
   agentSessionId: string;
@@ -59,10 +62,63 @@ export type AgentGUIPerformanceEvent =
       source: "activation" | "submit";
       turnId: string;
       type: "turn_settled";
-    });
+    })
+  | {
+      agentTargetId: string;
+      force: boolean;
+      hasDirectory: boolean;
+      observedAtUnixMs: number;
+      operationId: string;
+      provider: string;
+      source: AgentGUIComposerOptionsLoadSource;
+      startedAtUnixMs: number;
+      type: "composer_options_load_started";
+      workspaceId: string;
+    }
+  | {
+      agentTargetId: string;
+      durationBucket: AgentGUIPerformanceDurationBucket;
+      durationMs: number;
+      errorCategory?: string;
+      force: boolean;
+      hasDirectory: boolean;
+      modelCount?: number;
+      observedAtUnixMs: number;
+      operationId: string;
+      outcome: "completed" | "failed";
+      provider: string;
+      source: AgentGUIComposerOptionsLoadSource;
+      startedAtUnixMs: number;
+      type: "composer_options_load_settled";
+      workspaceId: string;
+    };
+
+export type AgentGUIComposerOptionsPerformanceEvent = Extract<
+  AgentGUIPerformanceEvent,
+  { type: "composer_options_load_settled" | "composer_options_load_started" }
+>;
+
+export interface AgentGUIComposerOptionsLoadInput {
+  agentTargetId: string;
+  cwd?: string | null;
+  force?: boolean;
+  load: () => Promise<AgentActivityComposerOptions>;
+  provider?: string | null;
+  source: AgentGUIComposerOptionsLoadSource;
+}
+
+export interface AgentGUIComposerOptionsPerformanceTrackerInput extends AgentGUIComposerOptionsLoadInput {
+  createOperationId?: () => string;
+  nowUnixMs?: () => number;
+  onEvent: (event: AgentGUIComposerOptionsPerformanceEvent) => void;
+  workspaceId: string;
+}
 
 export interface AgentGUIPerformanceMonitor {
   dispose(): void;
+  trackComposerOptionsLoad(
+    input: AgentGUIComposerOptionsLoadInput
+  ): Promise<AgentActivityComposerOptions>;
 }
 
 interface PromptAttempt {
@@ -90,6 +146,7 @@ interface TurnContext extends Omit<
 }
 
 export function createAgentGUIPerformanceMonitor(input: {
+  createOperationId?: () => string;
   engine: AgentSessionEngine;
   nowUnixMs?: () => number;
   onEvent: (event: AgentGUIPerformanceEvent) => void;
@@ -114,12 +171,7 @@ export function createAgentGUIPerformanceMonitor(input: {
   let disposed = false;
 
   const emit = (event: AgentGUIPerformanceEvent): void => {
-    try {
-      input.onEvent(event);
-    } catch (error) {
-      // Performance reporting must never affect the Agent runtime.
-      console.error("[agent-gui] performance event sink failed", error);
-    }
+    emitPerformanceEvent(input.onEvent, event);
   };
 
   const providerFor = (
@@ -464,8 +516,83 @@ export function createAgentGUIPerformanceMonitor(input: {
       reportedActivationSettlements.clear();
       reportedPromptSettlements.clear();
       reportedTurnSettlements.clear();
+    },
+    trackComposerOptionsLoad(loadInput) {
+      if (disposed) return loadInput.load();
+      return trackAgentGUIComposerOptionsLoad({
+        ...loadInput,
+        createOperationId: input.createOperationId,
+        nowUnixMs,
+        onEvent: emit,
+        workspaceId
+      });
     }
   };
+}
+
+export async function trackAgentGUIComposerOptionsLoad(
+  input: AgentGUIComposerOptionsPerformanceTrackerInput
+): Promise<AgentActivityComposerOptions> {
+  const nowUnixMs = input.nowUnixMs ?? Date.now;
+  const startedAtUnixMs = safeNowUnixMs(nowUnixMs);
+  const operationId = composerOptionsOperationId(input, startedAtUnixMs);
+  const agentTargetId = input.agentTargetId.trim();
+  const force = input.force === true;
+  const hasDirectory = Boolean(input.cwd?.trim());
+  const provider = input.provider?.trim() || "unknown";
+  emitPerformanceEvent(input.onEvent, {
+    agentTargetId,
+    force,
+    hasDirectory,
+    observedAtUnixMs: startedAtUnixMs,
+    operationId,
+    provider,
+    source: input.source,
+    startedAtUnixMs,
+    type: "composer_options_load_started",
+    workspaceId: input.workspaceId
+  });
+
+  let options: AgentActivityComposerOptions;
+  try {
+    options = await input.load();
+  } catch (error) {
+    const observedAtUnixMs = safeNowUnixMs(nowUnixMs);
+    emitPerformanceEvent(input.onEvent, {
+      agentTargetId,
+      ...agentGUIPerformanceDuration(observedAtUnixMs - startedAtUnixMs),
+      errorCategory: performanceErrorCategory(error),
+      force,
+      hasDirectory,
+      observedAtUnixMs,
+      operationId,
+      outcome: "failed",
+      provider,
+      source: input.source,
+      startedAtUnixMs,
+      type: "composer_options_load_settled",
+      workspaceId: input.workspaceId
+    });
+    throw error;
+  }
+
+  const observedAtUnixMs = safeNowUnixMs(nowUnixMs);
+  emitPerformanceEvent(input.onEvent, {
+    agentTargetId,
+    ...agentGUIPerformanceDuration(observedAtUnixMs - startedAtUnixMs),
+    force,
+    hasDirectory,
+    modelCount: Array.isArray(options.models) ? options.models.length : 0,
+    observedAtUnixMs,
+    operationId,
+    outcome: "completed",
+    provider: options.provider?.trim() || provider,
+    source: input.source,
+    startedAtUnixMs,
+    type: "composer_options_load_settled",
+    workspaceId: input.workspaceId
+  });
+  return options;
 }
 
 export function agentGUIPerformanceDuration(durationMs: number): {
@@ -579,6 +706,59 @@ function turnContext(attempt: PromptAttempt, turnId: string): TurnContext {
 
 function performanceTurnKey(agentSessionId: string, turnId: string): string {
   return `${agentSessionId}\u0000${turnId}`;
+}
+
+function performanceErrorCategory(error: unknown): string {
+  const record = asRecord(error);
+  const candidate =
+    stringField(record, "code") ??
+    (error instanceof Error ? error.name : undefined) ??
+    "unknown";
+  const normalized = candidate
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 120);
+  return normalized || "unknown";
+}
+
+function composerOptionsOperationId(
+  input: Pick<
+    AgentGUIComposerOptionsPerformanceTrackerInput,
+    "createOperationId"
+  >,
+  startedAtUnixMs: number
+): string {
+  const fallback = `composer-options:${startedAtUnixMs}:${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  try {
+    return input.createOperationId?.().trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeNowUnixMs(nowUnixMs: () => number): number {
+  try {
+    const value = nowUnixMs();
+    return Number.isFinite(value) ? value : Date.now();
+  } catch {
+    return Date.now();
+  }
+}
+
+function emitPerformanceEvent<TEvent extends AgentGUIPerformanceEvent>(
+  onEvent: (event: TEvent) => void,
+  event: TEvent
+): void {
+  try {
+    onEvent(event);
+  } catch (error) {
+    // Performance reporting must never affect the Agent runtime.
+    console.error("[agent-gui] performance event sink failed", error);
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

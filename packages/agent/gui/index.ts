@@ -207,9 +207,14 @@ export type {
 } from "./agentActivityRuntime";
 export {
   agentGUIPerformanceDuration,
-  createAgentGUIPerformanceMonitor
+  createAgentGUIPerformanceMonitor,
+  trackAgentGUIComposerOptionsLoad
 } from "./agentGUIPerformanceMonitor";
 export type {
+  AgentGUIComposerOptionsLoadInput,
+  AgentGUIComposerOptionsLoadSource,
+  AgentGUIComposerOptionsPerformanceEvent,
+  AgentGUIComposerOptionsPerformanceTrackerInput,
   AgentGUIFirstTokenKind,
   AgentGUIPerformanceDurationBucket,
   AgentGUIPerformanceEvent,
