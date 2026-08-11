@@ -414,6 +414,9 @@ func TestServiceListReportsReadyWhenInstalledAndAuthenticated(t *testing.T) {
 			AuthMethod:   "chatgpt",
 		}
 	}
+	service.RemoteAuthProbe = func(context.Context, ProviderSpec) (providerstatus.AuthEvidence, bool) {
+		return providerstatus.AuthEvidence{Kind: providerstatus.AuthEvidenceRemoteSuccess}, true
+	}
 
 	snapshot, err := service.List(context.Background(), ListInput{Providers: []string{"codex"}})
 	if err != nil {
@@ -461,6 +464,9 @@ func TestServiceListUsesCodexAppServerAccountCommand(t *testing.T) {
 			t.Fatalf("binaryPath = %q, want /usr/local/bin/codex", binaryPath)
 		}
 		return AuthInfo{Status: AuthAuthenticated}, true
+	}
+	service.RemoteAuthProbe = func(context.Context, ProviderSpec) (providerstatus.AuthEvidence, bool) {
+		return providerstatus.AuthEvidence{Kind: providerstatus.AuthEvidenceRemoteSuccess}, true
 	}
 
 	snapshot, err := service.List(context.Background(), ListInput{Providers: []string{"codex"}})

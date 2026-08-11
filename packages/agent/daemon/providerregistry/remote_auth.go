@@ -16,6 +16,16 @@ func validateRemoteAuthProbe(descriptor RemoteAuthProbeDescriptor) error {
 		}
 		return nil
 	}
+	if descriptor.TimeoutSeconds <= 0 {
+		return fmt.Errorf("timeout seconds must be positive")
+	}
+	if descriptor.Kind == RemoteAuthProbeKindProviderUsage {
+		if descriptor.CredentialKind != "" || strings.TrimSpace(descriptor.Endpoint) != "" ||
+			strings.TrimSpace(descriptor.Method) != "" || len(descriptor.Headers) > 0 {
+			return fmt.Errorf("provider usage probe must not declare HTTP settings")
+		}
+		return nil
+	}
 	if descriptor.Kind != RemoteAuthProbeKindHTTPBearer {
 		return fmt.Errorf("kind %q is unsupported", descriptor.Kind)
 	}
@@ -30,9 +40,6 @@ func validateRemoteAuthProbe(descriptor RemoteAuthProbeDescriptor) error {
 	}
 	if method := strings.ToUpper(strings.TrimSpace(descriptor.Method)); method != http.MethodGet {
 		return fmt.Errorf("method %q is unsupported", descriptor.Method)
-	}
-	if descriptor.TimeoutSeconds <= 0 {
-		return fmt.Errorf("timeout seconds must be positive")
 	}
 	for key, value := range descriptor.Headers {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {

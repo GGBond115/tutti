@@ -13,6 +13,7 @@ import (
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerstatus"
+	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 )
 
 const claudeKeychainReadTimeout = 3 * time.Second
@@ -20,9 +21,14 @@ const claudeKeychainReadTimeout = 3 * time.Second
 func (s Service) resolveRemoteAuthEvidence(
 	ctx context.Context,
 	spec ProviderSpec,
+	binaryPath string,
+	env []string,
 ) (providerstatus.AuthEvidence, bool) {
 	if s.RemoteAuthProbe != nil {
 		return s.RemoteAuthProbe(ctx, spec)
+	}
+	if spec.RemoteAuthProbe.Kind == providerregistry.RemoteAuthProbeKindProviderUsage {
+		return s.resolveProviderUsageRemoteAuthEvidence(ctx, spec, binaryPath, env)
 	}
 	token, found, err := s.resolveRemoteAuthCredential(ctx, spec.RemoteAuthProbe.CredentialKind)
 	if err != nil {
@@ -51,6 +57,55 @@ func (s Service) resolveRemoteAuthEvidence(
 		"success", result.Evidence.Kind == providerstatus.AuthEvidenceRemoteSuccess,
 	)
 	return result.Evidence, true
+}
+
+func (s Service) resolveProviderUsageRemoteAuthEvidence(
+	ctx context.Context,
+	spec ProviderSpec,
+	binaryPath string,
+	env []string,
+) (providerstatus.AuthEvidence, bool) {
+	if authCommandRunnerKind(spec) != providerregistry.AuthCommandRunnerKindCodexAppServerAccount ||
+		strings.TrimSpace(binaryPath) == "" {
+		return providerstatus.AuthEvidence{
+			Kind: providerstatus.AuthEvidenceProbeFailure, Reason: providerstatus.AuthReasonProbeFailed,
+		}, true
+	}
+	command := append([]string{binaryPath}, spec.AuthStatusCommand...)
+	if s.CodexRemoteAuthProbe != nil {
+		return s.CodexRemoteAuthProbe(ctx, command, append([]string(nil), env...)), true
+	}
+	release, acquired := s.DetectionCommands.acquire(ctx)
+	if !acquired {
+		return providerstatus.AuthEvidence{
+			Kind: providerstatus.AuthEvidenceProbeFailure, Reason: providerstatus.AuthReasonProbeFailed,
+		}, true
+	}
+	defer release()
+	timeout := time.Duration(spec.RemoteAuthProbe.TimeoutSeconds) * time.Second
+	result := agentruntime.ProbeCodexAppServer(ctx, agentruntime.CodexAppServerProbeInput{
+		Command: command,
+		Env:     append([]string(nil), env...),
+		Host: agentruntime.HostMetadata{ClientInfo: agentruntime.ClientInfo{
+			Name: "tutti-desktop", Title: "Tutti", Version: "0.1.0",
+		}},
+		ReadRateLimits:   true,
+		StartupTimeout:   timeout,
+		HandshakeTimeout: timeout,
+		ShutdownTimeout:  s.probeReadyAfter(),
+	})
+	evidence := providerstatus.CodexRemoteAuthEvidence(result.RateLimitsRead, result.Message)
+	level := slog.LevelDebug
+	if evidence.Kind == providerstatus.AuthEvidenceRemoteAuthFailure {
+		level = slog.LevelWarn
+	}
+	slog.Log(ctx, level, "agent provider remote auth probe completed",
+		"event", "tutti.agent_provider.remote_auth.completed",
+		"provider", spec.Provider,
+		"evidence", evidence.Kind,
+		"success", evidence.Kind == providerstatus.AuthEvidenceRemoteSuccess,
+	)
+	return evidence, true
 }
 
 func (s Service) resolveRemoteAuthCredential(

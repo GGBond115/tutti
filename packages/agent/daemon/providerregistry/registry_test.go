@@ -203,6 +203,13 @@ func TestValidateRejectsUnsafeRemoteAuthProbeDeclarations(t *testing.T) {
 			}
 		})
 	}
+	t.Run("provider usage with HTTP settings", func(t *testing.T) {
+		descriptor := codexDescriptor()
+		descriptor.Status.RemoteAuthProbe.Endpoint = "https://chatgpt.com/backend-api/wham/usage"
+		if err := Validate(descriptor); err == nil {
+			t.Fatal("Validate() error = nil")
+		}
+	})
 }
 
 func TestMigratedCodexDescriptorIsComplete(t *testing.T) {
@@ -218,6 +225,9 @@ func TestMigratedCodexDescriptorIsComplete(t *testing.T) {
 	}
 	if descriptor.Runtime.Kind != RuntimeKindCodexAppServer {
 		t.Fatalf("Runtime.Kind = %q", descriptor.Runtime.Kind)
+	}
+	if descriptor.Status.RemoteAuthProbe.Kind != RemoteAuthProbeKindProviderUsage {
+		t.Fatalf("remote auth probe = %#v", descriptor.Status.RemoteAuthProbe)
 	}
 	if descriptor.Runtime.AppServerFork != (AppServerForkDescriptor{
 		UserAgentBrand:        "codex",

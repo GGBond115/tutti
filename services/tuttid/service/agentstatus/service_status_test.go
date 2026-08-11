@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
+	"github.com/tutti-os/tutti/packages/agent/daemon/providerstatus"
 )
 
 // TestServiceListDetectsProvidersConcurrently proves provider detection fans
@@ -30,6 +33,12 @@ func TestServiceListDetectsProvidersConcurrently(t *testing.T) {
 		case <-ctx.Done():
 		}
 		return AuthInfo{Status: AuthAuthenticated}, true
+	}
+	service.RemoteAuthProbe = func(_ context.Context, spec ProviderSpec) (providerstatus.AuthEvidence, bool) {
+		if spec.Provider == providerregistry.CodexProviderID {
+			return providerstatus.AuthEvidence{Kind: providerstatus.AuthEvidenceRemoteSuccess}, true
+		}
+		return providerstatus.AuthEvidence{}, false
 	}
 
 	type listResult struct {

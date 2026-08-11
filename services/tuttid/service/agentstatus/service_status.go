@@ -145,7 +145,12 @@ func (s Service) statusForSpec(
 		remoteAuthProbeRan = true
 		checks.Go(func() error {
 			remoteStartedAt := time.Now()
-			remoteAuthEvidence, remoteAuthEvidencePresent = s.resolveRemoteAuthEvidence(detectionCtx, spec)
+			remoteAuthEvidence, remoteAuthEvidencePresent = s.resolveRemoteAuthEvidence(
+				detectionCtx,
+				spec,
+				runtimeResolution.CLIPath,
+				runtimeResolution.Env,
+			)
 			remoteAuthDuration = time.Since(remoteStartedAt)
 			return nil
 		})

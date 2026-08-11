@@ -167,16 +167,18 @@ External hosts consume the same reducer only when their runtime cannot use the
 host must wait for credential projection before probing; the host maps that
 semantic barrier to its own synchronization mechanism.
 
-`StatusDescriptor.RemoteAuthProbe` owns the provider request shape without
+`StatusDescriptor.RemoteAuthProbe` owns the provider-backed strategy without
 owning credential storage. Claude Code declares its OAuth usage request to
 `https://api.anthropic.com/api/oauth/usage`; hosts resolve the OAuth access
 token from their own credential authority and never send an API key or
-`ANTHROPIC_AUTH_TOKEN` to that endpoint. A `2xx` response authenticates the
-session, `401`/`403` requires login, and throttling, server, or transport
-failures preserve the local `configured` state. `tuttid` expires this remote
-evidence after 15 minutes; Desktop asks again only while its window is visible
-and focused. OAuth refresh-token rotation remains credential-owner policy and
-is not performed by this status probe.
+`ANTHROPIC_AUTH_TOKEN` to that endpoint. Codex declares the provider-usage
+strategy, which invokes `account/rateLimits/read` through the provider runtime
+without publishing credential bytes. A successful request authenticates the
+session, an explicit authentication rejection requires login, and throttling,
+server, or transport failures preserve the local `configured` state. `tuttid`
+expires this remote evidence after 15 minutes; Desktop asks again only while
+its window is visible and focused. OAuth refresh-token rotation remains
+credential-owner policy and is not performed by this status probe.
 
 ## Live Session Recycling
 

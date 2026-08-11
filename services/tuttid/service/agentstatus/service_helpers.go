@@ -243,10 +243,7 @@ func (s Service) resolveAuthAndCLIVersion(
 	return s.resolveAuthFromMarkers(spec), "", providerstatus.AuthEvidenceAuthorityLocal
 }
 
-func authCommandEvidenceAuthority(spec ProviderSpec) providerstatus.AuthEvidenceAuthority {
-	if authCommandRunnerKind(spec) == providerregistry.AuthCommandRunnerKindCodexAppServerAccount {
-		return providerstatus.AuthEvidenceAuthorityRemote
-	}
+func authCommandEvidenceAuthority(ProviderSpec) providerstatus.AuthEvidenceAuthority {
 	return providerstatus.AuthEvidenceAuthorityLocal
 }
 

@@ -371,16 +371,17 @@ Desktop management surfaces and AgentGUI consume that same status. They may
 keep a `configured` provider launchable when availability is `ready`, but must
 not relabel it as connected or authenticated.
 
-For Claude Code subscription OAuth, the descriptor-owned remote check is
-`GET https://api.anthropic.com/api/oauth/usage`. It is attempted on ordinary
-status detection and becomes stale after 15 minutes. Visible, focused Desktop
-windows reconcile stale providers on focus/visibility activation and on the
-15-minute poll. API-key configuration skips this OAuth endpoint. `401` and
-`403` are authoritative login failures; rate limits, server errors, and network
-failures leave the weaker `configured` state intact. This check validates an
-access token but does not rotate refresh tokens; refresh ownership requires a
-separate serialized credential lifecycle that can gate on live Claude
-processes.
+For subscription OAuth, provider descriptors select the remote-auth strategy.
+Claude Code uses `GET https://api.anthropic.com/api/oauth/usage`; Codex uses the
+provider runtime's `account/rateLimits/read`. These checks are attempted on
+ordinary status detection and become stale after 15 minutes. Visible, focused
+Desktop windows reconcile stale providers on focus/visibility activation and
+on the 15-minute poll. API-key configuration skips subscription OAuth checks.
+Explicit authentication rejection is authoritative; rate limits, server
+errors, and network failures leave the weaker `configured` state intact.
+These checks validate current access but do not rotate refresh tokens; refresh
+ownership requires a separate serialized credential lifecycle that can gate on
+live provider processes.
 
 ### 2.6 Developer cassette replay
 

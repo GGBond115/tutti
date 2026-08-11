@@ -305,6 +305,9 @@ type Service struct {
 	// RemoteAuthProbe is the provider-neutral test seam for descriptor-owned
 	// provider requests. Nil resolves credentials locally and uses HTTPClient.
 	RemoteAuthProbe func(context.Context, ProviderSpec) (providerstatus.AuthEvidence, bool)
+	// CodexRemoteAuthProbe is the narrow test seam for the provider-usage
+	// strategy. Nil uses Codex app-server account/rateLimits/read.
+	CodexRemoteAuthProbe func(context.Context, []string, []string) providerstatus.AuthEvidence
 	// CodexRuntimeSelectionStore persists only an explicit Codex launcher
 	// choice. A missing selection permits only one uniquely ready candidate;
 	// multiple ready candidates require the user to choose one.

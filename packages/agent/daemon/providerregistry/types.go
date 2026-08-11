@@ -161,7 +161,10 @@ const (
 // descriptor or a public status response.
 type RemoteAuthProbeKind string
 
-const RemoteAuthProbeKindHTTPBearer RemoteAuthProbeKind = "http_bearer"
+const (
+	RemoteAuthProbeKindHTTPBearer    RemoteAuthProbeKind = "http_bearer"
+	RemoteAuthProbeKindProviderUsage RemoteAuthProbeKind = "provider_usage"
+)
 
 // RemoteAuthCredentialKind identifies the provider credential grammar used by
 // a host or managed-runtime adapter before invoking RemoteAuthProbe.
