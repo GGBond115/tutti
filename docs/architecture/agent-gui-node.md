@@ -763,6 +763,11 @@ A durable message has two independent ordering values:
 - `version`: per-session mutable change cursor used for incremental updates and gap detection
 
 Lifecycle timestamps describe occurrence time; they do not replace durable sequence. A live message with unknown Turn ownership must be completed or rejected at the boundary, never assigned an owner in GUI.
+Optimistic prompt and Goal-control echoes occupy a separate overlay ordering
+domain. They remain after all currently durable messages until canonical
+confirmation replaces them; their earlier submission timestamps must not move
+them back through durable transcript history during message projection or
+timeline merging.
 
 Neither value is a history-coverage signal. A newest-to-oldest message read
 projects an explicit Session message window into the frontend engine:
