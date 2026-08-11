@@ -49,6 +49,10 @@ import {
   type WorkspaceLinkAction
 } from "../../../actions/workspaceLinkActions";
 import {
+  collectComposerDraftFiles,
+  resolveComposerFileMentionLinkAction
+} from "./resolveComposerFileMentionLinkAction";
+import {
   AGENT_COMPOSER_PASTED_TEXT_FILE_PREFIX,
   agentComposerTextByteLength,
   buildGoalModePrompt,
@@ -141,6 +145,9 @@ export function useComposerDraftAttachments({
   );
   const showErrorToast = useStableEventCallback((message: string): void => {
     agentHostApi?.toast?.error(message);
+  });
+  const showInfoToast = useStableEventCallback((message: string): void => {
+    (agentHostApi?.toast?.info ?? agentHostApi?.toast?.error)?.(message);
   });
   const publishScopedDraft = useStableEventCallback(
     (sourceScopeKey: string, nextDraft: AgentComposerDraft): void => {
@@ -761,6 +768,35 @@ export function useComposerDraftAttachments({
         openReferencesForEntityRef.current?.(item);
         return;
       }
+      const composerFileResolution = resolveComposerFileMentionLinkAction({
+        href,
+        files: collectComposerDraftFiles({
+          activeFiles: draftFilesRef.current,
+          draftsByScope: draftByScopeKeyRef.current
+        }),
+        workspaceRoot: workspacePath,
+        source: "agent-markdown"
+      });
+      if (composerFileResolution?.kind === "open") {
+        onLinkAction?.(composerFileResolution.action);
+        return;
+      }
+      if (composerFileResolution?.kind === "blocked") {
+        if (composerFileResolution.reason === "uploading") {
+          showInfoToast(
+            translate("agentHost.agentGui.composerFileStillPreparing")
+          );
+        } else if (composerFileResolution.reason === "failed") {
+          showErrorToast(
+            translate("agentHost.agentGui.composerFileOpenFailed")
+          );
+        } else {
+          showErrorToast(
+            translate("agentHost.agentGui.composerFileOpenUnavailable")
+          );
+        }
+        return;
+      }
       const action = resolveWorkspaceLinkAction({
         href,
         workspaceRoot: workspacePath,
@@ -770,7 +806,14 @@ export function useComposerDraftAttachments({
         onLinkAction?.(action);
       }
     },
-    [onLinkAction, workspacePath]
+    [
+      draftByScopeKeyRef,
+      draftFilesRef,
+      onLinkAction,
+      showErrorToast,
+      showInfoToast,
+      workspacePath
+    ]
   );
 
   return {
