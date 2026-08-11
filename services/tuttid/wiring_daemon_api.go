@@ -645,6 +645,7 @@ func buildDaemonAPI(
 		Store:                 appStore,
 		AppFactoryStore:       appFactoryStore,
 		WorkspaceStore:        store,
+		WorkspaceRootResolver: workspaceservice.FileService{Adapter: fileAdapter},
 		PreferencesStore:      preferencesStore,
 		Runner:                &workspaceservice.AppRunner{RuntimeResolver: managedRuntimeResolver, ShellAdapter: appShellAdapter},
 		ShellAdapter:          appShellAdapter,

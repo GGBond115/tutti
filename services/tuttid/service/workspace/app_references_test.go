@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	workspacefiles "github.com/tutti-os/tutti/packages/workspace/files"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 )
 
@@ -140,6 +142,83 @@ func TestDecodeAppRuntimeReferenceAcceptsFileLocationTypes(t *testing.T) {
 	}
 }
 
+func TestDecodeAppRuntimeReferenceAcceptsWorkspacePathWithinCurrentWorkspaceRoot(t *testing.T) {
+	t.Parallel()
+
+	workspaceRoot := t.TempDir()
+	referencePath := filepath.Join(workspaceRoot, "projects", "report.md")
+	if err := os.MkdirAll(filepath.Dir(referencePath), 0o755); err != nil {
+		t.Fatalf("mkdir reference parent: %v", err)
+	}
+	if err := os.WriteFile(referencePath, []byte("report"), 0o644); err != nil {
+		t.Fatalf("write reference: %v", err)
+	}
+	raw, err := json.Marshal(map[string]any{
+		"kind": "file",
+		"location": map[string]any{
+			"type": "workspace-path",
+			"path": referencePath,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal reference: %v", err)
+	}
+	reference, ok := decodeAppRuntimeReference(raw, appReferenceLocationValidator{workspaceRoot: workspaceRoot})
+	if !ok {
+		t.Fatal("decodeAppRuntimeReference() ok = false, want true")
+	}
+	fileReference, ok := reference.(workspacebiz.AppFileReference)
+	if !ok {
+		t.Fatalf("decodeAppRuntimeReference() = %T, want AppFileReference", reference)
+	}
+	if fileReference.Path != referencePath {
+		t.Fatalf("Path = %q, want %q", fileReference.Path, referencePath)
+	}
+}
+
+func TestDecodeAppRuntimeReferenceRejectsWorkspacePathOutsideCurrentWorkspaceRoot(t *testing.T) {
+	t.Parallel()
+
+	workspaceRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "secret.md")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write outside reference: %v", err)
+	}
+	raw := json.RawMessage(`{"kind":"file","location":{"type":"workspace-path","path":"` + outsidePath + `"}}`)
+	if _, ok := decodeAppRuntimeReference(raw, appReferenceLocationValidator{workspaceRoot: workspaceRoot}); ok {
+		t.Fatal("decodeAppRuntimeReference() ok = true, want false")
+	}
+}
+
+func TestDecodeAppRuntimeReferenceRejectsWorkspacePathSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	workspaceRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "secret.md")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write outside reference: %v", err)
+	}
+	linkPath := filepath.Join(workspaceRoot, "linked")
+	if err := os.Symlink(outsideRoot, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	raw, err := json.Marshal(map[string]any{
+		"kind": "file",
+		"location": map[string]any{
+			"type": "workspace-path",
+			"path": filepath.Join(linkPath, "secret.md"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal reference: %v", err)
+	}
+	if _, ok := decodeAppRuntimeReference(raw, appReferenceLocationValidator{workspaceRoot: workspaceRoot}); ok {
+		t.Fatal("decodeAppRuntimeReference() ok = true, want false")
+	}
+}
+
 func TestDecodeAppRuntimeReferenceDropsInvalidLocation(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +230,7 @@ func TestDecodeAppRuntimeReferenceDropsInvalidLocation(t *testing.T) {
 		"{\"kind\":\"file\",\"path\":\"/tmp/bad\\u0000name.txt\"}",
 		`{"kind":"file","type":"app-data-relative","path":"a.txt"}`,
 		`{"kind":"file","location":{"type":"workspace-relative","path":"a.txt"}}`,
+		`{"kind":"file","location":{"type":"workspace-path","path":"relative.txt"}}`,
 		`{"kind":"file","location":{"type":"app-data-relative","path":""}}`,
 		`{"kind":"file","location":{"type":"app-data-relative","path":"/a.txt"}}`,
 		`{"kind":"file","location":{"type":"app-data-relative","path":"../secret.txt"}}`,
@@ -194,6 +274,14 @@ func TestListReferencesQueriesRunningEnabledAppAndDropsInvalidItems(t *testing.T
 
 	packageDir := t.TempDir()
 	guidePath := filepath.Join(packageDir, "docs", "guide.md")
+	workspaceRoot := t.TempDir()
+	workspacePath := filepath.Join(workspaceRoot, "slide-1", "deck.pdf")
+	if err := os.MkdirAll(filepath.Dir(workspacePath), 0o755); err != nil {
+		t.Fatalf("mkdir workspace reference parent: %v", err)
+	}
+	if err := os.WriteFile(workspacePath, []byte("deck"), 0o644); err != nil {
+		t.Fatalf("write workspace reference: %v", err)
+	}
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		requests++
@@ -224,6 +312,10 @@ func TestListReferencesQueriesRunningEnabledAppAndDropsInvalidItems(t *testing.T
 					"type": "app-package-relative",
 					"path": "docs/guide.md",
 				}}},
+				{"type": "reference", "reference": map[string]any{"kind": "file", "displayName": "Deck", "location": map[string]any{
+					"type": "workspace-path",
+					"path": workspacePath,
+				}}},
 			},
 			"nextCursor": "next-page",
 		}); err != nil {
@@ -242,6 +334,7 @@ func TestListReferencesQueriesRunningEnabledAppAndDropsInvalidItems(t *testing.T
 		runtimeHTTPClient:   server.Client(),
 		runtimeResolverStub: &appRuntimeResolverStub{called: make(chan struct{})},
 		packageDir:          packageDir,
+		workspaceRoot:       workspaceRoot,
 	})
 
 	result, err := service.ListReferences(context.Background(), "ws-1", "docs", workspacebiz.AppReferenceListInput{
@@ -258,8 +351,8 @@ func TestListReferencesQueriesRunningEnabledAppAndDropsInvalidItems(t *testing.T
 	if requests != 1 {
 		t.Fatalf("runtime requests = %d, want 1", requests)
 	}
-	if len(result.Items) != 2 {
-		t.Fatalf("items = %#v, want two valid items", result.Items)
+	if len(result.Items) != 3 {
+		t.Fatalf("items = %#v, want three valid items", result.Items)
 	}
 	group, ok := result.Items[0].(workspacebiz.AppReferenceGroup)
 	if !ok {
@@ -278,6 +371,14 @@ func TestListReferencesQueriesRunningEnabledAppAndDropsInvalidItems(t *testing.T
 	}
 	if fileReference.Path != guidePath {
 		t.Fatalf("reference path = %q, want %q", fileReference.Path, guidePath)
+	}
+	workspaceReferenceItem, ok := result.Items[2].(workspacebiz.AppReferenceListReferenceItem)
+	if !ok {
+		t.Fatalf("third item type = %T, want AppReferenceListReferenceItem", result.Items[2])
+	}
+	workspaceReference, ok := workspaceReferenceItem.Reference.(workspacebiz.AppFileReference)
+	if !ok || workspaceReference.Path != workspacePath {
+		t.Fatalf("workspace reference = %#v, want path %q", workspaceReferenceItem.Reference, workspacePath)
 	}
 	if result.NextCursor == nil || *result.NextCursor != "next-page" {
 		t.Fatalf("nextCursor = %#v, want next-page", result.NextCursor)
@@ -428,6 +529,7 @@ type appReferenceListServiceTestInput struct {
 	runtimeHTTPClient   *http.Client
 	runtimeResolverStub *appRuntimeResolverStub
 	packageDir          string
+	workspaceRoot       string
 }
 
 func newAppReferenceListServiceForTest(t *testing.T, input appReferenceListServiceTestInput) *AppCenterService {
@@ -480,12 +582,19 @@ func newAppReferenceListServiceForTest(t *testing.T, input appReferenceListServi
 		state.LaunchURL = &input.runtimeLaunchURL
 	}
 	runner.setState(appRuntimeKey("ws-1", "docs"), state)
-	return &AppCenterService{
+	service := &AppCenterService{
 		Store:          store,
 		WorkspaceStore: &catalogStoreStub{getWorkspace: workspacebiz.Summary{ID: "ws-1", Name: "Workspace"}},
 		Runner:         runner,
 		StateDir:       t.TempDir(),
 	}
+	if input.workspaceRoot != "" {
+		service.WorkspaceRootResolver = workspaceRootResolverStub{root: workspacefiles.WorkspaceRoot{
+			LogicalRoot:  "/workspace",
+			PhysicalRoot: input.workspaceRoot,
+		}}
+	}
+	return service
 }
 
 func assertRuntimeResolverNotCalled(t *testing.T, resolver *appRuntimeResolverStub) {

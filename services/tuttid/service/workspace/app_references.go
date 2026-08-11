@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/httpx"
+	workspacefiles "github.com/tutti-os/tutti/packages/workspace/files"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 )
 
@@ -191,8 +193,16 @@ func (s *AppCenterService) requestAppRuntimeReferencePage(ctx context.Context, e
 		dataRoot:    filepath.Join(s.workspaceAppStateRoot(workspaceID, appPackage.AppID), "data"),
 		packageRoot: appPackage.PackageDir,
 	}
+	workspaceRootResolved := false
 	items := make([]workspacebiz.AppReferenceListItem, 0, len(raw.Items))
 	for index, rawItem := range raw.Items {
+		if !workspaceRootResolved && appRuntimeReferenceListItemUsesWorkspacePath(rawItem) {
+			validator.workspaceRoot, err = s.workspaceReferenceRoot(ctx, workspaceID)
+			if err != nil {
+				return workspacebiz.AppReferenceListResult{}, err
+			}
+			workspaceRootResolved = true
+		}
 		item, ok := decodeAppRuntimeReferenceListItem(rawItem, validator)
 		if !ok {
 			slog.Warn("workspace app reference item dropped", "workspaceId", workspaceID, "appId", appPackage.AppID, "index", index)
@@ -211,6 +221,19 @@ func (s *AppCenterService) requestAppRuntimeReferencePage(ctx context.Context, e
 		Items:      items,
 		NextCursor: normalizeOptionalCursor(raw.NextCursor),
 	}, nil
+}
+
+func appRuntimeReferenceListItemUsesWorkspacePath(raw json.RawMessage) bool {
+	var item struct {
+		Type      string `json:"type"`
+		Reference struct {
+			Location *appRuntimeReferenceLocation `json:"location"`
+		} `json:"reference"`
+	}
+	if json.Unmarshal(raw, &item) != nil || strings.TrimSpace(item.Type) != "reference" || item.Reference.Location == nil {
+		return false
+	}
+	return strings.TrimSpace(item.Reference.Location.Type) == "workspace-path"
 }
 
 type appRuntimeReferenceListRequest struct {
@@ -281,8 +304,9 @@ type appRuntimeReferenceLocation struct {
 }
 
 type appReferenceLocationValidator struct {
-	dataRoot    string
-	packageRoot string
+	dataRoot      string
+	packageRoot   string
+	workspaceRoot string
 }
 
 func decodeAppRuntimeReferenceListItem(raw json.RawMessage, validator appReferenceLocationValidator) (workspacebiz.AppReferenceListItem, bool) {
@@ -416,20 +440,21 @@ func normalizeAppRuntimeFileReferencePath(reference appRuntimeFileReference, val
 }
 
 func resolveAppRuntimeFileReferenceLocation(location appRuntimeReferenceLocation, validator appReferenceLocationValidator) (string, bool) {
-	relativePath, ok := normalizeAppReferenceRelativePath(location.Path)
-	if !ok {
-		return "", false
-	}
-	var root string
 	switch strings.TrimSpace(location.Type) {
 	case "app-data-relative":
-		root = validator.dataRoot
+		return resolveAppRuntimeRelativeReferencePath(location.Path, validator.dataRoot)
 	case "app-package-relative":
-		root = validator.packageRoot
+		return resolveAppRuntimeRelativeReferencePath(location.Path, validator.packageRoot)
+	case "workspace-path":
+		return resolveAppRuntimeWorkspaceReferencePath(location.Path, validator.workspaceRoot)
 	default:
 		return "", false
 	}
-	if strings.TrimSpace(root) == "" {
+}
+
+func resolveAppRuntimeRelativeReferencePath(value string, root string) (string, bool) {
+	relativePath, ok := normalizeAppReferenceRelativePath(value)
+	if !ok || strings.TrimSpace(root) == "" {
 		return "", false
 	}
 	absoluteRoot, err := filepath.Abs(root)
@@ -444,6 +469,63 @@ func resolveAppRuntimeFileReferenceLocation(location appRuntimeReferenceLocation
 		return "", false
 	}
 	return absolutePath, true
+}
+
+func resolveAppRuntimeWorkspaceReferencePath(value string, root string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || strings.Contains(trimmed, "\x00") || !filepath.IsAbs(trimmed) {
+		return "", false
+	}
+	if strings.TrimSpace(root) == "" {
+		return "", false
+	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	absolutePath, err := filepath.Abs(trimmed)
+	if err != nil || !workspacefiles.IsPhysicalPathWithinRoot(absoluteRoot, absolutePath) {
+		return "", false
+	}
+
+	// Resolve symlinks for the existing portion of the path. This preserves
+	// support for a reference whose file is being created while rejecting a
+	// path that escapes through an existing symlink inside the workspace root.
+	resolvedRoot, err := filepath.EvalSymlinks(absoluteRoot)
+	if err != nil {
+		return "", false
+	}
+	for candidate := absolutePath; ; candidate = filepath.Dir(candidate) {
+		resolvedCandidate, resolveErr := filepath.EvalSymlinks(candidate)
+		if resolveErr == nil {
+			if !workspacefiles.IsPhysicalPathWithinRoot(resolvedRoot, resolvedCandidate) {
+				return "", false
+			}
+			break
+		}
+		if !os.IsNotExist(resolveErr) {
+			return "", false
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			return "", false
+		}
+	}
+	return absolutePath, true
+}
+
+func (s *AppCenterService) workspaceReferenceRoot(ctx context.Context, workspaceID string) (string, error) {
+	if s.WorkspaceRootResolver == nil {
+		return "", nil
+	}
+	root, err := s.WorkspaceRootResolver.ResolveWorkspaceRoot(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(root.PhysicalRoot) == "" {
+		return "", nil
+	}
+	return filepath.Abs(root.PhysicalRoot)
 }
 
 func normalizeAppReferenceRelativePath(value string) (string, bool) {

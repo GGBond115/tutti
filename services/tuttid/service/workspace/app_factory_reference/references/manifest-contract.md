@@ -60,9 +60,10 @@ Rules:
 - `references.listEndpoint` must be a relative URL path that starts with `/` and has no scheme, host, query, hash, or percent-encoded characters.
 - `references.searchEndpoint` is optional and declares that the app provides recursive search over its references. Include it when references should be searchable; omit it when the app can only list and per-level filter them.
 - When `references.searchEndpoint` is present, Tutti marks the app as searchable and shows the picker search box for it. The endpoint must satisfy the same URL constraints as `listEndpoint`. Without it, the picker offers only the per-level `filterText` filtering of `listEndpoint`, never a global search.
-- v1 references may only return groups and file references. File references must use `kind: "file"` and a `location` object. Tutti resolves the location to a filesystem path; apps must not emit host absolute paths.
-- `location.type` must be `app-data-relative` for files under the app data directory or `app-package-relative` for files under the immutable app package directory.
-- `location.path` must be a non-empty relative path using `/` separators. It must not contain a scheme, drive prefix, leading slash, NUL, or any `..` segment.
+- v1 references may only return groups and file references. File references must use `kind: "file"` and a `location` object.
+- `location.type` must be `app-data-relative` for files under the app data directory, `app-package-relative` for files under the immutable app package directory, or `workspace-path` for an existing file the app actually reads or writes in the current workspace.
+- For `app-data-relative` and `app-package-relative`, `location.path` must be a non-empty relative path using `/` separators. It must not contain a scheme, drive prefix, leading slash, NUL, or any `..` segment.
+- For `workspace-path`, `location.path` must be the app's actual absolute filesystem path. Do not convert it to a logical path or rebuild it from an app id; Tutti validates that it is contained by the current workspace root before exposing the reference.
 - `window` is optional. Omit it unless the app explicitly needs non-default window behavior or minimum dimensions.
 - `window.minimizeBehavior` may be `keep-mounted` or `hibernate`; omitted defaults to `keep-mounted`.
 - `window.minWidth` and `window.minHeight` are optional integer minimum dimensions for the app webview window.
@@ -165,7 +166,7 @@ Response:
 - Reference items are insertable artifacts and must include a valid file reference in `reference`.
 - `nextCursor` is optional; omit it or return `null` when there is no next page.
 - File `displayName`, `description`, `sizeBytes`, `mtimeMs`, `mimeType`, and `score` are optional. `score` must be between `0` and `1` when present.
-- Apps must return `location`, not an absolute `path`. Tutti resolves valid locations to absolute paths before exposing results to desktop clients.
+- Apps must return `location`, not a separate `path` field. Tutti resolves `app-data-relative` and `app-package-relative` locations, and validates `workspace-path` locations, before exposing absolute paths to desktop clients.
 
 ## Reference Search Runtime Protocol
 
@@ -224,7 +225,7 @@ Response:
 
 - `items` is required and must contain only reference items. Do not return `group` items from search; results are a flat ranked list of insertable file references.
 - Return results ordered by descending relevance and set `score` (`0..1`) so Tutti can preserve your ranking. When `score` is omitted Tutti keeps the returned order.
-- Each reference item must include a valid file reference with a `location`; the same `location` rules and host-path prohibition as the list protocol apply.
+- Each reference item must include a valid file reference with a `location`; the same `location` rules and workspace-root validation as the list protocol apply.
 - `nextCursor` is optional; omit it or return `null` when there is no next page.
 - Return an empty `items` array (not an error) when nothing matches.
 - `parentGroupLabel` is optional (string, max 160 chars). Because search is flattened across the whole app, set it to the name of the group/project the file lives in (e.g. the project a design belongs to) so users can tell results apart. Tutti shows each item's `displayName` as the title and `parentGroupLabel` as the context subtitle. When you omit it, Tutti falls back to your app's manifest display name as the subtitle, so still keep the manifest display name and each `displayName` meaningful.

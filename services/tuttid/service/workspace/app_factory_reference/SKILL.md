@@ -131,7 +131,7 @@ The runtime must:
 - Read the current UI locale from the optional host-injected app context when localized in-app copy is needed. Do not pass locale in the launch URL query.
 - Keep localized in-app copy behind stable keys and use the harness pattern in `references/i18n-harness.md` so future edits can check locale parity.
 - Use CSS `prefers-color-scheme` / `matchMedia("(prefers-color-scheme: dark)")` for dark/light rendering. Do not pass theme in the launch URL query.
-- When exposing app-owned files through references or generated content, return reference-list `location` objects scoped to `app-data-relative` or `app-package-relative`. Do not emit, persist, or instruct clients to open direct `.tutti` / `.tutti-dev` app state paths such as `$TUTTI_STATE_DIR/apps/...`; the daemon resolves valid locations before desktop clients open files.
+- When exposing files through references or generated content, return a reference-list `location` object. Use `app-data-relative` or `app-package-relative` for files owned by the app package; use `workspace-path` with the actual absolute path for a file the app owns in the current workspace. Do not emit, persist, or instruct clients to open direct `.tutti` / `.tutti-dev` app state paths such as `$TUTTI_STATE_DIR/apps/...`; the daemon validates workspace paths against the current workspace root and resolves valid locations before desktop clients open files.
 
 ## Agent Runtime Integration
 

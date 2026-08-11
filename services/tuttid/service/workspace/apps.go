@@ -23,6 +23,7 @@ type AppCenterService struct {
 	Store                  workspacedata.AppStore
 	AppFactoryStore        workspacedata.AppFactoryStore
 	WorkspaceStore         workspacedata.CatalogStore
+	WorkspaceRootResolver  WorkspaceRootResolver
 	PreferencesStore       workspacedata.PreferencesStore
 	Runner                 *AppRunner
 	ShellAdapter           AppShellAdapter
