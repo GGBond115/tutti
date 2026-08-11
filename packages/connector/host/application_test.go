@@ -556,6 +556,57 @@ func TestApplicationRemoteAuthorizationStartUsesAccountProjectionInsteadOfDevice
 	}
 }
 
+func TestApplicationManagedAuthorizationStartRepairsMissingAccountProjection(t *testing.T) {
+	connector := testManagedAuthorizedConnector("lark-cli")
+	// This device state predates account-scoped authorization projections.
+	connector.Authorization = Authorization{State: AuthorizationStateConnected}
+	repository := newMemoryRepository(connector)
+	projections := &recordingAuthorizationProjectionStore{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	application.config.Authorization = connectedAuthorizationProviderStub{}
+	application.config.AuthorizationProjections = projections
+
+	result, err := application.BeginAuthorization(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "authorization-bind-existing-login"},
+		ConnectorKey: connector.Key, AccountID: "account-1",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Connector.Authorization.State != AuthorizationStateConnected ||
+		projections.projection.State != AuthorizationStateConnected ||
+		projections.projection.AccountID != "account-1" {
+		t.Fatalf("result=%#v projection=%#v", result, projections.projection)
+	}
+	if repository.connectors[connector.Key].Authorization.State != AuthorizationStateConnected {
+		t.Fatalf("device authorization = %#v", repository.connectors[connector.Key].Authorization)
+	}
+}
+
+func TestApplicationManagedAuthorizationStartCanChallengeAnotherAccount(t *testing.T) {
+	connector := testManagedAuthorizedConnector("lark-cli")
+	connector.Authorization = Authorization{State: AuthorizationStateConnected}
+	repository := newMemoryRepository(connector)
+	projections := &recordingAuthorizationProjectionStore{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	application.config.AuthorizationProjections = projections
+
+	result, err := application.BeginAuthorization(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "authorization-select-account"},
+		ConnectorKey: connector.Key, AccountID: "account-2",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AuthorizationURL == "" || result.Connector.Authorization.State != AuthorizationStatePending ||
+		projections.projection.State != AuthorizationStatePending {
+		t.Fatalf("result=%#v projection=%#v", result, projections.projection)
+	}
+	if repository.connectors[connector.Key].Authorization.State != AuthorizationStateConnected {
+		t.Fatalf("device authorization = %#v", repository.connectors[connector.Key].Authorization)
+	}
+}
+
 func TestApplicationConnectedProjectionConvergesReceiptWithoutProviderPolling(t *testing.T) {
 	connector := testConnector("tencent-docs")
 	connector.Release.Manifest.AuthorizationKind = "oauth2"
@@ -1136,6 +1187,21 @@ func testConnector(key string) Connector {
 	}
 }
 
+func testManagedAuthorizedConnector(key string) Connector {
+	connector := testConnector(key)
+	connector.Release.Manifest.AuthorizationKind = "oauth2"
+	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
+	connector.Release.Manifest.Implementation.ManagedStdio.Runtime.VersionRange = ">=20.0.0 <21.0.0"
+	connector.Release.Manifest.Implementation.ManagedStdio.CLI = &ManagedCLIInterface{Entrypoint: "bin/lark-cli", TimeoutMS: 120_000}
+	connector.Release.Manifest.Implementation.ManagedStdio.CredentialBroker = &ManagedCredentialBroker{
+		Protocol: CredentialBrokerProtocolV1, Entrypoint: "authorization/broker.mjs", TimeoutMS: 30_000,
+		AllowedHosts: []string{"open.larksuite.com"},
+	}
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	return connector
+}
+
 func testReleaseWithImplementation(key, version, implementationKind string) Release {
 	implementation := Implementation{Kind: implementationKind, Builtin: &BuiltinImplementation{ProviderID: key, MCP: true}}
 	if implementationKind == "mcp_stdio" || implementationKind == ImplementationKindManagedStdio {
@@ -1447,6 +1513,20 @@ func (authorizationProviderStub) Begin(_ context.Context, request AuthorizationS
 
 func (authorizationProviderStub) Disconnect(context.Context, AuthorizationDisconnectRequest) error {
 	return nil
+}
+
+type connectedAuthorizationProviderStub struct {
+	authorizationProviderStub
+}
+
+func (connectedAuthorizationProviderStub) Begin(_ context.Context, request AuthorizationStartRequest) (AuthorizationSession, error) {
+	return AuthorizationSession{
+		OperationID:  request.OperationID,
+		ConnectorKey: request.Connector.Key,
+		SessionID:    "session-connected",
+		ConnectionID: "existing-cli-login",
+		State:        AuthorizationStateConnected,
+	}, nil
 }
 
 type countingAuthorizationProvider struct {

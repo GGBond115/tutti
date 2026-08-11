@@ -315,11 +315,12 @@ func (application *Application) BeginAuthorization(
 		return AuthorizationResult{}, err
 	}
 	remote := current.Release.Manifest.Implementation.RemoteStreamableHTTP != nil
-	if remote {
-		accountID := strings.TrimSpace(mutation.AccountID)
-		if accountID == "" {
-			return AuthorizationResult{}, invalidRequest("accountId is required for remote connector authorization")
-		}
+	accountID := strings.TrimSpace(mutation.AccountID)
+	accountScoped := accountID != ""
+	if remote && !accountScoped {
+		return AuthorizationResult{}, invalidRequest("accountId is required for remote connector authorization")
+	}
+	if accountScoped {
 		projection, projectionErr := application.GetAuthorizationProjection(ctx, accountID, mutation.ConnectorKey)
 		if projectionErr != nil && !errors.Is(projectionErr, ErrNotFound) {
 			return AuthorizationResult{}, projectionErr
@@ -337,6 +338,12 @@ func (application *Application) BeginAuthorization(
 		OperationKindStartAuthorization,
 		func(connector Connector) (Connector, error) {
 			if remote {
+				return connector, nil
+			}
+			// Account-scoped authorization may reuse an already connected local
+			// credential broker. Keep device truth intact while the provider binds
+			// that credential to the current account projection.
+			if accountScoped && connector.Authorization.State == AuthorizationStateConnected {
 				return connector, nil
 			}
 			if !CanTransitionAuthorization(connector.Authorization.State, AuthorizationStatePending) {
@@ -377,8 +384,8 @@ func (application *Application) BeginAuthorization(
 	if err != nil {
 		return AuthorizationResult{}, err
 	}
-	if remote {
-		projection, projectionErr := application.GetAuthorizationProjection(ctx, mutation.AccountID, mutation.ConnectorKey)
+	if accountScoped {
+		projection, projectionErr := application.GetAuthorizationProjection(ctx, accountID, mutation.ConnectorKey)
 		if errors.Is(projectionErr, ErrNotFound) {
 			connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
 		} else if projectionErr != nil {
