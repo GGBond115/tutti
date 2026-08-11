@@ -169,6 +169,7 @@ export interface IWorkspaceWorkbenchHostService {
   readonly dockRetention: WorkspaceDockRetentionService;
 
   approveWindowClose(): Promise<void>;
+  setWindowCloseGuardEnabled(enabled: boolean): Promise<void>;
   openHostSession(workspaceId: string): WorkspaceWorkbenchHostSessionBinding;
   createWorkspaceAppExternalFileReferenceAdapter(
     workspaceId: string
