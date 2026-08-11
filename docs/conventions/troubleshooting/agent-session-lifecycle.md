@@ -1132,20 +1132,27 @@ catalog revision mismatch`, fully restart `dev:desktop`; renderer HMR cannot
 - Symptom:
   A submitted Codex turn stays working without assistant text, reasoning, or
   tool activity. Stop may return quickly, but the next prompt on the same
-  conversation can stall in the same way.
+  conversation can stall in the same way. This also occurs when a conversation
+  is left offline and its first later submit loses the app-server connection.
 - Quick checks:
   Correlate `agent.submit.trace` records by `client_submit_id`, `turn_id`, and
   `agent_session_id`. A `turn.start.requested` without
   `turn.start.succeeded` means the immediate app-server acknowledgement did
   not arrive. After the bounded failure, confirm
   `agent_session.app_server.turn_start.client_invalidated` appears and the next
-  submit starts a new local process with `thread/resume`.
+  submit starts a new local process with `thread/resume`. An immediate
+  `turn.start.failed` with `error=EOF` is an outcome-unknown transport loss and
+  must still project one visible failed assistant message.
 - Root cause:
   Codex `turn/start` should acknowledge immediately and stream the actual work
   through notifications, but the adapter previously called it with no client
   deadline. A graceful Stop could acknowledge `turn/interrupt` without proving
   that the unacknowledged `turn/start` connection was healthy, so the adapter
-  retained and reused the same bad process.
+  retained and reused the same bad process. The live-session probe also treated
+  a retained client pointer as live after its `Done` channel closed. Finally, a
+  pre-acceptance `turn/start` failure was buffered as provider output even
+  though it had no provider Turn identity, hiding the canonical terminal from
+  the controller and GUI.
 - Fix:
   Bound only the `turn/start` acknowledgement to 30 seconds; do not bound the
   subsequent running turn. Treat deadline, cancellation before acknowledgement,
@@ -1153,12 +1160,17 @@ catalog revision mismatch`, fully restart `dev:desktop`; renderer HMR cannot
   from the live-session registry, and close it. Do not automatically replay the
   prompt because delivery is unknown. The next explicit submit uses the
   existing session recovery path to start a process and resume the provider
-  thread. Bound `turn/steer` acknowledgement separately to 10 seconds.
+  thread. A live-session probe must also reject terminated clients. Publish the
+  exact canonical `turn.failed` directly when `turn/start` fails before provider
+  acceptance, while dropping unaccepted provider-dependent output; this reuses
+  the normal visible-error projection without inventing provider identity.
+  Bound `turn/steer` acknowledgement separately to 10 seconds.
 - Validation:
   Run
-  `go test ./packages/agent/daemon/runtime -run 'TestCodexAppServerAdapter(Turn(StartAckTimeoutInvalidatesClient|StartCancelBeforeAckInvalidatesClient|StartAckTimeoutDoesNotBoundRunningTurn|SteerTimesOut)|CanResumeAfterTurnStartAckTimeout)$'`.
-  Cover timeout, pre-ack cancellation, a long post-ack turn, bounded guidance,
-  and successful `thread/resume` followed by a completed turn.
+  `go test ./packages/agent/daemon/runtime -run 'Test(CodexAppServerAdapter(Turn(StartAckTimeoutInvalidatesClient|StartEOFProjectsVisibleFailureBeforeAcceptance|StartCancelBeforeAckInvalidatesClient|StartAckTimeoutDoesNotBoundRunningTurn|SteerTimesOut)|CanResumeAfterTurnStartAckTimeout|HasLiveSessionRejectsClosedClient)|StandardACPAdapterHasLiveSessionRejectsClosedClient)$'`.
+  Cover timeout, EOF before acceptance, terminated-client liveness, pre-ack
+  cancellation, a long post-ack turn, bounded guidance, and successful
+  `thread/resume` followed by a completed turn.
 - References:
   [codex_appserver_turn.go](../../../packages/agent/daemon/runtime/codex_appserver_turn.go)
   [codex_appserver_registry.go](../../../packages/agent/daemon/runtime/codex_appserver_registry.go)
