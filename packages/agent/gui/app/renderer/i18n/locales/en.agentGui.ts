@@ -719,9 +719,11 @@ export const enAgentGui = {
   composerFileTooLarge: "File is too large",
   composerFilePreparationFailed: "File preparation failed",
   composerFileStillPreparing:
-    "This file is still preparing. Try again in a moment.",
-  composerFileOpenFailed: "File preparation failed, so it can't be opened.",
-  composerFileOpenUnavailable: "This file can't be opened right now.",
+    "This attachment is still uploading. You can open it after preparation finishes.",
+  composerFileOpenFailed:
+    "This attachment failed to prepare. Remove it and add the file again.",
+  composerFileOpenUnavailable:
+    "This attachment has no openable path. Remove it and add the file again.",
   mentionPalette: "Reference or Invoke",
   addReference: "Add reference",
   addContent: "Add files and more",

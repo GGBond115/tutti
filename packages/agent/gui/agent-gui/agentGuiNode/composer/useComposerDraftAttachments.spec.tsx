@@ -412,7 +412,7 @@ describe("useComposerDraftAttachments", () => {
 
     expect(onLinkAction).not.toHaveBeenCalled();
     expect(hostToastInfo).toHaveBeenCalledWith(
-      "This file is still preparing. Try again in a moment."
+      "This attachment is still uploading. You can open it after preparation finishes."
     );
     expect(hostToastError).not.toHaveBeenCalled();
   });
@@ -452,7 +452,7 @@ describe("useComposerDraftAttachments", () => {
 
     expect(onLinkAction).not.toHaveBeenCalled();
     expect(hostToastError).toHaveBeenCalledWith(
-      "File preparation failed, so it can't be opened."
+      "This attachment failed to prepare. Remove it and add the file again."
     );
   });
 });
