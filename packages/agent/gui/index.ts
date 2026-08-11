@@ -85,7 +85,8 @@ export type {
   AgentGUIComposerFocusMethod,
   AgentGUIEngagementContext,
   AgentGUIEngagementEvent,
-  AgentGUIEngagementEventSink
+  AgentGUIEngagementEventSink,
+  AgentGUIQuickPromptType
 } from "./agent-gui/agentGuiNode/engagement/agentGUIEngagement.types";
 export {
   agentGUIAgentIsReady,

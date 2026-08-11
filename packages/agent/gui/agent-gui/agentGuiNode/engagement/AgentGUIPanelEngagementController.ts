@@ -3,7 +3,8 @@ import type {
   AgentGUIComposerFocusMethod,
   AgentGUIEngagementContext,
   AgentGUIEngagementEvent,
-  AgentGUIEngagementEventSink
+  AgentGUIEngagementEventSink,
+  AgentGUIQuickPromptType
 } from "./agentGUIEngagement.types";
 
 export const AGENT_GUI_PANEL_EXPOSURE_DWELL_MS = 1_000;
@@ -97,6 +98,21 @@ export class AgentGUIPanelEngagementController {
     this.report({
       ...this.eventForVisit(visit, "composer_content_entered"),
       ...content
+    });
+  }
+
+  quickPromptPanelOpened(): void {
+    this.reportQuickPromptEvent({
+      source: "composer_input",
+      type: "quick_prompt_panel_opened"
+    });
+  }
+
+  quickPromptUsed(promptType: AgentGUIQuickPromptType): void {
+    this.reportQuickPromptEvent({
+      promptType,
+      source: "composer_input",
+      type: "quick_prompt_used"
     });
   }
 
@@ -196,6 +212,21 @@ export class AgentGUIPanelEngagementController {
     } catch (error) {
       reportEngagementFailure(error);
     }
+  }
+
+  private reportQuickPromptEvent(
+    event:
+      | { source: "composer_input"; type: "quick_prompt_panel_opened" }
+      | {
+          promptType: AgentGUIQuickPromptType;
+          source: "composer_input";
+          type: "quick_prompt_used";
+        }
+  ): void {
+    this.reconcileVisit();
+    const visit = this.visit;
+    if (!visit) return;
+    this.report({ ...this.eventForVisit(visit, event.type), ...event });
   }
 }
 

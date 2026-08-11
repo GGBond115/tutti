@@ -113,6 +113,28 @@ describe("useAgentGUIPanelEngagement", () => {
     expect(events).toHaveLength(3);
   });
 
+  it("reports quick prompt panel opens and usage with privacy-safe dimensions", () => {
+    const { events } = renderHarness();
+
+    exposePanel();
+    act(() => vi.advanceTimersByTime(AGENT_GUI_PANEL_EXPOSURE_DWELL_MS));
+    fireEvent.click(screen.getByRole("button", { name: "quick prompt panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "use template" }));
+
+    expect(events.slice(1)).toEqual([
+      expect.objectContaining({
+        source: "composer_input",
+        type: "quick_prompt_panel_opened"
+      }),
+      expect.objectContaining({
+        promptType: "recommended_template",
+        source: "composer_input",
+        type: "quick_prompt_used"
+      })
+    ]);
+    expect(JSON.stringify(events)).not.toContain("content");
+  });
+
   it("starts a new visit when the active conversation changes while visible", () => {
     const { events, rerender } = renderHarness({
       context: contextFor("session-a"),
@@ -324,6 +346,20 @@ function EngagementHarness({
         }
       >
         content
+      </button>
+      <button
+        type="button"
+        onClick={() => composerEngagement?.quickPromptPanelOpened?.()}
+      >
+        quick prompt panel
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          composerEngagement?.quickPromptUsed?.("recommended_template")
+        }
+      >
+        use template
       </button>
     </div>
   );

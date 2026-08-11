@@ -107,6 +107,7 @@ export function AgentQuickPromptPopover({
         : null;
   const requestTemplate = (template: AgentQuickPromptTemplate): void => {
     preserveExternalFocusRef.current = true;
+    controller.trackUsage?.("recommended_template");
     controller.openCreate(
       { title: template.title, content: template.content },
       { insertIntoComposerAfterSave: true }
