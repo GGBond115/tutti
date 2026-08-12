@@ -366,20 +366,26 @@ func (h *Host) enrichCommittedDeltaTerminalIdentity(ctx context.Context, delta *
 		}
 		*isChildSession = *isChildSession || identity.isChildSession
 	}
-	if committed := delta.RuntimeOperation; committed != nil {
+	if committed := delta.RuntimeOperation; committed != nil && committed.Stage == RuntimeOperationFailed {
 		apply(&committed.Provider, &committed.IsChildSession,
 			committed.Operation.WorkspaceID, committed.Operation.AgentSessionID)
 	}
-	if committed := delta.GoalOperation; committed != nil {
+	if committed := delta.GoalOperation; committed != nil &&
+		(committed.Stage == GoalOperationFailed || committed.Stage == GoalOperationTerminal) {
 		workspaceID := firstNonEmptyTrimmed(committed.Operation.WorkspaceID, committed.State.WorkspaceID)
 		agentSessionID := firstNonEmptyTrimmed(committed.Operation.AgentSessionID, committed.State.AgentSessionID)
 		apply(&committed.Provider, &committed.IsChildSession, workspaceID, agentSessionID)
 	}
 	for index := range delta.RootTurnsSettled {
 		settled := &delta.RootTurnsSettled[index]
+		if outcome := strings.TrimSpace(settled.Turn.Outcome); outcome != storesqlite.TurnOutcomeFailed &&
+			outcome != storesqlite.TurnOutcomeInterrupted && outcome != storesqlite.TurnOutcomeCanceled {
+			continue
+		}
 		apply(&settled.Provider, &settled.IsChildSession, settled.WorkspaceID, settled.AgentSessionID)
 	}
-	if committed := delta.SessionMessages; committed != nil {
+	if committed := delta.SessionMessages; committed != nil &&
+		len(terminalFailuresFromSessionMessages(*committed, nil)) > 0 {
 		agentSessionID := canonicalMessageSessionID(committed.Input.AgentSessionID, committed.Result.Messages)
 		apply(&committed.Provider, &committed.IsChildSession, committed.Input.WorkspaceID, agentSessionID)
 	}
