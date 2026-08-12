@@ -83,9 +83,11 @@ func terminalFailureFromRuntimeOperation(committed RuntimeOperationCommitted) (T
 		OperationID:     strings.TrimSpace(op.OperationID),
 		ClientSubmitID:  runtimeOperationPayloadText(op.Payload, "clientSubmitId"),
 		RequestID:       strings.TrimSpace(op.RequestID),
+		Provider:        strings.TrimSpace(committed.Provider),
 		ErrorCode:       strings.TrimSpace(op.Result),
 		ErrorMessage:    message,
 		InteractionKind: runtimeOperationInteractionKind(op),
+		IsChildSession:  committed.IsChildSession,
 		Retryable:       false,
 	}, true
 }
@@ -142,7 +144,9 @@ func terminalFailureFromGoalOperation(committed GoalOperationCommitted) (Termina
 		AgentSessionID: sessionID,
 		OperationID:    strings.TrimSpace(op.OperationID),
 		ClientSubmitID: strings.TrimSpace(op.ClientSubmitID),
+		Provider:       strings.TrimSpace(committed.Provider),
 		ErrorMessage:   message,
+		IsChildSession: committed.IsChildSession,
 		Retryable:      false,
 	}, true
 }
@@ -159,15 +163,20 @@ func terminalFailureFromRootTurn(settled RootTurnSettled) (TerminalFailure, bool
 		message = "turn " + outcome
 	}
 	return TerminalFailure{
-		Flow:           "turn",
-		FailureStage:   "settled",
-		WorkspaceID:    strings.TrimSpace(settled.WorkspaceID),
-		AgentSessionID: strings.TrimSpace(settled.AgentSessionID),
-		TurnID:         strings.TrimSpace(settled.Turn.TurnID),
-		ErrorCode:      strings.TrimSpace(settled.Turn.ErrorCode),
-		ErrorMessage:   message,
-		IsChildSession: settled.IsChildSession,
-		Retryable:      false,
+		Flow:              "turn",
+		FailureStage:      "settled",
+		WorkspaceID:       strings.TrimSpace(settled.WorkspaceID),
+		AgentSessionID:    strings.TrimSpace(settled.AgentSessionID),
+		TurnID:            strings.TrimSpace(settled.Turn.TurnID),
+		OperationID:       strings.TrimSpace(settled.Turn.SourceGoalOperationID),
+		Provider:          strings.TrimSpace(settled.Provider),
+		ErrorCode:         strings.TrimSpace(settled.Turn.ErrorCode),
+		ErrorMessage:      message,
+		TurnOutcome:       outcome,
+		DurationMS:        settledTurnDurationMS(settled.Turn),
+		StartupReconciled: settled.StartupReconciled,
+		IsChildSession:    settled.IsChildSession,
+		Retryable:         false,
 	}, true
 }
 
@@ -197,6 +206,7 @@ func terminalFailuresFromSessionMessages(committed SessionMessagesCommitted, chi
 			AgentSessionID: sessionID,
 			TurnID:         strings.TrimSpace(message.TurnID),
 			RequestID:      strings.TrimSpace(message.MessageID),
+			Provider:       strings.TrimSpace(committed.Provider),
 			ErrorCode:      strings.TrimSpace(message.Status),
 			ErrorMessage:   messageText,
 			ToolNameFamily: toolNameFamily(message.Payload),
@@ -205,6 +215,13 @@ func terminalFailuresFromSessionMessages(committed SessionMessagesCommitted, chi
 		})
 	}
 	return failures
+}
+
+func settledTurnDurationMS(turn storesqlite.Turn) int64 {
+	if turn.StartedAtUnixMS <= 0 || turn.SettledAtUnixMS < turn.StartedAtUnixMS {
+		return 0
+	}
+	return turn.SettledAtUnixMS - turn.StartedAtUnixMS
 }
 
 func isFailedToolCallMessage(message storesqlite.Message) bool {

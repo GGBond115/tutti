@@ -222,6 +222,14 @@ func (h *Host) observeTerminalFailure(ctx context.Context, failure TerminalFailu
 	if h == nil || h.terminalFailure == nil {
 		return
 	}
+	if h.store != nil && strings.TrimSpace(failure.WorkspaceID) != "" && strings.TrimSpace(failure.AgentSessionID) != "" {
+		if session, found, err := h.store.GetSession(ctx, failure.WorkspaceID, failure.AgentSessionID); err == nil && found {
+			if strings.TrimSpace(failure.Provider) == "" {
+				failure.Provider = strings.TrimSpace(session.Provider)
+			}
+			failure.IsChildSession = failure.IsChildSession || canonicalSessionIsChild(session)
+		}
+	}
 	if failure.ErrorMessage == "" && failure.ErrorCode == "" {
 		return
 	}

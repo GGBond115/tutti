@@ -28,6 +28,7 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 	default:
 		return agentsessionstore.WorkspaceAgentStatePatch{}, false
 	}
+	turnErrorCode, turnErrorMessage := turnFailureDetails(event)
 	patch := agentsessionstore.WorkspaceAgentStatePatch{
 		AgentSessionID:       sessionID,
 		Kind:                 strings.TrimSpace(event.SessionKind),
@@ -78,6 +79,8 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 			SourceGoalRepairEpoch: payloadInt64(event.Payload.Metadata, "sourceGoalRepairEpoch"),
 			Phase:                 strings.TrimSpace(event.Payload.TurnPhase),
 			Outcome:               strings.TrimSpace(event.Payload.TurnOutcome),
+			ErrorCode:             turnErrorCode,
+			ErrorMessage:          turnErrorMessage,
 		}
 	}
 	applyProviderInitiatedInteractionTurnToPatch(&patch, event)
@@ -159,10 +162,10 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 			started = true
 		}
 		errorMessage := activityshared.BestEffortErrorMessage(event.Payload)
-		errorCode := ""
+		errorCode := activityshared.BestEffortErrorCode(event.Payload)
 		if completed &&
 			strings.TrimSpace(event.Payload.TurnOutcome) == string(activityshared.TurnOutcomeFailed) &&
-			strings.TrimSpace(errorMessage) != "" {
+			strings.TrimSpace(errorCode) == "" && strings.TrimSpace(errorMessage) != "" {
 			errorCode = visibleFailureCode(errorMessage)
 		}
 		patch.RootProviderTurn = &canonical.WorkspaceAgentRootProviderTurnTransition{
@@ -179,6 +182,18 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 		}
 	}
 	return patch, true
+}
+
+func turnFailureDetails(event activityshared.Event) (string, string) {
+	if event.Type != activityshared.EventTurnFailed {
+		return "", ""
+	}
+	message := activityshared.BestEffortErrorMessage(event.Payload)
+	code := activityshared.BestEffortErrorCode(event.Payload)
+	if code == "" && message != "" {
+		code = visibleFailureCode(message)
+	}
+	return code, message
 }
 
 // applyProviderCreatedGoalTurnToPatch turns the provider's first authoritative

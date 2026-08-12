@@ -541,6 +541,13 @@ type TerminalFailure struct {
 	ErrorMessage    string
 	ToolNameFamily  string
 	InteractionKind string
+	TurnOutcome     string
+	// DurationMS is populated only when the canonical terminal fact carries a
+	// valid start and settlement timestamp. Zero means unavailable.
+	DurationMS int64
+	// StartupReconciled distinguishes daemon-start interruption settlement from
+	// a live provider terminal observation.
+	StartupReconciled bool
 	// IsChildSession marks provider-native subagent sessions (parent tool call).
 	// Adapters may use it to distinguish child-session turn/tool failures from
 	// root-session ones without a separate event family.

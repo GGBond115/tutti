@@ -30,6 +30,33 @@ func TestSubmittedTurnActivityEventProjectsCapabilityReferences(t *testing.T) {
 	}
 }
 
+func TestFailedTurnActivityEventProjectsStableErrorDetails(t *testing.T) {
+	t.Parallel()
+
+	session := Session{Provider: ProviderCodex, AgentSessionID: "agent-1", RoomID: "room-1"}
+	event := newTurnActivityEvent(
+		session,
+		EventTurnFailed,
+		"turn-1",
+		SessionStatusFailed,
+		"",
+		"",
+		map[string]any{"error": "rate limit exceeded"},
+	)
+	patch, ok := statePatchFromSessionEvent(
+		canonical.EventSource{Provider: ProviderCodex},
+		event,
+		"agent-1",
+		200,
+	)
+	if !ok || patch.Turn == nil {
+		t.Fatalf("failed turn patch = %#v ok=%v", patch, ok)
+	}
+	if patch.Turn.ErrorCode != FailureCodeQuotaOrRateLimit || patch.Turn.ErrorMessage != "rate limit exceeded" {
+		t.Fatalf("failed turn error = %q/%q", patch.Turn.ErrorCode, patch.Turn.ErrorMessage)
+	}
+}
+
 func TestProviderRootTurnStartMakesSessionResumable(t *testing.T) {
 	t.Parallel()
 	controller := &Controller{}

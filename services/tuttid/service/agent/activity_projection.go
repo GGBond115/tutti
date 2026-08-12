@@ -402,11 +402,13 @@ func (p *ActivityProjection) reportSessionMessages(
 	}
 	delta := agenthost.SessionMessagesDelta(input, reply, result)
 	if delta.SessionMessages != nil {
-		// A message report carries no session state, so child identity for
-		// failed tool calls has to come from the canonical session.
-		delta.SessionMessages.IsChildSession = p.sessionIsChild(
+		// A message report carries no session state, so terminal-failure identity
+		// for failed tool calls has to come from the canonical session.
+		provider, isChildSession := p.sessionTerminalFailureIdentity(
 			ctx, input.WorkspaceID, canonicalMessageUpdateSessionID(input.AgentSessionID, result.Messages),
 		)
+		delta.SessionMessages.Provider = strings.TrimSpace(firstNonEmptyString(provider, delta.SessionMessages.Provider))
+		delta.SessionMessages.IsChildSession = isChildSession
 	}
 	p.observeCommittedOutsideHost(ctx, delta)
 	p.notifyReplayCommitted(ctx, delta, replayContext)

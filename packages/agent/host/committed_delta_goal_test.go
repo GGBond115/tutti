@@ -79,3 +79,27 @@ func TestActivityStateDeltaSkipsGoalOperationWithoutGoalMutation(t *testing.T) {
 		t.Fatalf("unexpected GoalOperation=%#v", delta.GoalOperation)
 	}
 }
+
+func TestActivityStateDeltaCarriesCanonicalProviderIntoRootSettlement(t *testing.T) {
+	t.Parallel()
+
+	delta := ActivityStateDelta(
+		canonical.ReportSessionStateInput{
+			WorkspaceID: "ws-1", AgentSessionID: "session-1",
+			Source: canonical.EventSource{Provider: "source-provider"},
+			State:  canonical.WorkspaceAgentSessionStateUpdate{Provider: "reported-provider"},
+		},
+		canonical.ReportSessionStateReply{Accepted: true, StateApplied: true},
+		storesqlite.ActivityStateReportResult{
+			State:            storesqlite.StateReportResult{Session: storesqlite.Session{Provider: "canonical-provider"}},
+			RootTurnAccepted: true,
+			RootTurn: storesqlite.Turn{
+				WorkspaceID: "ws-1", AgentSessionID: "session-1", TurnID: "turn-1",
+				Phase: storesqlite.TurnPhaseSettled, Outcome: storesqlite.TurnOutcomeFailed,
+			},
+		},
+	)
+	if len(delta.RootTurnsSettled) != 1 || delta.RootTurnsSettled[0].Provider != "canonical-provider" {
+		t.Fatalf("root settlements = %#v, want canonical provider", delta.RootTurnsSettled)
+	}
+}

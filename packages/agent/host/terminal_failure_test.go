@@ -104,7 +104,7 @@ func TestTerminalFailuresFromDeltaCoversInteractivePlanToolAndTurn(t *testing.T)
 	observer := &recordingTerminalFailureObserver{}
 	delta := CommittedDelta{
 		RuntimeOperation: &RuntimeOperationCommitted{
-			Stage: RuntimeOperationFailed,
+			Stage: RuntimeOperationFailed, Provider: "codex", IsChildSession: true,
 			Operation: storesqlite.RuntimeOperation{
 				WorkspaceID: "ws-1", AgentSessionID: "session-1", OperationID: "op-interactive",
 				Kind: storesqlite.RuntimeOperationKindInteractiveResponse, RequestID: "request-1", TurnID: "turn-1",
@@ -112,21 +112,22 @@ func TestTerminalFailuresFromDeltaCoversInteractivePlanToolAndTurn(t *testing.T)
 			},
 		},
 		GoalOperation: &GoalOperationCommitted{
-			Stage: GoalOperationFailed,
+			Stage: GoalOperationFailed, Provider: "claude-code", IsChildSession: true,
 			Operation: storesqlite.GoalControlOperation{
 				WorkspaceID: "ws-1", AgentSessionID: "session-1", OperationID: "op-goal",
 				ClientSubmitID: "goal-1", LastError: "goal runtime unavailable",
 			},
 		},
 		RootTurnsSettled: []RootTurnSettled{{
-			WorkspaceID: "ws-1", AgentSessionID: "session-1",
+			WorkspaceID: "ws-1", AgentSessionID: "session-1", Provider: "cursor", StartupReconciled: true,
 			Turn: storesqlite.Turn{
-				TurnID: "turn-2", Outcome: storesqlite.TurnOutcomeFailed,
+				TurnID: "turn-2", Outcome: storesqlite.TurnOutcomeFailed, SourceGoalOperationID: "goal-op-2",
 				ErrorCode: "provider_timeout", ErrorMessage: "turn timed out",
+				StartedAtUnixMS: 100, SettledAtUnixMS: 350,
 			},
 		}},
 		SessionMessages: &SessionMessagesCommitted{
-			Input: canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "session-1"},
+			Input: canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "session-1"}, Provider: "openclaw",
 			Result: storesqlite.MessageReportResult{
 				Messages: []storesqlite.Message{{
 					MessageID: "toolcall:1", AgentSessionID: "session-1", TurnID: "turn-2",
@@ -146,16 +147,22 @@ func TestTerminalFailuresFromDeltaCoversInteractivePlanToolAndTurn(t *testing.T)
 	for _, failure := range observer.failures {
 		byFlow[failure.Flow] = failure
 	}
-	if byFlow["interactive_response"].InteractionKind != "plan" || byFlow["interactive_response"].ErrorMessage != "interactive submit rejected" {
+	if byFlow["interactive_response"].InteractionKind != "plan" || byFlow["interactive_response"].ErrorMessage != "interactive submit rejected" ||
+		byFlow["interactive_response"].Provider != "codex" || !byFlow["interactive_response"].IsChildSession {
 		t.Fatalf("interactive failure = %#v", byFlow["interactive_response"])
 	}
-	if byFlow["goal_control"].ClientSubmitID != "goal-1" || byFlow["goal_control"].ErrorMessage != "goal runtime unavailable" {
+	if byFlow["goal_control"].ClientSubmitID != "goal-1" || byFlow["goal_control"].ErrorMessage != "goal runtime unavailable" ||
+		byFlow["goal_control"].Provider != "claude-code" || !byFlow["goal_control"].IsChildSession {
 		t.Fatalf("goal failure = %#v", byFlow["goal_control"])
 	}
-	if byFlow["turn"].TurnID != "turn-2" || byFlow["turn"].ErrorCode != "provider_timeout" {
+	if byFlow["turn"].TurnID != "turn-2" || byFlow["turn"].ErrorCode != "provider_timeout" ||
+		byFlow["turn"].Provider != "cursor" || byFlow["turn"].OperationID != "goal-op-2" ||
+		byFlow["turn"].TurnOutcome != storesqlite.TurnOutcomeFailed || byFlow["turn"].DurationMS != 250 ||
+		!byFlow["turn"].StartupReconciled {
 		t.Fatalf("turn failure = %#v", byFlow["turn"])
 	}
-	if byFlow["tool_call"].ToolNameFamily != "bash" || byFlow["tool_call"].ErrorMessage != "command exited 1" {
+	if byFlow["tool_call"].ToolNameFamily != "bash" || byFlow["tool_call"].ErrorMessage != "command exited 1" ||
+		byFlow["tool_call"].Provider != "openclaw" {
 		t.Fatalf("tool failure = %#v", byFlow["tool_call"])
 	}
 }

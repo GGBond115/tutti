@@ -46,6 +46,9 @@ func TestObserveTerminalFailuresFromStaleTurnSettlementDelta(t *testing.T) {
 	if got.ErrorMessage != "stale turn settled on daemon startup" {
 		t.Fatalf("failure message = %q", got.ErrorMessage)
 	}
+	if got.TurnOutcome != storesqlite.TurnOutcomeInterrupted || !got.StartupReconciled {
+		t.Fatalf("failure settlement metadata = %#v", got)
+	}
 }
 
 func TestStaleTurnSettlementDeltaKeepsChildSessionIdentityFromCallSite(t *testing.T) {
