@@ -2,10 +2,10 @@
 
 `packages/device-link` is the release-enabled, transport-only DeviceLink core
 for Tutti Desktop, Android, iOS, and TSH. It owns ICE candidate negotiation,
-QUIC over the selected packet path, mutual ephemeral certificate pinning, and
-product-neutral Relay byte-stream mechanics. It does not own Agent, Session,
-Turn, Workspace, pairing, account, rendezvous, Relay authorization, or Relay
-product policy.
+incremental candidate-exchange coordination, QUIC over the selected packet
+path, mutual ephemeral certificate pinning, and product-neutral Relay
+byte-stream mechanics. It does not own Agent, Session, Turn, Workspace,
+pairing, account, rendezvous, Relay authorization, or Relay product policy.
 
 The initial implementation was upstreamed from TSH's production
 `core/devicelink` package. It is eligible for Tutti's stable package cohort
@@ -46,13 +46,14 @@ authorization, control-plane, or product-policy failures. `ClaimProbe` returns
 a generation-bound lease; complete it with `RecordFailure`, `RecordSuccess`, or
 `Close` so invalidation can fence every late probe result.
 
-The intended integration is:
+The intended direct-path integration is:
 
 ```text
-product attempt + credentials
+server-authoritative STUN configuration
+  -> candidateexchange.Start (credentials immediately; candidates may be empty)
+  -> product publishes or joins its authenticated rendezvous attempt
   -> linkmanager admission snapshot
-  -> product-supplied direct/fallback dial policy
-  -> authenticated.Participant.Connect
+  -> candidateexchange.PublishLocal + FeedRemote run beside Participant.Connect
   -> linkmanager.Register
   -> shared OpenStream / incoming stream handler
 ```
@@ -123,13 +124,55 @@ dispatching the stream to their handler.
 
 ## Trickle ICE and protocol migration
 
-Consumers that exchange candidates incrementally call
-`StartLocalDescription`, publish candidate additions from
-`LocalCandidateChanges`, and publish a final
-`LocalDescriptionSnapshot` when `LocalGatheringComplete` closes. Remote
-candidates may arrive before or after `Connect` through
-`AddRemoteCandidates`. A `Participant` represents one connection attempt and
-must not be reused after completion or cancellation.
+The `candidateexchange` package is the consumer-facing Trickle ICE coordinator.
+`Start` returns publishable ICE credentials immediately, even when the initial
+candidate list is empty. `NextLocalPublication` and
+`AcknowledgeLocalPublication` expose the same acknowledgement-bound state
+machine used by `PublishLocal`: candidate notifications are coalesced, a failed
+publication is reissued with the same ID and exact snapshot after the shared
+retry interval, and the stream stops only after the final local snapshot has
+been observed. `NotifyRemoteChange` and `WaitRemoteRefresh` expose the same
+push-plus-poll scheduler used by `FeedRemote`; fetched candidates are then
+deduplicated into an in-progress `Connect`. Fetch failures terminate unless the
+consumer explicitly classifies them as retryable. The default authoritative
+poll fallback is 500ms.
+
+Callback-free consumers use `ActionPump`. It owns the local-publication and
+remote-refresh workers, retry scheduling, stop ordering, and a
+one-outstanding-action-per-worker protocol. A consumer may drain the local and
+remote actions concurrently, so a slow authoritative read cannot hold up local
+candidate publication. It performs only product-authenticated rendezvous I/O
+for `publish_local` and `refresh_remote`, then resolves each action with success
+plus retryability. A local publication is acknowledged only after that
+resolution, so a caller can first verify that the server's returned
+authoritative snapshot contains the exact published candidates.
+
+Consumers inject only their rendezvous reads/writes and retry classification.
+The shared package does not create attempts, sign requests, interpret room or
+pairing state, or authorize peers. Lower-level callers may still use
+`StartLocalDescription`, `LocalCandidateChanges`,
+`LocalDescriptionSnapshot`, `LocalGatheringComplete`, and
+`AddRemoteCandidates` directly, but product adapters should prefer
+`candidateexchange` so debounce, exact-snapshot retry, completion, and
+push-plus-poll behavior do not drift. A `Participant` represents one connection
+attempt and must not be reused after completion or cancellation.
+
+Current integration status:
+
+| Consumer                            | Candidate-exchange path                                                                                                                | Status                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Tutti Desktop owner                 | Go `candidateexchange.Start`, `PublishLocal`, and `FeedRemote` around the signed paired-device attempt adapter                         | Integrated                                                             |
+| Tutti Android/iOS caller            | Go `ActionPump` workers exposed as next/resolve actions; TypeScript executes and validates signed authoritative attempt I/O only       | Integrated                                                             |
+| TSH Desktop                         | Uses the same low-level `authenticated.Participant` Trickle primitives, but its adapter-local publish/feed loops have not yet cut over | Migrate after the next stable DeviceLink release; no workspace replace |
+| tsh-server paired-device rendezvous | Protocol v2 accepts valid credentials with zero candidates and repeated authoritative participant snapshots                            | Compatible; no server schema change required                           |
+
+For the TSH cutover, adapter-local `publishTrickledCandidates` maps to
+`Exchange.PublishLocal`, `feedRemoteCandidates` maps to
+`Exchange.FeedRemote`, and the local 200ms debounce maps to the shared default.
+TSH retains its room lease checks, attempt TTL context, candidate-summary
+diagnostics, configurable poll cadence, and product fallback policy. This keeps
+the migration behavioral: it deletes duplicated connection mechanics without
+moving room authority or Relay policy into this package.
 
 ### Network path policy
 
@@ -165,8 +208,10 @@ link facade:
 
 - the current application-stream protocol epoch;
 - creation from server-authoritative STUN endpoints;
-- a JSON local description containing the ephemeral fingerprint and ICE
-  material;
+- non-blocking local-description start plus a callback-free Go action pump for
+  acknowledgement-bound publication and authoritative remote refresh;
+- JSON next/resolve actions, push notification, incremental remote-candidate
+  insertion, and Go-owned candidate-worker cancellation while `Connect` runs;
 - caller/owner connection using the peer description;
 - authenticated bidirectional stream open/accept/read/write/deadline/close;
 - `OpenStreamWithRelay`, which races a direct stream dial and an authorized
