@@ -3,6 +3,7 @@ package computer
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,8 +20,9 @@ type toolNameInput struct {
 }
 
 type toolCallInput struct {
-	Name          string `cli:"name" validate:"required" description:"Native cua-driver tool name from computer tool list."`
-	ArgumentsJSON string `cli:"arguments-json" description:"Tool arguments as one JSON object. Defaults to {}."`
+	Name            string `cli:"name" validate:"required" description:"Native cua-driver tool name from computer tool list."`
+	ArgumentsJSON   string `cli:"arguments-json" description:"JSON object. Defaults to {}."`
+	ArgumentsBase64 string `cli:"arguments-base64" description:"Base64 UTF-8 JSON object."`
 }
 
 type toolListResult struct {
@@ -126,7 +128,7 @@ func (p Provider) newToolCallCommand() cliservice.Command {
 			if err != nil {
 				return nil, err
 			}
-			arguments, err := parseToolArguments(input.ArgumentsJSON)
+			arguments, err := parseToolArguments(input.ArgumentsJSON, input.ArgumentsBase64)
 			if err != nil {
 				return nil, err
 			}
@@ -144,7 +146,11 @@ func nativeToolOutputSpec() framework.OutputSpec {
 		RawJSONReason: "native computer tool results preserve the complete MCP result envelope, " +
 			"including future content variants",
 		PlainText: func(result any) string {
-			return result.(computersvc.ToolResult).Text
+			toolResult := result.(computersvc.ToolResult)
+			if toolResult.IsError {
+				return computersvc.ToolResultDiagnostic(toolResult)
+			}
+			return toolResult.Text
 		},
 		JSONViews: map[framework.OutputView]func(any) map[string]any{
 			framework.ViewSummary: func(result any) map[string]any {
@@ -154,6 +160,9 @@ func nativeToolOutputSpec() framework.OutputSpec {
 					decoder := json.NewDecoder(bytes.NewReader(toolResult.Raw))
 					decoder.UseNumber()
 					if err := decoder.Decode(&native); err == nil && native != nil {
+						if toolResult.IsError {
+							native["tuttiDiagnostic"] = computersvc.ToolResultDiagnostic(toolResult)
+						}
 						return native
 					}
 				}
@@ -170,8 +179,19 @@ func (p Provider) listNativeTools(ctx context.Context, workspaceID string) (comp
 	return p.computer.ListTools(ctx, workspaceID, "")
 }
 
-func parseToolArguments(value string) (map[string]any, error) {
+func parseToolArguments(value, encoded string) (map[string]any, error) {
 	value = strings.TrimSpace(value)
+	encoded = strings.TrimSpace(encoded)
+	if value != "" && encoded != "" {
+		return nil, fmt.Errorf("%w: arguments-json and arguments-base64 cannot be combined", cliservice.ErrInvalidInput)
+	}
+	if encoded != "" {
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("%w: arguments-base64 must be valid base64: %v", cliservice.ErrInvalidInput, err)
+		}
+		value = string(decoded)
+	}
 	if value == "" {
 		value = "{}"
 	}

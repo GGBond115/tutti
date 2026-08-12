@@ -59,14 +59,44 @@ test("AccountService opens login URL and refreshes user after completion", async
     }
   });
 
-  await service.startLogin();
+  const result = await service.startLogin();
 
+  assert.deepEqual(result, { error: null });
   assert.deepEqual(opened, ["https://tutti.sh/auth/login?state=test"]);
   assert.equal(service.store.signingIn, false);
   await waitFor(() => service.store.user?.user_id === "user-1");
   await waitFor(
     () => service.store.productSummary?.membership?.display_name === "Pro"
   );
+});
+
+test("AccountService returns the current login failure independently", async () => {
+  const service = new AccountService({
+    hostFilesApi: {
+      async openExternal() {}
+    },
+    tuttidClient: {
+      async startAccountLogin() {
+        throw new Error("login daemon unavailable");
+      },
+      async getAccountLoginStatus() {
+        throw new Error("unexpected status");
+      },
+      async getAccountUserInfo() {
+        return null;
+      },
+      async getAccountProductSummary() {
+        throw new Error("unexpected product summary refresh");
+      },
+      async dismissAccountRegistrationCreditsReward() {},
+      async logoutAccount() {}
+    }
+  });
+
+  const result = await service.startLogin();
+
+  assert.deepEqual(result, { error: "login daemon unavailable" });
+  assert.equal(service.store.error, "login daemon unavailable");
 });
 
 test("AccountService reopens the active login URL without starting another attempt", async () => {

@@ -60,3 +60,30 @@ delivery.
 
 - [Tutti CLI Contract: Computer command surfaces](../tutti-cli-contract.md#computer-command-surfaces)
 - [Injected Computer Use skill](../../../packages/agent/runtimeprep/skill_templates/computer-use.md)
+
+## A Windows native tool call rejects valid-looking JSON
+
+### Symptom
+
+`computer tool call` reports that `arguments-json` is not a JSON object, or a
+nested `powershell.exe -Command` invocation changes quotes and backslashes.
+
+### Root cause and fix
+
+JSON embedded in a command string crosses both the outer launcher and Windows
+shell parsing boundaries. Encode the UTF-8 JSON object as base64 and pass it
+through `--arguments-base64`; do not launch a second PowerShell process around
+the Tutti CLI command. `--arguments-json` remains supported for compatible
+existing scripts, but the two flags cannot be combined.
+
+If the driver returns `isError=true` together with Windows success status
+`0x00000000`, treat it as an inconsistent driver result rather than successful
+delivery. If it rejects automation of its own authorization process, choose a
+different application target; never automate the authorization UI.
+
+### Validation
+
+- Base64 input round-trips nested JSON, backslashes, spaces, and non-ASCII text.
+- Every state-changing action is followed by a fresh screenshot.
+- An inconsistent success-code error and a protected authorization target have
+  explicit diagnostic messages.

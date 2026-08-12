@@ -313,7 +313,7 @@ func ComputerUsePack() CapabilityPack {
 			hasCommandInputs(input.commandCapabilities, "computer.scroll", "pid", "window-id", "x", "y", "direction", "amount") &&
 			hasCommandInputs(input.commandCapabilities, "computer.move-cursor", "x", "y") &&
 			hasCommandInputs(input.commandCapabilities, "computer.tool.describe", "name") &&
-			hasCommandInputs(input.commandCapabilities, "computer.tool.call", "name", "arguments-json")
+			hasCommandInputs(input.commandCapabilities, "computer.tool.call", "name", "arguments-json", "arguments-base64")
 		if !enabled {
 			return CapabilityContribution{Enabled: false}, nil
 		}

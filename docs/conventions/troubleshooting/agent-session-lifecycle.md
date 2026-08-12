@@ -4887,3 +4887,25 @@ path`. On a managed POSIX runtime, another form accepts the Turn but every
   historical payload both without and with `cwd` as negative controls, then
   verifies that the production payload crosses the same parser without an
   `AbsolutePathBuf` error.
+
+### A Windows Codex session disappears while auth projection is starting
+
+- Symptom:
+  session creation stalls until its request is canceled, and no runnable
+  session remains visible. The log ends in Mutagen `context canceled` during
+  auth projection.
+- Root cause:
+  Mutagen setup inherited the transport request context. Closing or timing out
+  that request killed a partially-created external sync session before runtime
+  publication.
+- Fix:
+  treat auth projection as Host-owned startup work: detach it from request
+  cancellation, bound each Mutagen command to 20 seconds, and serialize setup
+  for the same stable auth source. A guarded copy fallback is allowed only when
+  Mutagen is unavailable or a failed session was successfully terminated; if
+  cleanup cannot be confirmed, fail without starting a second projection.
+- Validation:
+  cancel the caller context before projection and verify that the injected
+  resolver and runner receive a live bounded context. Cover create and flush
+  timeout, cleanup failure, copy reconciliation, and concurrent projections
+  sharing one auth source.

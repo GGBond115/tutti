@@ -141,6 +141,49 @@ func TestLocalFilesAdapterListDirectorySkipsHiddenEntriesByDefault(t *testing.T)
 	}
 }
 
+func TestLocalFilesAdapterHidesKnownTransientFilesUnlessRequested(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	for _, name := range []string{
+		"~$draft.docx",
+		"download.crdownload",
+		"ordinary.tmp",
+		"~notes.md",
+		"report.docx",
+	} {
+		if err := os.WriteFile(filepath.Join(rootDir, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	adapter := LocalFilesAdapter{}
+	listing, err := adapter.ListDirectory(context.Background(), localFilesRoot(rootDir), "/workspace", false)
+	if err != nil {
+		t.Fatalf("ListDirectory() error = %v", err)
+	}
+	paths := make([]workspacefiles.LogicalPath, 0, len(listing.Entries))
+	for _, entry := range listing.Entries {
+		paths = append(paths, entry.Path)
+	}
+	want := []workspacefiles.LogicalPath{
+		"/workspace/ordinary.tmp",
+		"/workspace/report.docx",
+		"/workspace/~notes.md",
+	}
+	if !slices.Equal(paths, want) {
+		t.Fatalf("entries = %#v, want %v", listing.Entries, want)
+	}
+
+	includingHidden, err := adapter.ListDirectory(context.Background(), localFilesRoot(rootDir), "/workspace", true)
+	if err != nil {
+		t.Fatalf("ListDirectory(includeHidden) error = %v", err)
+	}
+	if len(includingHidden.Entries) != 5 {
+		t.Fatalf("includeHidden entries = %#v, want all five files", includingHidden.Entries)
+	}
+}
+
 func TestLocalFilesAdapterListDirectoryKeepsNonHiddenSystemDirectories(t *testing.T) {
 	t.Parallel()
 
@@ -1058,6 +1101,47 @@ func TestLocalFilesAdapterSearchSkipsHiddenFilesForNormalQueries(t *testing.T) {
 	}
 	if len(result.Entries) == 0 || result.Entries[0].Path != "/workspace/docs/env.md" {
 		t.Fatalf("entries = %#v, want visible env.md result first", result.Entries)
+	}
+}
+
+func TestLocalFilesAdapterSearchSkipsKnownTransientFiles(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	for name, content := range map[string]string{
+		"~$draft.docx":     "office lock",
+		"draft.crdownload": "partial download",
+		"draft.docx":       "visible document",
+		"~notes.md":        "visible tilde file",
+	} {
+		if err := os.WriteFile(filepath.Join(rootDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	adapter := testLocalFilesAdapter(0)
+	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
+		Query:        "draft",
+		Limit:        10,
+		IncludeKinds: []workspacefiles.EntryKind{workspacefiles.EntryKindFile},
+	})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(result.Entries) != 1 || result.Entries[0].Path != "/workspace/draft.docx" {
+		t.Fatalf("entries = %#v, want only visible draft.docx", result.Entries)
+	}
+
+	tildeResult, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
+		Query:        "notes",
+		Limit:        10,
+		IncludeKinds: []workspacefiles.EntryKind{workspacefiles.EntryKindFile},
+	})
+	if err != nil {
+		t.Fatalf("Search() tilde file error = %v", err)
+	}
+	if len(tildeResult.Entries) != 1 || tildeResult.Entries[0].Path != "/workspace/~notes.md" {
+		t.Fatalf("entries = %#v, want ordinary tilde file", tildeResult.Entries)
 	}
 }
 

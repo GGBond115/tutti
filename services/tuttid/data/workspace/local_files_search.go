@@ -216,7 +216,7 @@ func localFileSearchCandidates(
 			continue
 		}
 		if !input.IncludeHidden {
-			if localSearchPathIsHidden(relativeToRoot) {
+			if localSearchPathIsHidden(relativeToRoot) || shouldHideWorkspacePath(rootPath, physicalPath) {
 				stats.skippedHiddenCount++
 				continue
 			}

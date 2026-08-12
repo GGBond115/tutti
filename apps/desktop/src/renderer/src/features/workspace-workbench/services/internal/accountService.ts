@@ -121,9 +121,9 @@ export class AccountService implements IAccountService {
     }
   }
 
-  async startLogin(): Promise<void> {
+  async startLogin(): Promise<{ error: string | null }> {
     if (this.store.signingIn) {
-      return;
+      return { error: null };
     }
     this.store.signingIn = true;
     this.store.error = null;
@@ -132,8 +132,11 @@ export class AccountService implements IAccountService {
       await this.dependencies.hostFilesApi.openExternal(attempt.loginURL);
       this.store.loginStatus = "pending";
       this.startLoginStatusPoll(attempt);
+      return { error: null };
     } catch (error) {
-      this.store.error = readAccountError(error);
+      const message = readAccountError(error);
+      this.store.error = message;
+      return { error: message };
     } finally {
       this.store.signingIn = false;
     }
