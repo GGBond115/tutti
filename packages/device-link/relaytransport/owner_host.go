@@ -270,7 +270,7 @@ func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 			backoff.Reset()
 			continue
 		}
-		if readyFor >= h.cfg.StableSessionFor {
+		if readyFor >= h.cfg.StableSessionFor && !wakeObserved {
 			backoff.Reset()
 		}
 		run.lifecycle.SessionEnded(session, err)

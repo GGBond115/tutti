@@ -92,15 +92,6 @@ func canonicalAddress(address net.Addr) (string, bool) {
 	return ip.String() + "/" + prefixLength, true
 }
 
-func isZeroBytes(value []byte) bool {
-	for _, byteValue := range value {
-		if byteValue != 0 {
-			return false
-		}
-	}
-	return true
-}
-
 func contextErr(ctx context.Context) error {
 	if ctx == nil {
 		return nil

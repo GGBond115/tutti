@@ -113,11 +113,14 @@ self-healing. It starts at generation `1`, publishes only later generations,
 and hashes interface status, addresses, and—where the platform exposes a
 reliable native table—default-route identity. Darwin uses a no-cgo route socket
 as a trigger with 500ms debounce and a 30s safety sample; its default-route
-summary comes from the native routing information base. Linux/Android sample `/proc/net/route` and
-`/proc/net/ipv6_route`; Windows samples IP Helper's `GetIpForwardTable2`.
-Unsupported mobile/other platforms retain the interface/address summary and
-explicitly do not claim default-route coverage. Windows and mobile fallback
-to 2s polling, while Darwin watcher failure also falls back to 2s polling.
+summary comes from the native routing information base. Linux samples
+`/proc/net/route` and `/proc/net/ipv6_route`; Windows samples IP Helper's
+`GetIpForwardTable2`. Android 10 and newer deny ordinary applications access
+to `/proc/net`, so Android retains only the interface/address summary until a
+native `ConnectivityManager` source is provided. Android, iOS, and other
+unsupported platforms explicitly do not claim default-route coverage. Windows
+and mobile fallback to 2s polling, while Darwin watcher failure also falls back
+to 2s polling.
 
 `Monitor.Status()` is a read-only diagnostic snapshot with `stopped`,
 `starting`, `watching`, or `polling` mode plus a sanitized polling reason and

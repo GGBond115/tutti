@@ -1,4 +1,5 @@
-//nolint:unused // Platform-neutral so Linux route fixtures run on every development host.
+//go:build linux && !android
+
 package networkchange
 
 import (
