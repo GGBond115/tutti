@@ -32,6 +32,8 @@ type ownerRun struct {
 
 	mu      sync.Mutex
 	session OwnerSession
+	wakeCh  chan struct{}
+	wake    bool
 }
 
 // NewOwnerHost validates config and creates an idle owner host.
@@ -94,7 +96,12 @@ func (h *OwnerHost) Acquire(ctx context.Context, driver string) error {
 		return errors.New("relay owner lifecycle factory returned nil")
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	run := &ownerRun{cancel: cancel, done: make(chan struct{}), lifecycle: lifecycle}
+	run := &ownerRun{
+		cancel:    cancel,
+		done:      make(chan struct{}),
+		lifecycle: lifecycle,
+		wakeCh:    make(chan struct{}),
+	}
 	h.run = run
 	go h.runLoop(runCtx, run)
 	return nil
@@ -152,20 +159,71 @@ func (h *OwnerHost) RefCount() int {
 	return h.refCount
 }
 
+// Wake interrupts the current owner generation or retry wait when demand is
+// present. It does not change references, release product state, or reset
+// reconnect backoff. Repeated wakes before the current wait observes one are
+// coalesced.
+func (h *OwnerHost) Wake() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	run := h.run
+	active := h.refCount > 0
+	h.mu.Unlock()
+	if !active || run == nil {
+		return
+	}
+	run.signalWake()
+}
+
 func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 	defer close(run.done)
 	backoff := newExponentialBackoff(h.cfg.Backoff)
 	for ctx.Err() == nil {
-		session, err := run.lifecycle.Prepare(ctx)
+		attemptCtx, attemptCancel := context.WithCancelCause(ctx)
+		wakeCh := run.wakeChannel()
+		attemptStop := make(chan struct{})
+		attemptDone := make(chan struct{})
+		go func() {
+			defer close(attemptDone)
+			select {
+			case <-wakeCh:
+				attemptCancel(ErrOwnerWake)
+			case <-ctx.Done():
+				attemptCancel(context.Cause(ctx))
+			case <-attemptStop:
+			}
+		}()
+
+		session, err := run.lifecycle.Prepare(attemptCtx)
 		if strings.TrimSpace(session.Key) != "" {
 			run.setSession(session)
 		}
 		h.observe(OwnerEvent{Phase: OwnerPhasePrepare, Outcome: outcome(err), SessionKey: session.Key, Error: err})
 		var readyFor time.Duration
 		if err == nil {
-			readyFor, err = h.runSession(ctx, run, session)
-			if readyFor >= h.cfg.StableSessionFor {
+			readyFor, err = h.runSession(attemptCtx, run, session)
+			if readyFor >= h.cfg.StableSessionFor && !errors.Is(context.Cause(attemptCtx), ErrOwnerWake) {
 				backoff.Reset()
+			}
+		}
+		attemptCause := context.Cause(attemptCtx)
+		wakeObserved := errors.Is(attemptCause, ErrOwnerWake)
+		close(attemptStop)
+		attemptCancel(nil)
+		<-attemptDone
+		// The monitor can lose the select race with attemptStop after Wake has
+		// closed wakeCh. Observe the pending signal after joining it so a wake
+		// cannot accidentally schedule a retry before its cancellation cause is
+		// recorded in attemptCtx.
+		if !wakeObserved {
+			wakeObserved = run.wakePending(wakeCh)
+		}
+		if wakeObserved {
+			run.acknowledgeWake(wakeCh)
+			if err == nil || errors.Is(err, context.Canceled) {
+				err = ErrOwnerWake
 			}
 		}
 		if ctx.Err() != nil {
@@ -173,6 +231,9 @@ func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 		}
 		run.lifecycle.SessionEnded(session, err)
 		h.observe(OwnerEvent{Phase: OwnerPhaseSession, Outcome: OwnerOutcomeEnded, SessionKey: session.Key, Error: err})
+		if wakeObserved {
+			continue
+		}
 		backoffDelay := backoff.Next()
 		retryAfter := retryDelay(err, h.cfg.Now())
 		delay := combineRetryDelay(backoffDelay, retryAfter)
@@ -183,7 +244,10 @@ func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 			},
 			Error: err,
 		})
-		if sleepErr := h.cfg.Sleep(ctx, delay); sleepErr != nil {
+		if sleepErr := h.sleepRetry(ctx, run, delay); sleepErr != nil {
+			if errors.Is(sleepErr, ErrOwnerWake) {
+				continue
+			}
 			return
 		}
 	}
@@ -209,14 +273,24 @@ func (h *OwnerHost) runSession(ctx context.Context, run *ownerRun, session Owner
 	defer stopLiveness()
 	h.observe(OwnerEvent{Phase: OwnerPhaseDial, Outcome: OwnerOutcomeConnected, SessionKey: session.Key})
 
-	deactivate, err := run.lifecycle.Activate(ctx, session)
+	activation, err := run.lifecycle.Activate(ctx, session)
 	if err != nil {
 		return 0, err
 	}
+	if activation.Readiness == nil {
+		if activation.Deactivate != nil {
+			activation.Deactivate()
+		}
+		return 0, ErrOwnerActivationReadiness
+	}
+	deactivate := activation.Deactivate
 	if deactivate == nil {
 		deactivate = func() {}
 	}
-	defer deactivate()
+	if cause := ownerReadinessCause(activation.Readiness); cause != nil {
+		deactivate()
+		return 0, cause
+	}
 
 	yamuxConfig := yamux.DefaultConfig()
 	yamuxConfig.EnableKeepAlive = false
@@ -225,40 +299,100 @@ func (h *OwnerHost) runSession(ctx context.Context, run *ownerRun, session Owner
 	yamuxConfig.LogOutput = io.Discard
 	mux, err := yamux.Server(conn, yamuxConfig)
 	if err != nil {
+		deactivate()
 		return 0, fmt.Errorf("start relay owner mux: %w", err)
 	}
-	defer func() { _ = mux.Close() }()
-	readyAt := h.cfg.Now()
-	h.observe(OwnerEvent{Phase: OwnerPhaseServe, Outcome: OwnerOutcomeReady, SessionKey: session.Key})
-
-	cancelDone := make(chan struct{})
-	defer close(cancelDone)
+	sessionCtx, sessionCancel := context.WithCancelCause(ctx)
+	monitorDone := make(chan struct{})
 	go func() {
+		defer close(monitorDone)
 		select {
-		case <-ctx.Done():
+		case <-activation.Readiness.Done():
+			cause := ownerReadinessCause(activation.Readiness)
+			if cause == nil {
+				cause = context.Canceled
+			}
+			sessionCancel(cause)
 			_ = mux.Close()
 			_ = conn.Close()
-		case <-cancelDone:
+		case <-sessionCtx.Done():
+			_ = mux.Close()
+			_ = conn.Close()
 		}
 	}()
+	defer func() {
+		sessionCancel(nil)
+		_ = mux.Close()
+		_ = conn.Close()
+		<-monitorDone
+		stopLiveness()
+		run.handlers.Wait()
+		deactivate()
+	}()
+	if cause := ownerSessionCause(sessionCtx, activation.Readiness); cause != nil {
+		return 0, cause
+	}
+	readyAt := h.cfg.Now()
+	h.observe(OwnerEvent{Phase: OwnerPhaseServe, Outcome: OwnerOutcomeReady, SessionKey: session.Key})
+	if cause := ownerSessionCause(sessionCtx, activation.Readiness); cause != nil {
+		return elapsed(readyAt, h.cfg.Now()), cause
+	}
 
 	for {
 		stream, acceptErr := mux.AcceptStream()
 		if acceptErr != nil {
 			readyFor := elapsed(readyAt, h.cfg.Now())
+			if cause := context.Cause(sessionCtx); cause != nil {
+				return readyFor, cause
+			}
 			if ctx.Err() != nil {
-				return readyFor, ctx.Err()
+				return readyFor, context.Cause(ctx)
 			}
 			return readyFor, fmt.Errorf("accept relay owner stream: %w", acceptErr)
 		}
+		if cause := ownerSessionCause(sessionCtx, activation.Readiness); cause != nil {
+			_ = stream.Close()
+			readyFor := elapsed(readyAt, h.cfg.Now())
+			return readyFor, cause
+		}
 		run.handlers.Add(1)
-		go h.handleStream(ctx, run, session.Key, stream)
+		go h.handleStream(sessionCtx, activation.Readiness, run, session.Key, stream)
 	}
 }
 
-func (h *OwnerHost) handleStream(ctx context.Context, run *ownerRun, sessionKey string, stream net.Conn) {
+func (h *OwnerHost) sleepRetry(ctx context.Context, run *ownerRun, delay time.Duration) error {
+	sleepCtx, cancel := context.WithCancelCause(ctx)
+	wakeCh := run.wakeChannel()
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-wakeCh:
+			run.acknowledgeWake(wakeCh)
+			cancel(ErrOwnerWake)
+		case <-ctx.Done():
+			cancel(context.Cause(ctx))
+		case <-stop:
+		}
+	}()
+	err := h.cfg.Sleep(sleepCtx, delay)
+	close(stop)
+	cancel(nil)
+	<-done
+	if cause := context.Cause(sleepCtx); errors.Is(cause, ErrOwnerWake) {
+		return cause
+	}
+	return err
+}
+
+func (h *OwnerHost) handleStream(ctx, readiness context.Context, run *ownerRun, sessionKey string, stream net.Conn) {
 	defer run.handlers.Done()
 	defer func() { _ = stream.Close() }()
+	if cause := ownerSessionCause(ctx, readiness); cause != nil {
+		h.observe(OwnerEvent{Phase: OwnerPhaseStream, Outcome: OwnerOutcomeFailed, SessionKey: sessionKey, Error: cause})
+		return
+	}
 	err := h.cfg.Handler.HandleRelayStream(ctx, stream)
 	h.observe(OwnerEvent{Phase: OwnerPhaseStream, Outcome: outcome(err), SessionKey: sessionKey, Error: err})
 }
@@ -279,6 +413,64 @@ func (r *ownerRun) currentSession() OwnerSession {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.session
+}
+
+func (r *ownerRun) signalWake() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.wake {
+		return
+	}
+	close(r.wakeCh)
+	r.wake = true
+}
+
+func (r *ownerRun) wakeChannel() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.wakeCh
+}
+
+func (r *ownerRun) wakePending(ch <-chan struct{}) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.wakeCh == ch && r.wake
+}
+
+func (r *ownerRun) acknowledgeWake(ch <-chan struct{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.wakeCh != ch || !r.wake {
+		return
+	}
+	r.wakeCh = make(chan struct{})
+	r.wake = false
+}
+
+func ownerReadinessCause(readiness context.Context) error {
+	if readiness == nil {
+		return ErrOwnerActivationReadiness
+	}
+	select {
+	case <-readiness.Done():
+		cause := context.Cause(readiness)
+		if cause == nil {
+			cause = context.Canceled
+		}
+		if errors.Is(cause, ErrOwnerWake) || errors.Is(cause, context.Canceled) {
+			return cause
+		}
+		return &OwnerReadinessError{Cause: cause}
+	default:
+		return nil
+	}
+}
+
+func ownerSessionCause(session, readiness context.Context) error {
+	if cause := context.Cause(session); cause != nil {
+		return cause
+	}
+	return ownerReadinessCause(readiness)
 }
 
 func outcome(err error) OwnerOutcome {

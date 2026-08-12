@@ -79,13 +79,19 @@ least one product driver holds a reference, accepts remote streams only after
 the product readiness barrier succeeds, and reconnects with bounded full-jitter
 backoff plus `Retry-After`.
 
+`OwnerLifecycle.Activate` returns an `OwnerActivation`: its `Readiness`
+context is a continuous product health condition for the complete connection
+generation. Cancelling it closes the generation, joins its stream handlers,
+reports its cancellation cause through `SessionEnded`, and starts a new
+generation while demand remains.
+
 The owner path has an explicit ownership split:
 
 ```text
 product demand (zero -> one)
   -> product OwnerLifecycle.Prepare
   -> relaytransport WebSocket dial + liveness
-  -> product OwnerLifecycle.Activate readiness barrier
+  -> product OwnerLifecycle.Activate continuous readiness
   -> relaytransport yamux stream acceptance
   -> product StreamHandler
   -> final product demand release
@@ -109,6 +115,10 @@ interpret HTTP status codes as product policy. `DialError` makes a bounded
 handshake response body available for adapter-owned wire-reason parsing, but
 does not include that body in its error string; adapters must not persist the
 raw value in ordinary logs or metrics.
+
+`OwnerHost.Wake` is a product-neutral demand-preserving interrupt for the
+current generation or retry wait. It coalesces repeated requests, does not
+release or acquire references, and does not reset reconnect backoff.
 
 ### Stream readiness probe
 
