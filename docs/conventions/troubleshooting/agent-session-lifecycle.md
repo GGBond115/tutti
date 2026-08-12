@@ -4858,21 +4858,32 @@ agent target`, although the current model picker does not offer that model.
 - Symptom:
   Codex initializes and `thread/start` succeeds, but the first `turn/start`
   fails with JSON-RPC `-32600` and `AbsolutePathBuf deserialized without a base
-path`. Tutti then reports that the provider Turn was not durably accepted.
+path`. On a managed POSIX runtime, another form accepts the Turn but every
+  tool command, including `pwd`, fails with
+  `Failed to create unified exec process: No such file or directory (os error 2)`
+  even though provider-process CWD preflight succeeded.
 - Root cause:
   Tutti sent the POSIX-only `/sandbox-tmp` writable root as though it were a
   portable absolute host path. Codex's Windows `AbsolutePathBuf` parser rejects
   it even when the request also carries `cwd`; the per-turn working-directory
   override does not make a POSIX-rooted string into a Windows absolute path.
-  Tutti also omitted the Session `cwd` from the Turn override. A request-shape
-  mock accepted both omissions and did not exercise the real Rust parser.
+  Tutti also once omitted the Session `cwd` from the Turn override. Supplying
+  that field from the raw persisted Session value introduced the inverse POSIX
+  failure: a stored `/workspace/<room-id>` mount path escaped the managed
+  Agent's logical `/workspace` view even though `thread/start` and the provider
+  process had already projected it. Request-shape mocks accepted these invalid
+  combinations without exercising the real process or Rust parser boundary.
 - Fix:
-  Send the canonical non-empty Session `cwd` on every Codex `turn/start` and
-  omit the POSIX `/sandbox-tmp` projection on Windows. Keep the projection on
-  POSIX hosts where it represents the logical `/tmp` write target.
+  Send the non-empty provider-visible Session `cwd` on every Codex
+  `turn/start`. Apply the same room-mount-to-logical-workspace projection used
+  by `thread/start` and provider launch while preserving native Windows paths.
+  Omit the POSIX `/sandbox-tmp` projection on Windows, and keep it on POSIX
+  hosts where it represents the logical `/tmp` write target.
 - Validation:
-  Assert the emitted `turn/start.cwd`, cover Windows and POSIX sandbox policy
-  construction, and run the Windows contract test against a real pinned
-  `codex.exe app-server`. The contract test submits the historical payload both
-  without and with `cwd` as negative controls, then verifies that the production
-  payload crosses the same parser without an `AbsolutePathBuf` error.
+  Cover a stored room mount root and child path, an already-logical workspace
+  path, and a native Windows path in the emitted `turn/start.cwd`. Cover Windows
+  and POSIX sandbox policy construction, and run the Windows contract test
+  against a real pinned `codex.exe app-server`. The contract test submits the
+  historical payload both without and with `cwd` as negative controls, then
+  verifies that the production payload crosses the same parser without an
+  `AbsolutePathBuf` error.
