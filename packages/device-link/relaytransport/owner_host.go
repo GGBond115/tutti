@@ -18,10 +18,11 @@ import (
 type OwnerHost struct {
 	cfg OwnerHostConfig
 
-	mu       sync.Mutex
-	refs     map[string]int
-	refCount int
-	run      *ownerRun
+	mu                sync.Mutex
+	refs              map[string]int
+	refCount          int
+	networkGeneration uint64
+	run               *ownerRun
 }
 
 type ownerRun struct {
@@ -30,10 +31,11 @@ type ownerRun struct {
 	lifecycle OwnerLifecycle
 	handlers  sync.WaitGroup
 
-	mu      sync.Mutex
-	session OwnerSession
-	wakeCh  chan struct{}
-	wake    bool
+	mu         sync.Mutex
+	session    OwnerSession
+	generation uint64
+	wakeCh     chan struct{}
+	wake       bool
 }
 
 // NewOwnerHost validates config and creates an idle owner host.
@@ -59,7 +61,7 @@ func NewOwnerHost(cfg OwnerHostConfig) (*OwnerHost, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &OwnerHost{cfg: cfg, refs: make(map[string]int)}, nil
+	return &OwnerHost{cfg: cfg, refs: make(map[string]int), networkGeneration: 1}, nil
 }
 
 // Acquire starts the owner tunnel on the first reference. driver is a
@@ -97,10 +99,11 @@ func (h *OwnerHost) Acquire(ctx context.Context, driver string) error {
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	run := &ownerRun{
-		cancel:    cancel,
-		done:      make(chan struct{}),
-		lifecycle: lifecycle,
-		wakeCh:    make(chan struct{}),
+		cancel:     cancel,
+		done:       make(chan struct{}),
+		lifecycle:  lifecycle,
+		generation: h.networkGeneration,
+		wakeCh:     make(chan struct{}),
 	}
 	h.run = run
 	go h.runLoop(runCtx, run)
@@ -145,8 +148,34 @@ func (h *OwnerHost) Release(driver string) error {
 	run.handlers.Wait()
 	session := run.currentSession()
 	err := run.lifecycle.Release(context.Background(), session)
-	h.observe(OwnerEvent{Phase: OwnerPhaseRelease, Outcome: outcome(err), SessionKey: session.Key, Error: err})
+	h.observe(OwnerEvent{
+		Phase: OwnerPhaseRelease, Outcome: outcome(err), Generation: h.currentNetworkGeneration(),
+		SessionKey: session.Key, Error: err,
+	})
 	return err
+}
+
+// AdvanceNetworkGeneration fences the current owner attempt when generation
+// is newer than the host's last accepted generation. It does not alter
+// demand references, create a lifecycle, or clear product credentials. A
+// newer generation cancels Prepare, Dial, Activate, Serve, active handlers,
+// and any retry wait; the existing lifecycle is reused for the immediate
+// retry. Equal or older generations are ignored.
+func (h *OwnerHost) AdvanceNetworkGeneration(generation uint64) {
+	if h == nil || generation == 0 {
+		return
+	}
+	h.mu.Lock()
+	if generation <= h.networkGeneration {
+		h.mu.Unlock()
+		return
+	}
+	h.networkGeneration = generation
+	run := h.run
+	h.mu.Unlock()
+	if run != nil {
+		run.advanceGeneration(generation)
+	}
 }
 
 // RefCount returns the number of current product references.
@@ -181,8 +210,8 @@ func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 	defer close(run.done)
 	backoff := newExponentialBackoff(h.cfg.Backoff)
 	for ctx.Err() == nil {
+		generation, wakeCh := run.attemptState()
 		attemptCtx, attemptCancel := context.WithCancelCause(ctx)
-		wakeCh := run.wakeChannel()
 		attemptStop := make(chan struct{})
 		attemptDone := make(chan struct{})
 		go func() {
@@ -195,18 +224,17 @@ func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 			case <-attemptStop:
 			}
 		}()
-
 		session, err := run.lifecycle.Prepare(attemptCtx)
 		if strings.TrimSpace(session.Key) != "" {
 			run.setSession(session)
 		}
-		h.observe(OwnerEvent{Phase: OwnerPhasePrepare, Outcome: outcome(err), SessionKey: session.Key, Error: err})
+		h.observe(OwnerEvent{
+			Phase: OwnerPhasePrepare, Outcome: outcome(err), Generation: generation,
+			SessionKey: session.Key, Error: err,
+		})
 		var readyFor time.Duration
 		if err == nil {
-			readyFor, err = h.runSession(attemptCtx, run, session)
-			if readyFor >= h.cfg.StableSessionFor && !errors.Is(context.Cause(attemptCtx), ErrOwnerWake) {
-				backoff.Reset()
-			}
+			readyFor, err = h.runSession(attemptCtx, run, session, generation)
 		}
 		attemptCause := context.Cause(attemptCtx)
 		wakeObserved := errors.Is(attemptCause, ErrOwnerWake)
@@ -229,8 +257,27 @@ func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 		if ctx.Err() != nil {
 			return
 		}
+		if current, changed := run.generationChangedSince(generation); changed {
+			err = &NetworkGenerationChangedError{
+				PreviousGeneration: generation,
+				Generation:         current,
+			}
+			run.lifecycle.SessionEnded(session, err)
+			h.observe(OwnerEvent{
+				Phase: OwnerPhaseSession, Outcome: OwnerOutcomeEnded, Generation: current,
+				EndReason: OwnerEndReasonNetworkChanged, SessionKey: session.Key, Error: err,
+			})
+			backoff.Reset()
+			continue
+		}
+		if readyFor >= h.cfg.StableSessionFor {
+			backoff.Reset()
+		}
 		run.lifecycle.SessionEnded(session, err)
-		h.observe(OwnerEvent{Phase: OwnerPhaseSession, Outcome: OwnerOutcomeEnded, SessionKey: session.Key, Error: err})
+		h.observe(OwnerEvent{
+			Phase: OwnerPhaseSession, Outcome: OwnerOutcomeEnded, Generation: generation,
+			SessionKey: session.Key, Error: err,
+		})
 		if wakeObserved {
 			continue
 		}
@@ -238,22 +285,32 @@ func (h *OwnerHost) runLoop(ctx context.Context, run *ownerRun) {
 		retryAfter := retryDelay(err, h.cfg.Now())
 		delay := combineRetryDelay(backoffDelay, retryAfter)
 		h.observe(OwnerEvent{
-			Phase: OwnerPhaseRetry, Outcome: OwnerOutcomeScheduled, SessionKey: session.Key,
+			Phase: OwnerPhaseRetry, Outcome: OwnerOutcomeScheduled, Generation: generation,
+			SessionKey: session.Key,
 			Retry: &OwnerRetryObservation{
 				Delay: delay, BackoffCap: backoff.Cap(), BackoffDelay: backoffDelay, RetryAfter: retryAfter,
 			},
 			Error: err,
 		})
-		if sleepErr := h.sleepRetry(ctx, run, delay); sleepErr != nil {
-			if errors.Is(sleepErr, ErrOwnerWake) {
-				continue
-			}
+		sleepErr := h.sleepRetry(ctx, run, delay)
+		if ctx.Err() != nil {
+			return
+		}
+		if current, changed := run.generationChangedSince(generation); changed {
+			h.observeNetworkRetry(session, generation, current)
+			backoff.Reset()
+			continue
+		}
+		if errors.Is(sleepErr, ErrOwnerWake) {
+			continue
+		}
+		if sleepErr != nil {
 			return
 		}
 	}
 }
 
-func (h *OwnerHost) runSession(ctx context.Context, run *ownerRun, session OwnerSession) (time.Duration, error) {
+func (h *OwnerHost) runSession(ctx context.Context, run *ownerRun, session OwnerSession, generation uint64) (time.Duration, error) {
 	ws, err := dialWebSocket(ctx, session.Dial)
 	if err != nil {
 		return 0, err
@@ -265,13 +322,17 @@ func (h *OwnerHost) runSession(ctx context.Context, run *ownerRun, session Owner
 		pongTimeout:  h.cfg.PongTimeout,
 		pingPayload:  session.PingPayload,
 		sessionKey:   session.Key,
+		generation:   generation,
 		observe:      h.observe,
 	})
 	if err != nil {
 		return 0, err
 	}
 	defer stopLiveness()
-	h.observe(OwnerEvent{Phase: OwnerPhaseDial, Outcome: OwnerOutcomeConnected, SessionKey: session.Key})
+	h.observe(OwnerEvent{
+		Phase: OwnerPhaseDial, Outcome: OwnerOutcomeConnected, Generation: generation,
+		SessionKey: session.Key,
+	})
 
 	activation, err := run.lifecycle.Activate(ctx, session)
 	if err != nil {
@@ -333,7 +394,10 @@ func (h *OwnerHost) runSession(ctx context.Context, run *ownerRun, session Owner
 		return 0, cause
 	}
 	readyAt := h.cfg.Now()
-	h.observe(OwnerEvent{Phase: OwnerPhaseServe, Outcome: OwnerOutcomeReady, SessionKey: session.Key})
+	h.observe(OwnerEvent{
+		Phase: OwnerPhaseServe, Outcome: OwnerOutcomeReady, Generation: generation,
+		SessionKey: session.Key,
+	})
 	if cause := ownerSessionCause(sessionCtx, activation.Readiness); cause != nil {
 		return elapsed(readyAt, h.cfg.Now()), cause
 	}
@@ -356,7 +420,7 @@ func (h *OwnerHost) runSession(ctx context.Context, run *ownerRun, session Owner
 			return readyFor, cause
 		}
 		run.handlers.Add(1)
-		go h.handleStream(sessionCtx, activation.Readiness, run, session.Key, stream)
+		go h.handleStream(sessionCtx, activation.Readiness, run, session.Key, generation, stream)
 	}
 }
 
@@ -386,7 +450,13 @@ func (h *OwnerHost) sleepRetry(ctx context.Context, run *ownerRun, delay time.Du
 	return err
 }
 
-func (h *OwnerHost) handleStream(ctx, readiness context.Context, run *ownerRun, sessionKey string, stream net.Conn) {
+func (h *OwnerHost) handleStream(
+	ctx, readiness context.Context,
+	run *ownerRun,
+	sessionKey string,
+	generation uint64,
+	stream net.Conn,
+) {
 	defer run.handlers.Done()
 	defer func() { _ = stream.Close() }()
 	if cause := ownerSessionCause(ctx, readiness); cause != nil {
@@ -394,7 +464,10 @@ func (h *OwnerHost) handleStream(ctx, readiness context.Context, run *ownerRun, 
 		return
 	}
 	err := h.cfg.Handler.HandleRelayStream(ctx, stream)
-	h.observe(OwnerEvent{Phase: OwnerPhaseStream, Outcome: outcome(err), SessionKey: sessionKey, Error: err})
+	h.observe(OwnerEvent{
+		Phase: OwnerPhaseStream, Outcome: outcome(err), Generation: generation,
+		SessionKey: sessionKey, Error: err,
+	})
 }
 
 func (h *OwnerHost) observe(event OwnerEvent) {
@@ -407,6 +480,49 @@ func (r *ownerRun) setSession(session OwnerSession) {
 	r.mu.Lock()
 	r.session = session
 	r.mu.Unlock()
+}
+
+func (r *ownerRun) attemptState() (uint64, <-chan struct{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.generation, r.wakeCh
+}
+
+func (r *ownerRun) advanceGeneration(generation uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if generation <= r.generation {
+		return
+	}
+	r.generation = generation
+	if !r.wake {
+		close(r.wakeCh)
+		r.wake = true
+	}
+}
+
+func (r *ownerRun) generationChangedSince(generation uint64) (uint64, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.generation, r.generation > generation
+}
+
+func (h *OwnerHost) currentNetworkGeneration() uint64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.networkGeneration
+}
+
+func (h *OwnerHost) observeNetworkRetry(session OwnerSession, previous, generation uint64) {
+	err := &NetworkGenerationChangedError{
+		PreviousGeneration: previous,
+		Generation:         generation,
+	}
+	h.observe(OwnerEvent{
+		Phase: OwnerPhaseRetry, Outcome: OwnerOutcomeScheduled, Generation: generation,
+		EndReason: OwnerEndReasonNetworkChanged, SessionKey: session.Key,
+		Retry: &OwnerRetryObservation{Delay: 0}, Error: err,
+	})
 }
 
 func (r *ownerRun) currentSession() OwnerSession {

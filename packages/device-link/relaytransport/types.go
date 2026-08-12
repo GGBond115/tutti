@@ -124,6 +124,17 @@ const (
 	OwnerPhaseRelease  OwnerPhase = "release"
 )
 
+// OwnerEndReason identifies a diagnostic reason for ending an owner attempt.
+// Empty remains the normal value for legacy failure-driven endings.
+type OwnerEndReason string
+
+const (
+	// OwnerEndReasonNetworkChanged means the attempt was fenced by a newer
+	// network generation. Product lifecycles receive the same reason through
+	// NetworkGenerationChangedError and decide whether credentials remain valid.
+	OwnerEndReasonNetworkChanged OwnerEndReason = "network_changed"
+)
+
 // OwnerOutcome identifies the result of one owner-tunnel phase. New outcomes
 // may be added compatibly; observers must ignore outcomes they do not recognize.
 type OwnerOutcome string
@@ -145,11 +156,34 @@ const (
 type OwnerEvent struct {
 	Phase      OwnerPhase
 	Outcome    OwnerOutcome
+	Generation uint64
+	EndReason  OwnerEndReason
 	SessionKey string
 	Retry      *OwnerRetryObservation
 	Liveness   *OwnerLivenessObservation
 	Error      error
 }
+
+// ErrNetworkGenerationChanged is the sentinel wrapped by
+// NetworkGenerationChangedError. It is transport cancellation, not a
+// credential invalidation signal.
+var ErrNetworkGenerationChanged = errors.New("relay owner network generation changed")
+
+// NetworkGenerationChangedError identifies an attempt canceled by a newer
+// network generation without exposing any network material.
+type NetworkGenerationChangedError struct {
+	PreviousGeneration uint64
+	Generation         uint64
+}
+
+func (e *NetworkGenerationChangedError) Error() string {
+	if e == nil {
+		return ErrNetworkGenerationChanged.Error()
+	}
+	return "relay owner network generation changed"
+}
+
+func (*NetworkGenerationChangedError) Unwrap() error { return ErrNetworkGenerationChanged }
 
 // OwnerRetryObservation describes one scheduled reconnect without product
 // identifiers or credentials.

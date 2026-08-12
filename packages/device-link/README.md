@@ -108,6 +108,32 @@ sanitized, typed `OwnerEvent` values into product logs or metrics. Retry events
 separate the backoff cap, chosen jitter, server `Retry-After`, and total delay;
 liveness events expose only ping/pong counts and timestamps, never payloads.
 
+`networkchange.Monitor` is the process-level transport signal for reconnect
+self-healing. It starts at generation `1`, publishes only later generations,
+and hashes interface status, addresses, and—where the platform exposes a
+reliable native table—default-route identity. Darwin uses a no-cgo route socket
+as a trigger with 500ms debounce and a 30s safety sample; its default-route
+summary comes from the native routing information base. Linux/Android sample `/proc/net/route` and
+`/proc/net/ipv6_route`; Windows samples IP Helper's `GetIpForwardTable2`.
+Unsupported mobile/other platforms retain the interface/address summary and
+explicitly do not claim default-route coverage. Windows and mobile fallback
+to 2s polling, while Darwin watcher failure also falls back to 2s polling.
+
+`Monitor.Status()` is a read-only diagnostic snapshot with `stopped`,
+`starting`, `watching`, or `polling` mode plus a sanitized polling reason and
+bounded sample-health counters.
+Consumers should derive watcher health from `ModeWatching`; they must not
+invent a separate `watcherHealthy` field. An
+`OwnerHost.AdvanceNetworkGeneration` call cancels only the current attempt or
+retry wait, closes the old Relay transport, and reuses the same owner lifecycle
+for an immediate retry. It does not clear credentials; `SessionEnded` remains
+the product-owned credential policy boundary.
+
+Default-route changes are included only after successful parsing of the
+platform snapshot. A route-table read or parse failure fails that sample and
+does not advance generation, preserving the monitor's fail-closed rule rather
+than silently pretending that default-route coverage is complete.
+
 Relay endpoints, headers, query values, credentials, leases, registrations,
 room or pairing state, application protocols, and token invalidation remain in
 consumer adapters. In particular, a shared transport error is evidence for the
