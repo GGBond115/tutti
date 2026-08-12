@@ -37,11 +37,52 @@ type Config struct {
 // RequestScope is derived only from the bearer minted by Binding. It is never
 // decoded from Agent-supplied headers or MCP arguments.
 type RequestScope struct {
-	WorkspaceID    string
-	AgentSessionID string
+	WorkspaceID          string
+	AgentSessionID       string
+	InvocationID         string
+	InvocationGeneration uint64
+}
+
+// BindingScope is the trusted identity captured in an Agent-facing bearer.
+// Invocation identity is optional for ordinary local Agent Sessions, but an
+// InvocationID and InvocationGeneration must always be supplied together.
+type BindingScope struct {
+	WorkspaceID          string
+	AgentSessionID       string
+	InvocationID         string
+	InvocationGeneration uint64
 }
 
 type requestScopeContextKey struct{}
+
+func normalizeBindingScope(scope BindingScope) BindingScope {
+	scope.WorkspaceID = strings.TrimSpace(scope.WorkspaceID)
+	scope.AgentSessionID = strings.TrimSpace(scope.AgentSessionID)
+	scope.InvocationID = strings.TrimSpace(scope.InvocationID)
+	return scope
+}
+
+func validBindingScope(scope BindingScope) bool {
+	if scope.WorkspaceID == "" || scope.AgentSessionID == "" ||
+		strings.ContainsAny(scope.WorkspaceID+scope.AgentSessionID+scope.InvocationID, "\x00\r\n") {
+		return false
+	}
+	return (scope.InvocationID == "") == (scope.InvocationGeneration == 0)
+}
+
+func requestScope(scope BindingScope) RequestScope {
+	return RequestScope{
+		WorkspaceID: scope.WorkspaceID, AgentSessionID: scope.AgentSessionID,
+		InvocationID: scope.InvocationID, InvocationGeneration: scope.InvocationGeneration,
+	}
+}
+
+func validRequestScope(scope RequestScope) bool {
+	return validBindingScope(BindingScope{
+		WorkspaceID: scope.WorkspaceID, AgentSessionID: scope.AgentSessionID,
+		InvocationID: scope.InvocationID, InvocationGeneration: scope.InvocationGeneration,
+	})
+}
 
 // RequestScopeFromContext returns the authenticated Agent Session scope for
 // the current Connector MCP request.
@@ -50,7 +91,7 @@ func RequestScopeFromContext(ctx context.Context) (RequestScope, bool) {
 		return RequestScope{}, false
 	}
 	scope, ok := ctx.Value(requestScopeContextKey{}).(RequestScope)
-	if !ok || strings.TrimSpace(scope.WorkspaceID) == "" || strings.TrimSpace(scope.AgentSessionID) == "" {
+	if !ok || !validRequestScope(scope) {
 		return RequestScope{}, false
 	}
 	return scope, true
@@ -73,9 +114,8 @@ type Binding struct {
 }
 
 type authorization struct {
-	workspaceID string
-	sessionID   string
-	revoked     <-chan struct{}
+	scope   RequestScope
+	revoked <-chan struct{}
 }
 
 // Server is a loopback-only, stateless Streamable HTTP MCP projection over
@@ -116,11 +156,18 @@ func Start(config Config) (*Server, error) {
 }
 
 func (server *Server) Binding(workspaceID, agentSessionID string) (Binding, error) {
+	return server.Bind(BindingScope{WorkspaceID: workspaceID, AgentSessionID: agentSessionID})
+}
+
+// Bind issues a bearer for an exact trusted Session or Invocation scope. The
+// legacy Binding method remains the compatibility entry point for ordinary
+// non-shared Agent Sessions.
+func (server *Server) Bind(bindingScope BindingScope) (Binding, error) {
 	if server == nil || server.listener == nil {
 		return Binding{}, errors.New("connector MCP server is unavailable")
 	}
-	workspaceID, agentSessionID = strings.TrimSpace(workspaceID), strings.TrimSpace(agentSessionID)
-	if workspaceID == "" || agentSessionID == "" {
+	scope := normalizeBindingScope(bindingScope)
+	if !validBindingScope(scope) {
 		return Binding{}, errors.New("connector MCP binding identity is required")
 	}
 	token, err := randomID(32)
@@ -128,9 +175,9 @@ func (server *Server) Binding(workspaceID, agentSessionID string) (Binding, erro
 		return Binding{}, err
 	}
 	server.mu.Lock()
-	server.revokeLocked(workspaceID, agentSessionID)
+	server.revokeLocked(scope.WorkspaceID, scope.AgentSessionID)
 	revoked := make(chan struct{})
-	server.authorizations[token] = authorization{workspaceID: workspaceID, sessionID: agentSessionID, revoked: revoked}
+	server.authorizations[token] = authorization{scope: requestScope(scope), revoked: revoked}
 	server.revocations[token] = revoked
 	server.mu.Unlock()
 	return Binding{
@@ -226,7 +273,7 @@ type implementation struct {
 }
 
 func (server *Server) handlePost(writer http.ResponseWriter, request *http.Request, token string, auth authorization) {
-	scope := RequestScope{WorkspaceID: auth.workspaceID, AgentSessionID: auth.sessionID}
+	scope := auth.scope
 	request = request.WithContext(context.WithValue(request.Context(), requestScopeContextKey{}, scope))
 	writer.Header().Set("Cache-Control", "private, no-store")
 	if !mediaTypeContains(request.Header.Get("Content-Type"), "application/json") ||
@@ -312,7 +359,7 @@ func (server *Server) handleProviderNativePost(
 	rpc rpcRequest,
 ) {
 	_ = token
-	scope := RequestScope{WorkspaceID: auth.workspaceID, AgentSessionID: auth.sessionID}
+	scope := auth.scope
 	switch rpc.Method {
 	case "initialize":
 		if len(rpc.ID) == 0 {
@@ -632,7 +679,7 @@ func (server *Server) authorize(request *http.Request) (string, authorization, b
 
 func (server *Server) revokeLocked(workspaceID, agentSessionID string) {
 	for token, auth := range server.authorizations {
-		if auth.workspaceID == workspaceID && auth.sessionID == agentSessionID {
+		if auth.scope.WorkspaceID == workspaceID && auth.scope.AgentSessionID == agentSessionID {
 			server.revokeTokenLocked(token)
 		}
 	}

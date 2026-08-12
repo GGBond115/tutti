@@ -62,13 +62,20 @@ func TestSessionRouterReceivesBearerDerivedScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = server.Close(context.Background()) })
-	binding, err := server.Binding("workspace-1", "session-1")
+	binding, err := server.Bind(connectormcpserver.BindingScope{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		InvocationID: "invocation-1", InvocationGeneration: 7,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	listing := postModernRPC(t, binding.URL, binding.Headers["Authorization"], 1, "tools/list", map[string]any{})
 	listing.Body.Close()
-	if listing.StatusCode != http.StatusOK || router.toolsScope != (connectormcpserver.RequestScope{WorkspaceID: "workspace-1", AgentSessionID: "session-1"}) || !router.contextOK {
+	wantScope := connectormcpserver.RequestScope{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		InvocationID: "invocation-1", InvocationGeneration: 7,
+	}
+	if listing.StatusCode != http.StatusOK || router.toolsScope != wantScope || !router.contextOK {
 		t.Fatalf("tools scope=%#v contextOK=%v status=%d", router.toolsScope, router.contextOK, listing.StatusCode)
 	}
 	call := postModernRPC(t, binding.URL, binding.Headers["Authorization"], 2, "tools/call", map[string]any{
@@ -129,6 +136,26 @@ func TestServerServesProviderNativeMCP(t *testing.T) {
 	}
 	if resources.StatusCode != http.StatusOK || json.NewDecoder(resources.Body).Decode(&resourcesPayload) != nil || resourcesPayload.Result.Resources == nil {
 		t.Fatalf("resources/list status=%d payload=%#v", resources.StatusCode, resourcesPayload)
+	}
+}
+
+func TestBindRejectsPartialInvocationScopeAndLegacyBindingRemainsCompatible(t *testing.T) {
+	server, err := connectormcpserver.Start(connectormcpserver.Config{Registry: implementationhost.NewMCPRegistry()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close(context.Background()) })
+	invalid := []connectormcpserver.BindingScope{
+		{WorkspaceID: "workspace-1", AgentSessionID: "session-1", InvocationID: "invocation-1"},
+		{WorkspaceID: "workspace-1", AgentSessionID: "session-1", InvocationGeneration: 1},
+	}
+	for _, scope := range invalid {
+		if _, err := server.Bind(scope); err == nil {
+			t.Fatalf("partial Invocation scope was accepted: %#v", scope)
+		}
+	}
+	if _, err := server.Binding("workspace-1", "session-1"); err != nil {
+		t.Fatalf("legacy Session binding failed: %v", err)
 	}
 }
 
