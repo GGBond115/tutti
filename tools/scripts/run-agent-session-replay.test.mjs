@@ -45,6 +45,7 @@ import {
   assertReplayWorkspaceSucceeded,
   checkpointNeedsToolSettle,
   checkpointNeedsScreenshotSettle,
+  checkpointAllowsOptionalScreenshotSettle,
   captureCheckpointScreenshot,
   captureScreenshot,
   hasOpenToolDetailText,
@@ -2485,6 +2486,27 @@ test("checkpoint settle targets completed tool and terminal turn checkpoints", (
   );
   assert.equal(
     checkpointNeedsToolSettle({ kind: "turn.working", tags: ["turn.working"] }),
+    false
+  );
+  assert.equal(
+    checkpointAllowsOptionalScreenshotSettle({
+      kind: "submission.accepted",
+      tags: ["submission.accepted"]
+    }),
+    true
+  );
+  assert.equal(
+    checkpointAllowsOptionalScreenshotSettle({
+      kind: "plan.waiting",
+      tags: ["plan.waiting"]
+    }),
+    true
+  );
+  assert.equal(
+    checkpointAllowsOptionalScreenshotSettle({
+      kind: "turn.working",
+      tags: ["turn.working"]
+    }),
     false
   );
 });

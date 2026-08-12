@@ -828,7 +828,13 @@ async function runReplayWorkspaceOrchestration(
                     client,
                     options.timeoutMs,
                     checkpointPlan,
-                    settleAgentSessionId
+                    settleAgentSessionId,
+                    {
+                      artifactDirectory: workspaceArtifactDirectory,
+                      cassetteId: cassette.cassetteId,
+                      checkpointIndex: checkpoint,
+                      checkpoints: cassette.checkpoints
+                    }
                   );
                   if (signal.aborted) return;
                   await captureCheckpointScreenshot({
@@ -1674,7 +1680,12 @@ async function runDesktopAction(input) {
                 pageClient,
                 input.timeoutMs,
                 checkpointPlan,
-                input.action.agentSessionId
+                input.action.agentSessionId,
+                {
+                  artifactDirectory: input.artifactDirectory,
+                  checkpointIndex: checkpoint,
+                  checkpoints: input.checkpoints
+                }
               );
               await captureCheckpointScreenshot({
                 agentSessionId: input.action.agentSessionId,
@@ -3213,7 +3224,8 @@ export async function maybeSettleForScreenshot(
   client,
   timeoutMs,
   checkpoint = null,
-  agentSessionId = null
+  agentSessionId = null,
+  options = null
 ) {
   if (!scenario || typeof scenario.settleForScreenshot !== "function") {
     return;
@@ -3235,9 +3247,35 @@ export async function maybeSettleForScreenshot(
       `globalThis.__tuttiSettleAgentSessionId = ${JSON.stringify(pinned)}; true`
     );
   }
+  const artifactDirectory =
+    typeof options?.artifactDirectory === "string" &&
+    options.artifactDirectory.trim()
+      ? options.artifactDirectory.trim()
+      : null;
+  const captureFrame =
+    artifactDirectory &&
+    (async (suffix = "settle") => {
+      const token = String(suffix ?? "settle")
+        .trim()
+        .replace(/[^a-z0-9._-]+/giu, "-")
+        .replace(/^-+|-+$/gu, "")
+        .slice(0, 48);
+      const label = token || "settle";
+      const base =
+        checkpoint && Array.isArray(options?.checkpoints)
+          ? replayCheckpointScreenshotPath({
+              artifactDirectory,
+              cassetteId: options.cassetteId,
+              checkpointIndex: options.checkpointIndex ?? 0,
+              checkpoints: options.checkpoints
+            }).replace(/\.png$/u, "")
+          : join(artifactDirectory, "settle");
+      await captureScreenshot(client, `${base}-${label}.png`);
+    });
   try {
     await scenario.settleForScreenshot({
       agentSessionId: pinned,
+      captureFrame: captureFrame || undefined,
       client,
       timeoutMs,
       checkpoint

@@ -186,8 +186,38 @@ export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
     pendingApproval: detail.pendingApproval,
     serverInteractivePrompt: detail.serverInteractivePrompt
   });
-  const railConversations = visibleConversations;
-  const railActiveConversation = activeConversation;
+  const railConversations = useMemo(() => {
+    const prompt = session.pendingInteractivePrompt;
+    if (prompt?.kind !== "plan-implementation" || !input.activeConversationId) {
+      return visibleConversations;
+    }
+    let changed = false;
+    const next = visibleConversations.map((conversation) => {
+      if (
+        conversation.id !== input.activeConversationId ||
+        conversation.needsUserAction
+      ) {
+        return conversation;
+      }
+      changed = true;
+      return { ...conversation, needsUserAction: true };
+    });
+    return changed ? next : visibleConversations;
+  }, [
+    input.activeConversationId,
+    session.pendingInteractivePrompt,
+    visibleConversations
+  ]);
+  const railActiveConversation = useMemo(() => {
+    if (
+      !activeConversation ||
+      session.pendingInteractivePrompt?.kind !== "plan-implementation" ||
+      activeConversation.needsUserAction
+    ) {
+      return activeConversation;
+    }
+    return { ...activeConversation, needsUserAction: true };
+  }, [activeConversation, session.pendingInteractivePrompt]);
   const providerHome = useAgentGUIProviderHome(input);
   const controllerActions = useAgentGUIControllerActions({
     ...input.operationActions,

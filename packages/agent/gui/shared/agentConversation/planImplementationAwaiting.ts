@@ -16,6 +16,10 @@ type AgentSessionEngineSnapshot = Parameters<
  * approval / question / exit-plan waits already ride pendingInteractions;
  * this predicate is the matching cross-surface fact for plan confirmation so
  * rail, conversation list, and attention do not each invent a private rule.
+ *
+ * Capability rules match the detail composer: an explicit `false` fails closed,
+ * but a missing capabilities record stays open so a settled plan turn can still
+ * surface waiting while composer options are the only advertised source.
  */
 export function consumerAwaitingPlanImplementation(input: {
   capabilities: AgentActivitySession["capabilities"] | null | undefined;
@@ -34,13 +38,23 @@ export function consumerAwaitingPlanImplementation(input: {
     !latestTurn ||
     latestTurn.phase !== "settled" ||
     latestTurn.outcome !== "completed" ||
-    input.capabilities?.planImplementation !== true ||
-    input.capabilities?.planMode !== true ||
-    input.dismissed
+    input.dismissed ||
+    !sessionAllowsPlanImplementation(input.capabilities)
   ) {
     return false;
   }
   return latestPlanTurnId(input.messages) === latestTurn.turnId;
+}
+
+function sessionAllowsPlanImplementation(
+  capabilities: AgentActivitySession["capabilities"] | null | undefined
+): boolean {
+  if (!capabilities) {
+    return true;
+  }
+  return (
+    capabilities.planImplementation === true && capabilities.planMode === true
+  );
 }
 
 export function selectRootAgentSessionIdsAwaitingPlanImplementation(

@@ -28,7 +28,7 @@ describe("planImplementationAwaiting", () => {
     ).toBe(true);
   });
 
-  it("fails closed for dismissals, missing plan messages, or missing capabilities", () => {
+  it("fails closed for dismissals, missing plan messages, or explicit capability denial", () => {
     const messages = [
       {
         turnId: "turn-plan",
@@ -54,6 +54,14 @@ describe("planImplementationAwaiting", () => {
     ).toBe(false);
     expect(
       consumerAwaitingPlanImplementation({
+        capabilities: planCapabilities({ planMode: false }),
+        dismissed: false,
+        latestTurn: settledPlanTurn("turn-plan"),
+        messages
+      })
+    ).toBe(false);
+    expect(
+      consumerAwaitingPlanImplementation({
         capabilities: planCapabilities(),
         dismissed: false,
         latestTurn: settledPlanTurn("turn-plan"),
@@ -66,6 +74,23 @@ describe("planImplementationAwaiting", () => {
         ]
       })
     ).toBe(false);
+  });
+
+  it("keeps waiting when session capabilities are not projected yet", () => {
+    expect(
+      consumerAwaitingPlanImplementation({
+        capabilities: null,
+        dismissed: false,
+        latestTurn: settledPlanTurn("turn-plan"),
+        messages: [
+          {
+            turnId: "turn-plan",
+            occurredAtUnixMs: 20,
+            payload: { messageKind: "plan" }
+          }
+        ]
+      })
+    ).toBe(true);
   });
 
   it("selects every root session awaiting plan implementation from engine state", () => {
