@@ -47,6 +47,7 @@ const (
 	appServerMethodFileChangeApproval  = "item/fileChange/requestApproval"
 	appServerMethodPermissionsApproval = "item/permissions/requestApproval"
 	appServerMethodRequestUserInput    = "item/tool/requestUserInput"
+	appServerMethodMCPElicitation      = "mcpServer/elicitation/request"
 	appServerMethodExecApprovalV1      = "execCommandApproval"
 	appServerMethodPatchApprovalV1     = "applyPatchApproval"
 

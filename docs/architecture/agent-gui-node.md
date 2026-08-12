@@ -2730,6 +2730,15 @@ while waiting for user input. If the provider can emit follow-up frames during
 that wait, the adapter keeps reading and joins them before publishing the
 canonical Interaction. When the answer is delivered, local call resolution is
 serialized ahead of provider terminal messages caused by that answer.
+Codex app-server requests are classified explicitly against the generated
+server-request surface. A request being schema-known does not make it a
+background request that may be declined silently. Message-only MCP form
+elicitations reuse the canonical approval Interaction and preserve the exact
+`accept`, `decline`, `cancel`, and advertised persistence semantics in the
+app-server response. Field-bearing forms, URL elicitations, and other request
+shapes that AgentGUI cannot represent losslessly fail closed before publishing
+an Interaction; adapters must not coerce them into a partial approval or
+question surface.
 When a standard ACP provider bridges a structured question through
 one `session/request_permission` as the complete question transaction, one
 selected permission option is that bridge's entire response capacity. The
