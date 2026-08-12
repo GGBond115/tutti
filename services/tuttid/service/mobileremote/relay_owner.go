@@ -402,7 +402,7 @@ func leaseRenewWait(now, expiresAt time.Time, policy deviceauthority.LeasePolicy
 	if interval <= 0 {
 		interval = defaultRelayLeaseRenew
 		if policy.TTLSeconds > 0 {
-			interval = time.Duration(policy.TTLSeconds/2) * time.Second
+			interval = time.Duration(policy.TTLSeconds) * time.Second / 2
 		}
 	}
 	remaining := expiresAt.Sub(now)

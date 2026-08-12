@@ -111,6 +111,14 @@ func TestRelayOwnerLifecycleReusesAuthorityAndTokenAcrossReconnects(t *testing.T
 	}
 }
 
+func TestLeaseRenewWaitDoesNotTruncateOneSecondTTL(t *testing.T) {
+	now := time.Unix(0, 0)
+	got := leaseRenewWait(now, now.Add(time.Second), deviceauthority.LeasePolicy{TTLSeconds: 1})
+	if got != 500*time.Millisecond {
+		t.Fatalf("leaseRenewWait() = %s, want 500ms", got)
+	}
+}
+
 func TestRelayOwnerLeaseTransientFailureKeepsReadinessAndConnectionGeneration(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
