@@ -24,14 +24,23 @@ func hostAppContextPolicy(input PrepareInput) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	verifiedEndpointOutput, err := verifiedEndpointOutputPolicy(input)
+	if err != nil {
+		return "", err
+	}
 	rendered, err := renderProviderSkillTemplate(
 		"policy_templates/host-app-context.md",
 		input,
 		map[string]string{
-			"{{GENERATED_IMAGE_OUTPUT_POLICY}}": generatedImageOutput,
+			"{{GENERATED_IMAGE_OUTPUT_POLICY}}":   generatedImageOutput,
+			"{{VERIFIED_ENDPOINT_OUTPUT_POLICY}}": verifiedEndpointOutput,
 		},
 	)
 	return strings.TrimSpace(rendered), err
+}
+
+func verifiedEndpointOutputPolicy(input PrepareInput) (string, error) {
+	return renderPolicyTemplate("policy_templates/verified-endpoint-output.md", input)
 }
 
 func tuttiRuntimePolicy(input PrepareInput) (string, error) {

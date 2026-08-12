@@ -193,6 +193,25 @@ func CoreSkillsPack() CapabilityPack {
 	}}
 }
 
+// VerifiedEndpointOutputPack contributes only the provider response contract
+// for reporting a local server endpoint. It is safe for non-desktop hosts and
+// intentionally excludes desktop execution, media, and filesystem semantics.
+func VerifiedEndpointOutputPack() CapabilityPack {
+	return CapabilityPack{Name: "verified-endpoint-output", Resolve: func(_ context.Context, input PrepareInput) (CapabilityContribution, error) {
+		policy, err := verifiedEndpointOutputPolicy(input)
+		if err != nil {
+			return CapabilityContribution{}, err
+		}
+		return CapabilityContribution{Enabled: true, PolicySections: []PolicySection{{
+			Anchor:   PolicyAnchorSpecialized,
+			Key:      "verified-endpoint-output",
+			Order:    900,
+			Delivery: PolicyDeliveryProviderRuntime,
+			Body:     policy,
+		}}}, nil
+	}}
+}
+
 // TuttiDesktopHostPack contributes policy that is true for the local Tutti
 // desktop host but not necessarily for other deployments such as managed VMs.
 func TuttiDesktopHostPack() CapabilityPack {
@@ -207,10 +226,11 @@ func TuttiDesktopHostPack() CapabilityPack {
 		}
 		return CapabilityContribution{Enabled: true, PolicySections: []PolicySection{
 			{
-				Anchor: PolicyAnchorTools,
-				Key:    "provider-execution",
-				Order:  -100,
-				Body:   providerExecution,
+				Anchor:   PolicyAnchorTools,
+				Key:      "provider-execution",
+				Order:    -100,
+				Delivery: PolicyDeliveryProviderRuntime,
+				Body:     providerExecution,
 			},
 			{
 				Anchor:   PolicyAnchorSpecialized,
