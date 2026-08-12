@@ -342,6 +342,17 @@ type RuntimeResumeInput struct {
 	RecreateIfMissing bool
 }
 
+// ReprepareRuntimeSessionInput requests a fresh provider connection for one
+// idle canonical Session. RuntimeContextOverlay is trusted, request-scoped
+// preparation input. Host does not persist it or install it as provider
+// runtime context; the preparation adapter may use it to mint an exact
+// Invocation-scoped MCP binding.
+type ReprepareRuntimeSessionInput struct {
+	WorkspaceID           string
+	AgentSessionID        string
+	RuntimeContextOverlay map[string]any
+}
+
 type RuntimeExecInput struct {
 	WorkspaceID                     string
 	AgentSessionID                  string

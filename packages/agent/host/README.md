@@ -124,6 +124,14 @@ empty; only an explicit title or the first eligible prompt establishes one.
 For typed initial Goal, the display prompt (or a synthesized `/goal` command)
 is the eligible prompt and is established before provider startup, even though
 the Goal path does not create a Turn.
+`ReprepareRuntimeSession` is the non-destructive boundary for replacing an
+idle provider connection with freshly prepared MCP bindings. Host serializes
+it with other Session commands, rejects both canonical and runtime active-Turn
+evidence, and preserves the canonical Session, provider session ID, and
+history. Its trusted `RuntimeContextOverlay` is visible only to runtime
+preparation (for example to mint an Invocation-scoped bearer); it is not
+persisted or installed as provider RuntimeContext. A successful reprepare must
+precede the Turn whose tools use that binding.
 `CreateSessionInput.RailPlacement` optionally carries the caller-selected,
 versioned canonical rail identity. Host validates it before provider startup
 and persists its opaque `SectionKey` exactly on first creation. An idempotent

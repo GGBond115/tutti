@@ -345,6 +345,38 @@ func (a *standardACPAdapter) HasLiveSession(session Session) bool {
 	}
 }
 
+// ReleaseLiveSession disconnects the ACP transport without sending
+// session/close. The latter is a destructive provider-history operation for
+// providers that implement it and therefore cannot be used by idle
+// reprepare/reconnect flows.
+func (a *standardACPAdapter) ReleaseLiveSession(_ context.Context, session Session) error {
+	if a == nil || a.transport == nil {
+		return nil
+	}
+	agentSessionID := strings.TrimSpace(session.AgentSessionID)
+	unlockLifecycle := a.lockSessionLifecycle(agentSessionID)
+	defer unlockLifecycle()
+	a.mu.Lock()
+	acpSession := a.sessions[agentSessionID]
+	if acpSession != nil {
+		for _, pending := range acpSession.pendingApprovals {
+			if pending != nil {
+				state := pending.disposition()
+				if state == pendingInteractiveRequestStatePending || state == pendingInteractiveRequestStateResolving {
+					a.mu.Unlock()
+					return ErrLiveSessionBusy
+				}
+			}
+		}
+	}
+	delete(a.sessions, agentSessionID)
+	a.mu.Unlock()
+	if acpSession == nil || acpSession.client == nil {
+		return nil
+	}
+	return acpSession.client.Close()
+}
+
 func (a *standardACPAdapter) Close(ctx context.Context, session Session) error {
 	if a == nil || a.transport == nil {
 		return nil
