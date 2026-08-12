@@ -3270,7 +3270,10 @@ export async function maybeSettleForScreenshot(
               checkpoints: options.checkpoints
             }).replace(/\.png$/u, "")
           : join(artifactDirectory, "settle");
-      await captureScreenshot(client, `${base}-${label}.png`);
+      const outputPath = `${base}-${label}.png`;
+      await captureScreenshot(client, outputPath);
+      // Cases Console indexes live screenshots from this log line.
+      log(`checkpoint screenshot: ${outputPath}`);
     });
   try {
     await scenario.settleForScreenshot({
