@@ -71,17 +71,11 @@ func validBindingScope(scope BindingScope) bool {
 }
 
 func requestScope(scope BindingScope) RequestScope {
-	return RequestScope{
-		WorkspaceID: scope.WorkspaceID, AgentSessionID: scope.AgentSessionID,
-		InvocationID: scope.InvocationID, InvocationGeneration: scope.InvocationGeneration,
-	}
+	return RequestScope(scope)
 }
 
 func validRequestScope(scope RequestScope) bool {
-	return validBindingScope(BindingScope{
-		WorkspaceID: scope.WorkspaceID, AgentSessionID: scope.AgentSessionID,
-		InvocationID: scope.InvocationID, InvocationGeneration: scope.InvocationGeneration,
-	})
+	return validBindingScope(BindingScope(scope))
 }
 
 // RequestScopeFromContext returns the authenticated Agent Session scope for

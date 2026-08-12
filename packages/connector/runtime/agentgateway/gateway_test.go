@@ -30,7 +30,7 @@ func (backend *scopedBackendStub) Bind(scope connectormcpserver.BindingScope) (c
 	backend.mu.Lock()
 	backend.scopes = append(backend.scopes, scope)
 	backend.mu.Unlock()
-	return backend.backendStub.Binding(scope.WorkspaceID, scope.AgentSessionID)
+	return backend.Binding(scope.WorkspaceID, scope.AgentSessionID)
 }
 
 func newBackendStub(t *testing.T, token, response string) *backendStub {
