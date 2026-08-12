@@ -100,6 +100,17 @@ export type WorkspaceWorkbenchCapabilitySettingsTarget =
       action?: "open";
     };
 
+export interface WorkspaceBrowserPageOpenInput {
+  surfaceNodeIds: readonly string[];
+  url: string;
+  workspaceId: string;
+}
+
+export interface WorkspaceBrowserPageOpenResult {
+  pageNodeId: string;
+  surfaceNodeId: string;
+}
+
 export interface WorkspaceWorkbenchHostInput {
   readonly captureNodePreviewImages?: WorkbenchHostProps["captureNodePreviewImages"];
   readonly contributions?: readonly WorkbenchContribution[];
@@ -210,6 +221,9 @@ export interface IWorkspaceWorkbenchHostService {
     diagnostic: WorkspaceOnboardingAutoOpenDiagnostic
   ): void;
   markWorkspaceOnboardingAutoOpened(workspaceId: string): Promise<void>;
+  openBrowserPage(
+    input: WorkspaceBrowserPageOpenInput
+  ): WorkspaceBrowserPageOpenResult | null;
   readWallpaperDisplayMode(workspaceId: string): WorkspaceWallpaperDisplayMode;
   readWallpaperId(workspaceId: string): WorkspaceWallpaperId;
   resolveWindowCloseRequest(input: {

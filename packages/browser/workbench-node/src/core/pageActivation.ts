@@ -13,12 +13,20 @@ export function findBrowserNodePageByUrl(
   }
 
   const state = feature.tabsStore.getSurfaceState(surfaceNodeId);
+  if (!state) {
+    return null;
+  }
+
+  const livePage = state.tabs.find((tab) => {
+    const runtimeUrl = feature.runtimeStore.getNodeState(tab.nodeId).url;
+    return normalizeBrowserComparableUrl(runtimeUrl ?? "") === comparableUrl;
+  });
   return (
-    state?.tabs.find((tab) => {
-      const runtimeUrl = feature.runtimeStore.getNodeState(tab.nodeId).url;
-      const pageUrl = runtimeUrl?.trim() || tab.defaultUrl;
-      return normalizeBrowserComparableUrl(pageUrl) === comparableUrl;
-    }) ?? null
+    livePage ??
+    state.tabs.find(
+      (tab) => normalizeBrowserComparableUrl(tab.defaultUrl) === comparableUrl
+    ) ??
+    null
   );
 }
 

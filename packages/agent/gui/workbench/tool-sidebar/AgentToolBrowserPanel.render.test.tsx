@@ -13,6 +13,7 @@ const browserNodeMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tutti-os/browser-node/react", () => ({
+  BrowserNode: () => <div data-browser-node-body="true" />,
   BrowserNodeWorkbenchHeader: (props: BrowserNodeWorkbenchHeaderProps) => {
     browserNodeMocks.headerProps = props;
     return (
@@ -43,6 +44,7 @@ describe("AgentToolBrowserPanel header composition", () => {
       />
     );
 
+    await vi.dynamicImportSettled();
     expect(
       await screen.findByLabelText("Browser drag handle")
     ).toBeInTheDocument();
@@ -69,6 +71,7 @@ describe("AgentToolBrowserPanel header composition", () => {
       />
     );
 
+    await vi.dynamicImportSettled();
     await screen.findByLabelText("Browser drag handle");
     expect(controller).not.toBeNull();
     const secondPageNodeId = controller!.createPage("https://second.test");

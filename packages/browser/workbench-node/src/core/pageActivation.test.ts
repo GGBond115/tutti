@@ -9,7 +9,7 @@ import type { BrowserNodeHostApi } from "./types.ts";
 
 const surfaceNodeId = "browser-surface";
 
-test("finds a page by its live runtime URL instead of its launch URL", () => {
+test("prefers a live URL match while retaining redirected launch URLs as aliases", () => {
   const feature = createFeature();
   const first = feature.tabsStore.ensureSurface(
     surfaceNodeId,
@@ -18,7 +18,7 @@ test("finds a page by its live runtime URL instead of its launch URL", () => {
   assert.ok(first);
   const second = feature.tabsStore.addTab(
     surfaceNodeId,
-    "https://second.test/launch"
+    "https://first.test/current?view=live"
   );
 
   feature.runtimeStore.applyEvent(
@@ -41,8 +41,8 @@ test("finds a page by its live runtime URL instead of its launch URL", () => {
       feature,
       surfaceNodeId,
       "https://first.test/launch"
-    ),
-    null
+    )?.nodeId,
+    first.nodeId
   );
 });
 

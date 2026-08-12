@@ -104,9 +104,10 @@ forking the Browser surface.
 
 Hosts that coordinate multiple Browser surfaces can use
 `findBrowserNodePageByUrl(...)` and `activateBrowserNodePageByUrl(...)`. These
-helpers compare the live runtime URL when available and otherwise use a newly
-created tab's pending URL. Surface eligibility, top-level window focus, and
-whether a missing page opens in an existing or new Browser remain host policy.
+helpers prefer a live runtime URL match, then retain the tab's requested URL as
+an alias for redirects and newly created pages without runtime state. Surface
+eligibility, top-level window focus, and whether a missing page opens in an
+existing or new Browser remain host policy.
 
 Electron hosts may attach `automationTarget` metadata to User Browser and
 Agent Browser surfaces. The package registry then exposes the current

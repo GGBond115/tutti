@@ -4,6 +4,8 @@ import type {
 } from "@tutti-os/workbench-surface";
 import type {
   IWorkspaceWorkbenchHostService,
+  WorkspaceBrowserPageOpenInput,
+  WorkspaceBrowserPageOpenResult,
   WorkspaceOnboardingAutoOpenDiagnostic,
   WorkspaceCustomWallpaperSnapshot,
   WorkspaceCustomWallpaperStatus,
@@ -341,6 +343,12 @@ export class WorkspaceWorkbenchHostService implements IWorkspaceWorkbenchHostSer
 
   openExternal(url: string): Promise<void> {
     return this.dependencies.hostFilesApi.openExternal(url);
+  }
+
+  openBrowserPage(
+    input: WorkspaceBrowserPageOpenInput
+  ): WorkspaceBrowserPageOpenResult | null {
+    return this.dependencies.browserService.openPage(input);
   }
 
   async queryWorkspaceAppExternalAt(input: {
