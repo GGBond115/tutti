@@ -16,6 +16,70 @@ import (
 
 const protocolVersion = "2026-07-28"
 
+type scopedRouterStub struct {
+	toolsScope connectormcpserver.RequestScope
+	callScope  connectormcpserver.RequestScope
+	contextOK  bool
+}
+
+func (router *scopedRouterStub) Tools(ctx context.Context, scope connectormcpserver.RequestScope) ([]implementationhost.MCPTool, error) {
+	router.toolsScope = scope
+	contextScope, ok := connectormcpserver.RequestScopeFromContext(ctx)
+	router.contextOK = ok && contextScope == scope
+	return []implementationhost.MCPTool{{
+		Name: "documents_search", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+	}}, nil
+}
+
+func (router *scopedRouterStub) CallValidated(
+	ctx context.Context,
+	scope connectormcpserver.RequestScope,
+	_ string,
+	_ map[string]any,
+	validate func(implementationhost.MCPTool) error,
+) (json.RawMessage, error) {
+	router.callScope = scope
+	contextScope, ok := connectormcpserver.RequestScopeFromContext(ctx)
+	router.contextOK = router.contextOK && ok && contextScope == scope
+	tool := implementationhost.MCPTool{Name: "documents_search", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}}
+	if validate != nil {
+		if err := validate(tool); err != nil {
+			return nil, err
+		}
+	}
+	return json.RawMessage(`{"resultType":"complete","content":[]}`), nil
+}
+
+func (*scopedRouterStub) Subscribe(connectormcpserver.RequestScope) (<-chan struct{}, func()) {
+	updates := make(chan struct{})
+	return updates, func() { close(updates) }
+}
+
+func TestSessionRouterReceivesBearerDerivedScope(t *testing.T) {
+	router := &scopedRouterStub{}
+	server, err := connectormcpserver.Start(connectormcpserver.Config{SessionRouter: router})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close(context.Background()) })
+	binding, err := server.Binding("workspace-1", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listing := postModernRPC(t, binding.URL, binding.Headers["Authorization"], 1, "tools/list", map[string]any{})
+	listing.Body.Close()
+	if listing.StatusCode != http.StatusOK || router.toolsScope != (connectormcpserver.RequestScope{WorkspaceID: "workspace-1", AgentSessionID: "session-1"}) || !router.contextOK {
+		t.Fatalf("tools scope=%#v contextOK=%v status=%d", router.toolsScope, router.contextOK, listing.StatusCode)
+	}
+	call := postModernRPC(t, binding.URL, binding.Headers["Authorization"], 2, "tools/call", map[string]any{
+		"name": "documents_search", "arguments": map[string]any{},
+	})
+	call.Body.Close()
+	if call.StatusCode != http.StatusOK || router.callScope != router.toolsScope || !router.contextOK {
+		t.Fatalf("call scope=%#v contextOK=%v status=%d", router.callScope, router.contextOK, call.StatusCode)
+	}
+}
+
 func TestServerServesProviderNativeMCP(t *testing.T) {
 	server, err := connectormcpserver.Start(connectormcpserver.Config{Registry: implementationhost.NewMCPRegistry()})
 	if err != nil {
@@ -26,7 +90,6 @@ func TestServerServesProviderNativeMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	initialized := postProviderRPC(t, binding.URL, binding.Headers["Authorization"], 1, "initialize", map[string]any{
 		"protocolVersion": "2025-06-18",
 		"capabilities":    map[string]any{},

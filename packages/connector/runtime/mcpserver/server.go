@@ -30,7 +30,39 @@ const (
 )
 
 type Config struct {
-	Registry *implementationhost.MCPRegistry
+	Registry      *implementationhost.MCPRegistry
+	SessionRouter SessionRouter
+}
+
+// RequestScope is derived only from the bearer minted by Binding. It is never
+// decoded from Agent-supplied headers or MCP arguments.
+type RequestScope struct {
+	WorkspaceID    string
+	AgentSessionID string
+}
+
+type requestScopeContextKey struct{}
+
+// RequestScopeFromContext returns the authenticated Agent Session scope for
+// the current Connector MCP request.
+func RequestScopeFromContext(ctx context.Context) (RequestScope, bool) {
+	if ctx == nil {
+		return RequestScope{}, false
+	}
+	scope, ok := ctx.Value(requestScopeContextKey{}).(RequestScope)
+	if !ok || strings.TrimSpace(scope.WorkspaceID) == "" || strings.TrimSpace(scope.AgentSessionID) == "" {
+		return RequestScope{}, false
+	}
+	return scope, true
+}
+
+// SessionRouter lets a product project and route Connector tools for one
+// authenticated Agent Session. Implementations must treat scope as trusted
+// transport identity and must not accept a replacement scope from tool input.
+type SessionRouter interface {
+	Tools(context.Context, RequestScope) ([]implementationhost.MCPTool, error)
+	CallValidated(context.Context, RequestScope, string, map[string]any, func(implementationhost.MCPTool) error) (json.RawMessage, error)
+	Subscribe(RequestScope) (<-chan struct{}, func())
 }
 
 type Binding struct {
@@ -49,7 +81,7 @@ type authorization struct {
 // Server is a loopback-only, stateless Streamable HTTP MCP projection over
 // Connector routes. User-configured MCP servers never enter this service.
 type Server struct {
-	registry *implementationhost.MCPRegistry
+	router   SessionRouter
 	listener net.Listener
 	http     *http.Server
 	baseURL  string
@@ -60,7 +92,11 @@ type Server struct {
 }
 
 func Start(config Config) (*Server, error) {
-	if config.Registry == nil {
+	router := config.SessionRouter
+	if router == nil && config.Registry != nil {
+		router = registrySessionRouter{registry: config.Registry}
+	}
+	if router == nil {
 		return nil, errors.New("connector MCP registry is required")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -68,7 +104,7 @@ func Start(config Config) (*Server, error) {
 		return nil, fmt.Errorf("listen for connector MCP: %w", err)
 	}
 	server := &Server{
-		registry:       config.Registry,
+		router:         router,
 		listener:       listener,
 		baseURL:        "http://" + listener.Addr().String() + "/mcp/connector",
 		authorizations: make(map[string]authorization),
@@ -190,6 +226,8 @@ type implementation struct {
 }
 
 func (server *Server) handlePost(writer http.ResponseWriter, request *http.Request, token string, auth authorization) {
+	scope := RequestScope{WorkspaceID: auth.workspaceID, AgentSessionID: auth.sessionID}
+	request = request.WithContext(context.WithValue(request.Context(), requestScopeContextKey{}, scope))
 	writer.Header().Set("Cache-Control", "private, no-store")
 	if !mediaTypeContains(request.Header.Get("Content-Type"), "application/json") ||
 		!mediaTypeContains(request.Header.Get("Accept"), "application/json") ||
@@ -235,7 +273,7 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 			"ttlMs": 300000, "cacheScope": "private",
 		}})
 	case "tools/list":
-		tools, err := server.registry.Tools(request.Context())
+		tools, err := server.router.Tools(request.Context(), scope)
 		if err != nil {
 			writeRegistryError(writer, rpc.ID, err)
 			return
@@ -244,9 +282,9 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 			"resultType": "complete", "tools": tools, "ttlMs": 0, "cacheScope": "private",
 		}})
 	case "tools/call":
-		server.handleToolCall(writer, request, rpc.ID, params, true)
+		server.handleToolCall(writer, request, scope, rpc.ID, params, true)
 	case "subscriptions/listen":
-		server.handleSubscription(writer, request, token, auth, rpc.ID, params)
+		server.handleSubscription(writer, request, token, auth, scope, rpc.ID, params)
 	default:
 		writeRPCError(writer, http.StatusNotFound, rpc.ID, -32601, "Method not found", nil)
 	}
@@ -274,7 +312,7 @@ func (server *Server) handleProviderNativePost(
 	rpc rpcRequest,
 ) {
 	_ = token
-	_ = auth
+	scope := RequestScope{WorkspaceID: auth.workspaceID, AgentSessionID: auth.sessionID}
 	switch rpc.Method {
 	case "initialize":
 		if len(rpc.ID) == 0 {
@@ -305,7 +343,7 @@ func (server *Server) handleProviderNativePost(
 	case "resources/templates/list":
 		writeRPC(writer, http.StatusOK, rpcResponse{JSONRPC: "2.0", ID: rpc.ID, Result: map[string]any{"resourceTemplates": []any{}}})
 	case "tools/list":
-		tools, err := server.registry.Tools(request.Context())
+		tools, err := server.router.Tools(request.Context(), scope)
 		if err != nil {
 			writeRegistryError(writer, rpc.ID, err)
 			return
@@ -317,7 +355,7 @@ func (server *Server) handleProviderNativePost(
 			writeRPCError(writer, http.StatusBadRequest, nullID(rpc.ID), -32602, "Invalid tool arguments", nil)
 			return
 		}
-		server.handleToolCall(writer, request, rpc.ID, params, false)
+		server.handleToolCall(writer, request, scope, rpc.ID, params, false)
 	default:
 		writeRPCError(writer, http.StatusOK, nullID(rpc.ID), -32601, "Method not found", nil)
 	}
@@ -326,6 +364,7 @@ func (server *Server) handleProviderNativePost(
 func (server *Server) handleToolCall(
 	writer http.ResponseWriter,
 	request *http.Request,
+	scope RequestScope,
 	id json.RawMessage,
 	params map[string]json.RawMessage,
 	modern bool,
@@ -348,7 +387,7 @@ func (server *Server) handleToolCall(
 			return parameterValidation
 		}
 	}
-	raw, err := server.registry.CallValidated(request.Context(), name, arguments, validate)
+	raw, err := server.router.CallValidated(request.Context(), scope, name, arguments, validate)
 	if err != nil {
 		if parameterValidation != nil {
 			writeRPCError(writer, http.StatusBadRequest, id, -32020, parameterValidation.Error(), nil)
@@ -383,7 +422,7 @@ func writeRegistryError(writer http.ResponseWriter, id json.RawMessage, err erro
 	writeRPCError(writer, http.StatusOK, id, -32000, err.Error(), nil)
 }
 
-func (server *Server) handleSubscription(writer http.ResponseWriter, request *http.Request, token string, auth authorization, id json.RawMessage, params map[string]json.RawMessage) {
+func (server *Server) handleSubscription(writer http.ResponseWriter, request *http.Request, token string, auth authorization, scope RequestScope, id json.RawMessage, params map[string]json.RawMessage) {
 	var notifications struct {
 		ToolsListChanged bool `json:"toolsListChanged"`
 	}
@@ -396,7 +435,7 @@ func (server *Server) handleSubscription(writer http.ResponseWriter, request *ht
 		writeRPCError(writer, http.StatusInternalServerError, id, -32603, "Streaming is unavailable", nil)
 		return
 	}
-	updates, unsubscribe := server.registry.Subscribe()
+	updates, unsubscribe := server.router.Subscribe(scope)
 	defer unsubscribe()
 	writer.Header().Set("Content-Type", "text/event-stream")
 	writer.Header().Set("Cache-Control", "private, no-store")
@@ -440,6 +479,28 @@ func (server *Server) handleSubscription(writer http.ResponseWriter, request *ht
 			return
 		}
 	}
+}
+
+type registrySessionRouter struct {
+	registry *implementationhost.MCPRegistry
+}
+
+func (router registrySessionRouter) Tools(ctx context.Context, _ RequestScope) ([]implementationhost.MCPTool, error) {
+	return router.registry.Tools(ctx)
+}
+
+func (router registrySessionRouter) CallValidated(
+	ctx context.Context,
+	_ RequestScope,
+	name string,
+	arguments map[string]any,
+	validate func(implementationhost.MCPTool) error,
+) (json.RawMessage, error) {
+	return router.registry.CallValidated(ctx, name, arguments, validate)
+}
+
+func (router registrySessionRouter) Subscribe(_ RequestScope) (<-chan struct{}, func()) {
+	return router.registry.Subscribe()
 }
 
 func decodeRequestParams(raw json.RawMessage) (map[string]json.RawMessage, requestMetadata, error) {

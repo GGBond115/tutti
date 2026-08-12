@@ -31,8 +31,14 @@ connection path and request authorization. A desktop host may connect directly
 to its Gateway; a VM-backed host may return a client for a typed desktop relay
 without hiding target rewrites inside a generic HTTP transport.
 
-`mcpserver.Start` projects one `implementationhost.MCPRegistry` through the
-stateless Connector Streamable HTTP protocol on an ephemeral loopback port.
+`mcpserver.Start` projects one `implementationhost.MCPRegistry`, or a
+product-supplied `mcpserver.SessionRouter`, through the stateless Connector
+Streamable HTTP protocol on an ephemeral loopback port. A Session router
+receives the Workspace and Agent Session scope derived from the server-issued
+bearer; MCP arguments and request headers cannot replace that scope. This lets
+products compose session-specific tool catalogs without weakening the loopback
+transport boundary. The default registry adapter preserves the original
+process-wide projection.
 Hosts issue one bearer binding per Workspace/Agent Session and must revoke that
 binding when the Session ends. Bindings carry transport authority only: they
 never contain Connector credentials and must not be rendered into prompts or
