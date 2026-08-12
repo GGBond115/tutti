@@ -255,26 +255,8 @@ export function RichTextTriggerEditor({
         )
       }
     },
-    onBlur({ editor: blurredEditor, event }) {
-      const relatedTarget = event.relatedTarget;
-      if (
-        relatedTarget instanceof HTMLElement &&
-        relatedTarget.closest(".tutti-rich-text-at-menu")
-      ) {
-        // The palette is rendered through a portal, so focus moving to one of
-        // its controls is still an internal editor interaction. Keeping the
-        // query alive here lets directory navigation update its stack before
-        // focus is restored to ProseMirror.
-        return;
-      }
+    onBlur() {
       window.setTimeout(() => {
-        // Directory navigation lives in the portalled menu. Its pointer
-        // interaction can briefly blur ProseMirror before the navigation
-        // callback restores focus. Do not let that transient blur clear the
-        // query and directory stack after focus has already returned.
-        if (blurredEditor.isFocused) {
-          return;
-        }
         setIsFocused(false);
         setQuery(null);
         setMatches([]);
@@ -700,8 +682,6 @@ export function RichTextTriggerEditor({
         .focus()
         .insertContentAt({ from: query.from, to: query.to }, query.trigger)
         .run();
-    } else {
-      editor.commands.focus();
     }
     setDirectoryBrowsePaths((current) =>
       enterRichTextTriggerDirectory(current, directory.path)

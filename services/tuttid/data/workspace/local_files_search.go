@@ -155,7 +155,10 @@ func localFileSearchCandidates(
 			continue
 		}
 		relativeToRoot = filepath.ToSlash(relativeToRoot)
-		key := strings.ToLower(relativeToRoot)
+		key := relativeToRoot
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
 		if _, exists := seen[key]; exists {
 			continue
 		}
@@ -269,7 +272,6 @@ func logWorkspaceFileSearch(
 		"workspaceId", root.WorkspaceID,
 		"root", workspacefiles.NormalizeLogicalRoot(root.LogicalRoot).String(),
 		"provider", provider,
-		"platform", runtime.GOOS,
 		"platform", runtime.GOOS,
 		"query_length", len([]rune(input.Query)),
 		"limit", input.Limit,

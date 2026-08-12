@@ -73,16 +73,38 @@ func windowsSearchSQL(request localFileSearchRequest) string {
 	scope := "file:" + filepath.ToSlash(filepath.Clean(request.SearchRootPath))
 	clauses := []string{"SCOPE='" + windowsSearchSQLEscape(scope) + "'"}
 	for _, token := range strings.Fields(request.Query) {
-		pattern := "%" + windowsSearchLikeEscape(token) + "%"
+		namePattern := "%" + windowsSearchLikeEscape(token) + "%"
+		itemURLPattern := "%" + windowsSearchLikeEscape(windowsSearchItemURLToken(token)) + "%"
 		clauses = append(clauses,
-			"(System.FileName LIKE '"+pattern+"' OR System.ItemUrl LIKE '"+pattern+"')",
+			"(System.FileName LIKE '"+namePattern+"' OR System.ItemUrl LIKE '"+itemURLPattern+"')",
 		)
+	}
+	if kindClause := windowsSearchKindClause(request); kindClause != "" {
+		clauses = append(clauses, kindClause)
 	}
 	if filterClause := windowsSearchFilterClause(request.Filters); filterClause != "" {
 		clauses = append(clauses, filterClause)
 	}
 	return "SELECT TOP " + strconv.Itoa(limit) +
 		" System.ItemUrl FROM SYSTEMINDEX WHERE " + strings.Join(clauses, " AND ")
+}
+
+func windowsSearchKindClause(request localFileSearchRequest) string {
+	files, directories := localFileSearchRequestedKinds(request)
+	switch {
+	case files && !directories:
+		return "System.ItemType <> 'Directory'"
+	case !files && directories:
+		return "System.ItemType = 'Directory'"
+	case !files && !directories:
+		return "1 = 0"
+	default:
+		return ""
+	}
+}
+
+func windowsSearchItemURLToken(value string) string {
+	return (&url.URL{Path: filepath.ToSlash(value)}).EscapedPath()
 }
 
 func windowsSearchFilterClause(filters []string) string {

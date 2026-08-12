@@ -24,10 +24,22 @@ func TestWindowsSearchSQLScopesAndEscapesNativeQuery(t *testing.T) {
 		"100[%]",
 		"user''s[_]file",
 		"System.FileExtension = '.png'",
+		"System.ItemType <> 'Directory'",
 	} {
 		if !strings.Contains(query, expected) {
 			t.Fatalf("query %q does not contain %q", query, expected)
 		}
+	}
+}
+
+func TestWindowsSearchSQLNormalizesAbsolutePathTokensForItemURLs(t *testing.T) {
+	query := windowsSearchSQL(localFileSearchRequest{
+		Query:          `C:\Users\local\repo\100%#\user`,
+		SearchRootPath: `C:\Users\local\repo`,
+	})
+
+	if !strings.Contains(query, `System.ItemUrl LIKE '%C:/Users/local/repo/100[%]25[%]23/user%'`) {
+		t.Fatalf("query %q does not encode the physical path for ItemUrl", query)
 	}
 }
 

@@ -80,6 +80,9 @@ func spotlightSearchQuery(request localFileSearchRequest) string {
 			"(kMDItemFSName == '*"+escaped+"*'cd || kMDItemPath == '*"+escaped+"*'cd)",
 		)
 	}
+	if kindClause := spotlightKindClause(request); kindClause != "" {
+		clauses = append(clauses, kindClause)
+	}
 	if filterClause := spotlightFilterClause(request.Filters); filterClause != "" {
 		clauses = append(clauses, filterClause)
 	}
@@ -87,6 +90,20 @@ func spotlightSearchQuery(request localFileSearchRequest) string {
 		return "kMDItemFSName == '*'cd"
 	}
 	return strings.Join(clauses, " && ")
+}
+
+func spotlightKindClause(request localFileSearchRequest) string {
+	files, directories := localFileSearchRequestedKinds(request)
+	switch {
+	case files && !directories:
+		return "kMDItemContentTypeTree != 'public.directory'"
+	case !files && directories:
+		return "kMDItemContentTypeTree == 'public.directory'"
+	case !files && !directories:
+		return "kMDItemFSName == '__tutti_no_matching_entry_kind__'c"
+	default:
+		return ""
+	}
 }
 
 func spotlightFilterClause(filters []string) string {
@@ -107,7 +124,13 @@ func spotlightFilterClause(filters []string) string {
 		}
 	}
 	if _, includeOther := selected["other"]; includeOther {
-		parts = append(parts, "kMDItemFSName == '*'cd")
+		var exclusions []string
+		for _, extension := range allKnownReferenceFilterExtensions() {
+			exclusions = append(exclusions,
+				"kMDItemFSName != '*."+spotlightQueryEscape(extension)+"'cd",
+			)
+		}
+		parts = append(parts, "("+strings.Join(exclusions, " && ")+")")
 	}
 	if len(parts) == 0 {
 		return "kMDItemFSName == '__tutti_no_matching_file_type__'c"
