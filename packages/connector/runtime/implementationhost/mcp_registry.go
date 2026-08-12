@@ -21,9 +21,11 @@ type MCPTool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	InputSchema map[string]any `json:"inputSchema"`
-	// ConnectorKey is trusted in-process route provenance. It is never exposed
-	// through the MCP tools/list JSON contract or accepted from Agent input.
-	ConnectorKey string `json:"-"`
+	// ConnectorKey and ConnectorVersion are trusted in-process route provenance.
+	// They are never exposed through the MCP tools/list JSON contract or accepted
+	// from Agent input.
+	ConnectorKey     string `json:"-"`
+	ConnectorVersion string `json:"-"`
 }
 
 // MCPToolProjection derives the exact transport-validation contract for a
@@ -117,7 +119,8 @@ func (registry *MCPRegistry) Tools(ctx context.Context) ([]MCPTool, error) {
 			}
 			seen[localName] = struct{}{}
 			result = append(result, MCPTool{Name: localName, Description: tool.Description,
-				InputSchema: cloneJSONMap(tool.InputSchema), ConnectorKey: listed.route.connectorKey})
+				InputSchema: cloneJSONMap(tool.InputSchema), ConnectorKey: listed.route.connectorKey,
+				ConnectorVersion: listed.route.connectorVersion})
 		}
 	}
 	if len(routes) > 0 && succeeded == 0 {
@@ -195,7 +198,7 @@ func (registry *MCPRegistry) CallProjectedValidated(
 			bindings = append(bindings, resolvedBinding{
 				binding: registeredMCPTool{localName: localName, upstreamName: tool.Name, client: routeMCPCaller(listed.route)}, owner: listed.route,
 				tool: MCPTool{Name: localName, Description: tool.Description, InputSchema: cloneJSONMap(tool.InputSchema),
-					ConnectorKey: listed.route.connectorKey},
+					ConnectorKey: listed.route.connectorKey, ConnectorVersion: listed.route.connectorVersion},
 			})
 		}
 	}
@@ -216,7 +219,8 @@ func (registry *MCPRegistry) CallProjectedValidated(
 			return nil, err
 		}
 		if strings.TrimSpace(projected.Name) != validationTool.Name || projected.InputSchema == nil ||
-			strings.TrimSpace(projected.ConnectorKey) != validationTool.ConnectorKey {
+			strings.TrimSpace(projected.ConnectorKey) != validationTool.ConnectorKey ||
+			strings.TrimSpace(projected.ConnectorVersion) != validationTool.ConnectorVersion {
 			return nil, errors.New("connector MCP projected tool contract is invalid")
 		}
 		validationTool = projected

@@ -40,7 +40,7 @@ func TestMCPRegistryListsCallsAndNotifies(t *testing.T) {
 	registry := NewMCPRegistry()
 	registry.attach(table)
 	caller := &registryMCPCaller{}
-	route := &connectorRoute{id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github",
+	route := &connectorRoute{id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github", connectorVersion: "2.0.0",
 		releaseDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		generation:    market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorruntime.NewProcessGroup(),
 		mcpTools: map[string]registeredMCPTool{
@@ -54,14 +54,16 @@ func TestMCPRegistryListsCallsAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools) != 1 || tools[0].Name != "github_status" || tools[0].InputSchema["type"] != "object" || tools[0].ConnectorKey != "github" {
+	if len(tools) != 1 || tools[0].Name != "github_status" || tools[0].InputSchema["type"] != "object" ||
+		tools[0].ConnectorKey != "github" || tools[0].ConnectorVersion != "2.0.0" {
 		t.Fatalf("tools = %#v", tools)
 	}
 	if _, preserved := tools[0].InputSchema["oneOf"]; !preserved {
 		t.Fatalf("native MCP JSON Schema was narrowed: %#v", tools[0].InputSchema)
 	}
 	encoded, err := json.Marshal(tools[0])
-	if err != nil || strings.Contains(string(encoded), "ConnectorKey") || strings.Contains(string(encoded), "connectorKey") {
+	if err != nil || strings.Contains(string(encoded), "ConnectorKey") || strings.Contains(string(encoded), "connectorKey") ||
+		strings.Contains(string(encoded), "ConnectorVersion") || strings.Contains(string(encoded), "connectorVersion") {
 		t.Fatalf("trusted Connector provenance leaked into MCP JSON: %s, %v", encoded, err)
 	}
 	raw, err := registry.Call(context.Background(), "github_status", map[string]any{"verbose": true})
@@ -157,7 +159,7 @@ func TestMCPRegistryCallProjectedValidatedUsesSelectedLiveSchemaAndBinding(t *te
 	registry.attach(table)
 	caller := &registryMCPCaller{}
 	route := &connectorRoute{
-		id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github",
+		id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github", connectorVersion: "2.0.0",
 		releaseDigest: strings.Repeat("a", 64), generation: market.HostGeneration{BootEpoch: "boot", Generation: 1},
 		processes: connectorruntime.NewProcessGroup(),
 		mcpTools:  map[string]registeredMCPTool{"github_status": {client: caller}},
@@ -171,8 +173,8 @@ func TestMCPRegistryCallProjectedValidatedUsesSelectedLiveSchemaAndBinding(t *te
 		context.Background(), "github_status", map[string]any{"connectorAuthority": "owner"},
 		func(tool MCPTool) (MCPTool, error) {
 			projected = true
-			if tool.ConnectorKey != "github" {
-				t.Fatalf("projection Connector provenance = %q", tool.ConnectorKey)
+			if tool.ConnectorKey != "github" || tool.ConnectorVersion != "2.0.0" {
+				t.Fatalf("projection Connector provenance = %q@%q", tool.ConnectorKey, tool.ConnectorVersion)
 			}
 			if _, ok := tool.InputSchema["oneOf"]; !ok {
 				t.Fatalf("projection did not receive live native schema: %#v", tool.InputSchema)
@@ -220,27 +222,39 @@ func TestMCPRegistryCallProjectedValidatedRejectsRenamedContractBeforeCall(t *te
 }
 
 func TestMCPRegistryCallProjectedValidatedRejectsChangedConnectorProvenance(t *testing.T) {
-	table := connectorruntime.NewRouteTable()
-	registry := NewMCPRegistry()
-	registry.attach(table)
-	caller := &registryMCPCaller{}
-	route := &connectorRoute{
-		id: connectorRouteKey("default", "foo_bar"), connectionID: "default", connectorKey: "foo_bar",
-		releaseDigest: strings.Repeat("c", 64), generation: market.HostGeneration{BootEpoch: "boot", Generation: 1},
-		processes: connectorruntime.NewProcessGroup(),
-		mcpTools:  map[string]registeredMCPTool{"foo_bar_status": {client: caller}},
+	tests := []struct {
+		name   string
+		mutate func(*MCPTool)
+	}{
+		{name: "key", mutate: func(tool *MCPTool) { tool.ConnectorKey = "foo" }},
+		{name: "version", mutate: func(tool *MCPTool) { tool.ConnectorVersion = "1.0.0" }},
 	}
-	if err := table.Commit(route); err != nil {
-		t.Fatal(err)
-	}
-	_, err := registry.CallProjectedValidated(context.Background(), "foo_bar_status", nil, func(tool MCPTool) (MCPTool, error) {
-		if tool.ConnectorKey != "foo_bar" {
-			t.Fatalf("exact route provenance = %q", tool.ConnectorKey)
-		}
-		tool.ConnectorKey = "foo"
-		return tool, nil
-	}, nil)
-	if err == nil || caller.method == "tools/call" {
-		t.Fatalf("changed Connector provenance reached upstream: method=%q err=%v", caller.method, err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			table := connectorruntime.NewRouteTable()
+			registry := NewMCPRegistry()
+			registry.attach(table)
+			caller := &registryMCPCaller{}
+			route := &connectorRoute{
+				id: connectorRouteKey("default", "foo_bar"), connectionID: "default",
+				connectorKey: "foo_bar", connectorVersion: "2.0.0",
+				releaseDigest: strings.Repeat("c", 64), generation: market.HostGeneration{BootEpoch: "boot", Generation: 1},
+				processes: connectorruntime.NewProcessGroup(),
+				mcpTools:  map[string]registeredMCPTool{"foo_bar_status": {client: caller}},
+			}
+			if err := table.Commit(route); err != nil {
+				t.Fatal(err)
+			}
+			_, err := registry.CallProjectedValidated(context.Background(), "foo_bar_status", nil, func(tool MCPTool) (MCPTool, error) {
+				if tool.ConnectorKey != "foo_bar" || tool.ConnectorVersion != "2.0.0" {
+					t.Fatalf("exact route provenance = %q@%q", tool.ConnectorKey, tool.ConnectorVersion)
+				}
+				test.mutate(&tool)
+				return tool, nil
+			}, nil)
+			if err == nil || caller.method == "tools/call" {
+				t.Fatalf("changed Connector provenance reached upstream: method=%q err=%v", caller.method, err)
+			}
+		})
 	}
 }
