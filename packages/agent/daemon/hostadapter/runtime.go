@@ -54,7 +54,6 @@ type RuntimeController struct {
 var (
 	_ host.RuntimeController                       = (*RuntimeController)(nil)
 	_ host.RuntimeSessionInitializationPublisher   = (*RuntimeController)(nil)
-	_ host.RuntimeSessionRepreparer                = (*RuntimeController)(nil)
 	_ host.RuntimeHistoryController                = (*RuntimeController)(nil)
 	_ host.RuntimeProviderTurnAcceptanceReconciler = (*RuntimeController)(nil)
 	_ host.RuntimeSessionLiveness                  = (*RuntimeController)(nil)
@@ -67,10 +66,6 @@ var (
 	_ host.GoalRuntimeRecoveryPolicyResolver       = (*RuntimeController)(nil)
 	_ host.GoalRuntimeGenerationFencer             = (*RuntimeController)(nil)
 )
-
-type runtimeSessionReprepareBackend interface {
-	Reprepare(context.Context, agentruntime.ResumeInput) (agentruntime.Session, error)
-}
 
 type sessionForkRuntimeBackend interface {
 	ForkCapabilities(context.Context, agentruntime.Session) (agentruntime.SessionForkCapabilities, error)
@@ -203,21 +198,6 @@ func (a *RuntimeController) Resume(ctx context.Context, input host.RuntimeResume
 		return host.ProviderRuntimeSession{}, err
 	}
 	session, err := a.Backend.Resume(ctx, runtimeResumeInput(input))
-	if err != nil {
-		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
-	}
-	return a.sessionWithState(session), nil
-}
-
-func (a *RuntimeController) Reprepare(ctx context.Context, input host.RuntimeResumeInput) (host.ProviderRuntimeSession, error) {
-	if err := a.requireBackend(); err != nil {
-		return host.ProviderRuntimeSession{}, err
-	}
-	backend, ok := a.Backend.(runtimeSessionReprepareBackend)
-	if !ok {
-		return host.ProviderRuntimeSession{}, host.ErrRuntimeSessionReprepareUnavailable
-	}
-	session, err := backend.Reprepare(ctx, runtimeResumeInput(input))
 	if err != nil {
 		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
 	}
@@ -639,9 +619,6 @@ func mapRuntimeError(err error) error {
 	}
 	if errors.Is(err, agentruntime.ErrActiveTurnTargetMismatch) {
 		return errors.Join(host.ErrActiveTurnTargetMismatch, err)
-	}
-	if errors.Is(err, agentruntime.ErrSessionActiveTurn) {
-		return errors.Join(host.ErrRuntimeSessionActive, err)
 	}
 	if errors.Is(err, agentruntime.ErrEffectiveHistoryUnsupported) {
 		return host.ErrRuntimeHistoryUnsupported
