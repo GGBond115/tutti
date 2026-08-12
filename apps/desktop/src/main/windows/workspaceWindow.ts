@@ -36,6 +36,7 @@ import {
 } from "./standaloneAgentWindowBounds.ts";
 import { WorkspaceWindowRegistry } from "./workspaceWindowRegistry.ts";
 import { resolveWorkspaceWindowChromeOptions } from "./workspaceWindowChrome.ts";
+import { supportsWorkspaceWindowCloseGuard } from "./workspaceWindowCloseGuard.ts";
 
 export const workspaceAppBrowserPartitionPrefix = "persist:tutti-app:";
 
@@ -247,7 +248,7 @@ export function createWorkspaceWindow(
   });
   workspaceWindow.on("close", (event) => {
     if (
-      process.platform !== "win32" ||
+      !supportsWorkspaceWindowCloseGuard(process.platform) ||
       !workspaceWindowCloseGuardEnabled.has(workspaceWindow)
     ) {
       return;
