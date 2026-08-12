@@ -1,6 +1,7 @@
 import { proxy } from "valtio/vanilla";
 
 import type {
+  ConnectorAuthorizationResult,
   ConnectorMarketChangedEvent,
   ConnectorMarketEventSource,
   ConnectorMutationResult,
@@ -261,14 +262,38 @@ export class ConnectorMarketService implements IConnectorMarketService {
     const request = {
       connectorKey,
       clientRequestId: this.createRequestId(),
-      expectedRevision: this.dataStore.revision,
       ...(secret ? { secret } : {})
     };
+    let expectedRevision = this.dataStore.revision;
     const openedAuthorizationUrls = new Set<string>();
+    let recoveredRevisionConflict = false;
     try {
       while (this.isCurrentMutation(connectorKey, token, generation)) {
-        const result =
-          await this.dependencies.backend.beginAuthorization(request);
+        let result: ConnectorAuthorizationResult;
+        try {
+          result = await this.dependencies.backend.beginAuthorization({
+            ...request,
+            expectedRevision
+          });
+        } catch (error) {
+          if (
+            recoveredRevisionConflict ||
+            normalizeConnectorMarketError(error).code !==
+              "connector_market_revision_conflict" ||
+            !this.isCurrentMutation(connectorKey, token, generation)
+          ) {
+            throw error;
+          }
+          recoveredRevisionConflict = true;
+          const next = await this.dependencies.backend.getSnapshot();
+          if (!this.isCurrentMutation(connectorKey, token, generation)) {
+            return;
+          }
+          applyConnectorMarketSnapshot(this.dataStore, next);
+          this.reconcileUninstallNotificationStates(next.operations);
+          expectedRevision = this.dataStore.revision;
+          continue;
+        }
         if (!this.isCurrentMutation(connectorKey, token, generation)) {
           return;
         }

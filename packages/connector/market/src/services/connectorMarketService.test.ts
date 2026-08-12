@@ -891,6 +891,117 @@ test("forwards a user-provided secret only to the authorization mutation", async
   service.dispose();
 });
 
+test("recovers one stale authorization revision without dropping the secret", async () => {
+  const requests: Array<{
+    clientRequestId: string;
+    expectedRevision: number;
+    secret?: string;
+  }> = [];
+  let snapshotReads = 0;
+  const initial = connector("token-mail", 1);
+  initial.installation = {
+    state: "installed",
+    installedReleaseDigest: initial.release.releaseDigest
+  };
+  initial.authorization = { state: "disconnected" };
+  const refreshed = connector("token-mail", 4);
+  refreshed.installation = initial.installation;
+  refreshed.authorization = initial.authorization;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        snapshotReads += 1;
+        return snapshotReads === 1
+          ? snapshot(1, [initial])
+          : snapshot(4, [refreshed]);
+      },
+      beginAuthorization: async (input) => {
+        requests.push(input);
+        if (requests.length === 1) {
+          throw Object.assign(new Error("stale revision"), {
+            code: "connector_market_revision_conflict",
+            retryable: true
+          });
+        }
+        const connected = connector("token-mail", 5);
+        connected.authorization = { state: "connected" };
+        return {
+          connector: connected,
+          operation: {
+            ...operation("start_authorization", 5),
+            connectorKey: "token-mail",
+            state: "completed"
+          },
+          revision: 5
+        };
+      }
+    }),
+    createRequestId: () => "one-secret-request"
+  });
+  await service.ensureLoaded();
+
+  await service.beginAuthorization("token-mail", "secret-value");
+
+  assert.equal(snapshotReads, 2);
+  assert.deepEqual(requests, [
+    {
+      connectorKey: "token-mail",
+      clientRequestId: "one-secret-request",
+      expectedRevision: 1,
+      secret: "secret-value"
+    },
+    {
+      connectorKey: "token-mail",
+      clientRequestId: "one-secret-request",
+      expectedRevision: 4,
+      secret: "secret-value"
+    }
+  ]);
+  assert.equal(service.dataStore.revision, 5);
+  assert.equal(
+    service.dataStore.connectorsByKey["token-mail"]?.authorization.state,
+    "connected"
+  );
+  service.dispose();
+});
+
+test("does not retry authorization failures other than a stale revision", async () => {
+  let snapshotReads = 0;
+  let authorizationAttempts = 0;
+  const disconnected = connector("token-mail", 1);
+  disconnected.installation = {
+    state: "installed",
+    installedReleaseDigest: disconnected.release.releaseDigest
+  };
+  disconnected.authorization = { state: "disconnected" };
+  const providerError = Object.assign(new Error("provider rejected token"), {
+    code: "connector_authorization_provider_rejected",
+    retryable: false
+  });
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        snapshotReads += 1;
+        return snapshot(1, [disconnected]);
+      },
+      beginAuthorization: async () => {
+        authorizationAttempts += 1;
+        throw providerError;
+      }
+    })
+  });
+  await service.ensureLoaded();
+
+  await assert.rejects(
+    service.beginAuthorization("token-mail", "invalid-secret"),
+    providerError
+  );
+
+  assert.equal(snapshotReads, 1);
+  assert.equal(authorizationAttempts, 1);
+  service.dispose();
+});
+
 test("continues one authorization session, opens each URL once, and clears loading", async () => {
   const requests: Array<{ clientRequestId: string; expectedRevision: number }> =
     [];
