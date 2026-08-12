@@ -26,7 +26,7 @@ func TestLocalFilesAdapterListsLogicalChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	listing, err := adapter.ListDirectory(context.Background(), localFilesRoot(rootDir), "/workspace", false)
 	if err != nil {
 		t.Fatalf("ListDirectory() error = %v", err)
@@ -735,7 +735,7 @@ func TestLocalFilesAdapterSearchSkipsHiddenNoiseDirectoriesForNormalQueries(t *t
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{MaxSearchCandidates: 1}
+	adapter := testLocalFilesAdapter(1)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        "package.json",
 		Limit:        5,
@@ -773,7 +773,7 @@ func TestLocalFilesAdapterSearchKeepsShallowMatchesBeforeDeepCandidateCap(t *tes
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{MaxSearchCandidates: 2}
+	adapter := testLocalFilesAdapter(2)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        "郑伟斌",
 		Limit:        5,
@@ -813,7 +813,7 @@ func TestLocalFilesAdapterSearchTypeFilterKeepsFilenameAndParentPathMatches(t *t
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:   "22",
 		Limit:   20,
@@ -865,7 +865,7 @@ func TestLocalFilesAdapterSearchScopesToWithinSubdirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:  "report",
 		Limit:  20,
@@ -900,7 +900,7 @@ func TestLocalFilesAdapterSearchWithoutWithinSpansWholeRoot(t *testing.T) {
 		}
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query: "report",
 		Limit: 20,
@@ -925,7 +925,7 @@ func TestLocalFilesAdapterSearchNormalizesPhysicalAbsolutePathQuery(t *testing.T
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query: target,
 		Limit: 20,
@@ -956,7 +956,7 @@ func TestLocalFilesAdapterSearchNormalizesPhysicalAbsolutePathWithRelativeRoot(t
 	}
 	root := localFilesRoot(relativeRoot)
 
-	result, err := (LocalFilesAdapter{}).Search(context.Background(), root, workspacefiles.SearchInput{
+	result, err := testLocalFilesAdapter(0).Search(context.Background(), root, workspacefiles.SearchInput{
 		Query: target,
 		Limit: 20,
 	})
@@ -968,7 +968,7 @@ func TestLocalFilesAdapterSearchNormalizesPhysicalAbsolutePathWithRelativeRoot(t
 	}
 }
 
-func TestLocalFilesAdapterSearchReturnsPartialResultsWhenDeadlineExpires(t *testing.T) {
+func TestLocalFilesAdapterSearchReturnsDeadlineErrorWhenIndexQueryExpires(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
@@ -980,17 +980,14 @@ func TestLocalFilesAdapterSearchReturnsPartialResultsWhenDeadlineExpires(t *test
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
-	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
+	adapter := testLocalFilesAdapter(0)
+	_, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Deadline: time.Now().Add(-time.Second),
 		Query:    "README",
 		Limit:    5,
 	})
-	if err != nil {
-		t.Fatalf("Search() error = %v", err)
-	}
-	if result.Entries == nil {
-		t.Fatalf("entries = nil, want empty slice")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Search() error = %v, want context deadline exceeded", err)
 	}
 }
 
@@ -1014,7 +1011,7 @@ func TestLocalFilesAdapterSearchDoesNotMatchExplicitHiddenPathWhenFilenameDiffer
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{MaxSearchCandidates: 1}
+	adapter := testLocalFilesAdapter(1)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        ".git/config",
 		Limit:        5,
@@ -1045,7 +1042,7 @@ func TestLocalFilesAdapterSearchSkipsHiddenFilesForNormalQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        "env",
 		Limit:        5,
@@ -1081,7 +1078,7 @@ func TestLocalFilesAdapterSearchSkipsHiddenFilesWhenQueryExplicitlyTargetsThemWi
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        ".env",
 		Limit:        5,
@@ -1120,7 +1117,7 @@ func TestLocalFilesAdapterSearchDoesNotDescendHiddenDirsForDotLiteralQuery(t *te
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        ".dmg",
 		Limit:        5,
@@ -1157,7 +1154,7 @@ func TestLocalFilesAdapterSearchDoesNotDescendHiddenDirsForMultiTokenDotLiteralQ
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{MaxSearchCandidates: 1}
+	adapter := testLocalFilesAdapter(1)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        "chrome .dmg",
 		Limit:        5,
@@ -1194,7 +1191,7 @@ func TestLocalFilesAdapterSearchDoesNotDescendHiddenDirsForPathExtensionQuery(t 
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{MaxSearchCandidates: 1}
+	adapter := testLocalFilesAdapter(1)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:        ".dmg",
 		Limit:        5,
@@ -1228,7 +1225,7 @@ func TestLocalFilesAdapterSearchIncludesHiddenFilesWhenIncludeHiddenIsTrue(t *te
 		t.Fatal(err)
 	}
 
-	adapter := LocalFilesAdapter{}
+	adapter := testLocalFilesAdapter(0)
 	result, err := adapter.Search(context.Background(), localFilesRoot(rootDir), workspacefiles.SearchInput{
 		Query:         "env",
 		Limit:         5,
@@ -1262,6 +1259,13 @@ func localFilesRoot(rootDir string) workspacefiles.WorkspaceRoot {
 		WorkspaceID:  "ws-1",
 		LogicalRoot:  "/workspace",
 		PhysicalRoot: rootDir,
+	}
+}
+
+func testLocalFilesAdapter(maxCandidates int) LocalFilesAdapter {
+	return LocalFilesAdapter{
+		MaxSearchCandidates: maxCandidates,
+		searchProvider:      testFilesystemSearchProvider{},
 	}
 }
 

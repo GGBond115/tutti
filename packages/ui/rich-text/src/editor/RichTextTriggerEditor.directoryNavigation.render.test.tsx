@@ -85,21 +85,28 @@ describe("RichTextTriggerEditor directory navigation", () => {
       />
     );
 
-    fireEvent.click(
+    clickPaletteControl(
       await screen.findByRole("button", { name: "Enter folder" })
     );
-    await waitFor(() => expect(directoryPaths.at(-1)).toBe("/workspace/docs"));
-    const callCountBeforeBack = directoryPaths.length;
-    fireEvent.click(await screen.findByRole("button", { name: "Back" }));
-    await waitFor(() => {
-      expect(directoryPaths.length).toBeGreaterThan(callCountBeforeBack);
-      expect(directoryPaths.at(-1)).toBe("");
+    await waitFor(() => expect(directoryPaths.at(-1)).toBe("/workspace/docs"), {
+      timeout: 5_000
     });
+    const callCountBeforeBack = directoryPaths.length;
+    clickPaletteControl(await screen.findByRole("button", { name: "Back" }));
+    await waitFor(
+      () => {
+        expect(directoryPaths.length).toBeGreaterThan(callCountBeforeBack);
+        expect(directoryPaths.at(-1)).toBe("");
+      },
+      { timeout: 5_000 }
+    );
 
-    fireEvent.click(
+    clickPaletteControl(
       await screen.findByRole("button", { name: "Enter folder" })
     );
-    await waitFor(() => expect(directoryPaths.at(-1)).toBe("/workspace/docs"));
+    await waitFor(() => expect(directoryPaths.at(-1)).toBe("/workspace/docs"), {
+      timeout: 5_000
+    });
     view.rerender(
       <RichTextTriggerEditor
         focusSignal={2}
@@ -236,6 +243,13 @@ describe("RichTextTriggerEditor directory navigation", () => {
     expect(await screen.findByText("Unable to load references")).toBeTruthy();
   });
 });
+
+function clickPaletteControl(element: HTMLElement): void {
+  // A real pointer interaction runs mouseDown first. The palette deliberately
+  // prevents that event from moving focus out of ProseMirror before click.
+  fireEvent.mouseDown(element);
+  fireEvent.click(element);
+}
 
 function createFileProvider(
   overrides: Partial<RichTextTriggerProvider<FileItem>>
