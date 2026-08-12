@@ -86,10 +86,28 @@ func spotlightSearchQuery(request localFileSearchRequest) string {
 	if filterClause := spotlightFilterClause(request.Filters); filterClause != "" {
 		clauses = append(clauses, filterClause)
 	}
+	if ignoredClause := spotlightIgnoredDirectoriesClause(request); ignoredClause != "" {
+		clauses = append(clauses, ignoredClause)
+	}
 	if len(clauses) == 0 {
 		return "kMDItemFSName == '*'cd"
 	}
 	return strings.Join(clauses, " && ")
+}
+
+func spotlightIgnoredDirectoriesClause(request localFileSearchRequest) string {
+	if request.IncludeHidden {
+		return ""
+	}
+	parts := make([]string, 0, len(nativeSearchIgnoredDirectoryNames)*2)
+	for _, name := range nativeSearchIgnoredDirectoryNames {
+		escapedName := spotlightQueryEscape(name)
+		parts = append(parts,
+			"kMDItemPath != '*/"+escapedName+"/*'cd",
+			"kMDItemPath != '*/"+escapedName+"'cd",
+		)
+	}
+	return "(" + strings.Join(parts, " && ") + ")"
 }
 
 func spotlightKindClause(request localFileSearchRequest) string {

@@ -54,7 +54,7 @@ func (testFilesystemSearchProvider) Search(
 			hidden := strings.HasPrefix(entry.Name(), ".")
 			if entry.IsDir() {
 				if !request.IncludeHidden &&
-					(hidden || isTestSearchNoiseDirectory(entry.Name())) {
+					(hidden || localSearchPathIsIgnored(entry.Name())) {
 					continue
 				}
 				queue = append(queue, physicalPath)
@@ -77,15 +77,4 @@ func (testFilesystemSearchProvider) Search(
 		}
 	}
 	return paths, nil
-}
-
-func isTestSearchNoiseDirectory(name string) bool {
-	switch strings.ToLower(name) {
-	case ".git", ".next", ".turbo", "applications", "bin", "build", "cores",
-		"dev", "dist", "etc", "library", "network", "node_modules", "opt",
-		"private", "sbin", "system", "tmp", "usr", "var", "volumes":
-		return true
-	default:
-		return false
-	}
 }

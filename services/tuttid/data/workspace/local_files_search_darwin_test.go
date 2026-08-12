@@ -39,3 +39,24 @@ func TestSpotlightSearchQueryExcludesDirectoriesBeforeCandidateLimit(t *testing.
 		t.Fatalf("query %q does not exclude directories", query)
 	}
 }
+
+func TestSpotlightSearchQueryExcludesNoiseBeforeCandidateLimit(t *testing.T) {
+	query := spotlightSearchQuery(localFileSearchRequest{})
+
+	for _, expected := range []string{
+		"kMDItemPath != '*/node_modules/*'cd",
+		"kMDItemPath != '*/node_modules'cd",
+	} {
+		if !strings.Contains(query, expected) {
+			t.Fatalf("query %q does not contain %q", query, expected)
+		}
+	}
+}
+
+func TestSpotlightSearchQueryIncludesNoiseWhenIncludeHiddenIsEnabled(t *testing.T) {
+	query := spotlightSearchQuery(localFileSearchRequest{IncludeHidden: true})
+
+	if strings.Contains(query, "kMDItemPath != '*/node_modules/*'cd") {
+		t.Fatalf("query %q excludes noise despite IncludeHidden", query)
+	}
+}

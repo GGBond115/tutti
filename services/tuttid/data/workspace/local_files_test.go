@@ -1254,6 +1254,49 @@ func TestLocalFilesAdapterSearchIncludesHiddenFilesWhenIncludeHiddenIsTrue(t *te
 	}
 }
 
+func TestLocalFileSearchCandidatesFilterIndexedNoiseAsFallback(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	noisePath := filepath.Join(rootDir, "node_modules", "package", "index.ts")
+	buildPath := filepath.Join(rootDir, "build", "generated", "index.ts")
+	visiblePath := filepath.Join(rootDir, "src", "index.ts")
+	for _, candidatePath := range []string{noisePath, buildPath, visiblePath} {
+		if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(candidatePath, []byte("index"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	candidates, stats := localFileSearchCandidates(
+		rootDir,
+		rootDir,
+		[]string{noisePath, buildPath, visiblePath},
+		workspacefiles.SearchInput{IncludeKinds: []workspacefiles.EntryKind{workspacefiles.EntryKindFile}},
+	)
+	if len(candidates) != 1 || candidates[0].RelativePath != "src/index.ts" {
+		t.Fatalf("candidates = %#v, want visible path only", candidates)
+	}
+	if stats.skippedIgnoredCount != 2 {
+		t.Fatalf("skippedIgnoredCount = %d, want 2", stats.skippedIgnoredCount)
+	}
+
+	candidates, _ = localFileSearchCandidates(
+		rootDir,
+		rootDir,
+		[]string{noisePath},
+		workspacefiles.SearchInput{
+			IncludeHidden: true,
+			IncludeKinds:  []workspacefiles.EntryKind{workspacefiles.EntryKindFile},
+		},
+	)
+	if len(candidates) != 1 || candidates[0].RelativePath != "node_modules/package/index.ts" {
+		t.Fatalf("candidates = %#v, want noise path with IncludeHidden", candidates)
+	}
+}
+
 func localFilesRoot(rootDir string) workspacefiles.WorkspaceRoot {
 	return workspacefiles.WorkspaceRoot{
 		WorkspaceID:  "ws-1",

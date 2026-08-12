@@ -25,10 +25,22 @@ func TestWindowsSearchSQLScopesAndEscapesNativeQuery(t *testing.T) {
 		"user''s[_]file",
 		"System.FileExtension = '.png'",
 		"System.ItemType <> 'Directory'",
+		`NOT CONTAINS(System.ItemFolderPathDisplay, '"node_modules"')`,
 	} {
 		if !strings.Contains(query, expected) {
 			t.Fatalf("query %q does not contain %q", query, expected)
 		}
+	}
+}
+
+func TestWindowsSearchSQLIncludesNoiseWhenIncludeHiddenIsEnabled(t *testing.T) {
+	query := windowsSearchSQL(localFileSearchRequest{
+		IncludeHidden:  true,
+		SearchRootPath: `C:\Users\local`,
+	})
+
+	if strings.Contains(query, "NOT CONTAINS(System.ItemFolderPathDisplay") {
+		t.Fatalf("query %q excludes noise despite IncludeHidden", query)
 	}
 }
 

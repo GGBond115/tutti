@@ -17,6 +17,48 @@ import (
 
 const defaultMaxSearchCandidates = 5000
 
+// defaultSearchIgnoredDirectoryNames preserves the search scope of the former
+// filesystem walker. Native index providers use the same list to discard
+// predictable noise before applying their candidate limit, while
+// localFileSearchCandidates applies it again as a provider-independent guard.
+var defaultSearchIgnoredDirectoryNames = []string{
+	".git",
+	".next",
+	".turbo",
+	"applications",
+	"bin",
+	"build",
+	"cores",
+	"dev",
+	"dist",
+	"etc",
+	"library",
+	"network",
+	"node_modules",
+	"opt",
+	"private",
+	"sbin",
+	"system",
+	"tmp",
+	"usr",
+	"var",
+	"volumes",
+}
+
+// nativeSearchIgnoredDirectoryNames is intentionally narrower than the
+// provider-independent guard above. These high-cardinality directories are
+// safe and valuable to reject in native queries; broad names such as "build"
+// would create false positives with token-based Windows Search predicates.
+var nativeSearchIgnoredDirectoryNames = []string{"node_modules"}
+
+var defaultSearchIgnoredDirectories = func() map[string]struct{} {
+	directories := make(map[string]struct{}, len(defaultSearchIgnoredDirectoryNames))
+	for _, name := range defaultSearchIgnoredDirectoryNames {
+		directories[name] = struct{}{}
+	}
+	return directories
+}()
+
 type localFileSearchRequest struct {
 	CandidateLimit int
 	Filters        []string
@@ -35,6 +77,7 @@ type localFileSearchStats struct {
 	candidateCount          int
 	indexedPathCount        int
 	skippedHiddenCount      int
+	skippedIgnoredCount     int
 	skippedOutsideRootCount int
 	skippedSymlinkCount     int
 	skippedUnavailableCount int
@@ -178,9 +221,15 @@ func localFileSearchCandidates(
 			stats.skippedUnavailableCount++
 			continue
 		}
-		if !input.IncludeHidden && localSearchPathIsHidden(relativeToRoot) {
-			stats.skippedHiddenCount++
-			continue
+		if !input.IncludeHidden {
+			if localSearchPathIsHidden(relativeToRoot) {
+				stats.skippedHiddenCount++
+				continue
+			}
+			if localSearchPathIsNoise(relativeToRoot) {
+				stats.skippedIgnoredCount++
+				continue
+			}
 		}
 		if len(includeKinds) > 0 && !includeKinds[kind] {
 			stats.skippedUnrequestedCount++
@@ -210,9 +259,22 @@ func relativePathWithin(rootPath string, candidatePath string) (string, bool) {
 	return relative, true
 }
 
+func localSearchPathIsIgnored(relativePath string) bool {
+	return localSearchPathIsHidden(relativePath) || localSearchPathIsNoise(relativePath)
+}
+
 func localSearchPathIsHidden(relativePath string) bool {
 	for _, segment := range strings.Split(filepath.ToSlash(relativePath), "/") {
 		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+func localSearchPathIsNoise(relativePath string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(relativePath), "/") {
+		if _, ignored := defaultSearchIgnoredDirectories[strings.ToLower(segment)]; ignored {
 			return true
 		}
 	}
@@ -282,6 +344,7 @@ func logWorkspaceFileSearch(
 		"candidate_count", stats.candidateCount,
 		"result_count", resultCount,
 		"skipped_hidden_count", stats.skippedHiddenCount,
+		"skipped_ignored_count", stats.skippedIgnoredCount,
 		"skipped_outside_root_count", stats.skippedOutsideRootCount,
 		"skipped_symlink_count", stats.skippedSymlinkCount,
 		"skipped_unavailable_count", stats.skippedUnavailableCount,
