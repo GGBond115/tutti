@@ -45,12 +45,6 @@ var defaultSearchIgnoredDirectoryNames = []string{
 	"volumes",
 }
 
-// nativeSearchIgnoredDirectoryNames is intentionally narrower than the
-// provider-independent guard above. These high-cardinality directories are
-// safe and valuable to reject in native queries; broad names such as "build"
-// would create false positives with token-based Windows Search predicates.
-var nativeSearchIgnoredDirectoryNames = []string{"node_modules"}
-
 var defaultSearchIgnoredDirectories = func() map[string]struct{} {
 	directories := make(map[string]struct{}, len(defaultSearchIgnoredDirectoryNames))
 	for _, name := range defaultSearchIgnoredDirectoryNames {
