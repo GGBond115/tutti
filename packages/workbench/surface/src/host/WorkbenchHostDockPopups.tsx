@@ -53,7 +53,6 @@ export function WorkbenchHostDockPopups({
   activeMinimizedStackPopup,
   activePopup,
   captureMinimizedNodePreview,
-  captureNodePreviewImage,
   closePopup,
   context,
   debugDiagnostics,
@@ -79,7 +78,6 @@ export function WorkbenchHostDockPopups({
   captureMinimizedNodePreview: (
     node: WorkbenchMinimizedDockNode
   ) => Promise<string | null> | string | null;
-  captureNodePreviewImage?: WorkbenchHostProps["captureNodePreviewImage"];
   closePopup: () => void;
   context: WorkbenchDockContext<WorkbenchHostNodeData>;
   debugDiagnostics?: WorkbenchHostProps["debugDiagnostics"];
@@ -115,6 +113,8 @@ export function WorkbenchHostDockPopups({
       : (resolvedEntries.find(
           (entry) => entry.entry.id === activePopup.entryId
         ) ?? null);
+  const capturePopupItemPreview =
+    popupEntry?.entry.capturePopupItemPreview ?? null;
   const activeMinimizedStackSlot =
     activeMinimizedStackPopup === null
       ? null
@@ -190,12 +190,10 @@ export function WorkbenchHostDockPopups({
               : null
           }
           capturePreview={
-            popupEntry.entry.capturePopupItemPreview || captureNodePreviewImage
+            capturePopupItemPreview
               ? async (item) => {
                   const previewImageUrl = await Promise.resolve(
-                    popupEntry.entry.capturePopupItemPreview
-                      ? popupEntry.entry.capturePopupItemPreview(item)
-                      : (captureNodePreviewImage?.(item.node) ?? null)
+                    capturePopupItemPreview(item)
                   ).catch(() => null);
                   return previewImageUrl
                     ? {

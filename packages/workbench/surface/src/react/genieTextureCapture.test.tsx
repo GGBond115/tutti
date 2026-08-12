@@ -14,6 +14,9 @@ describe("prepareGenieTextureCapture", () => {
       .preview-child { padding: 4px; }
     `;
     const source = document.createElement("section");
+    const overlappingWindow = document.createElement("section");
+    overlappingWindow.dataset.overlappingWindow = "true";
+    overlappingWindow.textContent = "Must not enter the isolated preview";
     source.className = "preview";
     source.style.setProperty("--preview-accent", "rgb(0, 128, 255)");
     source.innerHTML = `
@@ -23,7 +26,7 @@ describe("prepareGenieTextureCapture", () => {
     document.documentElement.dataset.theme = "dark";
     document.body.className = "app-shell";
     document.head.append(stylesheet);
-    document.body.append(source);
+    document.body.append(source, overlappingWindow);
     const child = source.querySelector<HTMLElement>(".preview-child");
     const image = source.querySelector<HTMLImageElement>("img");
     expect(child).not.toBeNull();
@@ -78,6 +81,9 @@ describe("prepareGenieTextureCapture", () => {
       expect(prepared?.clone.querySelector(".preview-child")?.textContent).toBe(
         "Agent preview"
       );
+      expect(
+        prepared?.clone.querySelector('[data-overlapping-window="true"]')
+      ).toBeNull();
       expect(childMeasurementCount).toBe(0);
       expect(imageMeasurementCount).toBe(1);
       expect(getComputedStyle).toHaveBeenCalledTimes(1);
@@ -105,6 +111,7 @@ describe("prepareGenieTextureCapture", () => {
     } finally {
       getComputedStyle.mockRestore();
       source.remove();
+      overlappingWindow.remove();
       stylesheet.remove();
       document.body.className = previousBodyClassName;
       if (previousTheme === undefined) {

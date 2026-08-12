@@ -718,16 +718,21 @@
   reusable cache entry also prevents a later foreground attempt for the same
   revision.
 - Fix:
-  Keep native capture as the foreground high-fidelity path. Background and
-  minimized popup nodes reuse only a successful memory or persistent image;
-  they do not request a fresh DOM snapshot. Keep an unavailable result local to
-  the mounted popup so reopening can retry after the node becomes foreground.
-  Show a static terminal placeholder instead of a loading skeleton when no
+  Prefetch the focused node before opening a Dock popup by rendering only the
+  node's cloned capture element. Do not use a cropped Electron `capturePage()`
+  image for Dock previews because overlapping Workbench windows and overlays
+  are part of those composited pixels. Retain the isolated image under the same
+  preview identity and revision used by the popup. Background and minimized
+  popup nodes reuse only that successful memory or persistent image; they do
+  not request a fresh DOM snapshot. Keep an unavailable result local to the
+  mounted popup so reopening can retry after the node becomes foreground. Show
+  a static terminal placeholder instead of a loading skeleton when no
   successful image exists.
 - Validation:
-  Cover native-null plus persisted-cache success, assert that background DOM
-  capture is not called, and reopen the popup to prove that a prior unavailable
-  result does not block a later successful capture.
+  Cover focused prefetch before the popup mounts, exclusion of an overlapping
+  sibling from the cloned capture document, persisted-cache success, and
+  reopening after an unavailable result. Assert that opening the popup reuses
+  the prefetched image without starting a composited native capture.
 - References:
   [docs/architecture/workbench-dock-model.md](../../architecture/workbench-dock-model.md)
   [WorkbenchHostDockPopup.tsx](../../../packages/workbench/surface/src/host/WorkbenchHostDockPopup.tsx)

@@ -241,7 +241,7 @@ describe("WorkbenchHostDock", () => {
     }
   });
 
-  it("captures dock popup previews as images when no component preview exists", async () => {
+  it("reuses an isolated prefetched image when no component preview exists", async () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -250,10 +250,18 @@ describe("WorkbenchHostDock", () => {
         unobserve() {}
       }
     );
-    const node = createNode();
+    const node = {
+      ...createNode(),
+      id: "agent-gui:isolated-popup-preview"
+    };
     const props = createDockProps([node]);
+    props.context.focusedNodeId = node.id;
+    const previewImageUrl = "data:image/png;base64,AA==";
+    const captureIsolatedNodePreview = vi
+      .spyOn(genieAnimation, "captureWorkbenchNodePreviewImage")
+      .mockResolvedValue(previewImageUrl);
     const captureNodePreviewImage = vi.fn(
-      async () => "data:image/png;base64,AA=="
+      async () => "data:image/png;base64,Q09NUE9TSVRFRA=="
     );
     const dockEntry = {
       icon: null,
@@ -283,6 +291,9 @@ describe("WorkbenchHostDock", () => {
           />
         );
       });
+      await vi.waitFor(() => {
+        expect(captureIsolatedNodePreview).toHaveBeenCalledOnce();
+      });
       const button = container.querySelector<HTMLButtonElement>(
         'button[aria-haspopup="dialog"]'
       );
@@ -293,8 +304,13 @@ describe("WorkbenchHostDock", () => {
       });
 
       await vi.waitFor(() => {
-        expect(captureNodePreviewImage).toHaveBeenCalledWith(node);
+        expect(
+          document.body.querySelector<HTMLImageElement>(
+            `[data-preview-kind="image"] img`
+          )?.src
+        ).toBe(previewImageUrl);
       });
+      expect(captureNodePreviewImage).not.toHaveBeenCalled();
     } finally {
       await act(async () => {
         root.unmount();
@@ -303,6 +319,150 @@ describe("WorkbenchHostDock", () => {
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
       ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      captureIsolatedNodePreview.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("prefetches an isolated focused dock window before the popup obscures it", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+        unobserve() {}
+      }
+    );
+    const baseNode = createNode();
+    const node = {
+      ...baseNode,
+      data: {
+        ...baseNode.data,
+        instanceId: "focused-prefetch-1"
+      },
+      id: "agent-gui:focused-prefetch-1"
+    };
+    const secondNode = {
+      ...baseNode,
+      data: {
+        ...baseNode.data,
+        instanceId: "focused-prefetch-2"
+      },
+      id: "agent-gui:focused-prefetch-2"
+    };
+    const props = createDockProps([node, secondNode]);
+    props.context.focusedNodeId = node.id;
+    const previewImageUrls = {
+      [node.id]: "data:image/png;base64,UFJFRkVUQ0gx",
+      [secondNode.id]: "data:image/png;base64,UFJFRkVUQ0gy"
+    };
+    const captureIsolatedNodePreview = vi
+      .spyOn(genieAnimation, "captureWorkbenchNodePreviewImage")
+      .mockImplementation(
+        async (nodeId) =>
+          previewImageUrls[nodeId as keyof typeof previewImageUrls] ?? null
+      );
+    const captureNodePreviewImage = vi.fn(
+      async () => "data:image/png;base64,Q09NUE9TSVRFRF9TVVJGQUNF"
+    );
+    const writePreview = vi.fn();
+    const dockEntry = {
+      icon: null,
+      id: "agent-gui",
+      instanceMode: "multi" as const,
+      label: "Agent",
+      resolvePopupItem: () => ({ revision: "session-1" }),
+      typeId: "agent-gui",
+      visibility: "always" as const
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchHostDock
+            {...props}
+            captureNodePreviewImage={captureNodePreviewImage}
+            dockEntries={[dockEntry]}
+            dockPreviewCache={{ read: async () => null, write: writePreview }}
+          />
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(captureIsolatedNodePreview).toHaveBeenCalledTimes(1);
+        expect(captureIsolatedNodePreview).toHaveBeenCalledWith(node.id, {
+          bypassCache: true
+        });
+        expect(captureNodePreviewImage).not.toHaveBeenCalled();
+        expect(writePreview).toHaveBeenCalledWith({
+          key: {
+            instanceId: "focused-prefetch-1",
+            instanceKey: null,
+            nodeId: node.id,
+            revision: "session-1",
+            typeId: "agent-gui",
+            workspaceId: "workspace-hook-order"
+          },
+          previewImageUrl: previewImageUrls[node.id]
+        });
+      });
+
+      props.context.focusedNodeId = secondNode.id;
+      await act(async () => {
+        root.render(
+          <WorkbenchHostDock
+            {...props}
+            captureNodePreviewImage={captureNodePreviewImage}
+            dockEntries={[dockEntry]}
+            dockPreviewCache={{ read: async () => null, write: writePreview }}
+          />
+        );
+      });
+      await vi.waitFor(() => {
+        expect(captureIsolatedNodePreview).toHaveBeenCalledTimes(2);
+        expect(captureIsolatedNodePreview).toHaveBeenLastCalledWith(
+          secondNode.id,
+          { bypassCache: true }
+        );
+        expect(captureNodePreviewImage).not.toHaveBeenCalled();
+      });
+
+      const button = container.querySelector<HTMLButtonElement>(
+        'button[aria-haspopup="dialog"]'
+      );
+      await act(async () => {
+        button?.click();
+      });
+      await vi.waitFor(() => {
+        expect(
+          Array.from(
+            document.body.querySelectorAll<HTMLImageElement>(
+              `[data-preview-kind="image"] img`
+            ),
+            (image) => image.src
+          )
+        ).toEqual([previewImageUrls[secondNode.id], previewImageUrls[node.id]]);
+      });
+      expect(captureIsolatedNodePreview).toHaveBeenCalledTimes(2);
+      expect(captureNodePreviewImage).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      captureIsolatedNodePreview.mockRestore();
       vi.unstubAllGlobals();
     }
   });
@@ -516,7 +676,7 @@ describe("WorkbenchHostDock", () => {
     }
   });
 
-  it("does not restart an in-flight popup capture after a semantic no-op render", async () => {
+  it("does not restart an in-flight isolated prefetch after a semantic no-op render", async () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -530,8 +690,14 @@ describe("WorkbenchHostDock", () => {
       id: "agent-gui:pending-preview"
     };
     const props = createDockProps([node]);
+    props.context.focusedNodeId = node.id;
     const pendingCapture = deferred<string>();
-    const captureNodePreviewImage = vi.fn(() => pendingCapture.promise);
+    const captureIsolatedNodePreview = vi
+      .spyOn(genieAnimation, "captureWorkbenchNodePreviewImage")
+      .mockImplementation(() => pendingCapture.promise);
+    const captureNodePreviewImage = vi.fn(
+      async () => "data:image/png;base64,Q09NUE9TSVRFRA=="
+    );
     const dockEntry = {
       icon: null,
       id: "agent-gui",
@@ -560,14 +726,8 @@ describe("WorkbenchHostDock", () => {
           />
         );
       });
-      const button = container.querySelector<HTMLButtonElement>(
-        'button[aria-haspopup="dialog"]'
-      );
-      await act(async () => {
-        button?.click();
-      });
       await vi.waitFor(() => {
-        expect(captureNodePreviewImage).toHaveBeenCalledTimes(1);
+        expect(captureIsolatedNodePreview).toHaveBeenCalledTimes(1);
       });
 
       await act(async () => {
@@ -581,7 +741,8 @@ describe("WorkbenchHostDock", () => {
       });
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-      expect(captureNodePreviewImage).toHaveBeenCalledTimes(1);
+      expect(captureIsolatedNodePreview).toHaveBeenCalledTimes(1);
+      expect(captureNodePreviewImage).not.toHaveBeenCalled();
       pendingCapture.resolve("data:image/png;base64,AA==");
     } finally {
       pendingCapture.resolve("data:image/png;base64,AA==");
@@ -592,6 +753,7 @@ describe("WorkbenchHostDock", () => {
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
       ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      captureIsolatedNodePreview.mockRestore();
       vi.unstubAllGlobals();
     }
   });

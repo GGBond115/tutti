@@ -44,6 +44,7 @@ import { WorkbenchHostDockMinimizedSlot } from "./WorkbenchHostDockMinimizedSlot
 import { WorkbenchHostDockPopups } from "./WorkbenchHostDockPopups.tsx";
 import { useWorkbenchHostDockEntryActivation } from "./useWorkbenchHostDockEntryActivation.ts";
 import { useWorkbenchHostDockActivity } from "./useWorkbenchHostDockActivity.ts";
+import { useWorkbenchHostFocusedDockPreviewCapture } from "./useWorkbenchHostFocusedDockPreviewCapture.ts";
 import {
   type WorkbenchHostDockPopupAnchorRect,
   type WorkbenchHostDockPopupState
@@ -272,6 +273,17 @@ export function WorkbenchHostDock({
       renderedDockEntries,
       workspaceId
     });
+
+  useWorkbenchHostFocusedDockPreviewCapture({
+    context,
+    dockPreviewCache,
+    enabled: activePopup === null && activeMinimizedStackPopup === null,
+    externalStateRevision,
+    externalStateSource,
+    host,
+    resolvedEntries,
+    workspaceId
+  });
 
   const captureMinimizedNodePreview = useCallback(
     async (node: WorkbenchMinimizedDockNode) => {
@@ -698,7 +710,6 @@ export function WorkbenchHostDock({
         activeMinimizedStackPopup={activeMinimizedStackPopup}
         activePopup={activePopup}
         captureMinimizedNodePreview={captureMinimizedNodePreview}
-        captureNodePreviewImage={captureNodePreviewImage}
         closePopup={closePopup}
         context={context}
         debugDiagnostics={debugDiagnostics}

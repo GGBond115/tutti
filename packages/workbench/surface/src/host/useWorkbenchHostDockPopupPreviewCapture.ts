@@ -11,6 +11,10 @@ import type {
   WorkbenchHostProps
 } from "./types.ts";
 import type { WorkbenchHostDockPopupItem } from "./WorkbenchHostDockPopup.tsx";
+import {
+  workbenchDockPreviewIdentity,
+  workbenchNodePreviewRuntime
+} from "../preview/workbenchNodePreviewRuntime.ts";
 
 const dockPopupPreviewCacheMaxEntries = 64;
 const dockPopupPreviewByMemoryKey = new Map<
@@ -62,7 +66,9 @@ export function useWorkbenchHostDockPopupPreviewCapture(input: {
     items,
     resolveDockPreviewCacheKey
   } = input;
-  const hasCapturePreview = Boolean(capturePreview);
+  const canResolvePreview = Boolean(
+    capturePreview || resolveDockPreviewCacheKey
+  );
   const [capturedPreviewByMemoryKey, setCapturedPreviewByMemoryKey] = useState<
     Record<string, WorkbenchHostDockPopupCapturedPreview | undefined>
   >({});
@@ -105,7 +111,7 @@ export function useWorkbenchHostDockPopupPreviewCapture(input: {
   }, []);
 
   useEffect(() => {
-    if (!capturePreviewRef.current || isContextMenu) {
+    if (!canResolvePreview || isContextMenu) {
       return;
     }
     const captureItemStateIsCurrent = (itemStateKey: string): boolean =>
@@ -209,6 +215,31 @@ export function useWorkbenchHostDockPopupPreviewCapture(input: {
             resolvedCacheKey,
             revision
           );
+          const prefetchedPreview = cacheKey
+            ? await workbenchNodePreviewRuntime.ensure({
+                identity: workbenchDockPreviewIdentity(cacheKey),
+                nodeId: item.node.id
+              })
+            : null;
+          if (!captureItemStateIsCurrent(itemStateKey)) {
+            continue;
+          }
+          if (prefetchedPreview) {
+            const preview: WorkbenchDockPreviewContent = {
+              kind: "image",
+              src: prefetchedPreview
+            };
+            writeCachedWorkbenchNodePreviewImage(
+              item.node.id,
+              prefetchedPreview
+            );
+            writeDockPopupPreviewImage(previewMemoryKey, preview, revision);
+            setCapturedPreviewByMemoryKey((current) => ({
+              ...current,
+              [previewMemoryKey]: { preview, revision }
+            }));
+            continue;
+          }
           if (item.isMinimized && cacheKey) {
             const minimizedPersistedPreview = await readPersistedDockPreview(
               dockPreviewCacheRef.current,
@@ -268,6 +299,13 @@ export function useWorkbenchHostDockPopupPreviewCapture(input: {
           if (preview) {
             if (preview.kind === "image") {
               writeCachedWorkbenchNodePreviewImage(item.node.id, preview.src);
+              if (cacheKey) {
+                workbenchNodePreviewRuntime.write({
+                  identity: workbenchDockPreviewIdentity(cacheKey),
+                  nodeId: item.node.id,
+                  previewImageUrl: preview.src
+                });
+              }
             }
             writeDockPopupPreviewImage(previewMemoryKey, preview, revision);
             if (cacheKey && preview.kind === "image") {
@@ -298,6 +336,13 @@ export function useWorkbenchHostDockPopupPreviewCapture(input: {
               item.node.id,
               fallbackPersistedPreview
             );
+            if (cacheKey) {
+              workbenchNodePreviewRuntime.write({
+                identity: workbenchDockPreviewIdentity(cacheKey),
+                nodeId: item.node.id,
+                previewImageUrl: fallbackPersistedPreview
+              });
+            }
             const fallbackPreview: WorkbenchDockPreviewContent = {
               kind: "image",
               src: fallbackPersistedPreview
@@ -374,7 +419,7 @@ export function useWorkbenchHostDockPopupPreviewCapture(input: {
         }
       }
     };
-  }, [hasCapturePreview, isContextMenu, previewCaptureKey]);
+  }, [canResolvePreview, isContextMenu, previewCaptureKey]);
 
   return {
     previewStateFor(item) {
@@ -388,7 +433,7 @@ export function useWorkbenchHostDockPopupPreviewCapture(input: {
       return resolveDockPopupItemPreviewState(
         item,
         capturedPreview,
-        hasCapturePreview
+        canResolvePreview
       );
     }
   };
