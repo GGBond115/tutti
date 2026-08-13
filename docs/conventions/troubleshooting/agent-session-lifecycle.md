@@ -2069,7 +2069,10 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   intent. Merge its sparse fields only in the tuttid SQLite transaction, publish
   target invalidation after success, and reread defaults through
   composer-options. Keep Create Session inheritance in `agent.Service.Create`;
-  callers pass only explicit overrides. Do not repair this with debounce,
+  if AgentGUI forwards a presented inherited model or reasoning value, it must
+  also carry `modelExplicit=false` / `reasoningEffortExplicit=false` through
+  Engine and the HTTP request; explicit overrides carry `true`. Do not repair
+  this with debounce,
   localStorage, node/workbench overlays, or another full preferences write.
   Do not add workspace/cwd to the target-default patch. Extension model
   validation uses the daemon-observed last-known-good catalog for the exact
@@ -2287,8 +2290,9 @@ inline data URL instead`. Claude or standard ACP may instead receive no
 - Fix:
   Keep page sessions in the workspace engine. Cache only ordered membership ids,
   cursor, `hasMore`, and `totalCount` in the controller query, then join ids to
-  engine entities with a pure model projection. Keep active and pending sessions
-  as display overlays outside pagination. Preserve old scope chrome and metadata
+  engine entities with a pure model projection. Keep active, pending, and all
+  exact-target in-progress root sessions as display overlays outside pagination
+  until canonical membership catches up. Preserve old scope chrome and metadata
   atomically while a provider refetch is pending. Engine snapshots merge
   monotonically; only explicit `session/removed` owns deletion. Keep first-page
   bootstrap as a required narrow repository seam: one requested-section-driven
@@ -4987,11 +4991,13 @@ agent target`, although the current model picker does not offer that model.
   provider-side reconfiguration failure.
 - Fix:
   At Create, distinguish a target-scoped persisted default from a model
-  explicitly supplied by the caller. For an Agent Extension, resolve an
-  obsolete persisted default to the current model reported by that same
-  extension; never use a different provider. Resolve non-explicit per-model
-  reasoning against that effective model while keeping explicit caller values
-  strict. Treat an explicit ACP model selection as identity-bearing: leave an
+  explicitly supplied by the caller. For a provider or Agent Extension,
+  resolve an obsolete persisted default to the current catalog default
+  reported by that same target; never use a different provider. Resolve
+  non-explicit per-model reasoning against that effective model while keeping
+  explicit caller values strict. A strict per-model reasoning catalog must
+  omit an inherited value when it cannot prove that the target model supports
+  it. Treat an explicit ACP model selection as identity-bearing: leave an
   already-selected model unchanged, and if a real model change is rejected,
   abort startup rather than falling back.
 - Validation:

@@ -108,6 +108,11 @@ implementation. `daemon/hostadapter` is the official daemon-runtime-to-Host
 adapter, `host.SQLiteWorkspaceStore` is the workspace-routed canonical store,
 and `daemon/modelcatalog` owns provider model/reasoning/speed normalization;
 product daemons compose these modules instead of copying their mappings.
+Tool adapters preserve provider-owned terminal state together with raw output
+and exit code. Generic ACP normalization prefers an explicit provider status;
+only when it is absent does it apply the process convention of zero success and
+nonzero failure. The generic layer and GUI never reinterpret status by parsing
+specific command strings.
 
 Canonical delete is a lossless tombstone transition. The transaction preserves
 each selected root/child Session component, its Turns, Messages, Interactions,

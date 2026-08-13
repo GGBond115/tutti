@@ -6562,12 +6562,18 @@ type CreateWorkspaceAgentSessionRequest struct {
 	Isolation *WorkspaceAgentSessionIsolationMode `json:"isolation,omitempty"`
 	Model     *string                             `json:"model,omitempty"`
 
+	// ModelExplicit True only when model came from an explicit caller selection; false identifies an inherited or remembered fallback preference.
+	ModelExplicit *bool `json:"modelExplicit,omitempty"`
+
 	// NoProject Classifies a session that is intentionally not attached to a workspace project.
 	NoProject        *bool                        `json:"noProject,omitempty"`
 	PermissionModeId *string                      `json:"permissionModeId,omitempty"`
 	PlanMode         *bool                        `json:"planMode,omitempty"`
 	RailPlacement    *WorkspaceAgentRailPlacement `json:"railPlacement,omitempty"`
 	ReasoningEffort  *string                      `json:"reasoningEffort,omitempty"`
+
+	// ReasoningEffortExplicit True only when reasoning effort came from an explicit caller selection; false identifies a model-dependent inherited value.
+	ReasoningEffortExplicit *bool `json:"reasoningEffortExplicit,omitempty"`
 
 	// RecordingId Developer create-session scenario waiting for this root Session.
 	RecordingId       *openapi_types.UUID     `json:"recordingId,omitempty"`
