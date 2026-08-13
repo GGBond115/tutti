@@ -411,31 +411,3 @@ async function waitFor(assertion: () => boolean): Promise<void> {
   assert.equal(assertion(), true);
 }
 
-function accountClientStub() {
-  return {
-    async startAccountLogin(): Promise<never> {
-      throw new Error("unexpected login");
-    },
-    async getAccountLoginStatus(): Promise<never> {
-      throw new Error("unexpected status");
-    },
-    async getAccountUserInfo() {
-      return null;
-    },
-    async getAccountProductSummary() {
-      return {
-        user: null,
-        membership: null,
-        membership_access: "unknown" as const,
-        credits: null,
-        links: {
-          plan_url: "https://tutti.sh/profile/plan",
-          usage_url: "https://tutti.sh/profile/usage",
-          settings_url: "https://tutti.sh/profile/settings",
-        },
-      };
-    },
-    async dismissAccountRegistrationCreditsReward() {},
-    async logoutAccount() {},
-  };
-}
