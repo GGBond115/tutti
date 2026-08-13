@@ -313,13 +313,23 @@ export function useAgentGUISessionPresentation(
     input.activeEngineActiveTurn?.turnId,
     input.observationGapSource
   );
+  const hasCanonicalTerminalActivity =
+    input.activityDisplayStatus === "completed" ||
+    input.activityDisplayStatus === "failed" ||
+    input.activityDisplayStatus === "canceled";
+  const executing =
+    !hasCanonicalTerminalActivity &&
+    (input.activeEngineRuntimeActivity === "running" ||
+      (input.activeEngineActiveTurn !== null &&
+        input.activeEngineActiveTurn.phase !== "settled"));
   const activeConversationBusy =
+    input.activeLiveState === "activating" ||
     activeHasPendingSubmittedTurn ||
+    executing ||
     (input.activeEngineSession
       ? agentActivityDisplayStatusBusy(input.activityDisplayStatus) ||
         input.activeEngineAvailability === "blocked"
-      : input.activeEngineRuntimeActivity === "running" ||
-        agentActivityDisplayStatusBusy(input.activityDisplayStatus) ||
+      : agentActivityDisplayStatusBusy(input.activityDisplayStatus) ||
         conversationBusyStatus(input.activeConversation?.status ?? null) ||
         activeSubmitBlocked);
   const activeSessionResumable =

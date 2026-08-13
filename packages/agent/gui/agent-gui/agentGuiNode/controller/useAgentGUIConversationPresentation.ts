@@ -7,7 +7,6 @@ import {
 } from "../../../agentTargets";
 import type { AgentGUINodeData, AgentGUIAgentTarget } from "../../../types";
 import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
-import { resolveAgentComposerDraftScopeKey } from "../model/agentComposerDraftScope";
 import {
   applyAgentGUIConversationProjects,
   type AgentGUIConversationSummary
@@ -126,15 +125,9 @@ export function useAgentGUIConversationPresentation(
         activityDisplayStatus === "failed" ||
         activityDisplayStatus === "canceled";
       const status =
-        (input.isSubmitting || input.hasUnconfirmedSubmit
-          ? ("working" as const)
-          : hasCanonicalTerminalStatus
-            ? activityDisplayStatus
-            : activityBusyStatus) ??
-        (resolved.status === "ready" &&
-        (input.activeLatestPendingSubmitTurnId || input.isSubmitting)
-          ? ("working" as const)
-          : resolved.status);
+        (hasCanonicalTerminalStatus
+          ? activityDisplayStatus
+          : activityBusyStatus) ?? resolved.status;
       return stabilize(
         status === resolved.status ? resolved : { ...resolved, status }
       );
@@ -147,17 +140,6 @@ export function useAgentGUIConversationPresentation(
       agentTargets: input.normalizedProviderTargets,
       useStaticCatalog: input.shouldUseStaticProviderTargets
     });
-    const fallbackStatus =
-      input.isSubmitting ||
-      input.isCreatingConversation ||
-      Object.prototype.hasOwnProperty.call(
-        input.draftByScopeKey,
-        resolveAgentComposerDraftScopeKey({
-          agentSessionId: input.activeConversationId
-        })
-      )
-        ? ("working" as const)
-        : ("ready" as const);
     const activityBusyStatus =
       conversationBusyStatusFromAgentActivityDisplayStatus(
         input.activityDisplayStatuses.get(input.activeConversationId)
@@ -176,7 +158,7 @@ export function useAgentGUIConversationPresentation(
       provider: input.data.provider,
       title: "",
       titleFallback: "untitled-conversation",
-      status: activityBusyStatus ?? fallbackStatus,
+      status: activityBusyStatus ?? "ready",
       cwd: input.workspacePath,
       project: null,
       sortTimeUnixMs: fallbackUpdatedAtUnixMs,
@@ -184,16 +166,11 @@ export function useAgentGUIConversationPresentation(
     });
   }, [
     input.activeConversationId,
-    input.activeLatestPendingSubmitTurnId,
     input.activityDisplayStatuses,
     input.currentUserId,
     input.data.agentTargetId,
     input.data.provider,
     input.defaultAgentTargetId,
-    input.draftByScopeKey,
-    input.hasUnconfirmedSubmit,
-    input.isCreatingConversation,
-    input.isSubmitting,
     input.normalizedProviderTargets,
     input.shouldUseStaticProviderTargets,
     conversationProjection.semanticConversations,

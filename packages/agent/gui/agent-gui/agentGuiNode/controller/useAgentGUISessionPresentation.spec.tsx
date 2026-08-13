@@ -174,6 +174,14 @@ describe("useAgentGUISessionPresentation", () => {
 
     expect(rendered.result.current.activeConversationBusy).toBe(false);
 
+    input.activeLiveState = "activating";
+    rendered.rerender();
+
+    expect(rendered.result.current.activeConversationBusy).toBe(true);
+
+    input.activeLiveState = "active";
+    rendered.rerender();
+
     input.activePendingActivation = {
       agentSessionId: "session-1",
       agentTargetId: "local:claude-code",
@@ -217,12 +225,27 @@ describe("useAgentGUISessionPresentation", () => {
     input.activePendingActivation = null;
     input.activeEngineLatestTurn = null;
     input.activeEngineRuntimeActivity = "running";
-    input.activityDisplayStatus = "working";
+    input.activityDisplayStatus = "idle";
     rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(true);
 
     input.activeEngineRuntimeActivity = "idle";
     input.activityDisplayStatus = "idle";
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+
+    input.activeEngineActiveTurn = {
+      agentSessionId: "session-1",
+      origin: "user_prompt",
+      phase: "running",
+      startedAtUnixMs: 5,
+      turnId: "turn-2",
+      updatedAtUnixMs: 5
+    };
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(true);
+
+    input.activeEngineActiveTurn = null;
     rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(false);
 

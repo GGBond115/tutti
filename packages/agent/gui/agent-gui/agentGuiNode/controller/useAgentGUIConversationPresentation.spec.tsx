@@ -9,6 +9,51 @@ type PresentationInput = Parameters<
 >[0];
 
 describe("useAgentGUIConversationPresentation", () => {
+  it("does not project a pending submit into Conversation working status", () => {
+    const conversation = createConversation();
+    const input = createInput(conversation);
+    const pendingInput = {
+      ...input,
+      activeLatestPendingSubmitTurnId: "turn-pending",
+      hasUnconfirmedSubmit: true,
+      isCreatingConversation: true,
+      isSubmitting: true
+    };
+    const rendered = renderHook(
+      ({ value }: { value: PresentationInput }) =>
+        useAgentGUIConversationPresentation(value),
+      { initialProps: { value: pendingInput } }
+    );
+
+    expect(rendered.result.current.activeConversation?.status).toBe("ready");
+
+    rendered.rerender({
+      value: { ...pendingInput, conversations: [] }
+    });
+    expect(rendered.result.current.activeConversation?.status).toBe("ready");
+  });
+
+  it("projects canonical activity status into Conversation status", () => {
+    const conversation = createConversation();
+    const input = createInput(conversation);
+    const rendered = renderHook(
+      ({ value }: { value: PresentationInput }) =>
+        useAgentGUIConversationPresentation(value),
+      {
+        initialProps: {
+          value: {
+            ...input,
+            activityDisplayStatuses: new Map([
+              [conversation.id, "working" as const]
+            ])
+          }
+        }
+      }
+    );
+
+    expect(rendered.result.current.activeConversation?.status).toBe("working");
+  });
+
   it("does not project the provider name as a fallback conversation title", () => {
     const conversation = createConversation();
     const input = createInput(conversation);

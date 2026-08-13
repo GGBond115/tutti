@@ -291,6 +291,24 @@ the command authority. If the Host omits the reason, the disabled wrapper stays
 out of the tab order and does not create an empty Tooltip. The final semantic
 command admission check remains in the consumer/controller path.
 
+### Submission and execution presentation
+
+Submission acknowledgment and execution are separate presentation signals:
+
+- `isSubmitting`, an unconfirmed submit, and an activating live state may drive
+  the Composer spinner immediately because they prove local submission intent
+  or launch progress
+- Conversation `working` status requires canonical activity evidence: a live
+  runtime or a non-settled active Turn; pending submission alone must remain
+  `ready`
+- canonical completed, failed, or canceled activity stops the execution
+  indicator even if a lower-level runtime signal has not caught up yet
+- transport recovery chrome, such as connecting or unavailable, takes priority
+  over normal working copy
+
+This keeps feedback optimistic for responsiveness while keeping claims about
+Agent work grounded in the canonical Turn/runtime projection.
+
 ### 2.6 On-demand status
 
 AgentGUI owns one provider-neutral `AgentStatusController` for `/status`, Agent
