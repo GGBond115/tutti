@@ -1521,6 +1521,12 @@ separate command. Message paging adapters do not call back into selection or
 Rail orchestration, and hosts do not maintain a second messages-only reconcile
 entrypoint.
 
+The focused conversation controller also owns the optional host synchronization
+lease for its exact active Session. It acquires the lease when focus changes,
+keeps repeated selection idempotent, and releases the previous lease on switch,
+clear, or disposal. A host may use that lease to retain a per-Session event
+stream; React surfaces must not retain that transport independently.
+
 Event-stream continuity and command reachability are separate host facts.
 `eventStreamConnectionChanged` belongs to the coordinator and triggers
 authoritative reconnect hydration; `engine/connectionChanged` belongs to the
