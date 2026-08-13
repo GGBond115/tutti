@@ -741,6 +741,13 @@ Interaction. This publication gate applies equally to emitted events and
 `SessionState.PendingInteractive`; a snapshot must not leak the incomplete
 request while the adapter waits for the later frame.
 
+Approval detail presentation is provider-neutral. The daemon carries generic
+`url`/`uri` and `prompt`/`instruction` display fields into the canonical
+`toolCall.input` when a provider reports them only at the tool-call root, and
+AgentGUI renders those fields from either canonical nested input or compatible
+root input. Shared and local surfaces use this same projection; they must not
+branch on a provider or tool name to recover web-action details.
+
 A child Interaction may appear in the root conversation, but submission carries the exact `(agentSessionId, turnId, requestId)` tuple.
 Every AgentGUI, Message Center, Desktop notification, and Mobile action submits
 that tuple plus the user's current answer through
