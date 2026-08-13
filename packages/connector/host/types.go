@@ -1,6 +1,9 @@
 package host
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type InstallationState string
 
@@ -100,16 +103,17 @@ type Release struct {
 }
 
 type Manifest struct {
-	SchemaVersion        string                    `json:"schemaVersion"`
-	DisplayName          string                    `json:"displayName"`
-	IconURL              string                    `json:"iconUrl"`
-	Description          string                    `json:"description,omitempty"`
-	AgentRouting         *AgentRouting             `json:"agentRouting,omitempty"`
-	Permissions          []string                  `json:"permissions"`
-	RequiredCapabilities []string                  `json:"requiredCapabilities,omitempty"`
-	Implementation       Implementation            `json:"implementation"`
-	AuthorizationKind    string                    `json:"authorizationKind"`
-	Compatibility        CompatibilityRequirements `json:"compatibility,omitempty"`
+	SchemaVersion            string                    `json:"schemaVersion"`
+	DisplayName              string                    `json:"displayName"`
+	IconURL                  string                    `json:"iconUrl"`
+	Description              string                    `json:"description,omitempty"`
+	AgentRouting             *AgentRouting             `json:"agentRouting,omitempty"`
+	Permissions              []string                  `json:"permissions"`
+	RequiredCapabilities     []string                  `json:"requiredCapabilities,omitempty"`
+	Implementation           Implementation            `json:"implementation"`
+	AuthorizationKind        string                    `json:"authorizationKind"`
+	AuthorizationInteraction json.RawMessage           `json:"authorizationInteraction,omitempty"`
+	Compatibility            CompatibilityRequirements `json:"compatibility,omitempty"`
 }
 
 // AgentRouting carries connector-owned brand and product aliases used only to
@@ -526,6 +530,14 @@ type ConnectorMutation struct {
 	Mutation
 	ConnectorKey string `json:"connectorKey"`
 	AccountID    string `json:"accountId,omitempty"`
+}
+
+// EnsureRuntimeReconcileResult reports whether a level-triggered repair
+// created work from the caller's current desired state or joined older work
+// that must be followed by another ensure after it reaches a terminal state.
+type EnsureRuntimeReconcileResult struct {
+	MutationResult
+	Created bool
 }
 
 // AuthorizationProjection is account-scoped runtime intent. Installation is

@@ -350,6 +350,7 @@ export {
   selectPendingSubmitsForSession,
   selectSessionActivationPresentations,
   selectSessionHasUnconfirmedSubmit,
+  selectSessionHasPendingSubmitStopTarget,
   selectSessionIsSubmitting
 } from "./engine/pendingIntents.selectors.ts";
 export type { SessionActivationPresentation } from "./engine/pendingIntents.selectors.ts";

@@ -353,7 +353,7 @@ export interface DesktopHostWindowResizeContentWidthResult {
 
 export interface DesktopHostWindowCloseRequestPayload {
   requestId?: string;
-  reason: "quit" | "window-close";
+  reason: "native-window-close" | "quit" | "window-close";
 }
 
 export interface DesktopHostWindowCloseGuardInput {

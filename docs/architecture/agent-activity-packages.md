@@ -680,8 +680,15 @@ backfilled from messages.
 The session service synchronously persists and reads back the initial runtime
 session before returning a successful Create response, so the response never
 races the runtime's asynchronous activity reporter. The store assigns
-`railSectionKey` on that first persistence and preserves it for the lifetime of
-the session, even if later runtime reports change `cwd` or the user-project list.
+`railSectionKey` on that first persistence and preserves it across later runtime
+reports, `cwd` changes, and user-project list refreshes. Removing a project is
+an authoritative daemon operation. It repeatedly sends live unpinned root
+Sessions through Host batch deletion, then uses one compare-and-finalize SQLite
+transaction to rehome retained pinned trees and recoverable tombstones to
+`conversations` and remove the user-project row. A concurrent initial Session
+write validates an explicit project placement against the project rows in its
+own transaction, so a stale placement cannot recreate an orphan section after
+removal.
 Section and pinned-page results include required `totalCount` for the complete
 target-filtered scope before cursor pagination. AgentGUI uses it to subtract a
 transient active-row overlay from remaining unseen rows; hosts must preserve the

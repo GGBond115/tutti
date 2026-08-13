@@ -67,13 +67,27 @@ func (c *Controller) ReleaseIdleLiveSessions(ctx context.Context, input ReleaseI
 		})
 	}
 	c.mu.Unlock()
+	failedProviders := make(map[string]bool)
 	for _, candidate := range candidates {
 		if input.Limit > 0 && result.Scanned >= input.Limit {
 			break
 		}
 		result.Scanned++
-		result.add(c.releaseIdleLiveSession(ctx, candidate.session, candidate.adapter, nowUnixMS, idleAfterMS))
+		provider := strings.TrimSpace(candidate.session.Provider)
+		if failedProviders[provider] {
+			result.SkippedCleanupBudget++
+			continue
+		}
+		next := c.releaseIdleLiveSession(ctx, candidate.session, candidate.adapter, nowUnixMS, idleAfterMS)
+		result.add(next)
+		if next.Failed > 0 {
+			failedProviders[provider] = true
+		}
 	}
+	cleanup := c.cleanupDetachedLiveSessionResources(ctx, failedProviders)
+	result.ResourceCleanupAttempted = cleanup.Attempted
+	result.ResourceCleanupCleaned = cleanup.Cleaned
+	result.ResourceCleanupFailed = cleanup.Failed
 	return result
 }
 
@@ -85,7 +99,7 @@ func (c *Controller) releaseIdleLiveSession(
 	idleAfterMS int64,
 ) ReleaseIdleLiveSessionsResult {
 	var result ReleaseIdleLiveSessionsResult
-	_, probe, ok := liveSessionReleaseAdapter(adapter)
+	_, probe, ok := liveSessionReleaseAdapter(adapter, session)
 	if !ok {
 		result.SkippedUnsupported = 1
 		return result
@@ -115,7 +129,7 @@ func (c *Controller) releaseIdleLiveSession(
 		result.SkippedNotLive = 1
 		return result
 	}
-	releaseAdapter, probe, ok := liveSessionReleaseAdapter(adapter)
+	releaseAdapter, probe, ok := liveSessionReleaseAdapter(adapter, refreshed)
 	if !ok {
 		result.SkippedUnsupported = 1
 		return result
@@ -153,10 +167,51 @@ func (c *Controller) releaseIdleLiveSession(
 	return result
 }
 
-func liveSessionReleaseAdapter(adapter Adapter) (LiveSessionReleaseAdapter, LiveSessionProbeAdapter, bool) {
+func liveSessionReleaseAdapter(adapter Adapter, session Session) (LiveSessionReleaseAdapter, LiveSessionProbeAdapter, bool) {
 	releaseAdapter, releaseOK := adapter.(LiveSessionReleaseAdapter)
 	probe, probeOK := adapter.(LiveSessionProbeAdapter)
-	return releaseAdapter, probe, releaseOK && probeOK
+	if !releaseOK || !probeOK {
+		return releaseAdapter, probe, false
+	}
+	if capability, ok := adapter.(LiveSessionReleaseCapabilityAdapter); ok && !capability.CanReleaseLiveSession(session) {
+		return releaseAdapter, probe, false
+	}
+	return releaseAdapter, probe, true
+}
+
+func (c *Controller) cleanupDetachedLiveSessionResources(ctx context.Context, failedProviders map[string]bool) LiveSessionResourceCleanupResult {
+	var result LiveSessionResourceCleanupResult
+	if c == nil {
+		return result
+	}
+	c.mu.Lock()
+	adapters := make([]Adapter, 0, len(c.adapters))
+	for _, adapter := range c.adapters {
+		adapters = append(adapters, adapter)
+	}
+	c.mu.Unlock()
+	for _, adapter := range adapters {
+		if failedProviders[strings.TrimSpace(adapter.Provider())] {
+			continue
+		}
+		cleanup, ok := adapter.(LiveSessionResourceCleanupAdapter)
+		if !ok {
+			continue
+		}
+		next := cleanup.CleanupLiveSessionResources(ctx, 1)
+		result.Attempted += next.Attempted
+		result.Cleaned += next.Cleaned
+		result.Failed += next.Failed
+		if next.Failed > 0 {
+			slog.Warn("agent detached live session resource cleanup failed",
+				"event", "agent_session.live_resource_cleanup.failed",
+				"provider", adapter.Provider(),
+				"attempted", next.Attempted,
+				"failed", next.Failed,
+			)
+		}
+	}
+	return result
 }
 
 // CloseAllLiveSessions force-terminates every live provider process across
@@ -192,8 +247,14 @@ func (c *Controller) CloseAllLiveSessions(ctx context.Context) CloseAllLiveSessi
 		})
 	}
 	c.mu.Unlock()
+	failedProviders := make(map[string]bool)
 
 	for _, cand := range candidates {
+		provider := strings.TrimSpace(cand.session.Provider)
+		if failedProviders[provider] {
+			result.SkippedCleanupBudget++
+			continue
+		}
 		probe, ok := cand.adapter.(LiveSessionProbeAdapter)
 		if !ok || !probe.HasLiveSession(cand.session) {
 			continue
@@ -204,6 +265,7 @@ func (c *Controller) CloseAllLiveSessions(ctx context.Context) CloseAllLiveSessi
 		releaseLifecycleLock()
 		if err != nil {
 			result.Failed++
+			failedProviders[provider] = true
 			slog.Warn("agent live session shutdown close failed",
 				"event", "agent_session.shutdown_close.failed",
 				"room_id", cand.session.RoomID,
@@ -215,6 +277,10 @@ func (c *Controller) CloseAllLiveSessions(ctx context.Context) CloseAllLiveSessi
 		}
 		result.Closed++
 	}
+	cleanup := c.cleanupDetachedLiveSessionResources(ctx, failedProviders)
+	result.ResourceCleanupAttempted = cleanup.Attempted
+	result.ResourceCleanupCleaned = cleanup.Cleaned
+	result.ResourceCleanupFailed = cleanup.Failed
 	return result
 }
 
@@ -232,6 +298,7 @@ func (r *ReleaseIdleLiveSessionsResult) add(next ReleaseIdleLiveSessionsResult) 
 	r.SkippedUnsupported += next.SkippedUnsupported
 	r.SkippedNotLive += next.SkippedNotLive
 	r.SkippedBusy += next.SkippedBusy
+	r.SkippedCleanupBudget += next.SkippedCleanupBudget
 	r.Failed += next.Failed
 }
 

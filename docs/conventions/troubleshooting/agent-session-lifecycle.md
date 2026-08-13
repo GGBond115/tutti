@@ -918,7 +918,9 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   Creating a Session with an initial Goal starts the processing indicator, then
   stops it as soon as the canonical Session appears. The provider continues
   working without an indicator. When the first assistant message and canonical
-  Turn arrive, the indicator starts again until the Turn settles.
+  Turn arrive, the indicator starts again until the Turn settles. The inverse
+  symptom is a completed or failed Turn whose rail status has settled while the
+  Composer action still spins.
 - Quick checks:
   Compare the Claude SDK `session_state_changed` lifecycle log, activity stream
   connection, Engine runtime activity, canonical Session, and canonical latest
@@ -931,17 +933,23 @@ catalog revision mismatch`, fully restart `dev:desktop`; renderer HMR cannot
   Claude emits an exact session-level `running` observation before the first
   provider Turn identity, but the daemon previously logged and discarded it.
   Goal-only creation correctly has `initialTurnExpected = false`, so neither a
-  pending prompt nor a canonical Turn can bridge that interval.
+  pending prompt nor a canonical Turn can bridge that interval. For the inverse
+  symptom, AgentGUI bypassed the Engine's occurrence-time fence and read the
+  stale raw `running` flag directly after a canonical Turn had settled.
 - Fix:
   Normalize the SDK observation to provider-neutral `running`/`idle` runtime
   activity, publish it as an ephemeral activity-stream event, and let the
-  workspace Engine drive AgentGUI and rail busy projection. Clear ephemeral
+  workspace Engine drive AgentGUI and rail busy projection. Once a canonical
+  Session exists, AgentGUI must consume the Engine's fenced display status;
+  use raw runtime activity only before that projection exists. Clear ephemeral
   runtime activity on disconnect. Keep Goal turnless and do not invent
   lifecycle state, provider-specific timers, or synthetic Turn IDs.
 - Validation:
   Cover SDK projection without Turn identity, post-commit event publication,
   activity-stream ingestion before canonical Session hydration, AgentGUI busy
-  projection, `idle`, and disconnect cleanup.
+  projection, `idle`, disconnect cleanup, and both completed and failed Turns
+  remaining settled when an older raw runtime observation still says
+  `running`.
 - References:
   [claude_sdk_events.go](../../../packages/agent/daemon/runtime/claude_sdk_events.go)
   [workspaceEventCoordinator.ts](../../../packages/agent/activity-core/src/workspaceEventCoordinator.ts)
@@ -976,15 +984,16 @@ catalog revision mismatch`, fully restart `dev:desktop`; renderer HMR cannot
   current.
 - Fix:
   Reconcile terminal `AgentActivityTurn.error` in the shared transcript
-  projection by exact `turnId`, but only when that Turn already exists in the
-  hydrated transcript projection. Reuse a structured visible error, upgrade a
+  projection by exact `turnId`. Reuse a structured visible error, upgrade a
   matching plain assistant failure, or add one view-only row with a stable
-  `(agentSessionId, turnId)` identity. If the owning Turn is outside the message
-  window, skip it until an older page supplies an anchor. Do not manufacture an
-  empty transcript Turn, restore session `lastError`, let session-operation
-  selectors fall back to Turn errors, reinterpret a successful attach as
-  activation failure, persist a duplicate message, or add component-local
-  failure state.
+  `(agentSessionId, turnId)` identity. Normally the owning Turn must already
+  exist in the hydrated transcript projection. The exact latest failed Turn is
+  the narrow exception: if it emitted no transcript item, create its view-only
+  error row so the current failure reason remains visible. Historical Turns
+  outside the message window still wait for an older page to supply an anchor.
+  Do not restore session `lastError`, let session-operation selectors fall back
+  to Turn errors, reinterpret a successful attach as activation failure,
+  persist a duplicate message, or add component-local failure state.
 - Validation:
   Cover a failed Turn with no provider error message, a matching plain failure,
   and an existing structured visible error. The first must render one fallback
@@ -992,8 +1001,9 @@ catalog revision mismatch`, fully restart `dev:desktop`; renderer HMR cannot
   a full canonical Turn list and a newest-page-only transcript window, an older
   failed or interrupted Turn must not create a row or change Turn order. After
   prepending the older page, its error must appear exactly once on the owning
-  Turn. Also cover a failed Turn with zero hydrated transcript items and a
-  newer active Turn whose processing ownership remains current.
+  Turn. Also cover the exact latest failed Turn with zero hydrated transcript
+  items producing one error row, plus an older failed Turn with a newer active
+  Turn whose processing ownership remains current.
 - References:
   [workspaceAgentTurnErrorProjection.ts](../../../packages/agent/gui/shared/workspaceAgentTurnErrorProjection.ts)
   [workspaceAgentTurnErrorProjection.spec.ts](../../../packages/agent/gui/shared/workspaceAgentTurnErrorProjection.spec.ts)
@@ -3813,17 +3823,31 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   Emit a running compact notice from the Claude adapter when `/compact` is
   selected, allow compact system notices to precede provider-turn acceptance,
   accept `local_command` / `local_command_output` and camelCase boundary
-  metadata in the sidecar, and map known failure copy to `compact_failed`
-  before a successful result can settle the banner as completed. When the
+  metadata in the sidecar. For the pinned Claude Code 2.1.220 contract, treat
+  `status.compact_result=failed` plus `compact_error` as the canonical compact
+  failure signal; assistant and local-command text are compatibility fallbacks
+  for streams that omit that status. Map the normalized
+  `conversation could not be reduced below the context limit` failure to
+  `compact_failed` before the successful SDK result settles the Turn. When the
   acceptance barrier later flushes held events, strip their
-  `ProviderInputUnit` so they publish transcript/state only.
+  `ProviderInputUnit` so they publish transcript/state only. If the compact
+  failure specifically reports that the hard context limit was exceeded,
+  project a typed `context_handoff_required` error. Do not replace the provider
+  session or automatically dispatch the next message. Tell the user to create
+  a new conversation and add an `agent-session` mention for this conversation,
+  making the handoff explicit while retaining Claude Code's normalized failure
+  detail. For restored Claude sessions, use `rawMaxTokens` as the fallback hard
+  window and log the SDK maximum, raw maximum, native
+  auto-compact threshold, and effective auto-compact flag separately.
 - Validation:
   Add daemon coverage that `/compact` banners stay held until durable
   acceptance, then flush without provider-input units; add sidecar coverage for
   silent `/compact` (result only), local_command failure, and camelCase
-  `compactMetadata`. Re-run L04-CLAUDE recording and confirm the progress
-  divider appears, then becomes `Context compacted.` (or the interrupted
-  divider with the failure detail), and that record+replay both pass.
+  `compactMetadata`. Also cover exact overflow classification, raw hard-window
+  diagnostics, the typed handoff error projection, and localized Desktop and
+  Native guidance. Re-run L04-CLAUDE recording and confirm the progress divider
+  appears, then becomes `Context compacted.` (or the interrupted divider with
+  the failure detail), and that record+replay both pass.
 - References:
   [compaction.ts](../../../packages/agent/claude-sdk-sidecar/src/compaction.ts)
   [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go)
@@ -4852,6 +4876,43 @@ agent target`, although the current model picker does not offer that model.
   current model is not first, a stale dependent reasoning default, and an
   unsupported explicit selection separately with generic extension fixtures.
   Inject a `session/set_model` rejection into the standard ACP transport test.
+
+### Standard ACP send is stopped while an earlier process is still exiting
+
+- Symptom:
+  After an idle Standard ACP session is released, the next message may reconnect
+  once, but a later Start/Resume returns
+  `workspace_operation_failed` with reason
+  `agent.process_cleanup_pending`. The message does not reach the provider; in
+  AgentGUI the submitted draft is restored and a localized retry message is
+  shown.
+- Quick checks:
+  Correlate `agent_session.acp.close` stages with
+  `agent_session.live_resource_cleanup.failed`. A close failure followed by one
+  replacement-process start, then no additional start for the rejected retry,
+  confirms cleanup backpressure rather than provider prompt rejection.
+- Root cause:
+  A provider process can ignore graceful termination and fail the bounded
+  transport Close. Dropping that handle allows unbounded orphan processes;
+  allowing its late inbound handler to remain active can also attribute old
+  output or approval requests to the replacement Turn.
+- Fix:
+  Keep failed and replaced clients under adapter ownership, quarantine their
+  message handlers, and retry at most one failed Close budget per adapter sweep.
+  Once a failed handle is retired, Start/Resume performs one bounded cleanup
+  attempt and refuses to spawn another process while cleanup remains pending.
+  Preserve the stable reason through the Host/API boundary so AgentGUI can
+  restore the draft and present i18n copy.
+- Validation:
+  Cover release failure followed by one successful replacement, a blocked next
+  Resume with unchanged spawn/prompt counts, startup/load failure retention,
+  stale retired-client output, Plan-mode persistence without an eager spawn,
+  per-adapter sweep budgets, API classification, localized presentation, and
+  failed-submit draft restoration.
+- References:
+  [standard_acp_session.go](../../../packages/agent/daemon/runtime/standard_acp_session.go)
+  [standard_acp_resource_ownership.go](../../../packages/agent/daemon/runtime/standard_acp_resource_ownership.go)
+  [AgentGUIEngineSettlementController.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/AgentGUIEngineSettlementController.ts)
 
 ### Codex rejects `turn/start` with `AbsolutePathBuf deserialized without a base path`
 

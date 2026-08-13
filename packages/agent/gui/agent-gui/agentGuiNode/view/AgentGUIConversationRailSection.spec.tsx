@@ -290,12 +290,12 @@ function renderProjectSectionElement(input: {
           onRequestDeleteConversation={() => {}}
           onRequestRenameConversation={() => {}}
           onRequestSectionBatchDeletion={() => {}}
+          onRequestProjectRemoval={() => {}}
           onSelectConversation={() => {}}
           onToggleConversationPinned={() => {}}
           onToggleProjectPinned={input.onToggleProjectPinned}
           onToggleProjectSectionCollapsed={() => {}}
           onVisibleItemLimitChange={() => {}}
-          setPendingProjectAction={() => {}}
         />
       </AgentGUIConversationRailSectionPresentationProvider>
     </TooltipProvider>

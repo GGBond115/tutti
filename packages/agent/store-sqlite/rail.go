@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -66,6 +67,29 @@ func (s *Store) resolveAgentSessionRailSectionTx(
 	explicitRail, hasExplicitRail, err := explicitAgentSessionRailSection(explicitPlacement)
 	if err != nil {
 		return RailSection{}, err
+	}
+	if !existingRail.Found && hasExplicitRail && explicitRail.Kind == RailSectionKindProject {
+		projectPaths, err := s.listRailProjectPaths(ctx, tx)
+		if err != nil {
+			return RailSection{}, err
+		}
+		registered := false
+		for _, projectPath := range projectPaths {
+			if AreProjectPathsEqual(projectPath, explicitRail.ProjectPath) {
+				registered = true
+				break
+			}
+		}
+		// Placement is selected before the canonical session transaction. If
+		// that project was removed in between, Chats is the only valid durable
+		// owner; accepting the stale explicit placement would recreate an
+		// orphan project rail after deletion committed.
+		if !registered {
+			explicitRail = RailSection{
+				Kind: RailSectionKindConversations,
+				Key:  RailSectionKeyConversations,
+			}
+		}
 	}
 	importRail, hasImportRail := importedAgentSessionRailSection(
 		finalCWD,
@@ -250,16 +274,24 @@ func normalizeRailProjectPaths(paths []string) []string {
 }
 
 // NormalizeProjectPath canonicalizes a project or session path the same way
-// rail classification does: absolute, symlink-resolved for existing
-// directories, and cleaned.
-func NormalizeProjectPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
+// rail classification does. Native host paths are made absolute,
+// symlink-resolved for existing directories, and cleaned. A POSIX-rooted
+// logical path stays in that namespace when the host is Windows.
+func NormalizeProjectPath(projectPath string) string {
+	return normalizeProjectPathForPlatform(projectPath, runtime.GOOS)
+}
+
+func normalizeProjectPathForPlatform(projectPath string, goos string) string {
+	projectPath = strings.TrimSpace(projectPath)
+	if projectPath == "" {
 		return ""
 	}
-	absolute, err := filepath.Abs(path)
+	if goos == "windows" && isPOSIXProjectPath(projectPath) {
+		return pathpkg.Clean(strings.ReplaceAll(projectPath, `\`, "/"))
+	}
+	absolute, err := filepath.Abs(projectPath)
 	if err != nil {
-		return filepath.Clean(path)
+		return filepath.Clean(projectPath)
 	}
 	if info, statErr := os.Stat(absolute); statErr == nil && info.IsDir() {
 		if evaluated, evalErr := filepath.EvalSymlinks(absolute); evalErr == nil {
@@ -276,15 +308,30 @@ func agentSessionRailPathContains(parent string, child string) bool {
 // IsProjectPathWithin reports whether child is the same as, or nested below,
 // parent using the current platform's filesystem identity rules.
 func IsProjectPathWithin(parent string, child string) bool {
-	parent = NormalizeProjectPath(parent)
-	child = NormalizeProjectPath(child)
+	return isProjectPathWithinForPlatform(parent, child, runtime.GOOS)
+}
+
+func isProjectPathWithinForPlatform(parent string, child string, goos string) bool {
+	parent = normalizeProjectPathForPlatform(parent, goos)
+	child = normalizeProjectPathForPlatform(child, goos)
 	if parent == "" || child == "" {
 		return false
 	}
-	if sameRailPath(parent, child) {
+	if sameRailPathForPlatform(parent, child, goos) {
 		return true
 	}
-	rel, err := filepath.Rel(railPathForComparison(parent), railPathForComparison(child))
+	parentIsPOSIX := isPOSIXProjectPath(parent)
+	childIsPOSIX := isPOSIXProjectPath(child)
+	if parentIsPOSIX != childIsPOSIX {
+		return false
+	}
+	comparisonParent := railPathForComparisonForPlatform(parent, goos)
+	comparisonChild := railPathForComparisonForPlatform(child, goos)
+	if goos == "windows" && parentIsPOSIX {
+		prefix := strings.TrimSuffix(comparisonParent, "/") + "/"
+		return strings.HasPrefix(comparisonChild, prefix)
+	}
+	rel, err := filepath.Rel(comparisonParent, comparisonChild)
 	if err != nil {
 		return false
 	}
@@ -384,22 +431,52 @@ func NormalizeRailSectionKey(sectionKey string) string {
 }
 
 func railIdentityPath(path string) string {
-	path = NormalizeProjectPath(path)
-	if runtime.GOOS == "windows" {
+	return railIdentityPathForPlatform(path, runtime.GOOS)
+}
+
+func railIdentityPathForPlatform(path string, goos string) string {
+	path = normalizeProjectPathForPlatform(path, goos)
+	if goos == "windows" && isWindowsProjectPath(path) {
 		return strings.ToLower(path)
 	}
 	return path
 }
 
-func railPathForComparison(path string) string {
-	if runtime.GOOS == "windows" {
+func railPathForComparisonForPlatform(path string, goos string) string {
+	if goos == "windows" && isWindowsProjectPath(path) {
 		return strings.ToLower(path)
 	}
 	return path
 }
 
 func sameRailPath(left string, right string) bool {
-	return railPathForComparison(left) == railPathForComparison(right)
+	return sameRailPathForPlatform(left, right, runtime.GOOS)
+}
+
+func sameRailPathForPlatform(left string, right string, goos string) bool {
+	return railPathForComparisonForPlatform(left, goos) == railPathForComparisonForPlatform(right, goos)
+}
+
+func isPOSIXProjectPath(path string) bool {
+	return strings.HasPrefix(path, "/") && !isWindowsProjectPath(path)
+}
+
+func isWindowsProjectPath(path string) bool {
+	if len(path) >= 3 && isASCIIAlpha(path[0]) && path[1] == ':' && isProjectPathSeparator(path[2]) {
+		return true
+	}
+	return len(path) >= 3 &&
+		isProjectPathSeparator(path[0]) &&
+		isProjectPathSeparator(path[1]) &&
+		!isProjectPathSeparator(path[2])
+}
+
+func isProjectPathSeparator(value byte) bool {
+	return value == '/' || value == '\\'
+}
+
+func isASCIIAlpha(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
 }
 
 // AreProjectPathsEqual compares project paths using the filesystem identity
