@@ -723,7 +723,7 @@ func acpResolvedToolCallStatus(update map[string]any, fallback string) string {
 		return status
 	}
 	rawOutput := acpToolCallRawOutput(update)
-	if inferred := acpInferTerminalToolStatus(rawOutput); inferred != "" {
+	if inferred := acpInferTerminalToolStatus(update, rawOutput); inferred != "" {
 		return inferred
 	}
 	if inferred := acpInferImageGenerationTerminalStatus(update, rawOutput); inferred != "" {
@@ -732,7 +732,7 @@ func acpResolvedToolCallStatus(update map[string]any, fallback string) string {
 	return status
 }
 
-func acpInferTerminalToolStatus(rawOutput any) string {
+func acpInferTerminalToolStatus(update map[string]any, rawOutput any) string {
 	body := acpMapFromValue(rawOutput, "output")
 	if len(body) == 0 {
 		return ""
@@ -744,24 +744,78 @@ func acpInferTerminalToolStatus(rawOutput any) string {
 		return status
 	}
 	if exitCode, ok := acpIntFromValue(body["exitCode"]); ok {
-		if exitCode == 0 {
+		if acpTerminalExitCodeIsSuccessful(update, exitCode) {
 			return messageStreamStateCompleted
 		}
 		return messageStreamStateFailed
 	}
 	if exitCode, ok := acpIntFromValue(body["exit_code"]); ok {
-		if exitCode == 0 {
+		if acpTerminalExitCodeIsSuccessful(update, exitCode) {
 			return messageStreamStateCompleted
 		}
 		return messageStreamStateFailed
 	}
 	if exitCode, ok := acpExitCodeFromText(body["output"]); ok {
-		if exitCode == 0 {
+		if acpTerminalExitCodeIsSuccessful(update, exitCode) {
 			return messageStreamStateCompleted
 		}
 		return messageStreamStateFailed
 	}
 	return ""
+}
+
+func acpTerminalExitCodeIsSuccessful(update map[string]any, exitCode int) bool {
+	if exitCode == 0 {
+		return true
+	}
+	if exitCode != 1 {
+		return false
+	}
+	input, _ := acpToolCallRawInput(update).(map[string]any)
+	command := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+		asString(input["cmd"]),
+		acpTerminalShellCommand(input["command"]),
+	)))
+	if command == "" || !acpCommandRunsGitDiff(command) {
+		return false
+	}
+	return strings.Contains(command, "--no-index") ||
+		strings.Contains(command, "--exit-code") ||
+		strings.Contains(command, "--quiet")
+}
+
+func acpTerminalShellCommand(value any) string {
+	if values, ok := value.([]any); ok {
+		parts := make([]string, 0, len(values))
+		for _, item := range values {
+			part := strings.TrimSpace(asString(item))
+			if part != "" {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) >= 3 && (parts[len(parts)-2] == "-c" || parts[len(parts)-2] == "-lc") {
+			return parts[len(parts)-1]
+		}
+		return strings.Join(parts, " ")
+	}
+	return acpExtractShellCommand(value)
+}
+
+func acpCommandRunsGitDiff(command string) bool {
+	if strings.ContainsAny(command, ";&|") {
+		return false
+	}
+	fields := strings.Fields(command)
+	if len(fields) < 3 || fields[0] != "git" || fields[1] != "diff" {
+		return false
+	}
+	for _, field := range fields[2:] {
+		switch strings.Trim(field, "\"'") {
+		case "&&", "||", ";", "|", "&":
+			return false
+		}
+	}
+	return true
 }
 
 func acpInferImageGenerationTerminalStatus(update map[string]any, rawOutput any) string {

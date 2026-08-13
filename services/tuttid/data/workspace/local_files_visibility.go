@@ -25,6 +25,13 @@ func shouldHideWorkspaceEntry(directoryPath string, entry fs.DirEntry) bool {
 }
 
 func shouldHideWorkspacePath(rootPath, physicalPath string) bool {
+	return shouldHideWorkspacePathCached(rootPath, physicalPath, nil)
+}
+
+// shouldHideWorkspacePathCached memoizes visibility for a single request.
+// Indexed search returns many siblings, so checking every ancestor again for
+// every candidate would otherwise multiply synchronous filesystem calls.
+func shouldHideWorkspacePathCached(rootPath, physicalPath string, cache map[string]bool) bool {
 	relativePath, err := filepath.Rel(rootPath, physicalPath)
 	if err != nil || relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
 		return false
@@ -32,11 +39,23 @@ func shouldHideWorkspacePath(rootPath, physicalPath string) bool {
 	directoryPath := rootPath
 	for _, name := range strings.Split(relativePath, string(filepath.Separator)) {
 		entryPath := filepath.Join(directoryPath, name)
+		cacheKey := filepath.Clean(entryPath)
+		if hidden, ok := cache[cacheKey]; ok {
+			if hidden {
+				return true
+			}
+			directoryPath = entryPath
+			continue
+		}
 		info, err := os.Lstat(entryPath)
 		if err != nil {
 			return false
 		}
-		if shouldHideWorkspaceEntry(directoryPath, fs.FileInfoToDirEntry(info)) {
+		hidden := shouldHideWorkspaceEntry(directoryPath, fs.FileInfoToDirEntry(info))
+		if cache != nil {
+			cache[cacheKey] = hidden
+		}
+		if hidden {
 			return true
 		}
 		directoryPath = entryPath

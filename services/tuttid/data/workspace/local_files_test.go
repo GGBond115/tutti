@@ -1389,6 +1389,35 @@ func localFilesRoot(rootDir string) workspacefiles.WorkspaceRoot {
 	}
 }
 
+func TestWorkspacePathVisibilityCacheReusesSharedAncestors(t *testing.T) {
+	rootDir := t.TempDir()
+	sharedDir := filepath.Join(rootDir, "shared")
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(sharedDir, "first.txt")
+	second := filepath.Join(sharedDir, "second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("visible"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cache := make(map[string]bool)
+	if shouldHideWorkspacePathCached(rootDir, first, cache) {
+		t.Fatal("first path unexpectedly hidden")
+	}
+	if got := len(cache); got != 2 {
+		t.Fatalf("cache entries after first candidate = %d, want shared ancestor and leaf", got)
+	}
+	if shouldHideWorkspacePathCached(rootDir, second, cache) {
+		t.Fatal("second path unexpectedly hidden")
+	}
+	if got := len(cache); got != 3 {
+		t.Fatalf("cache entries after sibling = %d, want one reused ancestor and two leaves", got)
+	}
+}
+
 func testLocalFilesAdapter(maxCandidates int) LocalFilesAdapter {
 	return LocalFilesAdapter{
 		MaxSearchCandidates: maxCandidates,
