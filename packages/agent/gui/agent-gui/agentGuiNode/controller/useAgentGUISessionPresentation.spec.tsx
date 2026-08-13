@@ -92,7 +92,7 @@ describe("useAgentGUISessionPresentation", () => {
     });
   });
 
-  it("keeps confirmed initial work busy until canonical state takes over", () => {
+  it("separates Turn-start feedback from canonical execution busy", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
       commandPort: createTestEngineCommandPort({
@@ -107,6 +107,7 @@ describe("useAgentGUISessionPresentation", () => {
       activeEngineActiveTurn: null,
       activeEngineAvailability: "available",
       activeEngineHasPendingInteractions: false,
+      activeHasPendingSubmitStopTarget: false,
       activeEngineLatestTurn: null as AgentActivityTurn | null,
       activeEngineRuntimeAvailability: null,
       activeEngineRuntimeActivity: "idle" as "idle" | "running",
@@ -166,18 +167,28 @@ describe("useAgentGUISessionPresentation", () => {
 
     const rendered = renderHook(() => useAgentGUISessionPresentation(input));
 
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
+    expect(rendered.result.current.composerGate.submission).toEqual({
+      status: "blocked",
+      reason: "submitting"
+    });
 
     input.activeLatestPendingSubmitTurnId = "turn-1";
     input.hasUnconfirmedSubmit = false;
     rendered.rerender();
 
     expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
 
     input.activeLiveState = "activating";
     rendered.rerender();
 
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
+    expect(rendered.result.current.composerGate.submission.status).not.toBe(
+      "queue"
+    );
 
     input.activeLiveState = "active";
     rendered.rerender();
@@ -206,7 +217,8 @@ describe("useAgentGUISessionPresentation", () => {
       workspaceId: "workspace-1"
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     input.activeEngineLatestTurn = {
       agentSessionId: "session-1",
@@ -227,7 +239,7 @@ describe("useAgentGUISessionPresentation", () => {
     input.activeEngineRuntimeActivity = "running";
     input.activityDisplayStatus = "idle";
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
 
     input.activeEngineRuntimeActivity = "idle";
     input.activityDisplayStatus = "idle";
@@ -244,6 +256,7 @@ describe("useAgentGUISessionPresentation", () => {
     };
     rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
 
     input.activeEngineActiveTurn = null;
     rendered.rerender();
@@ -280,7 +293,8 @@ describe("useAgentGUISessionPresentation", () => {
       status: "pending_create"
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     input.activePendingActivation = {
       ...input.activePendingActivation,
@@ -328,7 +342,8 @@ describe("useAgentGUISessionPresentation", () => {
       }
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     input.activeEngineSession = {
       ...input.activeEngineSession!,
@@ -362,7 +377,8 @@ describe("useAgentGUISessionPresentation", () => {
       }
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     for (const syncStatus of ["pending", "unknown"] as const) {
       input.activeEngineSession = {
@@ -374,7 +390,8 @@ describe("useAgentGUISessionPresentation", () => {
         }
       };
       rendered.rerender();
-      expect(rendered.result.current.activeConversationBusy).toBe(true);
+      expect(rendered.result.current.activeConversationBusy).toBe(false);
+      expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
     }
 
     input.activeEngineSession = {
@@ -399,6 +416,7 @@ describe("useAgentGUISessionPresentation", () => {
     input.activityDisplayStatus = "working";
     rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
 
     input.activeEngineLatestTurn = {
       ...input.activeEngineLatestTurn,

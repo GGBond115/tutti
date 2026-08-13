@@ -295,16 +295,23 @@ command admission check remains in the consumer/controller path.
 
 Submission acknowledgment and execution are separate presentation signals:
 
-- `isSubmitting`, an unconfirmed submit, and an activating live state may drive
-  the Composer spinner immediately because they prove local submission intent
-  or launch progress
-- Conversation `working` status requires canonical activity evidence: a live
-  runtime or a non-settled active Turn; pending activation or submission alone
-  must remain `ready`, both before and after canonical Session confirmation
+- `isSubmitting`, an unconfirmed submit, and a viable initial launch that
+  expects a Turn drive an `isAwaitingTurnStart` Composer spinner immediately
+  because they prove local submission intent or expected launch work
+- a reconnect-only `activating` state belongs to connection chrome and command
+  admission; without submission intent it must not create a sending spinner,
+  `working` status, Stop target, or queue eligibility
+- Conversation `working` status and queue eligibility require canonical
+  execution evidence: the fenced Engine display status or a non-settled active
+  Turn; pending activation or submission alone must remain `ready`, both before
+  and after canonical Session confirmation
 - canonical completed, failed, or canceled activity stops the execution
   indicator even if a lower-level runtime signal has not caught up yet
 - transport recovery chrome, such as connecting or unavailable, takes priority
   over normal working copy
+- Stop is available before Turn identity only when the Engine exposes an exact
+  pending-submit stop target; reconnect and other connection state never invent
+  one
 
 This keeps feedback optimistic for responsiveness while keeping claims about
 Agent work grounded in the canonical Turn/runtime projection.
@@ -930,23 +937,25 @@ queue submission while keeping the editor editable. Draft emptiness, upload
 progress/failure, project existence, and other draft-local conditions may
 disable submission, but must not change editor editability.
 
-Engine submitting and unconfirmed-submit selectors remain busy facts after a
-canonical Session first appears. Session existence or an `available` runtime
-must not create an idle frame before the exact Turn claims the submission. A
-viable new-Session activation with `initialTurnExpected` remains the same busy
-bridge while no canonical latest Turn exists. Goal-only activation deliberately
-does not set `initialTurnExpected`, because Goal Control does not synchronously
-create a Turn. A viable initial Goal `set` whose projected Goal is still active
-remains a busy bridge only while the Goal is optimistic or the host supplies an
-exact pending/applying/unknown `goalSyncState` with a pending operation
-identity. A synced Goal proves only that the Goal mutation converged; it does
-not prove that a future Turn will exist. The first canonical Turn, a synced or
-non-active Goal,
-`failed`/`diverged` synchronization, `pending`/`applying`/`unknown` without an operation identity,
-or a canceled/failed activation releases the bridge; initial Goal `clear` never
+Engine submitting and unconfirmed-submit selectors remain Turn-admission facts
+after a canonical Session first appears. Session existence or an `available`
+runtime must not create an idle frame in the Composer spinner before the exact
+Turn claims the submission, but these facts do not create execution busy,
+Conversation `working`, or queue eligibility. A viable new-Session activation
+with `initialTurnExpected` remains the same Turn-start bridge while no canonical
+latest Turn exists. Goal-only activation deliberately does not set
+`initialTurnExpected`, because Goal Control does not synchronously create a
+Turn. A viable initial Goal `set` whose projected Goal is still active remains a
+Turn-start bridge only while the Goal is optimistic or the host supplies an
+exact pending/applying/unknown `goalSyncState` with a pending operation identity.
+A synced Goal proves only that the Goal mutation converged; it does not prove
+that a future Turn will exist. The first canonical Turn, a synced or non-active
+Goal, `failed`/`diverged` synchronization,
+`pending`/`applying`/`unknown` without an operation identity, or a
+canceled/failed activation releases the bridge; initial Goal `clear` never
 creates it. A host that omits `goalSyncState` cannot prove post-create execution
 and therefore fails closed to the canonical availability projection instead of
-keeping the composer busy indefinitely. When a provider exposes an exact
+keeping the Composer spinner active indefinitely. When a provider exposes an exact
 session-level `running`/`idle` observation before Turn identity, the daemon
 projects that
 typed, non-persistent runtime activity through `agent.activity.updated` after

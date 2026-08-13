@@ -18,7 +18,7 @@ import {
   conversationSummariesRenderEqual,
   stableConversationSummaryList
 } from "./agentGuiController.stableHelpers";
-import { conversationBusyStatusFromAgentActivityDisplayStatus } from "./agentGuiController.draftMessageHelpers";
+import { conversationStatusFromAgentActivityDisplayStatus } from "./agentGuiController.draftMessageHelpers";
 import { mergeVisibleConversations } from "./agentGuiController.conversationHelpers";
 import { rememberAgentGUIActiveConversation } from "../model/agentGuiSessionNavigationMemory";
 import { resolveConversationSummaryById } from "./useAgentConversationSelection";
@@ -64,12 +64,11 @@ export function useAgentGUIConversationPresentation(
       input.transientConversation
     );
     const mapped = source.map((conversation) => {
-      const activityBusyStatus =
-        conversationBusyStatusFromAgentActivityDisplayStatus(
-          input.activityDisplayStatuses.get(conversation.id)
-        );
-      return activityBusyStatus && conversation.status !== activityBusyStatus
-        ? { ...conversation, status: activityBusyStatus }
+      const activityStatus = conversationStatusFromAgentActivityDisplayStatus(
+        input.activityDisplayStatuses.get(conversation.id)
+      );
+      return activityStatus && conversation.status !== activityStatus
+        ? { ...conversation, status: activityStatus }
         : conversation;
     });
     const next = applyAgentGUIConversationProjects(mapped, input.userProjects);
@@ -113,21 +112,10 @@ export function useAgentGUIConversationPresentation(
       input.activeConversationId
     );
     if (resolved) {
-      const activityDisplayStatus = input.activityDisplayStatuses.get(
-        resolved.id
-      );
-      const activityBusyStatus =
-        conversationBusyStatusFromAgentActivityDisplayStatus(
-          activityDisplayStatus
-        );
-      const hasCanonicalTerminalStatus =
-        activityDisplayStatus === "completed" ||
-        activityDisplayStatus === "failed" ||
-        activityDisplayStatus === "canceled";
       const status =
-        (hasCanonicalTerminalStatus
-          ? activityDisplayStatus
-          : activityBusyStatus) ?? resolved.status;
+        conversationStatusFromAgentActivityDisplayStatus(
+          input.activityDisplayStatuses.get(resolved.id)
+        ) ?? resolved.status;
       return stabilize(
         status === resolved.status ? resolved : { ...resolved, status }
       );
@@ -140,10 +128,9 @@ export function useAgentGUIConversationPresentation(
       agentTargets: input.normalizedProviderTargets,
       useStaticCatalog: input.shouldUseStaticProviderTargets
     });
-    const activityBusyStatus =
-      conversationBusyStatusFromAgentActivityDisplayStatus(
-        input.activityDisplayStatuses.get(input.activeConversationId)
-      );
+    const activityStatus = conversationStatusFromAgentActivityDisplayStatus(
+      input.activityDisplayStatuses.get(input.activeConversationId)
+    );
     const previousActiveConversation = activeConversationRef.current?.[0];
     const fallbackUpdatedAtUnixMs =
       previousActiveConversation?.id === input.activeConversationId
@@ -158,7 +145,7 @@ export function useAgentGUIConversationPresentation(
       provider: input.data.provider,
       title: "",
       titleFallback: "untitled-conversation",
-      status: activityBusyStatus ?? "ready",
+      status: activityStatus ?? "ready",
       cwd: input.workspacePath,
       project: null,
       sortTimeUnixMs: fallbackUpdatedAtUnixMs,

@@ -272,7 +272,7 @@ export function reportAgentGUIRenderStateDiagnostic(input: {
   activeEngineAvailability: "available" | "blocked" | "missing";
   activeEngineLatestTurn: AgentActivityTurn | null;
   activeEngineRuntimeActivity: "idle" | "running";
-  activeHasPendingSubmittedTurn: boolean;
+  isAwaitingTurnStart: boolean;
   activeLiveState: "inactive" | "activating" | "active" | "failed";
   activeRuntimeSession: CanonicalAgentSession | null;
   activeSessionState: AgentSessionState | null;
@@ -308,7 +308,7 @@ export function reportAgentGUIRenderStateDiagnostic(input: {
             input.activeEngineLatestTurn
           ),
           activeEngineRuntimeActivity: input.activeEngineRuntimeActivity,
-          activeHasPendingSubmittedTurn: input.activeHasPendingSubmittedTurn,
+          isAwaitingTurnStart: input.isAwaitingTurnStart,
           activeLiveState: input.activeLiveState,
           activeSubmitBlocked: input.activeSubmitBlocked,
           canQueueWhileBusy: input.canQueueWhileBusy,

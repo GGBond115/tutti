@@ -221,6 +221,7 @@ export function useAgentGUIDetailModel(input: Input) {
   const activeConversationTurnBusy = viewModel.composer.gate.conversationBusy;
   const isComposerSending =
     activeConversationTurnBusy ||
+    viewModel.composer.gate.isAwaitingTurnStart === true ||
     (!hasActiveConversation &&
       viewModel.composer.gate.submission.status === "blocked" &&
       viewModel.composer.gate.submission.reason === "creating_conversation");
@@ -238,6 +239,8 @@ export function useAgentGUIDetailModel(input: Input) {
     isCancelPending: viewModel.composer.isCancelPending,
     isConversationBusy: activeConversationTurnBusy,
     isCreatingConversation: viewModel.composer.isCreatingConversation,
+    hasPendingSubmitStopTarget:
+      viewModel.composer.hasPendingSubmitStopTarget === true,
     isInterrupting: viewModel.composer.isInterrupting,
     isSubmitting: viewModel.composer.isSubmitting,
     isUnavailable: viewModel.readiness.activeLiveState === "failed"

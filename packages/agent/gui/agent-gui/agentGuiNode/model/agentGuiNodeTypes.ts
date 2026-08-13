@@ -452,6 +452,8 @@ export type AgentGUIComposerSubmissionBlockedReason =
 export interface AgentGUIComposerGate {
   /** Canonical busy projection captured with the same gate snapshot. */
   conversationBusy: boolean;
+  /** A submitted prompt is waiting for its canonical Turn to appear. */
+  isAwaitingTurnStart?: boolean;
   /**
    * Runtime-dependent command availability used by Composer-adjacent
    * controls such as Stop and interactive responses.
@@ -491,6 +493,8 @@ export interface AgentGUIComposerViewModel {
   isSubmitting: boolean;
   isInterrupting: boolean;
   isCancelPending: boolean;
+  /** The Engine can stop a pending prompt before its Turn is visible. */
+  hasPendingSubmitStopTarget?: boolean;
   promptImagesSupported: boolean;
   compactSupported: boolean | null;
   /** Provider goal exposes a real paused state and pause/resume controls. */
