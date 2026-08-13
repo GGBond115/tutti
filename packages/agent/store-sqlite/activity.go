@@ -64,6 +64,27 @@ func (s *Store) ReportActivityState(
 		return ActivityStateReportResult{}, err
 	}
 
+	now := unixMs(time.Now().UTC())
+	if input.Session.OccurredAtUnixMS <= 0 {
+		input.Session.OccurredAtUnixMS = now
+	}
+	var result ActivityStateReportResult
+	err := retrySQLiteBusy(ctx, func() error {
+		var err error
+		result, err = s.reportActivityStateOnce(ctx, input, now)
+		return err
+	})
+	return result, err
+}
+
+func (s *Store) reportActivityStateOnce(
+	ctx context.Context,
+	input ActivityStateReport,
+	now int64,
+) (ActivityStateReportResult, error) {
+	workspaceID := strings.TrimSpace(input.Session.WorkspaceID)
+	agentSessionID := strings.TrimSpace(input.Session.AgentSessionID)
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ActivityStateReportResult{}, fmt.Errorf("begin workspace agent activity state report: %w", err)
@@ -75,10 +96,6 @@ func (s *Store) ReportActivityState(
 		}
 	}()
 
-	now := unixMs(time.Now().UTC())
-	if input.Session.OccurredAtUnixMS <= 0 {
-		input.Session.OccurredAtUnixMS = now
-	}
 	goalBefore, err := readSessionGoalProjectionTx(ctx, tx, input.Session)
 	if err != nil {
 		return ActivityStateReportResult{}, err

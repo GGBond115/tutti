@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useLayoutEffect } from "react";
 import { StandaloneAgentStartupShell } from "@renderer/features/workspace-workbench/ui/StandaloneAgentStartupShell.tsx";
 import type { WorkspaceWindowContainerResult } from "./createWorkspaceWindowContainer.ts";
 
@@ -21,6 +21,19 @@ export function WorkspaceWindow({
   const routeView =
     new URLSearchParams(window.location.search).get("view") || "workspace";
   const isWindows = containerInput.desktopApi.platform.os === "win32";
+
+  useLayoutEffect(() => {
+    const overlayEnabled = isWindows && routeView === "agent";
+    if (overlayEnabled) {
+      document.body.dataset.tuttiTitlebarOverlay = "true";
+    } else {
+      delete document.body.dataset.tuttiTitlebarOverlay;
+    }
+    return () => {
+      delete document.body.dataset.tuttiTitlebarOverlay;
+    };
+  }, [isWindows, routeView]);
+
   const routeFallback =
     routeView === "agent" ? (
       <StandaloneAgentStartupShell titleBarOverlay={isWindows} />
