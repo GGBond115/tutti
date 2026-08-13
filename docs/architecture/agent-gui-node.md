@@ -299,8 +299,8 @@ Submission acknowledgment and execution are separate presentation signals:
   the Composer spinner immediately because they prove local submission intent
   or launch progress
 - Conversation `working` status requires canonical activity evidence: a live
-  runtime or a non-settled active Turn; pending submission alone must remain
-  `ready`
+  runtime or a non-settled active Turn; pending activation or submission alone
+  must remain `ready`, both before and after canonical Session confirmation
 - canonical completed, failed, or canceled activity stops the execution
   indicator even if a lower-level runtime signal has not caught up yet
 - transport recovery chrome, such as connecting or unavailable, takes priority
