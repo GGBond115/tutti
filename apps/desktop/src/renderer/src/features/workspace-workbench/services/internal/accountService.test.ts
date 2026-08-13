@@ -410,4 +410,3 @@ async function waitFor(assertion: () => boolean): Promise<void> {
   }
   assert.equal(assertion(), true);
 }
-
