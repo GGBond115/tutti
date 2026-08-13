@@ -341,8 +341,28 @@ type LiveSessionProbeAdapter interface {
 	HasLiveSession(Session) bool
 }
 
+type LiveSessionResourceCleanupResult struct {
+	Attempted int
+	Cleaned   int
+	Failed    int
+}
+
+// LiveSessionResourceCleanupAdapter owns physical handles that can outlive a
+// canonical runtime Session after a failed close. Cleanup is bounded by limit
+// so one reaper or shutdown pass cannot block on every retired process.
+type LiveSessionResourceCleanupAdapter interface {
+	CleanupLiveSessionResources(context.Context, int) LiveSessionResourceCleanupResult
+}
+
 type LiveSessionReleaseAdapter interface {
 	ReleaseLiveSession(context.Context, Session) error
+}
+
+// LiveSessionReleaseCapabilityAdapter narrows live-session release for
+// adapters whose ability to resume is learned from the current provider
+// handshake rather than known statically by adapter type.
+type LiveSessionReleaseCapabilityAdapter interface {
+	CanReleaseLiveSession(Session) bool
 }
 
 type StateAdapter interface {
