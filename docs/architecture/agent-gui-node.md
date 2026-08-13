@@ -2185,6 +2185,10 @@ user intent even when a model is currently unavailable. The legacy shared
 `default` bucket migrates lazily to the first exact target: recents pass through
 current authoritative testimony before migration, while favorites migrate
 without availability filtering.
+Quick Composer projects the same history identity and testimony from its exact
+selected target and host-owned options capability. Host-level option loading
+keeps that testimony unsettled, so a retained last-good catalog cannot retire
+history while the embedding host is refreshing or changing targets.
 
 Bare Up/Down recalls older/newer structured drafts only from an empty composer
 or an unchanged recalled entry, and only when the collapsed caret is at a

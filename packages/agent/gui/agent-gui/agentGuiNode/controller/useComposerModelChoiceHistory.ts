@@ -19,6 +19,7 @@ const EMPTY_MODEL_IDS: readonly string[] = [];
 const LEGACY_MODEL_HISTORY_TARGET_ID = "default";
 
 export interface ComposerModelChoiceHistoryController {
+  enabled: boolean;
   favoriteModelIds: readonly string[];
   recentModelIds: readonly string[];
   recordRecentModel: (modelId: string) => void;
@@ -101,6 +102,7 @@ export function useComposerModelChoiceHistory(
   );
 
   return {
+    enabled: targetId !== null,
     favoriteModelIds,
     recentModelIds,
     recordRecentModel,

@@ -67,7 +67,11 @@ export function AgentModelReasoningDropdown({
         : modelHistoryTargetId,
     catalog: projectedModelHistory?.catalog ?? null
   });
-  const { favoriteModelIds, recentModelIds } = modelHistory;
+  const {
+    enabled: modelHistoryEnabled,
+    favoriteModelIds,
+    recentModelIds
+  } = modelHistory;
   const handleMenuOpenChange = (open: boolean): void => {
     if (open) {
       // Pick up writes from other windows and clear the previous filter.
@@ -103,6 +107,9 @@ export function AgentModelReasoningDropdown({
   const handleToggleFavoriteModel = (value: string): void => {
     modelHistory.toggleFavoriteModel(value);
   };
+  const toggleFavoriteModel = modelHistoryEnabled
+    ? handleToggleFavoriteModel
+    : undefined;
   const favoriteValueSet = new Set(menu.model.favoriteValues);
   const modelDescriptionPresentation = menu.model.optionDescriptionInline
     ? ("inline" as const)
@@ -230,7 +237,7 @@ export function AgentModelReasoningDropdown({
                   descriptionPresentation={modelDescriptionPresentation}
                   tooltipsEnabled
                   favoriteValues={favoriteValueSet}
-                  onToggleFavorite={handleToggleFavoriteModel}
+                  onToggleFavorite={toggleFavoriteModel}
                   onSelect={applyModelSelection}
                 />
               </>
@@ -249,7 +256,7 @@ export function AgentModelReasoningDropdown({
                   descriptionPresentation={modelDescriptionPresentation}
                   tooltipsEnabled
                   favoriteValues={favoriteValueSet}
-                  onToggleFavorite={handleToggleFavoriteModel}
+                  onToggleFavorite={toggleFavoriteModel}
                   onSelect={applyModelSelection}
                 />
               </>
@@ -273,7 +280,7 @@ export function AgentModelReasoningDropdown({
                     descriptionPresentation={modelDescriptionPresentation}
                     tooltipsEnabled
                     favoriteValues={favoriteValueSet}
-                    onToggleFavorite={handleToggleFavoriteModel}
+                    onToggleFavorite={toggleFavoriteModel}
                     onSelect={applyModelSelection}
                   />
                 </Fragment>
@@ -285,7 +292,7 @@ export function AgentModelReasoningDropdown({
                 descriptionPresentation={modelDescriptionPresentation}
                 tooltipsEnabled
                 favoriteValues={favoriteValueSet}
-                onToggleFavorite={handleToggleFavoriteModel}
+                onToggleFavorite={toggleFavoriteModel}
                 onSelect={applyModelSelection}
               />
             )}

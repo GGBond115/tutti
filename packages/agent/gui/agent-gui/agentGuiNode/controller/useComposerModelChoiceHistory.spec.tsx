@@ -151,6 +151,7 @@ describe("useComposerModelChoiceHistory", () => {
       result.current.recordRecentModel("new-model");
       result.current.toggleFavoriteModel("new-model");
     });
+    expect(result.current.enabled).toBe(false);
     expect(result.current.recentModelIds).toEqual([]);
     expect(globalThis.localStorage.getItem(`${RECENTS_PREFIX}default`)).toBe(
       '["legacy-model"]'
@@ -160,6 +161,7 @@ describe("useComposerModelChoiceHistory", () => {
     ).toBeNull();
 
     rerender({ targetId: "agent:first" });
+    expect(result.current.enabled).toBe(true);
     act(() => result.current.recordRecentModel("first-model"));
     expect(
       globalThis.localStorage.getItem(`${RECENTS_PREFIX}agent:first`)
