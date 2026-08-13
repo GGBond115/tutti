@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
@@ -17,12 +18,64 @@ func (o *recordingTerminalFailureObserver) ObserveTerminalFailure(_ context.Cont
 	o.failures = append(o.failures, failure)
 }
 
+type terminalFailureSequenceClock struct {
+	now time.Time
+}
+
+func (c *terminalFailureSequenceClock) Now() time.Time {
+	current := c.now
+	c.now = c.now.Add(250 * time.Millisecond)
+	return current
+}
+
+func TestCommandBoundaryCarriesStableIdentityAndDuration(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	host := New(Config{
+		TerminalFailureObserver: observer,
+		Clock: &terminalFailureSequenceClock{
+			now: time.Unix(1_700_000_000, 0),
+		},
+	})
+
+	_, _ = host.CreateSession(context.Background(), "workspace-1", CreateSessionInput{
+		ActivationID:   "activation-1",
+		AgentSessionID: "session-1",
+		ClientSubmitID: "create-submit-1",
+		TurnID:         "turn-initial",
+	})
+	_, _ = host.SendInput(
+		context.Background(),
+		SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"},
+		SendInput{ClientSubmitID: "send-submit-1", TurnID: "turn-2"},
+	)
+
+	if len(observer.failures) != 2 {
+		t.Fatalf("terminal failures = %#v, want 2", observer.failures)
+	}
+	for index, want := range []struct {
+		flow, operationID, requestID, clientSubmitID, turnID string
+	}{
+		{flow: "session_create", operationID: "activation-1", requestID: "activation-1", clientSubmitID: "create-submit-1", turnID: "turn-initial"},
+		{flow: "message_send", operationID: "send-submit-1", clientSubmitID: "send-submit-1", turnID: "turn-2"},
+	} {
+		got := observer.failures[index]
+		if got.Flow != want.flow || got.OperationID != want.operationID ||
+			got.RequestID != want.requestID ||
+			got.ClientSubmitID != want.clientSubmitID || got.TurnID != want.turnID ||
+			got.DurationMS != 250 {
+			t.Fatalf("terminal failure %d = %#v, want identity %#v and duration 250", index, got, want)
+		}
+	}
+}
+
 func TestCommandBoundaryEmitsOneFailureForTheFirstFailedStep(t *testing.T) {
 	observer := &recordingTerminalFailureObserver{}
 	host := New(Config{TerminalFailureObserver: observer})
 	cause := NewProviderError("provider_timeout", "provider timed out after 30s", "debug", errors.New("deadline"))
 
-	ctx, command := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	ctx, command := host.beginCommand(context.Background(), commandTerminalFailureInput{
+		flow: "message_send", workspaceID: "workspace-1", agentSessionID: "session-1",
+	})
 	host.observeStep(ctx, "message_send", "runtime_session_ready", "workspace-1", "session-1", "claude", host.now(), cause)
 	host.observeStep(ctx, "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), errors.New("later stage"))
 	command.finish(ctx, host, cause)
@@ -43,7 +96,9 @@ func TestCommandBoundaryEmitsOneFailureForTheFirstFailedStep(t *testing.T) {
 func TestObserveStepDoesNotEmitTerminalFailure(t *testing.T) {
 	observer := &recordingTerminalFailureObserver{}
 	host := New(Config{TerminalFailureObserver: observer})
-	ctx, _ := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	ctx, _ := host.beginCommand(context.Background(), commandTerminalFailureInput{
+		flow: "message_send", workspaceID: "workspace-1", agentSessionID: "session-1",
+	})
 	host.observeStep(ctx, "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), errors.New("boom"))
 	if len(observer.failures) != 0 {
 		t.Fatalf("terminal failures = %#v, want none until the command boundary", observer.failures)
@@ -53,7 +108,9 @@ func TestObserveStepDoesNotEmitTerminalFailure(t *testing.T) {
 func TestCommandBoundarySkipsTerminalFailureOnSuccess(t *testing.T) {
 	observer := &recordingTerminalFailureObserver{}
 	host := New(Config{TerminalFailureObserver: observer})
-	ctx, command := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	ctx, command := host.beginCommand(context.Background(), commandTerminalFailureInput{
+		flow: "message_send", workspaceID: "workspace-1", agentSessionID: "session-1",
+	})
 	host.observeStep(ctx, "message_send", "runtime_exec", "workspace-1", "session-1", "claude", host.now(), nil)
 	command.finish(ctx, host, nil)
 	if len(observer.failures) != 0 {
@@ -66,7 +123,9 @@ func TestCommandBoundaryIgnoresCleanupStepsAfterPrimaryFailure(t *testing.T) {
 	host := New(Config{TerminalFailureObserver: observer})
 	primary := errors.New("runtime start failed")
 
-	ctx, command := host.beginCommand(context.Background(), "session_create", "workspace-1", "session-1")
+	ctx, command := host.beginCommand(context.Background(), commandTerminalFailureInput{
+		flow: "session_create", workspaceID: "workspace-1", agentSessionID: "session-1",
+	})
 	host.observeStep(ctx, "session_create", "runtime_started", "workspace-1", "session-1", "codex", host.now(), primary)
 	host.observeStep(ctx, "session_create_cleanup", "runtime_closed", "workspace-1", "session-1", "codex", host.now(), errors.New("cleanup failed"))
 	command.finish(ctx, host, primary)
@@ -79,7 +138,9 @@ func TestCommandBoundaryIgnoresCleanupStepsAfterPrimaryFailure(t *testing.T) {
 func TestCommandBoundaryUsesPreconditionStageWithoutAFailedStep(t *testing.T) {
 	observer := &recordingTerminalFailureObserver{}
 	host := New(Config{TerminalFailureObserver: observer})
-	ctx, command := host.beginCommand(context.Background(), "session_create", "workspace-1", "session-1")
+	ctx, command := host.beginCommand(context.Background(), commandTerminalFailureInput{
+		flow: "session_create", workspaceID: "workspace-1", agentSessionID: "session-1",
+	})
 	command.finish(ctx, host, ErrInvalidArgument)
 	if len(observer.failures) != 1 || observer.failures[0].FailureStage != commandPreconditionStage {
 		t.Fatalf("terminal failures = %#v, want one precondition failure", observer.failures)
@@ -89,7 +150,9 @@ func TestCommandBoundaryUsesPreconditionStageWithoutAFailedStep(t *testing.T) {
 func TestCommandBoundaryDefersToASpecificEmission(t *testing.T) {
 	observer := &recordingTerminalFailureObserver{}
 	host := New(Config{TerminalFailureObserver: observer})
-	ctx, command := host.beginCommand(context.Background(), "message_send", "workspace-1", "session-1")
+	ctx, command := host.beginCommand(context.Background(), commandTerminalFailureInput{
+		flow: "message_send", workspaceID: "workspace-1", agentSessionID: "session-1",
+	})
 	host.observeGuidanceTargetFailure(
 		ctx, SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"},
 		"codex", "turn-1", "guidance-1", host.now(), ErrActiveTurnTargetMismatch,
@@ -104,7 +167,7 @@ func TestTerminalFailuresFromDeltaCoversInteractivePlanToolAndTurn(t *testing.T)
 	observer := &recordingTerminalFailureObserver{}
 	delta := CommittedDelta{
 		RuntimeOperation: &RuntimeOperationCommitted{
-			Stage: RuntimeOperationFailed,
+			Stage: RuntimeOperationFailed, Provider: "codex", IsChildSession: true,
 			Operation: storesqlite.RuntimeOperation{
 				WorkspaceID: "ws-1", AgentSessionID: "session-1", OperationID: "op-interactive",
 				Kind: storesqlite.RuntimeOperationKindInteractiveResponse, RequestID: "request-1", TurnID: "turn-1",
@@ -112,21 +175,22 @@ func TestTerminalFailuresFromDeltaCoversInteractivePlanToolAndTurn(t *testing.T)
 			},
 		},
 		GoalOperation: &GoalOperationCommitted{
-			Stage: GoalOperationFailed,
+			Stage: GoalOperationFailed, Provider: "claude-code", IsChildSession: true,
 			Operation: storesqlite.GoalControlOperation{
 				WorkspaceID: "ws-1", AgentSessionID: "session-1", OperationID: "op-goal",
 				ClientSubmitID: "goal-1", LastError: "goal runtime unavailable",
 			},
 		},
 		RootTurnsSettled: []RootTurnSettled{{
-			WorkspaceID: "ws-1", AgentSessionID: "session-1",
+			WorkspaceID: "ws-1", AgentSessionID: "session-1", Provider: "cursor", StartupReconciled: true,
 			Turn: storesqlite.Turn{
-				TurnID: "turn-2", Outcome: storesqlite.TurnOutcomeFailed,
+				TurnID: "turn-2", Outcome: storesqlite.TurnOutcomeFailed, SourceGoalOperationID: "goal-op-2",
 				ErrorCode: "provider_timeout", ErrorMessage: "turn timed out",
+				StartedAtUnixMS: 100, SettledAtUnixMS: 350,
 			},
 		}},
 		SessionMessages: &SessionMessagesCommitted{
-			Input: canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "session-1"},
+			Input: canonical.ReportSessionMessagesInput{WorkspaceID: "ws-1", AgentSessionID: "session-1"}, Provider: "openclaw",
 			Result: storesqlite.MessageReportResult{
 				Messages: []storesqlite.Message{{
 					MessageID: "toolcall:1", AgentSessionID: "session-1", TurnID: "turn-2",
@@ -146,17 +210,36 @@ func TestTerminalFailuresFromDeltaCoversInteractivePlanToolAndTurn(t *testing.T)
 	for _, failure := range observer.failures {
 		byFlow[failure.Flow] = failure
 	}
-	if byFlow["interactive_response"].InteractionKind != "plan" || byFlow["interactive_response"].ErrorMessage != "interactive submit rejected" {
+	if byFlow["interactive_response"].InteractionKind != "plan" || byFlow["interactive_response"].ErrorMessage != "interactive submit rejected" ||
+		byFlow["interactive_response"].Provider != "codex" || !byFlow["interactive_response"].IsChildSession {
 		t.Fatalf("interactive failure = %#v", byFlow["interactive_response"])
 	}
-	if byFlow["goal_control"].ClientSubmitID != "goal-1" || byFlow["goal_control"].ErrorMessage != "goal runtime unavailable" {
+	if byFlow["goal_control"].ClientSubmitID != "goal-1" || byFlow["goal_control"].ErrorMessage != "goal runtime unavailable" ||
+		byFlow["goal_control"].Provider != "claude-code" || !byFlow["goal_control"].IsChildSession {
 		t.Fatalf("goal failure = %#v", byFlow["goal_control"])
 	}
-	if byFlow["turn"].TurnID != "turn-2" || byFlow["turn"].ErrorCode != "provider_timeout" {
+	if byFlow["turn"].TurnID != "turn-2" || byFlow["turn"].ErrorCode != "provider_timeout" ||
+		byFlow["turn"].Provider != "cursor" || byFlow["turn"].OperationID != "goal-op-2" ||
+		byFlow["turn"].TurnOutcome != storesqlite.TurnOutcomeFailed || byFlow["turn"].DurationMS != 250 ||
+		!byFlow["turn"].StartupReconciled {
 		t.Fatalf("turn failure = %#v", byFlow["turn"])
 	}
-	if byFlow["tool_call"].ToolNameFamily != "bash" || byFlow["tool_call"].ErrorMessage != "command exited 1" {
+	if byFlow["tool_call"].ToolNameFamily != "bash" || byFlow["tool_call"].ErrorMessage != "command exited 1" ||
+		byFlow["tool_call"].Provider != "openclaw" {
 		t.Fatalf("tool failure = %#v", byFlow["tool_call"])
+	}
+}
+
+func TestTerminalFailuresFromDeltaDoesNotTreatInterruptedOrCanceledTurnsAsFailures(t *testing.T) {
+	observer := &recordingTerminalFailureObserver{}
+	ObserveTerminalFailuresFromDelta(context.Background(), observer, CommittedDelta{
+		RootTurnsSettled: []RootTurnSettled{
+			{Turn: storesqlite.Turn{TurnID: "turn-interrupted", Outcome: storesqlite.TurnOutcomeInterrupted, ErrorMessage: "daemon restarted"}},
+			{Turn: storesqlite.Turn{TurnID: "turn-canceled", Outcome: storesqlite.TurnOutcomeCanceled, ErrorMessage: "user canceled"}},
+		},
+	})
+	if len(observer.failures) != 0 {
+		t.Fatalf("terminal failures = %#v, want interrupted and canceled turns excluded", observer.failures)
 	}
 }
 

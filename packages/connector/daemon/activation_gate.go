@@ -44,7 +44,8 @@ func (gate *activationGateHost) Reconcile(ctx context.Context, request market.Ru
 		gate.staged[key] = request
 	}
 	return market.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
-		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
+		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
+		Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessBlocked, ReasonCode: "publication_gate_closed"}}, nil
 }
 
 func (gate *activationGateHost) DeactivateRuntime(ctx context.Context, request market.RuntimeDeactivationRequest) error {

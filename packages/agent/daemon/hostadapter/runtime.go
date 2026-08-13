@@ -39,6 +39,10 @@ type RuntimeBackend interface {
 	GoalCapabilities(context.Context, agentruntime.GoalReconcileInput) (agentruntime.GoalAdapterCapabilities, error)
 }
 
+type runtimeRetainedSettingsBackend interface {
+	UpdateRetainedSettings(context.Context, agentruntime.UpdateSettingsInput) (agentruntime.UpdateSettingsResult, error)
+}
+
 type runtimeHistoryBackend interface {
 	SupportsEffectiveHistory(context.Context, agentruntime.EffectiveHistoryInput) (bool, error)
 	ReadEffectiveHistory(context.Context, agentruntime.EffectiveHistoryInput) (agentruntime.EffectiveHistorySnapshot, error)
@@ -54,9 +58,13 @@ type RuntimeController struct {
 var (
 	_ host.RuntimeController                       = (*RuntimeController)(nil)
 	_ host.RuntimeSessionInitializationPublisher   = (*RuntimeController)(nil)
+	_ host.RuntimeSessionRepreparer                = (*RuntimeController)(nil)
 	_ host.RuntimeHistoryController                = (*RuntimeController)(nil)
 	_ host.RuntimeProviderTurnAcceptanceReconciler = (*RuntimeController)(nil)
 	_ host.RuntimeSessionLiveness                  = (*RuntimeController)(nil)
+	_ host.RuntimeWorkspaceDisconnector            = (*RuntimeController)(nil)
+	_ host.RuntimeWorkspaceDisconnectTargeter      = (*RuntimeController)(nil)
+	_ host.RuntimeRetainedSettingsUpdater          = (*RuntimeController)(nil)
 	_ host.RuntimeSubmitProvenanceReporter         = (*RuntimeController)(nil)
 	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)
 	_ host.SessionForkTurnBindingRecoveryRuntime   = (*RuntimeController)(nil)
@@ -66,6 +74,10 @@ var (
 	_ host.GoalRuntimeRecoveryPolicyResolver       = (*RuntimeController)(nil)
 	_ host.GoalRuntimeGenerationFencer             = (*RuntimeController)(nil)
 )
+
+type runtimeSessionReprepareBackend interface {
+	Reprepare(context.Context, agentruntime.ResumeInput) (agentruntime.Session, error)
+}
 
 type sessionForkRuntimeBackend interface {
 	ForkCapabilities(context.Context, agentruntime.Session) (agentruntime.SessionForkCapabilities, error)
@@ -198,6 +210,21 @@ func (a *RuntimeController) Resume(ctx context.Context, input host.RuntimeResume
 		return host.ProviderRuntimeSession{}, err
 	}
 	session, err := a.Backend.Resume(ctx, runtimeResumeInput(input))
+	if err != nil {
+		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
+	}
+	return a.sessionWithState(session), nil
+}
+
+func (a *RuntimeController) Reprepare(ctx context.Context, input host.RuntimeResumeInput) (host.ProviderRuntimeSession, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.ProviderRuntimeSession{}, err
+	}
+	backend, ok := a.Backend.(runtimeSessionReprepareBackend)
+	if !ok {
+		return host.ProviderRuntimeSession{}, host.ErrRuntimeSessionReprepareUnavailable
+	}
+	session, err := backend.Reprepare(ctx, runtimeResumeInput(input))
 	if err != nil {
 		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
 	}
@@ -353,6 +380,25 @@ func (a *RuntimeController) UpdateSettings(ctx context.Context, input host.Runti
 		return err
 	}
 	_, err := a.Backend.UpdateSettings(ctx, agentruntime.UpdateSettingsInput{
+		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
+		Settings: agentruntime.SessionSettingsPatch{
+			Model: input.Settings.Model, ReasoningEffort: input.Settings.ReasoningEffort, Speed: input.Settings.Speed,
+			PlanMode: input.Settings.PlanMode, BrowserUse: input.Settings.BrowserUse,
+			ComputerUse: input.Settings.ComputerUse, PermissionModeID: input.Settings.PermissionModeID,
+		},
+	})
+	return mapRuntimeError(err)
+}
+
+func (a *RuntimeController) UpdateRetainedSettings(ctx context.Context, input host.RuntimeUpdateSettingsInput) error {
+	if err := a.requireBackend(); err != nil {
+		return err
+	}
+	backend, ok := a.Backend.(runtimeRetainedSettingsBackend)
+	if !ok {
+		return host.ErrWorkspaceDisconnectUnavailable
+	}
+	_, err := backend.UpdateRetainedSettings(ctx, agentruntime.UpdateSettingsInput{
 		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
 		Settings: agentruntime.SessionSettingsPatch{
 			Model: input.Settings.Model, ReasoningEffort: input.Settings.ReasoningEffort, Speed: input.Settings.Speed,
@@ -620,6 +666,9 @@ func mapRuntimeError(err error) error {
 	if errors.Is(err, agentruntime.ErrActiveTurnTargetMismatch) {
 		return errors.Join(host.ErrActiveTurnTargetMismatch, err)
 	}
+	if errors.Is(err, agentruntime.ErrSessionActiveTurn) {
+		return errors.Join(host.ErrRuntimeSessionActive, err)
+	}
 	if errors.Is(err, agentruntime.ErrEffectiveHistoryUnsupported) {
 		return host.ErrRuntimeHistoryUnsupported
 	}
@@ -724,8 +773,10 @@ func runtimeResumeInput(input host.RuntimeResumeInput) agentruntime.ResumeInput 
 		Resumable: input.Resumable,
 		Env:       append([]string(nil), input.Env...), MCPServers: runtimeMCPServerBindings(input.MCPServers),
 		Title: input.Title, Status: input.Status, Visible: input.Visible,
-		RuntimeContext: cloneMap(input.RuntimeContext), ProviderTargetRef: cloneMap(input.ProviderTargetRef),
-		PermissionModeID: input.Settings.PermissionModeID, Settings: runtimeSettings(input.Settings),
+		RuntimeContext:               cloneMap(input.RuntimeContext),
+		ProviderLaunchRuntimeContext: cloneMap(input.ProviderLaunchRuntimeContext),
+		ProviderTargetRef:            cloneMap(input.ProviderTargetRef),
+		PermissionModeID:             input.Settings.PermissionModeID, Settings: runtimeSettings(input.Settings),
 		CreatedAtUnixMS: input.CreatedAtUnixMS, UpdatedAtUnixMS: input.UpdatedAtUnixMS,
 		GoalGenerationFences: runtimeGoalGenerationFences(input.GoalGenerationFences),
 		RecreateIfMissing:    input.RecreateIfMissing,

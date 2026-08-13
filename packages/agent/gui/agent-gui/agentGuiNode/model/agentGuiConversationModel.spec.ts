@@ -1166,6 +1166,42 @@ describe("agentGuiConversationModel", () => {
     ]);
   });
 
+  it("keeps an optimistic prompt after a durable assistant tail during merge", () => {
+    const merged = mergeAgentGUITimelineItems(
+      [
+        timelineItem({
+          id: 8,
+          eventId: "assistant-tail",
+          itemType: "message.assistant",
+          role: "assistant",
+          content: "Assistant tail",
+          occurredAtUnixMs: 200,
+          seq: 8
+        })
+      ],
+      [
+        timelineItem({
+          id: -1,
+          eventId: "client-submit:user:submit-1",
+          itemType: "message.user",
+          role: "user",
+          content: "New ask",
+          payload: {
+            __agentGuiOptimisticPrompt: true
+          },
+          occurredAtUnixMs: 100,
+          createdAtUnixMs: 100,
+          seq: 0
+        })
+      ]
+    );
+
+    expect(merged.map((item) => item.eventId)).toEqual([
+      "assistant-tail",
+      "client-submit:user:submit-1"
+    ]);
+  });
+
   it("keeps distinct user prompts from different turns when event ids are missing but seq matches", () => {
     expect(
       mergeAgentGUITimelineItems(

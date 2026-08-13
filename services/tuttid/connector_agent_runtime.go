@@ -10,8 +10,15 @@ import (
 // Service and Host. The route registry may change after construction, but the
 // port itself is ready before Agent Host recovery begins.
 type connectorAgentRuntime struct {
-	routes *connectorimplementation.RouteRegistry
-	server *connectormcpservice.Server
+	routes    *connectorimplementation.RouteRegistry
+	server    connectorSessionBinder
+	cliBinDir string
+}
+
+type connectorSessionBinder interface {
+	Binding(string, string) (connectormcpservice.Binding, error)
+	Revoke(string, string)
+	RevokeAll()
 }
 
 func (runtime *connectorAgentRuntime) RoutingHints() []runtimeprep.ConnectorRoutingHint {
@@ -31,13 +38,22 @@ func (runtime *connectorAgentRuntime) RoutingHints() []runtimeprep.ConnectorRout
 	return hints
 }
 
-func (runtime *connectorAgentRuntime) BindSession(workspaceID, agentSessionID string) (runtimeprep.MCPServerBinding, error) {
+func (runtime *connectorAgentRuntime) BindSession(workspaceID, agentSessionID string) (runtimeprep.ConnectorAgentContext, error) {
 	binding, err := runtime.server.Binding(workspaceID, agentSessionID)
 	if err != nil {
-		return runtimeprep.MCPServerBinding{}, err
+		return runtimeprep.ConnectorAgentContext{}, err
 	}
-	return runtimeprep.MCPServerBinding{
-		Name: binding.Name, Type: binding.Type, URL: binding.URL, Headers: binding.Headers,
+	hints := runtime.RoutingHints()
+	skillRoots := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		if hint.SkillRoot != "" {
+			skillRoots = append(skillRoots, hint.SkillRoot)
+		}
+	}
+	return runtimeprep.ConnectorAgentContext{
+		MCPServers:   []runtimeprep.MCPServerBinding{{Name: binding.Name, Type: binding.Type, URL: binding.URL, Headers: binding.Headers}},
+		RoutingHints: hints, CLIBinDir: runtime.cliBinDir, SkillRoots: skillRoots,
+		RuntimeRevision: runtime.routes.Revision(),
 	}, nil
 }
 

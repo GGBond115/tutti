@@ -330,9 +330,11 @@ type SessionSectionDeletionCandidates struct {
 }
 
 type DeleteSessionsBatchInput struct {
-	WorkspaceID        string
-	SessionIDs         []string
-	ExpectedSessionIDs []string
+	WorkspaceID                string
+	SessionIDs                 []string
+	ExpectedSessionIDs         []string
+	RequiredRootRailSectionKey string
+	ExcludePinnedRoots         bool
 }
 
 type DeleteSessionsPlan struct {
@@ -679,11 +681,15 @@ type ListSessionInteractionsInput struct {
 // StaleTurnSettlement identifies one turn that startup reconciliation
 // force-settled with outcome interrupted.
 type StaleTurnSettlement struct {
-	TransactionID  string           `json:"-"`
-	CommitDelta    TransactionDelta `json:"-"`
-	WorkspaceID    string
-	AgentSessionID string
-	TurnID         string
+	TransactionID   string           `json:"-"`
+	CommitDelta     TransactionDelta `json:"-"`
+	WorkspaceID     string
+	AgentSessionID  string
+	TurnID          string
+	Provider        string
+	IsChildSession  bool
+	StartedAtUnixMS int64
+	SettledAtUnixMS int64
 }
 
 type SessionStateReport struct {

@@ -40,7 +40,6 @@ type Config struct {
 	OperationOwner          string
 	Scheduler               Scheduler
 	StaleTurnSettler        StaleTurnSettler
-	WorktreeGC              WorktreeGarbageCollector
 	GoalStore               GoalStateStore
 	GoalFences              GoalGenerationFenceStore
 	GoalRuntime             GoalRuntimeController
@@ -64,53 +63,53 @@ type Config struct {
 }
 
 type Host struct {
-	store                  CanonicalStore
-	interactionTrees       CanonicalInteractionTreeStore
-	turnSubmissions        TurnSubmissionStore
-	effectiveHistory       EffectiveHistoryStore
-	sessionManagement      SessionManagementStore
-	sessionBatchManagement SessionBatchManagementStore
-	sessionDeletionGuard   SessionDeletionGuard
-	sessionPurge           SessionPurgeStore
-	deletedSessions        DeletedSessionStore
-	historicalState        HistoricalSessionStateStore
-	sessionForks           SessionForkStore
-	sessionForkRecovery    SessionForkRecoveryStore
-	sessionForkRuntime     SessionForkRuntime
-	sessionForkContext     SessionForkContextPolicy
-	sessionForkState       SessionForkProviderStateBinder
-	sessionForkAttachments SessionForkAttachmentStager
-	runtime                RuntimeController
-	historyRuntime         RuntimeHistoryController
-	preparation            RuntimePreparationPort
-	settingsPolicy         SettingsPolicy
-	attachments            AttachmentMaterializer
-	clock                  Clock
-	locker                 SessionLocker
-	startupGate            RuntimeStartGate
-	observer               LifecycleObserver
-	terminalFailure        TerminalFailureObserver
-	commitObserver         CommitObserver
-	operations             RuntimeOperationStore
-	events                 RuntimeOperationEventPublisher
-	owner                  string
-	scheduler              Scheduler
-	staleTurns             StaleTurnSettler
-	worktreeGC             WorktreeGarbageCollector
-	goals                  GoalStateStore
-	goalFences             GoalGenerationFenceStore
-	goalRuntime            GoalRuntimeController
-	goalInbox              GoalReconcileInboxStore
-	goalOwner              string
-	goalClock              Clock
-	goalAttemptTimeout     time.Duration
-	goalRecoveryBudget     time.Duration
-	goalMaxAttempts        int
-	goalDispatchDeadline   time.Duration
-	goalActor              *SessionActor
-	sessionMutationActor   *SessionActor
-	editRetryDisabled      bool
-	goalFencesRestored     sync.Map
+	store                     CanonicalStore
+	interactionTrees          CanonicalInteractionTreeStore
+	turnSubmissions           TurnSubmissionStore
+	effectiveHistory          EffectiveHistoryStore
+	sessionManagement         SessionManagementStore
+	sessionBatchManagement    SessionBatchManagementStore
+	sessionDeletionGuard      SessionDeletionGuard
+	sessionPurge              SessionPurgeStore
+	deletedSessions           DeletedSessionStore
+	historicalState           HistoricalSessionStateStore
+	sessionForks              SessionForkStore
+	sessionForkRecovery       SessionForkRecoveryStore
+	sessionForkRuntime        SessionForkRuntime
+	sessionForkContext        SessionForkContextPolicy
+	sessionForkState          SessionForkProviderStateBinder
+	sessionForkAttachments    SessionForkAttachmentStager
+	runtime                   RuntimeController
+	historyRuntime            RuntimeHistoryController
+	preparation               RuntimePreparationPort
+	settingsPolicy            SettingsPolicy
+	attachments               AttachmentMaterializer
+	clock                     Clock
+	locker                    SessionLocker
+	startupGate               RuntimeStartGate
+	observer                  LifecycleObserver
+	terminalFailure           TerminalFailureObserver
+	commitObserver            CommitObserver
+	operations                RuntimeOperationStore
+	events                    RuntimeOperationEventPublisher
+	owner                     string
+	scheduler                 Scheduler
+	staleTurns                StaleTurnSettler
+	goals                     GoalStateStore
+	goalFences                GoalGenerationFenceStore
+	goalRuntime               GoalRuntimeController
+	goalInbox                 GoalReconcileInboxStore
+	goalOwner                 string
+	goalClock                 Clock
+	goalAttemptTimeout        time.Duration
+	goalRecoveryBudget        time.Duration
+	goalMaxAttempts           int
+	goalDispatchDeadline      time.Duration
+	goalActor                 *SessionActor
+	sessionMutationActor      *SessionActor
+	workspaceRuntimeAdmission *workspaceRuntimeAdmission
+	editRetryDisabled         bool
+	goalFencesRestored        sync.Map
 }
 
 func New(config Config) *Host {
@@ -140,13 +139,13 @@ func New(config Config) *Host {
 		commitObserver: config.CommitObserver,
 		operations:     config.RuntimeOperations, events: config.OperationEvents,
 		owner: config.OperationOwner, scheduler: config.Scheduler, staleTurns: config.StaleTurnSettler,
-		worktreeGC: config.WorktreeGC,
-		goals:      config.GoalStore, goalFences: config.GoalFences, goalRuntime: config.GoalRuntime, goalInbox: config.GoalInbox,
+		goals: config.GoalStore, goalFences: config.GoalFences, goalRuntime: config.GoalRuntime, goalInbox: config.GoalInbox,
 		goalOwner: config.GoalOwner, goalClock: config.GoalClock,
 		goalAttemptTimeout: config.GoalAttemptTimeout, goalRecoveryBudget: config.GoalRecoveryBudget,
 		goalMaxAttempts: config.GoalMaxAttempts, goalDispatchDeadline: config.GoalDispatchDeadline,
 		goalActor: goalActor, sessionMutationActor: sessionMutationActor,
-		editRetryDisabled: config.EditRetryDisabled,
+		workspaceRuntimeAdmission: newWorkspaceRuntimeAdmission(),
+		editRetryDisabled:         config.EditRetryDisabled,
 	}
 	if host.interactionTrees == nil {
 		host.interactionTrees, _ = host.store.(CanonicalInteractionTreeStore)
@@ -224,6 +223,14 @@ func (h *Host) observeGuidanceTargetFailure(
 func (h *Host) observeTerminalFailure(ctx context.Context, failure TerminalFailure) {
 	if h == nil || h.terminalFailure == nil {
 		return
+	}
+	if h.store != nil && strings.TrimSpace(failure.WorkspaceID) != "" && strings.TrimSpace(failure.AgentSessionID) != "" {
+		if session, found, err := h.store.GetSession(ctx, failure.WorkspaceID, failure.AgentSessionID); err == nil && found {
+			if strings.TrimSpace(failure.Provider) == "" {
+				failure.Provider = strings.TrimSpace(session.Provider)
+			}
+			failure.IsChildSession = failure.IsChildSession || canonicalSessionIsChild(session)
+		}
 	}
 	if failure.ErrorMessage == "" && failure.ErrorCode == "" {
 		return

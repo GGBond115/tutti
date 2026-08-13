@@ -312,7 +312,7 @@ func mergeTurnTransition(existing Turn, hasExisting bool, transition TurnTransit
 	))
 	merged.Backfilled = false
 	merged.UpdatedAtUnixMS = occurred
-	if transition.ErrorMessage != "" {
+	if transition.ErrorMessage != "" || transition.ErrorCode != "" {
 		merged.ErrorMessage = strings.TrimSpace(transition.ErrorMessage)
 		merged.ErrorCode = strings.TrimSpace(transition.ErrorCode)
 	}
@@ -447,8 +447,13 @@ func (s *Store) SettleStaleTurns(ctx context.Context) ([]StaleTurnSettlement, er
 	}()
 
 	rows, err := tx.QueryContext(ctx, `
-SELECT t.workspace_id, t.agent_session_id, t.turn_id
+SELECT t.workspace_id, t.agent_session_id, t.turn_id,
+       COALESCE(s.provider, ''), s.session_kind, COALESCE(s.parent_tool_call_id, ''),
+       t.started_at_unix_ms
 FROM workspace_agent_turns AS t
+JOIN workspace_agent_sessions AS s
+  ON s.workspace_id = t.workspace_id
+ AND s.agent_session_id = t.agent_session_id
 WHERE t.phase != ?
   AND NOT EXISTS (
     SELECT 1 FROM workspace_agent_runtime_operations AS op
@@ -463,7 +468,7 @@ WHERE t.phase != ?
       )
       AND op.status IN (?, ?)
   )
-ORDER BY workspace_id ASC, agent_session_id ASC, turn_id ASC
+ORDER BY t.workspace_id ASC, t.agent_session_id ASC, t.turn_id ASC
 `, TurnPhaseSettled, RuntimeOperationKindEditRetry,
 		RuntimeOperationStatusPrepared, RuntimeOperationStatusLeased)
 	if err != nil {
@@ -472,10 +477,21 @@ ORDER BY workspace_id ASC, agent_session_id ASC, turn_id ASC
 	settlements := make([]StaleTurnSettlement, 0)
 	for rows.Next() {
 		var settlement StaleTurnSettlement
-		if err := rows.Scan(&settlement.WorkspaceID, &settlement.AgentSessionID, &settlement.TurnID); err != nil {
+		var sessionKind, parentToolCallID string
+		if err := rows.Scan(
+			&settlement.WorkspaceID,
+			&settlement.AgentSessionID,
+			&settlement.TurnID,
+			&settlement.Provider,
+			&sessionKind,
+			&parentToolCallID,
+			&settlement.StartedAtUnixMS,
+		); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan stale workspace agent turn: %w", err)
 		}
+		settlement.IsChildSession = strings.EqualFold(strings.TrimSpace(sessionKind), SessionKindChild) ||
+			strings.TrimSpace(parentToolCallID) != ""
 		settlements = append(settlements, settlement)
 	}
 	if err := rows.Err(); err != nil {
@@ -493,6 +509,9 @@ ORDER BY workspace_id ASC, agent_session_id ASC, turn_id ASC
 	}
 
 	now := unixMs(time.Now().UTC())
+	for index := range settlements {
+		settlements[index].SettledAtUnixMS = now
+	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE workspace_agent_turns AS t
 SET phase = ?, outcome = ?, settled_at_unix_ms = ?, updated_at_unix_ms = ?

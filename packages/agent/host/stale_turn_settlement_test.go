@@ -15,7 +15,7 @@ func (o *recordingStaleTurnFailureObserver) ObserveTerminalFailure(_ context.Con
 	o.failures = append(o.failures, failure)
 }
 
-func TestObserveTerminalFailuresFromStaleTurnSettlementDelta(t *testing.T) {
+func TestStaleTurnSettlementDeltaDoesNotReportInterruptedAsFailure(t *testing.T) {
 	delta := StaleTurnSettlementDelta([]storesqlite.StaleTurnSettlement{
 		{WorkspaceID: "ws-1", AgentSessionID: "session-1", TurnID: "turn-stale"},
 		{WorkspaceID: "ws-1", AgentSessionID: "session-2", TurnID: ""},
@@ -33,33 +33,22 @@ func TestObserveTerminalFailuresFromStaleTurnSettlementDelta(t *testing.T) {
 
 	observer := &recordingStaleTurnFailureObserver{}
 	ObserveTerminalFailuresFromDelta(context.Background(), observer, delta)
-	if len(observer.failures) != 1 {
-		t.Fatalf("terminal failures = %#v, want 1", observer.failures)
-	}
-	got := observer.failures[0]
-	if got.Flow != "turn" || got.FailureStage != "settled" {
-		t.Fatalf("failure identity = %#v", got)
-	}
-	if got.WorkspaceID != "ws-1" || got.AgentSessionID != "session-1" || got.TurnID != "turn-stale" {
-		t.Fatalf("failure session identity = %#v", got)
-	}
-	if got.ErrorMessage != "stale turn settled on daemon startup" {
-		t.Fatalf("failure message = %q", got.ErrorMessage)
+	if len(observer.failures) != 0 {
+		t.Fatalf("terminal failures = %#v, want interrupted settlement excluded", observer.failures)
 	}
 }
 
-func TestStaleTurnSettlementDeltaKeepsChildSessionIdentityFromCallSite(t *testing.T) {
+func TestStaleTurnSettlementDeltaKeepsChildSessionIdentityFromStore(t *testing.T) {
 	delta := StaleTurnSettlementDelta([]storesqlite.StaleTurnSettlement{
-		{WorkspaceID: "ws-1", AgentSessionID: "child-1", TurnID: "turn-stale"},
+		{WorkspaceID: "ws-1", AgentSessionID: "child-1", TurnID: "turn-stale", IsChildSession: true},
 	})
-	if len(delta.RootTurnsSettled) != 1 || delta.RootTurnsSettled[0].IsChildSession {
-		t.Fatalf("root turns settled = %#v, want child identity left to the call site", delta.RootTurnsSettled)
+	if len(delta.RootTurnsSettled) != 1 || !delta.RootTurnsSettled[0].IsChildSession {
+		t.Fatalf("root turns settled = %#v, want persisted child identity", delta.RootTurnsSettled)
 	}
-	delta.RootTurnsSettled[0].IsChildSession = true
 
 	observer := &recordingStaleTurnFailureObserver{}
 	ObserveTerminalFailuresFromDelta(context.Background(), observer, delta)
-	if len(observer.failures) != 1 || !observer.failures[0].IsChildSession {
-		t.Fatalf("terminal failures = %#v, want one child-session turn failure", observer.failures)
+	if len(observer.failures) != 0 {
+		t.Fatalf("terminal failures = %#v, want interrupted child settlement excluded", observer.failures)
 	}
 }

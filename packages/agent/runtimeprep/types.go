@@ -65,6 +65,9 @@ type PrepareInput struct {
 	// MCPServers are daemon-issued, session-scoped native MCP bindings. They
 	// are typed runtime configuration and must never be rendered into prompts.
 	MCPServers []MCPServerBinding
+	// Connector is the complete, session-bound Connector projection. The
+	// preparer expands it into provider-native MCP, PATH, and Skill inputs.
+	Connector *ConnectorAgentContext
 	// ExtensionSkillRoots carries the skill root paths declared by an agent
 	// extension's composer profile (Skills.Roots[].Path). When non-empty,
 	// native tutti skills materialize into these roots instead of the
@@ -123,6 +126,14 @@ type MCPServerBinding struct {
 	Type    string
 	URL     string
 	Headers map[string]string
+}
+
+type ConnectorAgentContext struct {
+	MCPServers      []MCPServerBinding
+	RoutingHints    []ConnectorRoutingHint
+	CLIBinDir       string
+	SkillRoots      []string
+	RuntimeRevision uint64
 }
 
 type ExtensionRuntimePrep struct {

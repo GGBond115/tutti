@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 )
 
 // commandPreconditionStage names the boundary emission for a command that
@@ -22,9 +23,24 @@ type commandTerminalFailure struct {
 	mu             sync.Mutex
 	workspaceID    string
 	agentSessionID string
+	operationID    string
+	requestID      string
+	clientSubmitID string
+	turnID         string
 	provider       string
 	stage          string
+	startedAt      time.Time
 	emitted        bool
+}
+
+type commandTerminalFailureInput struct {
+	flow           string
+	workspaceID    string
+	agentSessionID string
+	operationID    string
+	requestID      string
+	clientSubmitID string
+	turnID         string
 }
 
 type commandTerminalFailureKey struct{}
@@ -33,12 +49,19 @@ type commandTerminalFailureKey struct{}
 // nested command scopes its own aggregation for its callees only.
 func (h *Host) beginCommand(
 	ctx context.Context,
-	flow, workspaceID, agentSessionID string,
+	input commandTerminalFailureInput,
 ) (context.Context, *commandTerminalFailure) {
 	command := &commandTerminalFailure{
-		flow:           flow,
-		workspaceID:    strings.TrimSpace(workspaceID),
-		agentSessionID: strings.TrimSpace(agentSessionID),
+		flow:           strings.TrimSpace(input.flow),
+		workspaceID:    strings.TrimSpace(input.workspaceID),
+		agentSessionID: strings.TrimSpace(input.agentSessionID),
+		operationID:    strings.TrimSpace(input.operationID),
+		requestID:      strings.TrimSpace(input.requestID),
+		clientSubmitID: strings.TrimSpace(input.clientSubmitID),
+		turnID:         strings.TrimSpace(input.turnID),
+	}
+	if h != nil {
+		command.startedAt = h.now()
 	}
 	if h == nil || h.terminalFailure == nil {
 		return ctx, command
@@ -97,8 +120,13 @@ func (c *commandTerminalFailure) finish(ctx context.Context, h *Host, err error)
 		Flow:           c.flow,
 		WorkspaceID:    c.workspaceID,
 		AgentSessionID: c.agentSessionID,
+		OperationID:    c.operationID,
+		RequestID:      c.requestID,
+		ClientSubmitID: c.clientSubmitID,
+		TurnID:         c.turnID,
 		Provider:       c.provider,
 	}
+	startedAt := c.startedAt
 	c.mu.Unlock()
 	if emitted {
 		return
@@ -110,5 +138,8 @@ func (c *commandTerminalFailure) finish(ctx context.Context, h *Host, err error)
 	failure.ErrorCode = terminalFailureCode(err)
 	failure.ErrorMessage = err.Error()
 	failure.Retryable = isRetryableRuntimeOperationError(err)
+	if duration := h.now().Sub(startedAt).Milliseconds(); duration > 0 {
+		failure.DurationMS = duration
+	}
 	h.observeTerminalFailure(ctx, failure)
 }

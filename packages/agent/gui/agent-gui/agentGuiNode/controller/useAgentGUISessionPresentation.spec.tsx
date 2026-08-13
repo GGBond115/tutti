@@ -92,7 +92,7 @@ describe("useAgentGUISessionPresentation", () => {
     });
   });
 
-  it("keeps confirmed initial work busy until canonical state takes over", () => {
+  it("separates Turn-start feedback from canonical execution busy", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
       commandPort: createTestEngineCommandPort({
@@ -107,6 +107,7 @@ describe("useAgentGUISessionPresentation", () => {
       activeEngineActiveTurn: null,
       activeEngineAvailability: "available",
       activeEngineHasPendingInteractions: false,
+      activeHasPendingSubmitStopTarget: false,
       activeEngineLatestTurn: null as AgentActivityTurn | null,
       activeEngineRuntimeAvailability: null,
       activeEngineRuntimeActivity: "idle" as "idle" | "running",
@@ -166,18 +167,38 @@ describe("useAgentGUISessionPresentation", () => {
 
     const rendered = renderHook(() => useAgentGUISessionPresentation(input));
 
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
+    expect(rendered.result.current.composerGate.submission).toEqual({
+      status: "blocked",
+      reason: "submitting"
+    });
 
     input.activeLatestPendingSubmitTurnId = "turn-1";
     input.hasUnconfirmedSubmit = false;
     rendered.rerender();
 
     expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
+
+    input.activeLiveState = "activating";
+    rendered.rerender();
+
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
+    expect(rendered.result.current.composerGate.submission.status).not.toBe(
+      "queue"
+    );
+
+    input.activeLiveState = "active";
+    rendered.rerender();
 
     input.activePendingActivation = {
       agentSessionId: "session-1",
       agentTargetId: "local:claude-code",
       clientSubmitId: "submit-1",
+      commandOutcome: "pending",
+      commandSettledAtUnixMs: null,
       content: [{ type: "text", text: "hello" }],
       cwd: "/workspace",
       errorCode: null,
@@ -185,15 +206,19 @@ describe("useAgentGUISessionPresentation", () => {
       expiresAtUnixMs: Number.MAX_SAFE_INTEGER,
       initialPromptRetracted: false,
       initialTurnExpected: true,
+      lastObservedStage: "requested",
       mode: "new",
       requestedAtUnixMs: 1,
       requestId: "request-1",
+      snapshotObservedAtUnixMs: null,
+      snapshotOutcome: "not_observed",
       status: "requested",
       title: null,
       workspaceId: "workspace-1"
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     input.activeEngineLatestTurn = {
       agentSessionId: "session-1",
@@ -212,10 +237,28 @@ describe("useAgentGUISessionPresentation", () => {
     input.activePendingActivation = null;
     input.activeEngineLatestTurn = null;
     input.activeEngineRuntimeActivity = "running";
+    input.activityDisplayStatus = "idle";
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
 
     input.activeEngineRuntimeActivity = "idle";
+    input.activityDisplayStatus = "idle";
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+
+    input.activeEngineActiveTurn = {
+      agentSessionId: "session-1",
+      origin: "user_prompt",
+      phase: "running",
+      startedAtUnixMs: 5,
+      turnId: "turn-2",
+      updatedAtUnixMs: 5
+    };
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
+
+    input.activeEngineActiveTurn = null;
     rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(false);
 
@@ -223,6 +266,8 @@ describe("useAgentGUISessionPresentation", () => {
       agentSessionId: "session-1",
       agentTargetId: "local:claude-code",
       clientSubmitId: "goal-submit-1",
+      commandOutcome: "succeeded",
+      commandSettledAtUnixMs: 4,
       content: [{ type: "text", text: "/goal ship it" }],
       cwd: "/workspace",
       errorCode: null,
@@ -231,9 +276,12 @@ describe("useAgentGUISessionPresentation", () => {
       initialGoalControl: { action: "set", objective: "ship it" },
       initialPromptRetracted: false,
       initialTurnExpected: false,
+      lastObservedStage: "confirmed",
       mode: "new",
       requestedAtUnixMs: 4,
       requestId: "goal-request-1",
+      snapshotObservedAtUnixMs: 4,
+      snapshotOutcome: "matched",
       status: "confirmed",
       title: null,
       workspaceId: "workspace-1"
@@ -245,7 +293,8 @@ describe("useAgentGUISessionPresentation", () => {
       status: "pending_create"
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     input.activePendingActivation = {
       ...input.activePendingActivation,
@@ -293,7 +342,8 @@ describe("useAgentGUISessionPresentation", () => {
       }
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     input.activeEngineSession = {
       ...input.activeEngineSession!,
@@ -327,7 +377,8 @@ describe("useAgentGUISessionPresentation", () => {
       }
     };
     rendered.rerender();
-    expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
 
     for (const syncStatus of ["pending", "unknown"] as const) {
       input.activeEngineSession = {
@@ -339,7 +390,8 @@ describe("useAgentGUISessionPresentation", () => {
         }
       };
       rendered.rerender();
-      expect(rendered.result.current.activeConversationBusy).toBe(true);
+      expect(rendered.result.current.activeConversationBusy).toBe(false);
+      expect(rendered.result.current.isAwaitingTurnStart).toBe(true);
     }
 
     input.activeEngineSession = {
@@ -361,8 +413,10 @@ describe("useAgentGUISessionPresentation", () => {
       updatedAtUnixMs: 5
     };
     input.activeEngineRuntimeActivity = "running";
+    input.activityDisplayStatus = "working";
     rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(true);
+    expect(rendered.result.current.isAwaitingTurnStart).toBe(false);
 
     input.activeEngineLatestTurn = {
       ...input.activeEngineLatestTurn,
@@ -371,7 +425,16 @@ describe("useAgentGUISessionPresentation", () => {
       settledAtUnixMs: 6,
       updatedAtUnixMs: 6
     };
-    input.activeEngineRuntimeActivity = "idle";
+    input.activityDisplayStatus = "completed";
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+
+    input.activeEngineLatestTurn = {
+      ...input.activeEngineLatestTurn,
+      error: { message: "Runtime host unavailable" },
+      outcome: "failed"
+    };
+    input.activityDisplayStatus = "failed";
     rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(false);
 

@@ -273,12 +273,42 @@ type RuntimeSessionInitializationPublisher interface {
 	PublishSessionInitialization(context.Context, RuntimeSessionInitializationPublishInput) (ProviderRuntimeSession, error)
 }
 
+// RuntimeSessionRepreparer replaces an idle Session's live provider
+// connection without changing its canonical or provider session identity.
+// Implementations must serialize against Turn admission and fail when a Turn
+// is active.
+type RuntimeSessionRepreparer interface {
+	Reprepare(context.Context, RuntimeResumeInput) (ProviderRuntimeSession, error)
+}
+
 // RuntimeSessionLiveness distinguishes a registered runtime Session from a
 // live provider connection. It is required when Goal generation fencing is
 // configured: background recovery must never guess liveness and reconnect an
 // idle/offline Session merely to deliver deferred control work.
 type RuntimeSessionLiveness interface {
 	RuntimeSessionLive(workspaceID, agentSessionID string) bool
+}
+
+// RuntimeWorkspaceDisconnector exposes registered runtime sessions and
+// releases only their live provider connection. It must preserve the runtime
+// session record and provider resume identity, and must not invoke a
+// provider-history session close operation.
+type RuntimeWorkspaceDisconnector interface {
+	WorkspaceRuntimeSessions(context.Context, string) ([]ProviderRuntimeSession, error)
+	DisconnectRuntimeSession(context.Context, SessionRef) (bool, error)
+}
+
+// RuntimeWorkspaceDisconnectTargeter supports a reentrant detach that must
+// defer semantic cleanup without targeting a later provider connection.
+type RuntimeWorkspaceDisconnectTargeter interface {
+	SnapshotWorkspaceRuntimeDisconnectTargets(string) []RuntimeDisconnectTarget
+	DisconnectRuntimeSessionTarget(context.Context, RuntimeDisconnectTarget) (bool, error)
+}
+
+// RuntimeRetainedSettingsUpdater refreshes the settings snapshot kept by a
+// disconnected runtime Session without starting its provider connection.
+type RuntimeRetainedSettingsUpdater interface {
+	UpdateRetainedSettings(context.Context, RuntimeUpdateSettingsInput) error
 }
 
 // RuntimeHistoryController is an optional semantic capability. Host lifecycle
@@ -324,17 +354,9 @@ type RuntimeOperationEventPublisher interface {
 }
 
 // StaleTurnSettler runs after durable runtime operations, goal operations, and
-// goal reconcile inbox work have been recovered and before the adapter-specific
-// worktree-isolation sweep.
+// goal reconcile inbox work have been recovered.
 type StaleTurnSettler interface {
 	SettleStaleTurnsOnStartup(context.Context) error
-}
-
-// WorktreeGarbageCollector owns adapter-specific git/filesystem cleanup. Host
-// schedules it during startup recovery and from the periodic Run worker so
-// cleanup cannot accidentally follow a turn or runtime terminal transition.
-type WorktreeGarbageCollector interface {
-	SweepWorktreeIsolation(context.Context) error
 }
 
 type GoalStateStore interface {
@@ -549,6 +571,13 @@ type TerminalFailure struct {
 	ErrorMessage    string
 	ToolNameFamily  string
 	InteractionKind string
+	TurnOutcome     string
+	// DurationMS is populated only when the canonical terminal fact carries a
+	// valid start and settlement timestamp. Zero means unavailable.
+	DurationMS int64
+	// StartupReconciled distinguishes daemon-start interruption settlement from
+	// a live provider terminal observation.
+	StartupReconciled bool
 	// IsChildSession marks provider-native subagent sessions (parent tool call).
 	// Adapters may use it to distinguish child-session turn/tool failures from
 	// root-session ones without a separate event family.

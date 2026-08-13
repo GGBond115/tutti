@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
@@ -83,6 +84,7 @@ type Config struct {
 }
 
 type Host struct {
+	lifecycleMu            sync.Mutex
 	artifacts              PreparedArtifactResolver
 	planner                *connectorruntime.ManagedRoutePlanner
 	processes              agentruntime.ProcessTransport
@@ -96,6 +98,7 @@ type Host struct {
 	authorizationRoutes    map[string]*connectorRoute
 	remoteMCPClientFactory RemoteMCPClientFactory
 	mcpRegistry            *MCPRegistry
+	registry               *RouteRegistry
 	binDir                 string
 }
 
@@ -103,6 +106,7 @@ type connectorRoute struct {
 	id                     string
 	connectionID           string
 	connectorKey           string
+	connectorVersion       string
 	releaseDigest          string
 	generation             market.HostGeneration
 	mcpTools               map[string]registeredMCPTool
@@ -124,6 +128,7 @@ type connectorRoute struct {
 	cliShimPath            string
 	cliShimContent         []byte
 	credentialBrokerLaunch *managedCredentialBrokerLaunch
+	readiness              market.RuntimeReadiness
 }
 
 func New(config Config) (*Host, error) {
@@ -149,6 +154,9 @@ func New(config Config) (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := snapshots.CleanupOrphans(); err != nil {
+		return nil, fmt.Errorf("clean orphaned connector execution snapshots: %w", err)
+	}
 	routes := connectorruntime.NewRouteTable()
 	planner, err := connectorruntime.NewManagedRoutePlanner(connectorruntime.ManagedRoutePlannerConfig{
 		StateRoot: config.StateRoot, UserHome: config.UserHome, Runtimes: config.Runtimes, CLIInstallations: config.CLIInstallations,
@@ -170,6 +178,7 @@ func New(config Config) (*Host, error) {
 		authorizationRoutes:    make(map[string]*connectorRoute),
 		remoteMCPClientFactory: config.RemoteMCPClientFactory,
 		mcpRegistry:            config.MCP,
+		registry:               config.Registry,
 		binDir:                 config.BinDir,
 	}
 	host.authorizationProvider = newManagedCredentialAuthorizationProvider(host)
@@ -185,15 +194,19 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 	if err := market.ValidateRuntimeReleaseShape(runtimeRequest.Connector.Release); err != nil {
 		return market.RuntimeReceipt{}, err
 	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
 	key := connectorRouteKey(runtimeRequest.ConnectionID, runtimeRequest.Connector.Key)
 	if !runtimeRequest.Enabled {
 		if err := host.routes.Remove(key, runtimeRequest.Generation, "", time.Time{}); err != nil {
 			return market.RuntimeReceipt{}, err
 		}
-		host.mcpRegistry.notifyChanged()
+		host.notifyRouteChanged()
 		return market.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
 			ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: runtimeRequest.Connector.Installation.InstalledReleaseDigest,
-			Generation: runtimeRequest.Generation}, nil
+			Generation: runtimeRequest.Generation,
+			Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessBlocked,
+				ReasonCode: market.RuntimeReadinessReasonRuntimeDisabled}}, nil
 	}
 	if runtimeRequest.Connector.Installation.State != market.InstallationStateInstalled ||
 		runtimeRequest.Connector.Installation.InstalledReleaseDigest != runtimeRequest.Connector.Release.ReleaseDigest {
@@ -248,6 +261,9 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 	}
 	route.skillRoot = skillProjection.Root
 	route.skills = append([]connectorartifact.SkillSummary(nil), skillProjection.Skills...)
+	if route.readiness.State == "" {
+		route.readiness = readyRuntimeReadiness(route)
+	}
 	previous, _ := host.routes.Route(key).(*connectorRoute)
 	if err := route.activateCLIShim(); err != nil {
 		_ = route.Close(time.Now().Add(3 * time.Second))
@@ -263,18 +279,14 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		return market.RuntimeReceipt{}, err
 	}
 	host.releaseAuthorizationRouteByKey(key)
-	host.mcpRegistry.notifyChanged()
+	host.notifyRouteChanged()
 	if route.mcpClient != nil {
 		go host.monitorMCPRoute(route, route.mcpClient)
 	}
-	routeIDs := make([]string, 0, len(route.mcpTools))
-	for _, tool := range route.mcpTools {
-		routeIDs = append(routeIDs, tool.routeID)
-	}
-	sort.Strings(routeIDs)
+	summary := connectorSummaryFromDescriptor(routeDescriptor(route))
 	return market.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
 		ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: route.releaseDigest,
-		Generation: runtimeRequest.Generation, RouteIDs: routeIDs}, nil
+		Generation: runtimeRequest.Generation, Readiness: cloneRuntimeReadiness(route.readiness), Summary: &summary}, nil
 }
 
 func (*Host) validateAuthorization(request market.RuntimeReconcileRequest) error {
@@ -301,19 +313,17 @@ func (*Host) validateAuthorization(request market.RuntimeReconcileRequest) error
 	if managed == nil || managed.CredentialBroker == nil {
 		return errors.New("authorized connector credential broker binding is unavailable")
 	}
-	switch request.Connector.Authorization.State {
-	case market.AuthorizationStateDisconnected, market.AuthorizationStatePending, market.AuthorizationStateConnected,
-		market.AuthorizationStateExpired, market.AuthorizationStateFailed:
-	default:
-		return errors.New("authorized connector has an invalid authorization state")
+	if request.Connector.Authorization.State != market.AuthorizationStateConnected {
+		return errors.New("authorized managed connector is not connected")
 	}
 	return nil
 }
 
 func newConnectorRoute(request market.RuntimeReconcileRequest) *connectorRoute {
 	return &connectorRoute{id: connectorRouteKey(request.ConnectionID, request.Connector.Key), connectionID: request.ConnectionID,
-		connectorKey: request.Connector.Key, releaseDigest: request.Connector.Release.ReleaseDigest,
-		generation: request.Generation, mcpTools: make(map[string]registeredMCPTool),
+		connectorKey: request.Connector.Key, connectorVersion: request.Connector.Release.Version,
+		releaseDigest: request.Connector.Release.ReleaseDigest,
+		generation:    request.Generation, mcpTools: make(map[string]registeredMCPTool),
 		processes: connectorruntime.NewProcessGroup()}
 }
 
@@ -340,7 +350,7 @@ func (host *Host) Close() error {
 func (host *Host) SetCapabilityPublication(enabled bool) {
 	if host != nil {
 		host.routes.SetPublished(enabled)
-		host.mcpRegistry.notifyChanged()
+		host.notifyRouteChanged()
 	}
 }
 
@@ -349,7 +359,7 @@ func (host *Host) FenceAll(_ context.Context, deadline time.Time) error {
 		return nil
 	}
 	err := host.routes.FenceAll(deadline)
-	host.mcpRegistry.notifyChanged()
+	host.notifyRouteChanged()
 	return err
 }
 
@@ -371,8 +381,13 @@ func (host *Host) DeactivateRuntime(ctx context.Context, request market.RuntimeD
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
+	if request.AllConnections {
+		return host.deactivateConnector(request)
+	}
 	err := host.routes.Remove(connectorRouteKey(request.ConnectionID, request.ConnectorKey), request.Generation, request.ReleaseDigest, request.Deadline)
-	host.mcpRegistry.notifyChanged()
+	host.notifyRouteChanged()
 	return err
 }
 
@@ -399,6 +414,10 @@ func (host *Host) buildManagedRoute(ctx context.Context, request market.RuntimeR
 			_ = route.close(time.Now().Add(3 * time.Second))
 			return nil, err
 		}
+		if err := host.checkCLIReadiness(ctx, route, plan.Managed.CLI.ReadinessProbe); err != nil {
+			_ = route.close(time.Now().Add(3 * time.Second))
+			return nil, fmt.Errorf("check connector CLI readiness: %w", err)
+		}
 	}
 	if plan.Managed.CredentialBroker != nil {
 		if err := host.attachCredentialBroker(route, plan.Managed.CredentialBroker, prepared, plan.Executable, plan.StateDir, plan.ArtifactTrees); err != nil {
@@ -410,6 +429,7 @@ func (host *Host) buildManagedRoute(ctx context.Context, request market.RuntimeR
 		_ = route.close(time.Now().Add(3 * time.Second))
 		return nil, errors.New("connector implementation exposed no MCP tools or CLI commands")
 	}
+	route.readiness = readyRuntimeReadiness(route)
 	return route, nil
 }
 
@@ -488,11 +508,44 @@ func (host *Host) attachMCP(ctx context.Context, route *connectorRoute, managed 
 	return nil
 }
 
+func readyRuntimeReadiness(route *connectorRoute) market.RuntimeReadiness {
+	interfaces := make([]market.InterfaceReadiness, 0, 2)
+	if len(route.mcpTools) > 0 {
+		routeIDs := make([]string, 0, len(route.mcpTools))
+		for _, tool := range route.mcpTools {
+			routeIDs = append(routeIDs, tool.routeID)
+		}
+		sort.Strings(routeIDs)
+		interfaces = append(interfaces, market.InterfaceReadiness{Kind: "mcp", State: market.RuntimeReadinessReady, RouteIDs: routeIDs})
+	}
+	if route.cliLaunch != nil {
+		interfaces = append(interfaces, market.InterfaceReadiness{Kind: "cli", State: market.RuntimeReadinessReady})
+	}
+	return market.RuntimeReadiness{State: market.RuntimeReadinessReady, Interfaces: interfaces}
+}
+
+func cloneRuntimeReadiness(readiness market.RuntimeReadiness) market.RuntimeReadiness {
+	cloned := readiness
+	cloned.Interfaces = append([]market.InterfaceReadiness(nil), readiness.Interfaces...)
+	for index := range cloned.Interfaces {
+		cloned.Interfaces[index].RouteIDs = append([]string(nil), readiness.Interfaces[index].RouteIDs...)
+	}
+	return cloned
+}
+
+func (host *Host) notifyRouteChanged() {
+	if host == nil {
+		return
+	}
+	host.registry.notifyChanged()
+	host.mcpRegistry.notifyChanged()
+}
+
 func (host *Host) monitorMCPRoute(route *connectorRoute, client *mcp.StdioClient) {
 	<-client.Done()
 	unexpected := host.routes.IsCurrent(route)
 	_ = host.routes.RetireExact(route, time.Now().Add(3*time.Second))
-	host.mcpRegistry.notifyChanged()
+	host.notifyRouteChanged()
 	if unexpected && host.routeObserver != nil {
 		host.routeObserver.ObserveRoute(context.Background(), RouteObservation{
 			ConnectorKey: route.connectorKey, ConnectionID: route.connectionID,
@@ -706,8 +759,9 @@ func shellQuote(value string) string {
 }
 
 type RouteRegistry struct {
-	mu     sync.RWMutex
-	routes *connectorruntime.RouteTable
+	mu       sync.RWMutex
+	routes   *connectorruntime.RouteTable
+	revision atomic.Uint64
 }
 
 type RouteDescriptor struct {
@@ -719,9 +773,32 @@ type RouteDescriptor struct {
 	Skills         []connectorartifact.SkillSummary
 	HasMCP         bool
 	CLICommand     string
+	Readiness      market.RuntimeReadiness
+}
+
+func (descriptor RouteDescriptor) InterfaceState(kind string) market.RuntimeReadinessState {
+	for _, readiness := range descriptor.Readiness.Interfaces {
+		if readiness.Kind == kind {
+			return readiness.State
+		}
+	}
+	return market.RuntimeReadinessFailed
 }
 
 func NewRouteRegistry() *RouteRegistry { return &RouteRegistry{} }
+
+func (registry *RouteRegistry) Revision() uint64 {
+	if registry == nil {
+		return 0
+	}
+	return registry.revision.Load()
+}
+
+func (registry *RouteRegistry) notifyChanged() {
+	if registry != nil {
+		registry.revision.Add(1)
+	}
+}
 
 func (registry *RouteRegistry) attach(routes *connectorruntime.RouteTable) {
 	registry.mu.Lock()
@@ -750,13 +827,18 @@ func (registry *RouteRegistry) Routes() []RouteDescriptor {
 	routes := registry.activeRoutes()
 	result := make([]RouteDescriptor, 0, len(routes))
 	for _, route := range routes {
-		result = append(result, RouteDescriptor{ConnectorKey: route.connectorKey, DisplayName: route.displayName,
-			Description: route.description, RoutingAliases: append([]string(nil), route.routingAliases...),
-			SkillRoot: route.skillRoot, Skills: append([]connectorartifact.SkillSummary(nil), route.skills...),
-			HasMCP: len(route.mcpTools) > 0, CLICommand: route.cliCommand})
+		result = append(result, routeDescriptor(route))
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].ConnectorKey < result[right].ConnectorKey })
 	return result
+}
+
+func routeDescriptor(route *connectorRoute) RouteDescriptor {
+	return RouteDescriptor{ConnectorKey: route.connectorKey, DisplayName: route.displayName,
+		Description: route.description, RoutingAliases: append([]string(nil), route.routingAliases...),
+		SkillRoot: route.skillRoot, Skills: append([]connectorartifact.SkillSummary(nil), route.skills...),
+		HasMCP: len(route.mcpTools) > 0, CLICommand: route.cliCommand,
+		Readiness: cloneRuntimeReadiness(route.readiness)}
 }
 
 var _ connectorruntime.ManagedRoute = (*connectorRoute)(nil)

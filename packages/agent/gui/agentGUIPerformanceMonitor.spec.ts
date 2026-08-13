@@ -1,12 +1,14 @@
 import {
   canonicalTurnKey,
+  type AgentActivityComposerOptions,
   type AgentSessionEngine,
   type AgentSessionEngineState
 } from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
 import {
   agentGUIPerformanceDuration,
-  createAgentGUIPerformanceMonitor
+  createAgentGUIPerformanceMonitor,
+  trackAgentGUIComposerOptionsLoad
 } from "./agentGUIPerformanceMonitor";
 
 describe("createAgentGUIPerformanceMonitor", () => {
@@ -23,6 +25,135 @@ describe("createAgentGUIPerformanceMonitor", () => {
       durationBucket,
       durationMs
     });
+  });
+
+  it("reports a Composer options load start before a slow request settles", async () => {
+    let nowUnixMs = 1_000;
+    const harness = createEngineHarness(engineState({}));
+    const onEvent = vi.fn();
+    const monitor = createAgentGUIPerformanceMonitor({
+      engine: harness.engine,
+      nowUnixMs: () => nowUnixMs,
+      onEvent,
+      subscribeSessionEvents: harness.subscribeSessionEvents
+    });
+    let resolveOptions!: (value: AgentActivityComposerOptions) => void;
+    const optionsPromise = new Promise<AgentActivityComposerOptions>(
+      (resolve) => {
+        resolveOptions = resolve;
+      }
+    );
+
+    const pending = monitor.trackComposerOptionsLoad({
+      agentTargetId: "codex-target",
+      cwd: "/workspace/project",
+      force: true,
+      load: () => optionsPromise,
+      provider: "codex",
+      source: "runtime"
+    });
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentTargetId: "codex-target",
+        force: true,
+        hasDirectory: true,
+        provider: "codex",
+        source: "runtime",
+        startedAtUnixMs: 1_000,
+        type: "composer_options_load_started",
+        workspaceId: "workspace-1"
+      })
+    );
+    const operationId = onEvent.mock.calls[0]?.[0]?.operationId;
+    const options = {
+      models: [{ label: "GPT-5", value: "gpt-5" }],
+      provider: "codex"
+    } as AgentActivityComposerOptions;
+    nowUnixMs = 61_000;
+    resolveOptions(options);
+
+    await expect(pending).resolves.toBe(options);
+    expect(onEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        durationBucket: "gte_60s",
+        durationMs: 60_000,
+        modelCount: 1,
+        operationId,
+        outcome: "completed",
+        source: "runtime",
+        type: "composer_options_load_settled"
+      })
+    );
+    monitor.dispose();
+  });
+
+  it("reports an engine Composer options failure without exposing its message", async () => {
+    let nowUnixMs = 2_000;
+    const harness = createEngineHarness(engineState({}));
+    const onEvent = vi.fn();
+    const monitor = createAgentGUIPerformanceMonitor({
+      engine: harness.engine,
+      nowUnixMs: () => nowUnixMs,
+      onEvent,
+      subscribeSessionEvents: harness.subscribeSessionEvents
+    });
+    const failure = new Error("private provider response");
+    Object.assign(failure, { code: "composer_options_timeout" });
+
+    const pending = monitor.trackComposerOptionsLoad({
+      agentTargetId: "codex-target",
+      load: () => Promise.reject(failure),
+      provider: "codex",
+      source: "session-engine"
+    });
+    nowUnixMs = 6_000;
+
+    await expect(pending).rejects.toBe(failure);
+    expect(onEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        durationBucket: "3s_to_10s",
+        durationMs: 4_000,
+        errorCategory: "composer_options_timeout",
+        outcome: "failed",
+        source: "session-engine",
+        type: "composer_options_load_settled"
+      })
+    );
+    expect(JSON.stringify(onEvent.mock.calls)).not.toContain(
+      "private provider response"
+    );
+    monitor.dispose();
+  });
+
+  it("does not let a Composer options event sink change the load result", async () => {
+    const eventSinkFailure = new Error("event sink failed");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const options = {
+      models: [],
+      provider: "codex"
+    } as unknown as AgentActivityComposerOptions;
+
+    try {
+      await expect(
+        trackAgentGUIComposerOptionsLoad({
+          agentTargetId: "codex-target",
+          load: () => Promise.resolve(options),
+          onEvent: () => {
+            throw eventSinkFailure;
+          },
+          provider: "codex",
+          source: "runtime",
+          workspaceId: "workspace-1"
+        })
+      ).resolves.toBe(options);
+      expect(consoleError).toHaveBeenCalledTimes(2);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("reports an exact early queued first-token duration after exact Turn binding", () => {
@@ -166,10 +297,15 @@ describe("createAgentGUIPerformanceMonitor", () => {
 
     expect(onEvent).toHaveBeenCalledWith(
       expect.objectContaining({
+        commandDurationMs: 1_100,
+        commandOutcome: "succeeded",
         durationBucket: "1s_to_3s",
         durationMs: 1_200,
+        lastObservedStage: "confirmed",
         mode: "new",
         outcome: "confirmed",
+        snapshotDurationMs: 1_200,
+        snapshotOutcome: "matched",
         type: "session_activation_settled"
       })
     );
@@ -238,6 +374,73 @@ describe("createAgentGUIPerformanceMonitor", () => {
       })
     );
 
+    monitor.dispose();
+  });
+
+  it("waits for a late activation command result after snapshot confirmation", () => {
+    let nowUnixMs = 11_200;
+    const harness = createEngineHarness(
+      engineState({
+        activations: {
+          "activation-1": pendingActivation({
+            commandOutcome: "pending",
+            commandSettledAtUnixMs: null,
+            snapshotObservedAtUnixMs: 11_200,
+            status: "confirmed"
+          })
+        }
+      })
+    );
+    const onEvent = vi.fn();
+    const monitor = createAgentGUIPerformanceMonitor({
+      engine: harness.engine,
+      nowUnixMs: () => nowUnixMs,
+      onEvent,
+      subscribeSessionEvents: harness.subscribeSessionEvents
+    });
+
+    expect(
+      onEvent.mock.calls.filter(
+        ([event]) => event.type === "session_activation_settled"
+      )
+    ).toHaveLength(0);
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: "submit-new",
+        outcome: "accepted",
+        type: "prompt_admission_settled"
+      })
+    );
+
+    nowUnixMs = 11_500;
+    harness.setState(
+      engineState({
+        activations: {
+          "activation-1": pendingActivation({
+            commandOutcome: "succeeded",
+            commandSettledAtUnixMs: 11_500,
+            snapshotObservedAtUnixMs: 11_200,
+            status: "confirmed"
+          })
+        }
+      })
+    );
+
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commandDurationMs: 1_500,
+        commandOutcome: "succeeded",
+        durationMs: 1_500,
+        snapshotDurationMs: 1_200,
+        snapshotOutcome: "matched",
+        type: "session_activation_settled"
+      })
+    );
+    expect(
+      onEvent.mock.calls.filter(
+        ([event]) => event.type === "prompt_admission_settled"
+      )
+    ).toHaveLength(1);
     monitor.dispose();
   });
 });
@@ -320,11 +523,22 @@ function pendingSubmit(input: {
   };
 }
 
-function pendingActivation(input: { status: "confirmed" | "requested" }) {
+function pendingActivation(input: {
+  commandOutcome?: "pending" | "succeeded";
+  commandSettledAtUnixMs?: number | null;
+  snapshotObservedAtUnixMs?: number | null;
+  status: "confirmed" | "requested";
+}) {
   return {
     agentSessionId: "session-1",
     agentTargetId: "codex",
     clientSubmitId: "submit-new",
+    commandOutcome:
+      input.commandOutcome ??
+      (input.status === "confirmed" ? "succeeded" : "pending"),
+    commandSettledAtUnixMs:
+      input.commandSettledAtUnixMs ??
+      (input.status === "confirmed" ? 11_100 : null),
     content: [{ text: "prompt", type: "text" as const }],
     cwd: "/workspace",
     errorCode: null,
@@ -332,10 +546,21 @@ function pendingActivation(input: { status: "confirmed" | "requested" }) {
     expiresAtUnixMs: 130_000,
     initialPromptRetracted: false,
     initialTurnExpected: true,
+    lastObservedStage:
+      input.status === "confirmed"
+        ? ("confirmed" as const)
+        : ("requested" as const),
     mode: "new" as const,
     requestId: "activation-1",
     requestedAtUnixMs: 10_000,
     status: input.status,
+    snapshotObservedAtUnixMs:
+      input.snapshotObservedAtUnixMs ??
+      (input.status === "confirmed" ? 11_200 : null),
+    snapshotOutcome:
+      input.status === "confirmed"
+        ? ("matched" as const)
+        : ("not_observed" as const),
     submitDiagnostics: {
       queued: false,
       source: "agent-gui",

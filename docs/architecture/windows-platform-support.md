@@ -35,6 +35,14 @@ uninstall behavior on real machines.
 
 ## Architecture Rules
 
+Windows compatibility is a continuous repository requirement, not a feature
+that is considered only when a task explicitly mentions Windows. Every behavior
+change must assess its Windows impact. Changes involving paths, filesystems,
+temporary storage, executables, commands, shells, environments, processes,
+permissions, symlinks, sockets, packaging, or native dependencies are
+platform-sensitive by default and require Windows and POSIX reasoning and
+focused coverage.
+
 Platform-neutral services depend on capabilities, not operating-system
 implementations:
 
@@ -69,6 +77,19 @@ system:
 6. Derive paths from injected roots and standard platform APIs. Do not hardcode
    drive letters, user directories, installation locations, or executable
    search results.
+7. Treat every path crossing a process, RPC, JSON, environment, or provider
+   boundary as a host path unless the contract explicitly declares a virtual
+   namespace. Construct host paths with the platform path API, preserve the
+   required absolute-path base such as `cwd`, and never send a POSIX-rooted
+   literal such as `/tmp` or `/sandbox-tmp` to a Windows parser.
+8. Resolve executables through the owning adapter. Account for `.exe`, `.cmd`,
+   and `.ps1`, PATHEXT and PATH behavior, spaces and non-ASCII characters in
+   paths, and Windows command-line quoting. Do not assemble shell command
+   strings when an argv-based process API is available.
+9. Tests for a platform-sensitive contract must exercise the receiving parser,
+   process, or filesystem boundary on Windows where practical. A mock that only
+   verifies emitted strings or serialized maps is insufficient evidence of
+   Windows compatibility.
 
 This is dependency inversion at the native boundary, not a requirement to
 create parallel copies of each service.
@@ -79,8 +100,11 @@ Project paths have one display form and one comparison form; callers must not
 compare raw strings when the path crosses a desktop/daemon boundary. The shared
 user-project core normalizes slash direction and trailing separators, then
 folds case only for Windows-shaped drive or UNC paths. POSIX paths remain
-case-sensitive. The Go rail store keeps the existing canonical filesystem path
-for display and derives a Windows-stable section key for persistence. Project
+case-sensitive. On a Windows host, a single-root POSIX project path is an
+explicit logical namespace: the Go rail store cleans it with POSIX semantics
+and never rebases it onto the current drive. Native drive and UNC paths keep
+Windows filesystem normalization. The rail store keeps the resulting canonical
+path for display and derives a stable section key for persistence. Project
 registration and deletion resolve an incoming path variant to the existing
 stored row before applying the table's ordinary unique-path write guard, so no
 second identity column is needed.
@@ -189,6 +213,13 @@ write failures, while status-time adoption repairs PATH on a best-effort basis.
 Registry changes affect new processes only, so an already-open terminal must be
 restarted before it can resolve a newly published command.
 
+Extension session-home preparation keeps its source declaration portable. An
+explicit source environment variable wins; otherwise the Windows adapter maps a
+leading-dot top-level directory to the native user cache root
+(`%LOCALAPPDATA%`) before the shared resolver considers a migrated literal
+user-home-relative directory. Provider IDs and Windows path literals must not
+leak into extension or Agent lifecycle policy.
+
 System proxy resolution follows the same shared precedence on macOS and
 Windows: session/process environment, then the operating-system static proxy,
 then direct connection. The common resolver owns merging, `NO_PROXY`, caching,
@@ -277,8 +308,11 @@ The Alpha workflow is intentionally separate from the formal desktop release:
   `.github/workflows/windows-daemon-adapters.yml` provide focused pull-request
   coverage and maintain reusable caches on matching `main` pushes; they do not
   produce desktop packages;
-- `.github/workflows/windows-desktop-alpha.yml` builds and tests Windows x64;
-- the output is an unsigned NSIS installer uploaded as a workflow artifact;
+- `.github/workflows/windows-desktop-alpha.yml` always tests Windows x64 and
+  builds the Desktop bundles for pull requests;
+- pull requests build, smoke-test, and upload an unsigned NSIS installer only
+  when Desktop packaging inputs change; manual runs always produce the
+  installer;
 - the workflow does not publish a GitHub Release or mutate stable/prerelease
   update metadata;
 - `.github/workflows/desktop-release.yml` currently stages only macOS assets.

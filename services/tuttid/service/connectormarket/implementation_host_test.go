@@ -237,34 +237,34 @@ func TestContainsPermissionScopeAcceptsScopedPermission(t *testing.T) {
 	}
 }
 
-func TestImplementationHostChecksCLIInstallationWithDeclaredProbeArguments(t *testing.T) {
+func TestImplementationHostChecksCLIReadinessWithDeclaredArguments(t *testing.T) {
 	processes := &recordingConnectorProcessStub{}
 	host, _, connector, generation := testCLIHost(t, processes)
 	cli := connector.Release.Manifest.Implementation.ManagedStdio.CLI
 	cli.Arguments = []string{"--non-interactive"}
-	cli.InstallationProbe = &market.InstallationProbe{Arguments: []string{"doctor", "--quiet"}, TimeoutMS: 1_000}
-	request := market.InstallationCheckRequest{OperationID: "probe-1", ConnectionID: "workspace-1",
-		Connector: connector, Generation: generation}
+	cli.ReadinessProbe = &market.CLIReadinessProbe{Arguments: []string{"doctor", "--quiet"}, TimeoutMS: 1_000}
+	request := market.RuntimeReconcileRequest{OperationID: "reconcile-1", ConnectionID: "workspace-1",
+		Connector: connector, Enabled: true, Generation: generation}
 
-	observation, err := host.CheckInstallation(context.Background(), request)
+	receipt, err := host.Reconcile(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.State != market.InstallationObservationPresent || observation.ConnectorKey != connector.Key ||
-		observation.ReleaseDigest != implementationHostTestReleaseDigest {
-		t.Fatalf("observation = %#v", observation)
+	if receipt.Readiness.State != market.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
+		receipt.Readiness.Interfaces[0].Kind != "cli" {
+		t.Fatalf("readiness = %#v", receipt.Readiness)
 	}
 	entrypoint := filepath.Join(processes.spec.CWD, "connector.js")
 	wantSuffix := []string{entrypoint, "--non-interactive", "doctor", "--quiet"}
 	if len(processes.spec.Command) < len(wantSuffix)+1 ||
 		!slices.Equal(processes.spec.Command[len(processes.spec.Command)-len(wantSuffix):], wantSuffix) {
-		t.Fatalf("probe command = %#v, want suffix %#v", processes.spec.Command, wantSuffix)
+		t.Fatalf("readiness command = %#v, want suffix %#v", processes.spec.Command, wantSuffix)
 	}
 
 	processes.exitCode = 1
-	observation, err = host.CheckInstallation(context.Background(), request)
-	if err != nil || observation.State != market.InstallationObservationAbsent {
-		t.Fatalf("absent observation = %#v, error = %v", observation, err)
+	request.Generation.Generation++
+	if _, err = host.Reconcile(context.Background(), request); err == nil || !strings.Contains(err.Error(), "CLI readiness") {
+		t.Fatalf("failed readiness error = %v", err)
 	}
 }
 
@@ -307,8 +307,9 @@ func TestImplementationHostRegistersWorkspaceFencedCLIAndDeactivatesIt(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(receipt.RouteIDs) != 0 {
-		t.Fatalf("route ids = %#v", receipt.RouteIDs)
+	if receipt.Readiness.State != market.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
+		receipt.Readiness.Interfaces[0].Kind != "cli" || len(receipt.Readiness.Interfaces[0].RouteIDs) != 0 {
+		t.Fatalf("readiness = %#v", receipt.Readiness)
 	}
 	routes := commands.runtime.Routes()
 	if len(routes) != 1 || routes[0].CLICommand != "tutti-connector-github" {
@@ -429,8 +430,9 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(receipt.RouteIDs) != 1 || receipt.RouteIDs[0] != "connector.github.mcp.status" {
-		t.Fatalf("routes = %#v", receipt.RouteIDs)
+	if receipt.Readiness.State != market.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
+		len(receipt.Readiness.Interfaces[0].RouteIDs) != 1 || receipt.Readiness.Interfaces[0].RouteIDs[0] != "connector.github.mcp.status" {
+		t.Fatalf("readiness = %#v", receipt.Readiness)
 	}
 	tools, err := commands.MCPRegistry().Tools(context.Background())
 	if err != nil {

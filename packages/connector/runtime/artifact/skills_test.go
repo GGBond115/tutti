@@ -54,15 +54,59 @@ func TestInspectSkillsRejectsSymlink(t *testing.T) {
 	}
 }
 
-func TestInspectSkillsBoundsTheCompleteTree(t *testing.T) {
+func TestInspectSkillsDoesNotCountSupportingTreeEntriesAsSkills(t *testing.T) {
 	root := t.TempDir()
-	for index := 0; index <= connectorSkillMaxEntries; index++ {
-		if err := os.MkdirAll(filepath.Join(root, "skills", "empty-"+fmt.Sprint(index)), 0o700); err != nil {
+	writeSkillTestFile(t, filepath.Join(root, "skills", "calendar", "SKILL.md"), "calendar", "Calendar")
+	for index := 0; index <= connectorSkillMaxCount; index++ {
+		path := filepath.Join(root, "skills", "calendar", "references", fmt.Sprintf("reference-%d.md", index))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("supporting reference"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := InspectSkills(root); err == nil || !strings.Contains(err.Error(), "tree entry count exceeds") {
+	projection, err := InspectSkills(root)
+	if err != nil || len(projection.Skills) != 1 || projection.Skills[0].Name != "calendar" {
+		t.Fatalf("projection = %#v, error = %v", projection, err)
+	}
+}
+
+func TestInspectSkillsBoundsSkillCount(t *testing.T) {
+	root := t.TempDir()
+	for index := 0; index <= connectorSkillMaxCount; index++ {
+		name := fmt.Sprintf("skill-%d", index)
+		writeSkillTestFile(t, filepath.Join(root, "skills", name, "SKILL.md"), name, name)
+	}
+	if _, err := InspectSkills(root); err == nil || !strings.Contains(err.Error(), "Skill count exceeds") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestValidateSkillSummariesBoundsFieldsAndTotalProjection(t *testing.T) {
+	valid := SkillSummary{Name: "calendar", Title: "Calendar", Description: "Manage calendar events"}
+	tests := []struct {
+		name      string
+		summaries []SkillSummary
+		want      string
+	}{
+		{name: "name", summaries: []SkillSummary{{Name: strings.Repeat("n", ConnectorSkillNameMaxBytes+1), Title: valid.Title, Description: valid.Description}}, want: "name exceeds"},
+		{name: "title", summaries: []SkillSummary{{Name: valid.Name, Title: strings.Repeat("t", ConnectorSkillTitleMaxBytes+1), Description: valid.Description}}, want: "title exceeds"},
+		{name: "description", summaries: []SkillSummary{{Name: valid.Name, Title: valid.Title, Description: strings.Repeat("d", ConnectorSkillDescriptionMaxBytes+1)}}, want: "description exceeds"},
+		{name: "total", summaries: func() []SkillSummary {
+			result := make([]SkillSummary, connectorSkillMaxCount)
+			for index := range result {
+				result[index] = SkillSummary{Name: fmt.Sprintf("skill-%03d", index), Title: strings.Repeat("t", ConnectorSkillTitleMaxBytes), Description: strings.Repeat("d", ConnectorSkillDescriptionMaxBytes)}
+			}
+			return result
+		}(), want: "projection exceeds"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateSkillSummaries(test.summaries); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateSkillSummaries() error = %v", err)
+			}
+		})
 	}
 }
 

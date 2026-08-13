@@ -8,23 +8,24 @@ import (
 	"sort"
 	"strings"
 
+	market "github.com/tutti-os/tutti/packages/connector/host"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	connectorSkillEntryName    = "SKILL.md"
-	connectorSkillMaxDepth     = 8
-	connectorSkillMaxEntries   = 128
-	connectorSkillMaxEntrySize = 512 * 1024
+	connectorSkillEntryName           = "SKILL.md"
+	connectorSkillMaxDepth            = 8
+	connectorSkillMaxCount            = market.ConnectorSkillMaxCount
+	connectorSkillMaxEntrySize        = 512 * 1024
+	ConnectorSkillNameMaxBytes        = market.ConnectorSkillNameMaxBytes
+	ConnectorSkillTitleMaxBytes       = market.ConnectorSkillTitleMaxBytes
+	ConnectorSkillDescriptionMaxBytes = market.ConnectorSkillDescriptionMaxBytes
+	ConnectorSkillProjectionMaxBytes  = market.ConnectorSkillProjectionMaxBytes
 )
 
 // SkillSummary is the immutable, non-secret metadata projected from one
 // verified Connector Skill.
-type SkillSummary struct {
-	Name        string `json:"name"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-}
+type SkillSummary = market.ConnectorSkillSummary
 
 // SkillProjection is produced once while a Connector route is activated.
 // Root is empty when the release has no optional skills directory.
@@ -55,17 +56,14 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 
 	skills := make([]SkillSummary, 0)
 	seen := make(map[string]struct{})
-	entryCount := 0
+	skillCount := 0
+	projectionBytes := 0
 	err = filepath.WalkDir(skillRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if path == skillRoot {
 			return nil
-		}
-		entryCount++
-		if entryCount > connectorSkillMaxEntries {
-			return fmt.Errorf("connector Skill tree entry count exceeds %d", connectorSkillMaxEntries)
 		}
 		relative, err := filepath.Rel(skillRoot, path)
 		if err != nil {
@@ -80,6 +78,10 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 		}
 		if entry.IsDir() || entry.Name() != connectorSkillEntryName {
 			return nil
+		}
+		skillCount++
+		if skillCount > connectorSkillMaxCount {
+			return fmt.Errorf("connector Skill count exceeds %d", connectorSkillMaxCount)
 		}
 		entryInfo, err := entry.Info()
 		if err != nil {
@@ -99,6 +101,13 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 		if err != nil {
 			return fmt.Errorf("%s: %w", filepath.ToSlash(relative), err)
 		}
+		if err := ValidateSkillSummary(metadata); err != nil {
+			return fmt.Errorf("%s: %w", filepath.ToSlash(relative), err)
+		}
+		projectionBytes += skillSummaryBytes(metadata)
+		if projectionBytes > ConnectorSkillProjectionMaxBytes {
+			return fmt.Errorf("connector Skill summary projection exceeds %d bytes", ConnectorSkillProjectionMaxBytes)
+		}
 		if _, duplicate := seen[metadata.Name]; duplicate {
 			return fmt.Errorf("duplicate Connector Skill %q", metadata.Name)
 		}
@@ -111,6 +120,21 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 	}
 	sort.Slice(skills, func(left, right int) bool { return skills[left].Name < skills[right].Name })
 	return SkillProjection{Root: skillRoot, Skills: skills}, nil
+}
+
+// ValidateSkillSummaries applies the public projection bounds to metadata
+// received across a process boundary. Artifact inspection calls the same
+// validation before a route can be committed.
+func ValidateSkillSummaries(summaries []SkillSummary) error {
+	return market.ValidateConnectorSkillSummaries(summaries)
+}
+
+func ValidateSkillSummary(summary SkillSummary) error {
+	return market.ValidateConnectorSkillSummary(summary)
+}
+
+func skillSummaryBytes(summary SkillSummary) int {
+	return len(summary.Name) + len(summary.Title) + len(summary.Description)
 }
 
 func parseSkill(content string) (SkillSummary, error) {

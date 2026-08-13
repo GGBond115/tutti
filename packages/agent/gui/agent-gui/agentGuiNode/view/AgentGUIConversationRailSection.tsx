@@ -3,14 +3,13 @@ import type { UiLanguage } from "../../../contexts/settings/domain/agentSettings
 import type { WorkspaceLinkAction } from "../../../actions/workspaceLinkActions";
 import type { ConversationSection } from "../agentGuiNodeViewConversation";
 import type { AgentGUIConversationRailLabels } from "./agentGUIConversationRailLabels";
-import type { AgentGUIProjectActionDialog } from "./agentGUIConversationRailTypes";
 import { AgentGUIConversationRailItem } from "./AgentGUIConversationRailItem";
 import { AgentGUIConversationRailSectionHeader } from "./AgentGUIConversationRailSectionHeader";
 import { insertConversationRailSectionOverlay } from "../model/agentGuiConversationRail";
 import { AGENT_GUI_CONVERSATION_RAIL_SECTION_PAGE_SIZE } from "../model/agentGuiConversationRailViewState";
 import {
   useOptionalStableEventCallback,
-  useStableEventCallback
+  useStableEventCallback,
 } from "./agentGUIViewUtils";
 import styles from "../AgentGUINode.styles";
 
@@ -44,7 +43,11 @@ interface AgentGUIConversationRailSectionProps {
   onToggleProjectSectionCollapsed: (sectionId: string) => void;
   onVisibleItemLimitChange: (sectionId: string, limit: number) => void;
   onRequestSectionBatchDeletion: (section: ConversationSection) => void;
-  setPendingProjectAction: (action: AgentGUIProjectActionDialog | null) => void;
+  onRequestProjectRemoval: (
+    section: ConversationSection,
+    path: string,
+    label: string
+  ) => void;
   onSelectConversation: (agentSessionId: string) => void;
   onLoadMoreConversations: (section: ConversationSection) => void;
   onToggleConversationPinned: (agentSessionId: string, pinned: boolean) => void;
@@ -54,19 +57,19 @@ interface AgentGUIConversationRailSectionProps {
   onOpenConversationWindow?: (agentSessionId: string) => void;
   onRequestDeleteConversation: (agentSessionId: string) => void;
   onRequestRenameConversation: (
-    conversation: ConversationSection["items"][number]
+    conversation: ConversationSection["items"][number],
   ) => void;
   onCancelDeleteConversation: () => void;
   onConfirmDeleteConversation: () => void;
   onProjectDragStart: (
     section: ConversationSection,
-    event: React.DragEvent<HTMLElement>
+    event: React.DragEvent<HTMLElement>,
   ) => void;
   onProjectDragEnd: () => void;
   onProjectDragOver: (
     section: ConversationSection,
     edge: "before" | "after",
-    event: React.DragEvent<HTMLElement>
+    event: React.DragEvent<HTMLElement>,
   ) => void;
   onProjectMenuOpenChange: (sectionId: string, open: boolean) => void;
 }
@@ -101,7 +104,7 @@ export const AgentGUIConversationRailSection = memo(
     onSelectConversation,
     onLoadMoreConversations,
     onRequestSectionBatchDeletion,
-    setPendingProjectAction,
+    onRequestProjectRemoval,
     onToggleConversationPinned,
     onToggleProjectPinned,
     onMarkConversationUnread,
@@ -114,14 +117,14 @@ export const AgentGUIConversationRailSection = memo(
     onProjectDragStart,
     onProjectDragEnd,
     onProjectDragOver,
-    onProjectMenuOpenChange
+    onProjectMenuOpenChange,
   }: AgentGUIConversationRailSectionProps): React.JSX.Element {
     "use memo";
     const projectPinned = (section.project?.pinnedAtUnixMs ?? 0) > 0;
     const projectId = section.project?.id?.trim() ?? "";
     const hasProjectPath = Boolean(projectPath);
     const pageableItems = section.items.filter(
-      (item) => item.projectionSource !== "pending_activation"
+      (item) => item.projectionSource !== "pending_activation",
     );
     const visibleItemCount = isSectionCollapsed
       ? 0
@@ -135,10 +138,28 @@ export const AgentGUIConversationRailSection = memo(
       ? []
       : [
           ...section.items.filter(
-            (item) => item.projectionSource === "pending_activation"
+            (item) => item.projectionSource === "pending_activation",
           ),
-          ...baseItems
+          ...baseItems,
         ];
+    // Pagination must never make live work disappear. Pending activations are
+    // already projected above; keep every durable working conversation visible
+    // as an overlay as well, even when it falls outside the current history
+    // page or is not the selected conversation.
+    for (const conversation of section.items) {
+      if (
+        !isSectionCollapsed &&
+        conversation.projectionSource !== "pending_activation" &&
+        (conversation.status === "working" || conversation.status === "waiting") &&
+        !visibleItems.some((item) => item.id === conversation.id)
+      ) {
+        visibleItems = insertConversationRailSectionOverlay(
+          section.kind,
+          visibleItems,
+          conversation,
+        );
+      }
+    }
     const activeId = activeConversation?.id.trim() ?? "";
     if (
       activeConversation &&
@@ -149,11 +170,13 @@ export const AgentGUIConversationRailSection = memo(
       visibleItems = insertConversationRailSectionOverlay(
         section.kind,
         visibleItems,
-        activeConversation
+        activeConversation,
       );
     }
     const visiblePageableIds = new Set(
-      pageableItems.slice(0, visibleItemCount).map((item) => item.id)
+      visibleItems
+        .filter((item) => item.projectionSource !== "pending_activation")
+        .map((item) => item.id),
     );
     const visibleCountTowardTotal =
       visiblePageableIds.size +
@@ -176,7 +199,7 @@ export const AgentGUIConversationRailSection = memo(
         onLoadMoreConversations(section);
         onVisibleItemLimitChange(
           section.id,
-          visibleItemLimit + AGENT_GUI_CONVERSATION_RAIL_SECTION_PAGE_SIZE
+          visibleItemLimit + AGENT_GUI_CONVERSATION_RAIL_SECTION_PAGE_SIZE,
         );
         return;
       }
@@ -184,8 +207,8 @@ export const AgentGUIConversationRailSection = memo(
         section.id,
         Math.min(
           pageableItems.length,
-          visibleItemLimit + AGENT_GUI_CONVERSATION_RAIL_SECTION_PAGE_SIZE
-        )
+          visibleItemLimit + AGENT_GUI_CONVERSATION_RAIL_SECTION_PAGE_SIZE,
+        ),
       );
     }, [
       onLoadMoreConversations,
@@ -195,13 +218,13 @@ export const AgentGUIConversationRailSection = memo(
       section,
       sectionHasMore,
       visibleItemCount,
-      visibleItemLimit
+      visibleItemLimit,
     ]);
     const showLessConversations = useCallback(() => {
       if (isRailInteractionLocked()) return;
       onVisibleItemLimitChange(
         section.id,
-        AGENT_GUI_CONVERSATION_RAIL_SECTION_PAGE_SIZE
+        AGENT_GUI_CONVERSATION_RAIL_SECTION_PAGE_SIZE,
       );
     }, [isRailInteractionLocked, onVisibleItemLimitChange, section.id]);
 
@@ -218,7 +241,7 @@ export const AgentGUIConversationRailSection = memo(
       }
       onCreateConversation({
         projectPath: null,
-        source: "unscoped_section"
+        source: "unscoped_section",
       });
     });
     const handleToggleCollapsed = useStableEventCallback(() => {
@@ -228,10 +251,10 @@ export const AgentGUIConversationRailSection = memo(
     });
     const handleProjectDragStart = useStableEventCallback(
       (event: React.DragEvent<HTMLElement>) =>
-        onProjectDragStart(section, event)
+        onProjectDragStart(section, event),
     );
     const handleProjectDragEnd = useStableEventCallback(() =>
-      onProjectDragEnd()
+      onProjectDragEnd(),
     );
     const handleProjectDragOver = useStableEventCallback(
       (event: React.DragEvent<HTMLElement>) => {
@@ -242,12 +265,12 @@ export const AgentGUIConversationRailSection = memo(
         onProjectDragOver(
           section,
           event.clientY < rect.top + rect.height / 2 ? "before" : "after",
-          event
+          event,
         );
-      }
+      },
     );
     const handleProjectMenuOpenChange = useStableEventCallback(
-      (open: boolean) => onProjectMenuOpenChange(section.id, open)
+      (open: boolean) => onProjectMenuOpenChange(section.id, open),
     );
     const handleOpenProjectFiles = useOptionalStableEventCallback(
       onOpenProjectFiles
@@ -259,10 +282,10 @@ export const AgentGUIConversationRailSection = memo(
               path: projectPath,
               source: "agent-project-menu",
               type: "open-workspace-file",
-              workspaceRoot: projectPath
+              workspaceRoot: projectPath,
             });
           }
-        : null
+        : null,
     );
     const handleToggleProjectPinned = useStableEventCallback(() => {
       if (!projectId || isProjectActionLocked()) return;
@@ -275,11 +298,11 @@ export const AgentGUIConversationRailSection = memo(
     });
     const handleRemoveProject = useStableEventCallback(() => {
       if (isProjectActionLocked()) return;
-      setPendingProjectAction({
-        kind: "remove",
-        label: projectLabel || projectPath,
-        path: projectPath
-      });
+      onRequestProjectRemoval(
+        section,
+        projectPath,
+        projectLabel || projectPath,
+      );
     });
     return (
       <section
@@ -378,5 +401,5 @@ export const AgentGUIConversationRailSection = memo(
         </div>
       </section>
     );
-  }
+  },
 );

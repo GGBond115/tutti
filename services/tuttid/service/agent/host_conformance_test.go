@@ -49,6 +49,40 @@ func TestDirectHostApplicationCoreConformance(t *testing.T) {
 	}
 }
 
+func TestHostWorkspaceRuntimeDisconnectConformance(t *testing.T) {
+	for _, scenario := range hostconformance.WorkspaceRuntimeDisconnectScenarios() {
+		scenario := scenario
+		for _, directHost := range []bool{false, true} {
+			directHost := directHost
+			t.Run(fmt.Sprintf("direct=%v/%s", directHost, scenario.Name), func(t *testing.T) {
+				driver := &legacyHostConformanceDriver{t: t, directHost: directHost}
+				if err := hostconformance.RunWorkspaceRuntimeDisconnect(
+					context.Background(), driver, scenario,
+				); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
+func TestHostWorkspaceRuntimeAdmissionConformance(t *testing.T) {
+	for _, scenario := range hostconformance.WorkspaceRuntimeAdmissionScenarios() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			driver := &legacyHostConformanceDriver{t: t, directHost: true}
+			if err := driver.Reset(context.Background(), hostconformance.Fixture{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := hostconformance.RunWorkspaceRuntimeAdmission(
+				context.Background(), driver, scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestHostHistoricalStateConformance(t *testing.T) {
 	for _, scenario := range hostconformance.HistoricalStateScenarios() {
 		scenario := scenario
@@ -386,14 +420,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	}
 	d.historicalState = &conformanceHistoricalStateStore{driver: d}
 	hostStore := serviceHostStore{service: d.service}
-	hostSupport := hostSupportPortsForService(
-		d.service,
-		nil,
-		conformanceWorktreeGarbageCollector{
-			steps: &steps,
-			err:   fixture.WorktreeGCSweepErr,
-		},
-	)
+	hostSupport := hostSupportPortsForService(d.service, nil)
 	d.service.SetApplicationHost(composeApplicationHost(
 		hostSupport,
 		hostStore,
@@ -557,7 +584,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		additionalKey := additional.WorkspaceID + ":" + additional.AgentSessionID
 		d.sessions.sessions[additionalKey] = PersistedSession{
 			ID: additional.AgentSessionID, WorkspaceID: additional.WorkspaceID, Kind: additionalKind,
-			Provider: additional.Provider, Cwd: additional.Cwd,
+			Provider: additional.Provider, ProviderSessionID: additional.ProviderSessionID, Cwd: additional.Cwd,
 			RailSectionKind: "conversations",
 			RailSectionKey:  "conversations",
 			Metadata:        agentactivitybiz.SessionMetadata{Visible: true},
@@ -669,11 +696,67 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	return nil
 }
 
+func (d *legacyHostConformanceDriver) ResetProviderlessTerminalExec(
+	ctx context.Context,
+	session *hostconformance.SessionSeed,
+) error {
+	fixture := hostconformance.Fixture{}
+	if session != nil {
+		seed := *session
+		fixture.Session = &seed
+	}
+	if err := d.Reset(ctx, fixture); err != nil {
+		return err
+	}
+	d.runtime.execHook = func(input RuntimeExecInput) (RuntimeExecResult, error) {
+		d.recordSubmittedTurn(input.WorkspaceID, input.AgentSessionID, input.TurnID)
+		d.recordProviderlessFailedTurn(
+			input.WorkspaceID,
+			input.AgentSessionID,
+			input.TurnID,
+		)
+		return RuntimeExecResult{
+			AgentSessionID: input.AgentSessionID,
+			Status:         "started",
+			Accepted:       true,
+			SessionStatus:  "working",
+			TurnID:         input.TurnID,
+			TurnLifecycle:  TurnLifecycle{Phase: "submitted"},
+			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
+				Disposition: agenthost.RuntimeDispatchDispositionAppliedWithoutProviderTurn,
+			},
+		}, nil
+	}
+	return nil
+}
+
 func (d *legacyHostConformanceDriver) DisconnectRuntimeSession(ctx context.Context, ref agenthost.SessionRef) error {
 	return d.runtime.Close(ctx, RuntimeCloseInput{
 		WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
 		PreserveCanonicalState: true,
 	})
+}
+
+func (d *legacyHostConformanceDriver) DisconnectWorkspaceRuntime(
+	ctx context.Context,
+	workspaceID string,
+) (agenthost.DisconnectWorkspaceRuntimeResult, error) {
+	return d.service.ApplicationHost().DisconnectWorkspaceRuntime(ctx, workspaceID)
+}
+
+func (d *legacyHostConformanceDriver) WithWorkspaceRuntimeOperation(
+	ctx context.Context,
+	workspaceID string,
+	fn func(context.Context) error,
+) error {
+	return d.service.ApplicationHost().WithWorkspaceRuntimeOperation(ctx, workspaceID, fn)
+}
+
+func (d *legacyHostConformanceDriver) AcquireWorkspaceRuntimeDisconnectFence(
+	ctx context.Context,
+	workspaceID string,
+) (hostconformance.WorkspaceRuntimeDisconnectFenceDriver, error) {
+	return d.service.ApplicationHost().AcquireWorkspaceRuntimeDisconnectFence(ctx, workspaceID)
 }
 
 func (d *legacyHostConformanceDriver) Create(
@@ -1071,7 +1154,7 @@ func (d *legacyHostConformanceDriver) GetSession(ctx context.Context, ref agenth
 		return legacyHostSessionObservationWithLive(session, result.Live), err
 	}
 	session, err := d.service.Get(ctx, ref.WorkspaceID, ref.AgentSessionID)
-	_, live := d.runtime.Session(ref.WorkspaceID, ref.AgentSessionID)
+	live := d.runtime.RuntimeSessionLive(ref.WorkspaceID, ref.AgentSessionID)
 	return legacyHostSessionObservationWithLive(session, live), err
 }
 
@@ -1468,25 +1551,43 @@ func (s conformanceStaleTurnSettler) SettleStaleTurnsOnStartup(context.Context) 
 	return nil
 }
 
-type conformanceWorktreeGarbageCollector struct {
-	steps *[]string
-	err   error
-}
-
-func (c conformanceWorktreeGarbageCollector) SweepWorktreeIsolation(context.Context) error {
-	*c.steps = append(*c.steps, "worktree_sweep")
-	return c.err
-}
-
 func (d *legacyHostConformanceDriver) recordSubmittedTurn(workspaceID, sessionID, turnID string) {
 	if turnID == "" {
 		return
 	}
+	key := sessionID + ":" + turnID
+	if existing, ok := d.turns.turns[key]; ok &&
+		existing.Phase == agentactivitybiz.TurnPhaseSettled {
+		// Submit provenance and Host's post-Exec submission record are
+		// idempotent facts. They must never downgrade a terminal event that the
+		// Runtime committed before Exec returned.
+		return
+	}
 	startedAtUnixMS := int64(len(d.turns.turns) + 1)
-	d.turns.turns[sessionID+":"+turnID] = agentactivitybiz.Turn{
+	d.turns.turns[key] = agentactivitybiz.Turn{
 		WorkspaceID: workspaceID, AgentSessionID: sessionID, TurnID: turnID,
 		Phase: agentactivitybiz.TurnPhaseSubmitted, StartedAtUnixMS: startedAtUnixMS,
 	}
+	d.service.TurnStore = d.turns
+}
+
+func (d *legacyHostConformanceDriver) recordProviderlessFailedTurn(
+	workspaceID string,
+	sessionID string,
+	turnID string,
+) {
+	key := sessionID + ":" + turnID
+	turn := d.turns.turns[key]
+	turn.WorkspaceID = workspaceID
+	turn.AgentSessionID = sessionID
+	turn.TurnID = turnID
+	turn.Phase = agentactivitybiz.TurnPhaseSettled
+	turn.Outcome = "failed"
+	if turn.StartedAtUnixMS == 0 {
+		turn.StartedAtUnixMS = int64(len(d.turns.turns) + 1)
+	}
+	turn.SettledAtUnixMS = turn.StartedAtUnixMS + 1
+	d.turns.turns[key] = turn
 	d.service.TurnStore = d.turns
 }
 

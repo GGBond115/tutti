@@ -228,12 +228,14 @@ export function shouldShowAgentGUIStopButton(input: {
   isCancelPending: boolean;
   isConversationBusy: boolean;
   isCreatingConversation: boolean;
+  hasPendingSubmitStopTarget: boolean;
   isInterrupting: boolean;
   isSubmitting: boolean;
   isUnavailable: boolean;
 }): boolean {
   if (input.isUnavailable || input.isAuthBlocked) return false;
   if (input.isCreatingConversation || input.isCancelPending) return true;
+  if (input.hasPendingSubmitStopTarget) return true;
   return (
     !input.isSubmitting &&
     (input.isConversationBusy ||
@@ -289,13 +291,16 @@ export function resolveAgentGUIStopControl(input: {
   isCancelPending: boolean;
   isConversationBusy: boolean;
   isCreatingConversation: boolean;
+  hasPendingSubmitStopTarget: boolean;
   isInterrupting: boolean;
   isSubmitting: boolean;
   isUnavailable: boolean;
-  runtimeCommandsBlocked: boolean;
 }): { disabled: boolean; visible: boolean } {
   return {
-    disabled: input.runtimeCommandsBlocked,
+    // Stop is a daemon/session control, not a composer command. The runtime
+    // gate may block new submissions while the daemon can still cancel the
+    // active turn, so do not inherit the composer gate here.
+    disabled: false,
     visible: shouldShowAgentGUIStopButton(input)
   };
 }

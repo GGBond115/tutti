@@ -66,6 +66,21 @@ that classification. Replication and read contracts continue to accept a
 missing value from older stored messages, so compatibility stays at the read
 boundary instead of being inferred by presentation code.
 
+Canonical tool-call persistence also owns the replication-safe payload budget.
+Provider `content` is projected into the formal output fields before MCP
+`structuredContent` is normalized: exact string leaves that duplicate
+`output.text` keep their map key or array position with an explicit duplicate
+marker, while other structured string leaves are deterministically and
+UTF-8-safely shortened with the standard truncation marker. Inputs and
+non-string structured values are never shortened. The final encoded payload
+must fit the 768 KiB canonical budget; if required data alone cannot fit, the
+write returns an error and the transaction does not persist an unsynchronizable
+message. A versioned store migration applies the same projection to retained
+oversized tool calls, including MCP messages, and updates a row only after its
+encoded replacement satisfies the budget. Replication consumers derive a new
+fingerprint and mutation identity from that physical repair, which clears any
+retry schedule tied to the obsolete oversized representation.
+
 ## Responsibilities
 
 ### `packages/agent/host`
@@ -169,11 +184,9 @@ deletion if any live or tombstoned row still owns it. Multiple Workspace queue
 rows for one ID are handled idempotently. Recoverable tombstones keep both
 resources; Workspace-keyed runtime and Model Gateway cleanup still runs, while
 the global Agent/browser releaser is skipped if another Workspace has a live
-owner with that ID. Worktree isolation is protected while a recoverable
-tombstone exists; after hard deletion, the existing worktree GC policy may
-remove only clean, non-ahead worktrees and continues to preserve dirty or ahead
-work. Migrating those physical paths to a Workspace-scoped layout remains a
-separate future change.
+owner with that ID. Managed worktrees are independent Workspace resources:
+soft deletion, hard deletion, restore, and purge do not retain or remove them.
+They are removed only through the explicit managed-worktree operation.
 
 Automatic maintenance starts ten minutes after daemon readiness, checks at
 30-minute intervals, and records completion at most once per 24 hours. It runs
@@ -300,6 +313,14 @@ It owns:
   window. Stop, Interaction, and
   settings additionally own command identity plus the 30-second delivery
   timeout.
+  The admitted request identity is also projected as the required
+  `activationId` on the typed host effect. Pending activation state records the
+  command settlement outcome and timestamp separately from the first canonical
+  Session observation. Snapshot observations distinguish missing Session,
+  workspace mismatch, stale new-Session evidence, and a matching Session.
+  Consumers can therefore measure command and snapshot latency independently;
+  repeated identical observations do not churn state, and a late command result
+  cannot regress an already confirmed activation.
   Session stop owns the 30-second first-Turn waiting window and duplicate
   admission across Desktop and Mobile. Interaction submission owns canonical
   pending-target admission,
@@ -407,6 +428,16 @@ state. An empty pause/resume observation therefore records divergence without
 erasing the visible Goal; only a durable tombstone returns `null`. The daemon
 overlays that Host-owned result onto `session.goal`, and the Engine applies the
 same invariant when a synced typed result reaches its canonical Session state.
+Daemon Session reads apply the same authority rule: unresolved durable state
+projects `desired`; synchronized state projects `observed` progress; a durable
+tombstone clears the Goal. The Goal-state timestamp advances the Session
+envelope. Single-Session reads, batch lists, refreshes, and realtime-driven
+reloads therefore cannot overwrite a newer Goal with an older provider snapshot
+or resurrect a completed Goal as active.
+After Session creation, any later Goal Control operation retires the initial
+activation Goal as a presentation source. The operation result and canonical
+Session projection then own the banner, so the creation-time objective cannot
+shadow a replacement Goal.
 Engine-originated requests always send their caller-stable identity through to
 the existing Agent Host Goal saga.
 Every admitted mutation reaches Host; frontend Goal equality is not a no-op
@@ -649,8 +680,15 @@ backfilled from messages.
 The session service synchronously persists and reads back the initial runtime
 session before returning a successful Create response, so the response never
 races the runtime's asynchronous activity reporter. The store assigns
-`railSectionKey` on that first persistence and preserves it for the lifetime of
-the session, even if later runtime reports change `cwd` or the user-project list.
+`railSectionKey` on that first persistence and preserves it across later runtime
+reports, `cwd` changes, and user-project list refreshes. Removing a project is
+an authoritative daemon operation. It repeatedly sends live unpinned root
+Sessions through Host batch deletion, then uses one compare-and-finalize SQLite
+transaction to rehome retained pinned trees and recoverable tombstones to
+`conversations` and remove the user-project row. A concurrent initial Session
+write validates an explicit project placement against the project rows in its
+own transaction, so a stale placement cannot recreate an orphan section after
+removal.
 Section and pinned-page results include required `totalCount` for the complete
 target-filtered scope before cursor pagination. AgentGUI uses it to subtract a
 transient active-row overlay from remaining unseen rows; hosts must preserve the
@@ -1342,11 +1380,15 @@ canonical reconciliation; it is not a compatibility conversion path.
 `StreamReady` is transport-only and must not be interpreted as canonical
 catch-up. `AttachmentChanged` starts a baseline for one positive attachment
 revision; hosts publish their canonical baseline and then
-`AttachmentCaughtUp` with the exact same binding, workspace, Session, Turn,
-caller-Turn, and revision identity. Consumers reject a missing or mismatched
-barrier. The protocol carries this fence but does not choose recovery state:
-the host adapter must reread its canonical store, which remains the lifecycle
-authority after a runtime or host-process restart.
+`AttachmentCaughtUp` with the exact same binding, workspace, Session,
+authorization set, explicit `currentInteractionRootTurnId`, caller-Turn, and
+revision identity. `canonicalTurnIds` is an authorization set, never an ordered
+current-Turn pointer. Every complete `interaction_snapshot` carries its
+required exact `rootTurnId`, including an empty collection. Consumers reject a
+snapshot whose root does not resolve to the controlled root and reject a
+missing or mismatched barrier. The protocol carries this fence but does not
+choose recovery state: the host adapter must reread its canonical store, which
+remains the lifecycle authority after a runtime or host-process restart.
 
 Replay resumes the same epoch, so replayed attachment or caught-up controls may
 precede the replacement RPC's newly emitted `StreamReady`. Consumers persist

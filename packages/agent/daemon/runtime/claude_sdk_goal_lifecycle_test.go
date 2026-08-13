@@ -184,6 +184,12 @@ func TestClaudeSDKCancelLiveTurnWaitsForProviderTerminal(t *testing.T) {
 	if payloadString(sent[0].Payload, "turnId") != "turn-live" {
 		t.Fatalf("cancel payload = %#v, want turnId=turn-live", sent[0].Payload)
 	}
+	if payloadInt64(sent[0].Payload, "interruptTimeoutMs") != claudeSDKCancelInterruptTimeout.Milliseconds() {
+		t.Fatalf("cancel payload = %#v, want interrupt timeout", sent[0].Payload)
+	}
+	if payloadInt64(sent[0].Payload, "drainTimeoutMs") != claudeSDKCancelDrainTimeout.Milliseconds() {
+		t.Fatalf("cancel payload = %#v, want drain timeout", sent[0].Payload)
+	}
 }
 
 // The controller calls adapter.Cancel(ctx, session, reason) — the third argument

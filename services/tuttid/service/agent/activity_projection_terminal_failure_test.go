@@ -99,7 +99,7 @@ func TestReportSessionMessagesMarksChildSessionToolFailures(t *testing.T) {
 				t.Fatalf("terminal failures = %#v, want 1", observer.failures)
 			}
 			got := observer.failures[0]
-			if got.Flow != "tool_call" || got.ErrorMessage != "Exit code 137" || got.ToolNameFamily != "bash" {
+			if got.Flow != "tool_call" || got.ErrorMessage != "Exit code 137" || got.ToolNameFamily != "bash" || got.Provider != "codex" {
 				t.Fatalf("tool failure = %#v", got)
 			}
 			if got.IsChildSession != tt.want {

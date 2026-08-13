@@ -30,6 +30,24 @@ func newAgentRuntimeAdapter(controller *agentruntime.Controller) agentRuntimeAda
 	return agentRuntimeAdapter{controller: controller}
 }
 
+func (a agentRuntimeAdapter) ConnectorHTTPMCPSupported(
+	ctx context.Context,
+	input agentservice.ConnectorCapabilityInput,
+) (bool, error) {
+	capabilities, err := a.controller.ConnectorCapabilities(ctx, agentruntime.ConnectorCapabilityInput{
+		RoomID:            input.WorkspaceID,
+		AgentSessionID:    input.AgentSessionID,
+		AgentTargetID:     input.AgentTargetID,
+		Provider:          input.Provider,
+		CWD:               input.Cwd,
+		Env:               append([]string(nil), input.Env...),
+		ProviderTargetRef: cloneRuntimeContext(input.ProviderTargetRef),
+		PermissionModeID:  input.PermissionModeID,
+		Settings:          agentRuntimeSessionSettings(input.Settings),
+	})
+	return capabilities.HTTPMCP, err
+}
+
 func (a agentRuntimeAdapter) Cancel(ctx context.Context, input agentservice.RuntimeCancelInput) (agentservice.RuntimeCancelResult, error) {
 	targets := make([]agentruntime.CancelTarget, 0, len(input.Targets))
 	for _, target := range input.Targets {
@@ -153,6 +171,44 @@ func (a agentRuntimeAdapter) Close(ctx context.Context, input agentservice.Runti
 		return mapAgentRuntimeError(err)
 	}
 	return nil
+}
+
+func (a agentRuntimeAdapter) DisconnectRuntimeSession(
+	ctx context.Context,
+	workspaceID string,
+	agentSessionID string,
+) (bool, error) {
+	result, err := a.controller.DisconnectRuntimeSession(ctx, workspaceID, agentSessionID)
+	if err != nil {
+		return false, mapAgentRuntimeError(err)
+	}
+	return result.Disconnected, nil
+}
+
+func (a agentRuntimeAdapter) SnapshotWorkspaceRuntimeDisconnectTargets(workspaceID string) []agenthost.RuntimeDisconnectTarget {
+	targets := a.controller.SnapshotRuntimeDisconnectTargets(workspaceID)
+	result := make([]agenthost.RuntimeDisconnectTarget, 0, len(targets))
+	for _, target := range targets {
+		result = append(result, agenthost.RuntimeDisconnectTarget{
+			WorkspaceID: target.RoomID, AgentSessionID: target.AgentSessionID,
+			ConnectionGeneration: target.ConnectionGeneration,
+		})
+	}
+	return result
+}
+
+func (a agentRuntimeAdapter) DisconnectRuntimeSessionTarget(
+	ctx context.Context,
+	target agenthost.RuntimeDisconnectTarget,
+) (bool, error) {
+	result, err := a.controller.DisconnectRuntimeSessionTarget(ctx, agentruntime.RuntimeDisconnectTarget{
+		RoomID: target.WorkspaceID, AgentSessionID: target.AgentSessionID,
+		ConnectionGeneration: target.ConnectionGeneration,
+	})
+	if err != nil {
+		return false, mapAgentRuntimeError(err)
+	}
+	return result.Disconnected, nil
 }
 
 func (a agentRuntimeAdapter) Exec(ctx context.Context, input agentservice.RuntimeExecInput) (agentservice.RuntimeExecResult, error) {

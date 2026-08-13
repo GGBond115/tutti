@@ -88,13 +88,6 @@ func (host *ImplementationHost) Reconcile(ctx context.Context, request market.Ru
 	return host.runtime.Reconcile(ctx, implementationhost.ReconcileRequest{Runtime: request})
 }
 
-func (host *ImplementationHost) CheckInstallation(ctx context.Context, request market.InstallationCheckRequest) (market.InstallationObservation, error) {
-	if host == nil || host.runtime == nil {
-		return market.InstallationObservation{}, errors.New("connector implementation host is unavailable")
-	}
-	return host.runtime.CheckInstallation(ctx, request)
-}
-
 func (host *ImplementationHost) Begin(ctx context.Context, request market.AuthorizationStartRequest) (market.AuthorizationSession, error) {
 	if host == nil || host.runtime == nil {
 		return market.AuthorizationSession{}, errors.New("connector authorization provider is unavailable")
@@ -107,6 +100,13 @@ func (host *ImplementationHost) Disconnect(ctx context.Context, request market.A
 		return errors.New("connector authorization provider is unavailable")
 	}
 	return host.runtime.DisconnectAuthorization(ctx, request)
+}
+
+func (host *ImplementationHost) InspectAuthorization(ctx context.Context, request market.AuthorizationInspectRequest) (market.AuthorizationObservation, error) {
+	if host == nil || host.runtime == nil {
+		return market.AuthorizationObservation{}, errors.New("connector authorization inspector is unavailable")
+	}
+	return host.runtime.InspectAuthorization(ctx, request)
 }
 
 func (host *ImplementationHost) DeactivateRuntime(ctx context.Context, request market.RuntimeDeactivationRequest) error {
@@ -143,47 +143,8 @@ func (host *ImplementationHost) Close() error {
 	return host.runtime.Close()
 }
 
-type authorizationRouter struct {
-	managed  market.AuthorizationProvider
-	external market.AuthorizationProvider
-}
-
-func (router authorizationRouter) provider(connector market.Connector) market.AuthorizationProvider {
-	if connector.Release.Manifest.Implementation.Kind == market.ImplementationKindRemoteStreamableHTTP {
-		return router.external
-	}
-	return router.managed
-}
-
-func (router authorizationRouter) Begin(ctx context.Context, request market.AuthorizationStartRequest) (market.AuthorizationSession, error) {
-	provider := router.provider(request.Connector)
-	if provider == nil {
-		return market.AuthorizationSession{}, errors.New("connector authorization provider is unavailable")
-	}
-	return provider.Begin(ctx, request)
-}
-
-func (router authorizationRouter) Disconnect(ctx context.Context, request market.AuthorizationDisconnectRequest) error {
-	provider := router.provider(request.Connector)
-	if provider == nil {
-		return errors.New("connector authorization provider is unavailable")
-	}
-	return provider.Disconnect(ctx, request)
-}
-
-func (router authorizationRouter) Observe(ctx context.Context, request market.AuthorizationObserveRequest) (market.AuthorizationObservation, error) {
-	if request.Connector.Release.Manifest.Implementation.Kind != market.ImplementationKindRemoteStreamableHTTP {
-		return market.AuthorizationObservation{State: market.AuthorizationObservationPending}, nil
-	}
-	observer, ok := router.external.(market.AuthorizationObserver)
-	if !ok {
-		return market.AuthorizationObservation{}, errors.New("connector authorization observer is unavailable")
-	}
-	return observer.Observe(ctx, request)
-}
-
 func ProductionPorts(host *ImplementationHost, external market.AuthorizationProvider) (market.ImplementationHost, market.AuthorizationProvider, market.CompatibilityEvaluator, market.ImplementationRegistry) {
-	return host, authorizationRouter{managed: host, external: external}, productionCompatibility{}, market.NewImplementationRegistry(map[string]market.ImplementationValidator{
+	return host, market.NewImplementationAuthorizationRouter(host, external), productionCompatibility{}, market.NewImplementationRegistry(map[string]market.ImplementationValidator{
 		market.ImplementationKindManagedStdio:         nil,
 		market.ImplementationKindRemoteStreamableHTTP: nil,
 	})

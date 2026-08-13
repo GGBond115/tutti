@@ -340,10 +340,11 @@ export function AgentComposer(props: AgentComposerProps): React.JSX.Element {
     promptBeforeSelection
   } = paletteCatalog;
   const showFileMentionPalette =
-    !disabled && isPaletteOpen && fileMentionSuggestion !== null;
+    !disabled && isActive && isPaletteOpen && fileMentionSuggestion !== null;
   const showSlashPalette =
     !showFileMentionPalette &&
     !disabled &&
+    isActive &&
     isPaletteOpen &&
     ((slashQuery !== null &&
       (slashPaletteEntries.length > 0 ||
@@ -526,6 +527,7 @@ export function AgentComposer(props: AgentComposerProps): React.JSX.Element {
     isSendingTurn,
     isSubmittingPrompt,
     showStopButton,
+    isActive,
     onSettingsChange,
     handleSlashPaletteKeyDown,
     handleSlashCommandMenuKeyDown,
@@ -614,7 +616,9 @@ export function AgentComposer(props: AgentComposerProps): React.JSX.Element {
     disabled: composerControlsHardDisabled || inputDisabled,
     labels: labels.quickPrompts,
     onBeforeOpen: closeQuickPromptCompetingDisclosure,
-    onInsertPrompt: insertQuickPrompt
+    onInsertPrompt: insertQuickPrompt,
+    onQuickPromptPanelOpened: () => engagement?.quickPromptPanelOpened?.(),
+    onQuickPromptUsed: (promptType) => engagement?.quickPromptUsed?.(promptType)
   });
   const restoreComposerCaretAfterProjectMenu = (event: Event): void => {
     event.preventDefault();

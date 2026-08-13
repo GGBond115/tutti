@@ -78,7 +78,7 @@ func (resolver AccountRuntimeBindingResolver) ResolveRuntimeBinding(
 	if projection.State != AuthorizationStateConnected {
 		return RuntimeBinding{ConnectionID: connectionID, Enabled: false, AuthorizationState: projection.State}, nil
 	}
-	if request.Purpose == RuntimeBindingPurposeDeactivate || request.Purpose == RuntimeBindingPurposeInstallationProbe {
+	if request.Purpose == RuntimeBindingPurposeDeactivate {
 		return RuntimeBinding{ConnectionID: connectionID, Enabled: true, AuthorizationState: projection.State}, nil
 	}
 	managed := request.Release.Manifest.Implementation.ManagedStdio

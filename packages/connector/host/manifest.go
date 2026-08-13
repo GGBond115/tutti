@@ -2,6 +2,7 @@ package host
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -144,6 +145,10 @@ func validateManifestShape(manifest Manifest, validateIcon bool) error {
 	default:
 		return invalidManifest("authorizationKind must be none, oauth2, or api_key", nil)
 	}
+	if len(manifest.AuthorizationInteraction) > 64<<10 ||
+		(len(manifest.AuthorizationInteraction) > 0 && !json.Valid(manifest.AuthorizationInteraction)) {
+		return invalidManifest("authorizationInteraction must be valid bounded JSON", nil)
+	}
 	implementation := manifest.Implementation
 	branches := 0
 	if implementation.Builtin != nil {
@@ -255,9 +260,6 @@ func validateManagedStdio(managed ManagedStdioImplementation, authorizationKind 
 		if !safeRelativeEntrypoint(managed.MCP.Entrypoint) {
 			return invalidManifest("managed MCP entrypoint must be a safe relative path", nil)
 		}
-		if err := validateInstallationProbe(managed.MCP.InstallationProbe); err != nil {
-			return err
-		}
 	}
 	if managed.CLI != nil {
 		if managed.Runtime.Language != "node" || managed.Runtime.Profile != "connector-node-static" {
@@ -274,7 +276,7 @@ func validateManagedStdio(managed ManagedStdioImplementation, authorizationKind 
 				return invalidManifest("managed CLI arguments must not contain NUL", nil)
 			}
 		}
-		if err := validateInstallationProbe(managed.CLI.InstallationProbe); err != nil {
+		if err := validateCLIReadinessProbe(managed.CLI.ReadinessProbe); err != nil {
 			return err
 		}
 		if managed.CLI.Install != nil {
@@ -314,18 +316,18 @@ func validateManagedStdio(managed ManagedStdioImplementation, authorizationKind 
 	return nil
 }
 
-func validateInstallationProbe(probe *InstallationProbe) error {
+func validateCLIReadinessProbe(probe *CLIReadinessProbe) error {
 	if probe == nil {
 		return nil
 	}
 	if len(probe.Arguments) == 0 || len(probe.Arguments) > 32 || probe.TimeoutMS < 100 || probe.TimeoutMS > 30_000 {
-		return invalidManifest("installationProbe requires between 1 and 32 arguments and timeoutMs between 100 and 30000", nil)
+		return invalidManifest("readinessProbe requires between 1 and 32 arguments and timeoutMs between 100 and 30000", nil)
 	}
 	totalBytes := 0
 	for _, argument := range probe.Arguments {
 		totalBytes += len(argument)
 		if strings.ContainsRune(argument, '\x00') || totalBytes > 16*1024 {
-			return invalidManifest("installationProbe arguments are invalid", nil)
+			return invalidManifest("readinessProbe arguments are invalid", nil)
 		}
 	}
 	return nil

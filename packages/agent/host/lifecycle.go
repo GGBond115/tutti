@@ -15,8 +15,19 @@ import (
 // CreateSession reports at most one aggregated TerminalFailure for a failed
 // command. Cleanup after a primary failure stays diagnostic.
 func (h *Host) CreateSession(ctx context.Context, workspaceID string, input CreateSessionInput) (CreateSessionResult, error) {
-	ctx, command := h.beginCommand(ctx, "session_create", workspaceID, input.AgentSessionID)
-	result, err := h.createSession(ctx, workspaceID, input)
+	clientSubmitID := firstNonEmptyTrimmed(input.ClientSubmitID, legacyClientSubmitID(input.Metadata))
+	activationID := strings.TrimSpace(input.ActivationID)
+	operationID := firstNonEmptyTrimmed(activationID, clientSubmitID, input.AgentSessionID)
+	ctx, command := h.beginCommand(ctx, commandTerminalFailureInput{
+		flow: "session_create", workspaceID: workspaceID, agentSessionID: input.AgentSessionID,
+		operationID: operationID, requestID: activationID, clientSubmitID: clientSubmitID, turnID: input.TurnID,
+	})
+	var result CreateSessionResult
+	err := h.withWorkspaceRuntimeOperation(ctx, workspaceID, func(operationCtx context.Context) error {
+		var createErr error
+		result, createErr = h.createSession(operationCtx, workspaceID, input)
+		return createErr
+	})
 	command.finish(ctx, h, err)
 	return result, err
 }
@@ -347,6 +358,16 @@ func (h *Host) EnsureRuntimeSession(ctx context.Context, ref SessionRef) (Provid
 	if h == nil || h.runtime == nil || h.store == nil || ref.WorkspaceID == "" || ref.AgentSessionID == "" {
 		return ProviderRuntimeSession{}, ErrSessionNotFound
 	}
+	var result ProviderRuntimeSession
+	err := h.withWorkspaceRuntimeOperation(ctx, ref.WorkspaceID, func(operationCtx context.Context) error {
+		var ensureErr error
+		result, ensureErr = h.ensureRuntimeSession(operationCtx, ref)
+		return ensureErr
+	})
+	return result, err
+}
+
+func (h *Host) ensureRuntimeSession(ctx context.Context, ref SessionRef) (ProviderRuntimeSession, error) {
 	release, err := h.acquireSession(ctx, ref)
 	if err != nil {
 		return ProviderRuntimeSession{}, err
@@ -461,7 +482,12 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 // SendInput reports at most one aggregated TerminalFailure for a failed
 // command. Guidance target binding and goal control own their own emissions.
 func (h *Host) SendInput(ctx context.Context, ref SessionRef, input SendInput) (SendInputResult, error) {
-	ctx, command := h.beginCommand(ctx, "message_send", ref.WorkspaceID, ref.AgentSessionID)
+	clientSubmitID := firstNonEmptyTrimmed(input.ClientSubmitID, legacyClientSubmitID(input.Metadata))
+	ctx, command := h.beginCommand(ctx, commandTerminalFailureInput{
+		flow: "message_send", workspaceID: ref.WorkspaceID, agentSessionID: ref.AgentSessionID,
+		operationID:    firstNonEmptyTrimmed(clientSubmitID, input.TurnID),
+		clientSubmitID: clientSubmitID, turnID: input.TurnID,
+	})
 	result, err := h.sendInput(ctx, ref, input)
 	command.finish(ctx, h, err)
 	return result, err

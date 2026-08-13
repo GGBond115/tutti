@@ -29,7 +29,7 @@ func (application *Application) executeRuntimeReconcile(ctx context.Context, ope
 		return NewDomainError(ErrorCodeInstallFailed, "connector runtime could not be reconciled", true, err)
 	}
 	if err := validateRuntimeReceipt(receipt, operation.OperationID, binding.ConnectionID, connector.Key,
-		release.ReleaseDigest, operation.HostGeneration); err != nil {
+		release.ReleaseDigest, operation.HostGeneration, binding.Enabled); err != nil {
 		return err
 	}
 	return application.completeConnectorOperation(ctx, operation.OperationID, func(current Connector) Connector { return current })

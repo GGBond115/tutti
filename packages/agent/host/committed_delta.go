@@ -19,6 +19,10 @@ type SessionMessagesCommitted struct {
 	Input  canonical.ReportSessionMessagesInput
 	Reply  canonical.ReportSessionMessagesReply
 	Result storesqlite.MessageReportResult
+	// Provider is the canonical provider identity for the reporting session.
+	// Message rows do not repeat session identity, so terminal tool-call
+	// analytics carry it on the committed wrapper.
+	Provider string
 	// IsChildSession marks a provider-native subagent session. Message reports
 	// carry no session state, so the reporting adapter resolves it from the
 	// canonical session before publishing the delta.
@@ -29,6 +33,7 @@ type RootTurnSettled struct {
 	WorkspaceID    string
 	AgentSessionID string
 	Turn           storesqlite.Turn
+	Provider       string
 	IsChildSession bool
 	// StartupReconciled marks a turn force-settled by daemon-start
 	// reconciliation rather than by a live provider settlement. Failure
@@ -48,9 +53,11 @@ const (
 )
 
 type RuntimeOperationCommitted struct {
-	Stage     RuntimeOperationCommitStage
-	Operation storesqlite.RuntimeOperation
-	Event     *storesqlite.RuntimeOperationEvent
+	Stage          RuntimeOperationCommitStage
+	Operation      storesqlite.RuntimeOperation
+	Event          *storesqlite.RuntimeOperationEvent
+	Provider       string
+	IsChildSession bool
 }
 
 type GoalOperationCommitStage string
@@ -69,10 +76,12 @@ const (
 )
 
 type GoalOperationCommitted struct {
-	Stage     GoalOperationCommitStage
-	Operation storesqlite.GoalControlOperation
-	State     storesqlite.SessionGoalState
-	Audit     *storesqlite.Message
+	Stage          GoalOperationCommitStage
+	Operation      storesqlite.GoalControlOperation
+	State          storesqlite.SessionGoalState
+	Audit          *storesqlite.Message
+	Provider       string
+	IsChildSession bool
 }
 
 type CanonicalProjectionDirty struct {
@@ -112,6 +121,7 @@ func ActivityStateDelta(input canonical.ReportSessionStateInput, reply canonical
 	if result.RootTurnAccepted && result.RootTurn.Phase == storesqlite.TurnPhaseSettled {
 		delta.RootTurnsSettled = append(delta.RootTurnsSettled, RootTurnSettled{
 			WorkspaceID: result.RootTurn.WorkspaceID, AgentSessionID: result.RootTurn.AgentSessionID, Turn: result.RootTurn,
+			Provider:       firstNonEmptyTrimmed(result.State.Session.Provider, input.State.Provider, input.Source.Provider),
 			IsChildSession: sessionStateIsChild(input.State),
 		})
 	}
@@ -163,7 +173,9 @@ func goalOperationFromActivityState(
 		return nil
 	}
 	return &GoalOperationCommitted{
-		Stage: GoalOperationReconciled,
+		Stage:          GoalOperationReconciled,
+		Provider:       firstNonEmptyTrimmed(result.State.Session.Provider, input.State.Provider, input.Source.Provider),
+		IsChildSession: sessionStateIsChild(input.State),
 		State: storesqlite.SessionGoalState{
 			WorkspaceID:         workspaceID,
 			AgentSessionID:      sessionID,
@@ -186,7 +198,10 @@ func runtimeContextGoal(runtimeContext map[string]any) map[string]any {
 
 func SessionMessagesDelta(input canonical.ReportSessionMessagesInput, reply canonical.ReportSessionMessagesReply, result storesqlite.MessageReportResult) CommittedDelta {
 	delta := committedDeltaFromMutations(result.TransactionID, result.CommitDelta.Mutations)
-	delta.SessionMessages = &SessionMessagesCommitted{Input: input, Reply: reply, Result: result}
+	delta.SessionMessages = &SessionMessagesCommitted{
+		Input: input, Reply: reply, Result: result,
+		Provider: strings.TrimSpace(input.Source.Provider),
+	}
 	delta.addView(input.WorkspaceID, canonicalMessageSessionID(input.AgentSessionID, result.Messages))
 	return delta
 }
@@ -211,13 +226,17 @@ func StaleTurnSettlementDelta(settlements []storesqlite.StaleTurnSettlement) Com
 			WorkspaceID:    workspaceID,
 			AgentSessionID: agentSessionID,
 			Turn: storesqlite.Turn{
-				WorkspaceID:    workspaceID,
-				AgentSessionID: agentSessionID,
-				TurnID:         turnID,
-				Phase:          storesqlite.TurnPhaseSettled,
-				Outcome:        storesqlite.TurnOutcomeInterrupted,
-				ErrorMessage:   "stale turn settled on daemon startup",
+				WorkspaceID:     workspaceID,
+				AgentSessionID:  agentSessionID,
+				TurnID:          turnID,
+				Phase:           storesqlite.TurnPhaseSettled,
+				Outcome:         storesqlite.TurnOutcomeInterrupted,
+				ErrorMessage:    "stale turn settled on daemon startup",
+				StartedAtUnixMS: settlement.StartedAtUnixMS,
+				SettledAtUnixMS: settlement.SettledAtUnixMS,
 			},
+			Provider:          strings.TrimSpace(settlement.Provider),
+			IsChildSession:    settlement.IsChildSession,
 			StartupReconciled: true,
 		})
 	}
@@ -307,7 +326,76 @@ func NotifyCommitted(ctx context.Context, observer CommitObserver, delta Committ
 
 func (h *Host) notifyCommitted(ctx context.Context, delta CommittedDelta) {
 	if h != nil {
+		h.enrichCommittedDeltaTerminalIdentity(ctx, &delta)
 		ObserveTerminalFailuresFromDelta(ctx, h.terminalFailure, delta)
 		NotifyCommitted(ctx, h.commitObserver, delta)
 	}
+}
+
+type terminalFailureSessionIdentity struct {
+	provider       string
+	isChildSession bool
+}
+
+// enrichCommittedDeltaTerminalIdentity resolves session-owned facts from the
+// canonical store after commit. Runtime and Goal operation rows deliberately
+// do not duplicate provider identity, while product telemetry still needs the
+// exact canonical Provider and child-session classification.
+func (h *Host) enrichCommittedDeltaTerminalIdentity(ctx context.Context, delta *CommittedDelta) {
+	if h == nil || h.store == nil || delta == nil {
+		return
+	}
+	identities := map[string]terminalFailureSessionIdentity{}
+	resolve := func(workspaceID, agentSessionID string) terminalFailureSessionIdentity {
+		workspaceID = strings.TrimSpace(workspaceID)
+		agentSessionID = strings.TrimSpace(agentSessionID)
+		key := workspaceID + "\x00" + agentSessionID
+		if identity, ok := identities[key]; ok {
+			return identity
+		}
+		identity := terminalFailureSessionIdentity{}
+		if workspaceID != "" && agentSessionID != "" {
+			if session, found, err := h.store.GetSession(ctx, workspaceID, agentSessionID); err == nil && found {
+				identity.provider = strings.TrimSpace(session.Provider)
+				identity.isChildSession = canonicalSessionIsChild(session)
+			}
+		}
+		identities[key] = identity
+		return identity
+	}
+	apply := func(provider *string, isChildSession *bool, workspaceID, agentSessionID string) {
+		identity := resolve(workspaceID, agentSessionID)
+		if strings.TrimSpace(*provider) == "" {
+			*provider = identity.provider
+		}
+		*isChildSession = *isChildSession || identity.isChildSession
+	}
+	if committed := delta.RuntimeOperation; committed != nil && committed.Stage == RuntimeOperationFailed {
+		apply(&committed.Provider, &committed.IsChildSession,
+			committed.Operation.WorkspaceID, committed.Operation.AgentSessionID)
+	}
+	if committed := delta.GoalOperation; committed != nil &&
+		(committed.Stage == GoalOperationFailed || committed.Stage == GoalOperationTerminal) {
+		workspaceID := firstNonEmptyTrimmed(committed.Operation.WorkspaceID, committed.State.WorkspaceID)
+		agentSessionID := firstNonEmptyTrimmed(committed.Operation.AgentSessionID, committed.State.AgentSessionID)
+		apply(&committed.Provider, &committed.IsChildSession, workspaceID, agentSessionID)
+	}
+	for index := range delta.RootTurnsSettled {
+		settled := &delta.RootTurnsSettled[index]
+		if outcome := strings.TrimSpace(settled.Turn.Outcome); outcome != storesqlite.TurnOutcomeFailed &&
+			outcome != storesqlite.TurnOutcomeInterrupted && outcome != storesqlite.TurnOutcomeCanceled {
+			continue
+		}
+		apply(&settled.Provider, &settled.IsChildSession, settled.WorkspaceID, settled.AgentSessionID)
+	}
+	if committed := delta.SessionMessages; committed != nil &&
+		len(terminalFailuresFromSessionMessages(*committed, nil)) > 0 {
+		agentSessionID := canonicalMessageSessionID(committed.Input.AgentSessionID, committed.Result.Messages)
+		apply(&committed.Provider, &committed.IsChildSession, committed.Input.WorkspaceID, agentSessionID)
+	}
+}
+
+func canonicalSessionIsChild(session storesqlite.Session) bool {
+	return strings.EqualFold(strings.TrimSpace(session.Kind), storesqlite.SessionKindChild) ||
+		strings.TrimSpace(session.ParentToolCallID) != ""
 }

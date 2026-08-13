@@ -38,6 +38,17 @@ show an optimistic projection, while `tuttid` remains the durable order owner.
 Hosts that omit the capability must hide the entire entry rather than expose a
 partial or disabled library.
 
+Desktop AgentGUI reports quick-prompt engagement through the typed panel
+engagement sink. Opening the picker from the Composer emits
+`agent.quick_prompt_engagement` with `action=panel_opened` and
+`source=composer_input`; successfully inserting a saved prompt or a saved
+recommended template into the Composer emits the same event with
+`action=prompt_used` and the corresponding `prompt_type`. Engagement is
+buffered until the containing panel satisfies its exposure gate. The
+action-discriminated contract forbids `prompt_type` on panel-open events.
+Events carry only stable AgentGUI context and never prompt titles or prompt
+bodies, while the action keeps picker exposure distinct from successful use.
+
 The native Mobile composer consumes the same device-global list through its
 authenticated Desktop connection rather than creating Mobile-owned prompt
 state. Its authenticated-device service reads the stored
@@ -280,6 +291,31 @@ the command authority. If the Host omits the reason, the disabled wrapper stays
 out of the tab order and does not create an empty Tooltip. The final semantic
 command admission check remains in the consumer/controller path.
 
+### Submission and execution presentation
+
+Submission acknowledgment and execution are separate presentation signals:
+
+- `isSubmitting`, an unconfirmed submit, and a viable initial launch that
+  expects a Turn drive an `isAwaitingTurnStart` Composer spinner immediately
+  because they prove local submission intent or expected launch work
+- a reconnect-only `activating` state belongs to connection chrome and command
+  admission; without submission intent it must not create a sending spinner,
+  `working` status, Stop target, or queue eligibility
+- Conversation `working` status and queue eligibility require canonical
+  execution evidence: the fenced Engine display status or a non-settled active
+  Turn; pending activation or submission alone must remain `ready`, both before
+  and after canonical Session confirmation
+- canonical completed, failed, or canceled activity stops the execution
+  indicator even if a lower-level runtime signal has not caught up yet
+- transport recovery chrome, such as connecting or unavailable, takes priority
+  over normal working copy
+- Stop is available before Turn identity only when the Engine exposes an exact
+  pending-submit stop target; reconnect and other connection state never invent
+  one
+
+This keeps feedback optimistic for responsiveness while keeping claims about
+Agent work grounded in the canonical Turn/runtime projection.
+
 ### 2.6 On-demand status
 
 AgentGUI owns one provider-neutral `AgentStatusController` for `/status`, Agent
@@ -359,6 +395,29 @@ version reads and failed adapter launches are never cached. OpenCode and
 Tutti Agent use their validated local credential files as the primary auth
 signal; malformed files may fall back to one CLI check. Cursor's single
 `about --format json` result supplies both auth and version when available.
+
+Authentication status is evidence-based and provider-neutral. A local status
+command, marker, token, or API key proves only `configured`. A provider-backed
+account probe or successful agent request proves `authenticated`. An explicit
+remote authentication failure proves `required` and outranks stale local
+credentials until credentials change or a later provider request succeeds.
+`packages/agent/daemon/providerstatus` owns evidence reduction; `tuttid` owns
+the live outcome store, cache invalidation, and public status projection. Tutti
+Desktop management surfaces and AgentGUI consume that same status. They may
+keep a `configured` provider launchable when availability is `ready`, but must
+not relabel it as connected or authenticated.
+
+For subscription OAuth, provider descriptors select the remote-auth strategy.
+Claude Code uses `GET https://api.anthropic.com/api/oauth/usage`; Codex uses the
+provider runtime's `account/rateLimits/read`. These checks are attempted on
+ordinary status detection and become stale after 15 minutes. Visible, focused
+Desktop windows reconcile stale providers on focus/visibility activation and
+on the 15-minute poll. API-key configuration skips subscription OAuth checks.
+Explicit authentication rejection is authoritative; rate limits, server
+errors, and network failures leave the weaker `configured` state intact.
+These checks validate current access but do not rotate refresh tokens; refresh
+ownership requires a separate serialized credential lifecycle that can gate on
+live provider processes.
 
 ### 2.6 Developer cassette replay
 
@@ -536,6 +595,15 @@ closed and treats a persisted title as user-established.
 
 A Session does not copy Turn phase/outcome, own pending Interactions, or persist lifecycle inferred from transcript.
 
+If provider-native compaction fails because the current context is already over
+its hard limit, the provider adapter projects one typed
+`context-handoff-required` system notice with error severity. AgentGUI localizes
+the failure and tells the user to start a new conversation and mention the
+exhausted Session there. Tutti does not replace the provider session or
+automatically redispatch the user's next message: the fresh root Session and
+its canonical `agent-session` mention make the handoff explicit and preserve
+the user's control over what continues.
+
 Provider-native subagents use child Sessions:
 
 - `rootAgentSessionId` / `rootTurnId`: root execution
@@ -594,9 +662,10 @@ action. Tuttid independently enforces the same flag on new Fork writes;
 disabling it leaves existing lineage, operation reads, and operation
 acknowledgements available.
 
-Execution still rejects a worktree-isolated source because a provider-native
-Fork retains the provider cwd and Tutti must not silently transfer worktree
-ownership. Non-isolated runtime facts are frozen into the target snapshot.
+Execution accepts a worktree-isolated source. A provider-native Fork retains
+the provider cwd, and Tutti freezes the same cwd and isolation coordinates into
+the target snapshot without creating or transferring worktree ownership.
+Other runtime facts are frozen into the target snapshot as well.
 Only attachments referenced by that snapshot are staged into the target
 namespace; the source attachment directory is never copied wholesale.
 
@@ -671,6 +740,13 @@ an unsupported shape fails before publication instead of exposing a lossy
 Interaction. This publication gate applies equally to emitted events and
 `SessionState.PendingInteractive`; a snapshot must not leak the incomplete
 request while the adapter waits for the later frame.
+
+Approval detail presentation is provider-neutral. The daemon carries generic
+`url`/`uri` and `prompt`/`instruction` display fields into the canonical
+`toolCall.input` when a provider reports them only at the tool-call root, and
+AgentGUI renders those fields from either canonical nested input or compatible
+root input. Shared and local surfaces use this same projection; they must not
+branch on a provider or tool name to recover web-action details.
 
 A child Interaction may appear in the root conversation, but submission carries the exact `(agentSessionId, turnId, requestId)` tuple.
 Every AgentGUI, Message Center, Desktop notification, and Mobile action submits
@@ -763,6 +839,11 @@ A durable message has two independent ordering values:
 - `version`: per-session mutable change cursor used for incremental updates and gap detection
 
 Lifecycle timestamps describe occurrence time; they do not replace durable sequence. A live message with unknown Turn ownership must be completed or rejected at the boundary, never assigned an owner in GUI.
+Optimistic prompt and Goal-control echoes occupy a separate overlay ordering
+domain. They remain after all currently durable messages until canonical
+confirmation replaces them; their earlier submission timestamps must not move
+them back through durable transcript history during message projection or
+timeline merging.
 
 Neither value is a history-coverage signal. A newest-to-oldest message read
 projects an explicit Session message window into the frontend engine:
@@ -872,23 +953,25 @@ queue submission while keeping the editor editable. Draft emptiness, upload
 progress/failure, project existence, and other draft-local conditions may
 disable submission, but must not change editor editability.
 
-Engine submitting and unconfirmed-submit selectors remain busy facts after a
-canonical Session first appears. Session existence or an `available` runtime
-must not create an idle frame before the exact Turn claims the submission. A
-viable new-Session activation with `initialTurnExpected` remains the same busy
-bridge while no canonical latest Turn exists. Goal-only activation deliberately
-does not set `initialTurnExpected`, because Goal Control does not synchronously
-create a Turn. A viable initial Goal `set` whose projected Goal is still active
-remains a busy bridge only while the Goal is optimistic or the host supplies an
-exact pending/applying/unknown `goalSyncState` with a pending operation
-identity. A synced Goal proves only that the Goal mutation converged; it does
-not prove that a future Turn will exist. The first canonical Turn, a synced or
-non-active Goal,
-`failed`/`diverged` synchronization, `pending`/`applying`/`unknown` without an operation identity,
-or a canceled/failed activation releases the bridge; initial Goal `clear` never
+Engine submitting and unconfirmed-submit selectors remain Turn-admission facts
+after a canonical Session first appears. Session existence or an `available`
+runtime must not create an idle frame in the Composer spinner before the exact
+Turn claims the submission, but these facts do not create execution busy,
+Conversation `working`, or queue eligibility. A viable new-Session activation
+with `initialTurnExpected` remains the same Turn-start bridge while no canonical
+latest Turn exists. Goal-only activation deliberately does not set
+`initialTurnExpected`, because Goal Control does not synchronously create a
+Turn. A viable initial Goal `set` whose projected Goal is still active remains a
+Turn-start bridge only while the Goal is optimistic or the host supplies an
+exact pending/applying/unknown `goalSyncState` with a pending operation identity.
+A synced Goal proves only that the Goal mutation converged; it does not prove
+that a future Turn will exist. The first canonical Turn, a synced or non-active
+Goal, `failed`/`diverged` synchronization,
+`pending`/`applying`/`unknown` without an operation identity, or a
+canceled/failed activation releases the bridge; initial Goal `clear` never
 creates it. A host that omits `goalSyncState` cannot prove post-create execution
 and therefore fails closed to the canonical availability projection instead of
-keeping the composer busy indefinitely. When a provider exposes an exact
+keeping the Composer spinner active indefinitely. When a provider exposes an exact
 session-level `running`/`idle` observation before Turn identity, the daemon
 projects that
 typed, non-persistent runtime activity through `agent.activity.updated` after
@@ -896,7 +979,12 @@ the associated state report wins canonical ordering. Desktop and Mobile Live
 consume the same event variant. The workspace Engine uses its occurrence time
 to reject reordering and prevents an older `running` observation from
 overriding a settled Turn. A disconnect clears the ephemeral observation,
-while canonical Turn state remains authoritative once it exists.
+while canonical Turn state remains authoritative once it exists. AgentGUI
+consumes the Engine's fenced Session display status after the canonical
+Session exists; it must not recompute Composer busy state from the raw runtime
+activity flag, because that would let an older `running` observation outlive a
+completed or failed latest Turn. Raw runtime activity may bridge presentation
+only before that canonical Session projection exists.
 
 ### 4.1 Read/write rules
 
@@ -1133,7 +1221,20 @@ A `waiting` Turn does not imply user action. Only a pending Interaction produces
 The busy-session prompt queue is ephemeral durable-intent coordination in the workspace engine. It is neither a daemon queue nor component state.
 
 - a normal prompt waits for canonical availability
-- a provider with native guidance capability may guide the active Turn
+- a queued-prompt `Send next` action uses native guidance when the provider
+  supports it, even when the provider also supports interruption; guidance
+  stays on the same canonical Turn and follows the provider's native semantics
+- Claude SDK guidance acknowledges delivery only after its SDK interrupt has
+  succeeded and the guidance prompt has been enqueued; a failed interrupt is a
+  failed guidance request and must not allow the old response to keep running.
+  The confirmed interruption settles the old response's streaming projections
+  while the canonical Turn remains active for the guidance response
+- Codex/Tutti Agent guidance sends `turn/steer` with the exact active provider
+  Turn identity. Steering inserts the guidance into the current provider Turn;
+  it does not interrupt the response or start a replacement provider Turn. If
+  the provider response has already ended while the canonical Turn remains
+  active for child work, guidance may start a provider continuation with
+  `turn/start` on that same canonical Turn
 - guidance captures the canonical `activeTurnId` at the interaction boundary
   and carries it through the queue, activity adapter, daemon API, Agent Host,
   and runtime Controller; `turnId` is required for every cross-process
@@ -1154,6 +1255,7 @@ The busy-session prompt queue is ephemeral durable-intent coordination in the wo
   draft settlement must not duplicate that content back into the composer
 - uncertain delivery reconciles by `clientSubmitId` and exact `turnId`; it never resends merely because the Session appears idle
 - editing a queued prompt restores its stable attachment references, then rehydrates missing image previews through `AgentGUIRuntime` with the exact workspace and Session identity; renderer-inaccessible paths never become image URLs, and late reads may update only the matching restored draft image
+- rebuilding a Composer draft from queued canonical Markdown resolves mention labels and icons in each `AgentMentionNodeView` through the nearest workspace-scoped `RichTextMentionService`; every NodeView subscribes only to its canonical mention identity and keeps presentation out of the Tiptap document, while missing, failed, or removed services fall back to the canonical label and semantic icon. Agent target catalog presentation remains authoritative over service fallbacks
 - the delivery barrier serializes new-Turn sends only; a guidance head steering the running barrier Turn is exempt and may steer it repeatedly, while in-flight, uncertain-delivery, suspension, and failed-head blockers still gate guidance sends
 - drain readiness is one pure decision over the queue record and canonical availability; a new blocker joins that single decision with an explicit priority against every existing blocker, never as another independent pre-check in the drain path
 
@@ -1238,19 +1340,33 @@ their renderer and interaction layout; they must not import Desktop or Web
 components, infer project membership from `cwd`, or create a second Session
 lifecycle store.
 
-AgentGUI's existing-Session project projection uses the immutable
+AgentGUI's existing-Session project projection uses the authoritative
 `railSectionKey` as its only join key: it matches that value exactly against a
-registered user project's `sectionKey`. The `conversations` key, a missing key,
-or an unknown key fails closed to no project label even when the Session `cwd`
-equals or sits below a registered project path. Conversely, a recognized
-project key keeps its project identity when the runtime `cwd` is an isolated
-worktree or another detached execution directory. Path matching is reserved
-for resolving the user's explicit project selection before a new activation;
-it is not an existing-Session compatibility fallback.
+registered user project's `sectionKey`. The key is immutable under runtime
+reports, `cwd` changes, and user-project list updates. The `conversations` key,
+a missing key, or an unknown key fails closed to no project
+label even when the Session `cwd` equals or sits below a registered project
+path. Conversely, a recognized project key keeps its project identity when the
+runtime `cwd` is an isolated worktree or another detached execution directory.
+Path matching is reserved for resolving the user's explicit project selection
+before a new activation; it is not an existing-Session compatibility fallback.
+The Remove project action delegates one awaited operation to the daemon. The
+daemon deletes every unpinned root through the canonical Host batch path, keeps
+pinned Session trees, atomically rehomes retained rows to Chats, and only then
+removes the user-project row. Failure keeps the project visible for retry; the
+renderer does not compose candidate-query, Session-delete, and metadata-delete
+requests itself.
 Native Mobile applies the same rule to Activity labels and Rail placement.
-Section `sessionIds` remain query ordering and hydration data; if their section
-disagrees with a Session's canonical `railSectionKey`, Mobile rehomes the row by
-the Session key instead of accepting the stale membership.
+Section `sessionIds` remain query membership, page-boundary, initial-order, and
+hydration data. After joining those memberships to current Engine entities,
+hosts sort loaded ordinary sections by the canonical conversation sort key:
+the latest Turn start time, falling back to Session creation time. Streaming
+freshness, status, and completion updates do not change that key, so parallel
+running Turns do not churn Rail positions. Pinned sections preserve the query's
+pinned order. If a section disagrees with a Session's canonical
+`railSectionKey`, the host rehomes the row by the Session key instead of
+accepting the stale membership; presentation reordering must not mutate cached
+memberships or pagination cursors.
 
 Cross-platform hosts may also reuse the DOM-free canonical transcript
 projection from `@tutti-os/agent-gui/conversation-projection`. It accepts the
@@ -1567,6 +1683,15 @@ text, but they are not an additional transcript text block when the canonical
 structured content already renders the same image. Explicit display prompts
 remain transcript content and continue to replace expanded rich prompt text.
 
+Structured user-prompt transcript images keep resource acquisition and browser
+image decoding as separate presentation states. A URL or hydrated data source
+is not proof that pixels are ready: AgentGUI reserves the final thumbnail
+geometry and shows its loading treatment until the exact image element reports
+`load`. `error` replaces that slot with the retryable failure treatment. A retry
+of the same URL or a replacement effective source starts a new decode attempt
+instead of reusing stale loaded or failed state. These loading and retry states
+are UI-local and never enter canonical Message or workspace-engine state.
+
 Standalone hosts may opt a transcript into participant avatars through the
 `agent-conversation` entrypoint's explicit presentation contract. Omitted or
 disabled presentation preserves the existing transcript DOM. Enabled
@@ -1583,6 +1708,26 @@ turn, and a collapsed completed canonical Turn keeps the Agent header on visible
 reply content.
 This presentation input is view data only and must not enter canonical Session,
 Turn, Message, activity-runtime, or workspace-engine state.
+
+Standalone hosts rendering `AgentConversationFlow` may also pass the current
+Agent target presentation catalog through the `agent-conversation` entrypoint.
+The flow scopes that catalog to all historical rich-text rows, so `agent-target`
+and `agent-session` mentions use the same provider icon and identity
+presentation as the full AgentGUI node without copying the catalog into
+canonical activity data. Omitting the catalog preserves an inherited AgentGUI
+presentation context. The standalone flow also owns its visibility-aware
+conversation clock, so a hidden host does not keep elapsed-time presentation
+timers active.
+
+Hosts whose action directories omit valid identities supply the complete
+presentation-only catalog through `mentionAgentDirectory`. It retains exact
+target IDs and unavailable Agents without making them launchable. Hosts that
+omit this capability keep the existing union of provider-rail and handoff
+targets. Interactive composer mentions, readonly rich text, and Markdown links
+must resolve presentation through the shared target-presentation resolver.
+They must not infer icons from target-id formats such as `local:*`; serialized
+mention presentation is only the fallback when the current catalog no longer
+contains a historical target.
 
 ## 5. Agent identity and provider architecture
 
@@ -1704,6 +1849,13 @@ Desktop Workspace Agent projections first inherit the resolved icon of their
 Harness target by exact target ID, then use the provider/icon catalog fallback.
 Host projections preserve these roles independently and do not create
 provider-specific renderer catalogs.
+
+AgentGUI accepts separate directory projections for separate responsibilities:
+`agentDirectory` owns the current runtime rail, `handoffAgentDirectory` owns
+launch choices, and optional `mentionAgentDirectory` owns exact rendered
+identity. The mention directory may include offline or otherwise unavailable
+Agents and must not participate in selection, admission, setup, or handoff.
+This keeps availability as action state instead of deleting identity metadata.
 
 Agent presentation images decoded for a canvas-backed texture must use
 anonymous CORS loading before assigning `src`. Any host-owned custom protocol
@@ -1923,20 +2075,21 @@ source composer. While dispatch is not paused and any task is nonterminal, an
 empty composer shows the normal running Stop control even when the source
 Session has no active Turn; this is presentation state and must not manufacture
 an Agent Turn or change Host submit availability. Typed input replaces that
-aggregate Stop with Send. An exact active source Turn with
-`activeTurnGuidance` receives the input as guidance/steer; an idle source starts
-a normal Turn, and an active source without guidance support keeps the normal
-queue path instead of cancel-then-send. Stop durably pauses Issue dispatch and
-cancels its running task Sessions, and also sends the ordinary source-Session
-stop only when that Session has stoppable work. The two idempotent paths are
-independent because canceling an idle Session merely to trigger the Issue
-cascade could capture a later Turn.
+aggregate Stop with Send. Sending from the ordinary composer always uses the
+normal source-conversation submit path, including while the Issue and source
+Turn are active; canonical busy-session availability therefore keeps the prompt
+in the normal queue. Provider guidance capability only enables an explicit
+guidance action and never changes ordinary Send semantics. Stop durably pauses
+Issue dispatch and cancels its running task Sessions, and also sends the
+ordinary source-Session stop only when that Session has stoppable work. The two
+idempotent paths are independent because canceling an idle Session merely to
+trigger the Issue cascade could capture a later Turn.
 
 Task-level accept and rework controls in that projection prepare localized
 instructions in the exact source Session composer; they preserve any existing
 draft and never send automatically. They do not call generic Issue Task
 mutations or impersonate the source Agent's CLI authority. Once the user sends
-the draft, the normal source-conversation submit/guidance path applies and the
+the draft, the normal source-conversation submit path applies and the
 Agent inspects the canonical Tutti execution before issuing checkpoint- and
 revision-fenced commands. Other plan-panel interactions should use this
 prompt-action pattern only when their intended effect requires source-Agent
@@ -2063,6 +2216,24 @@ as ordinary prompts.
 The host capability remains explicit so unsupported hosts can fail closed, but
 Tutti Desktop always supplies `sessionInputHistoryEnabled: true`; historical
 `lab.agentInputHistory` preference values do not hide or disable the feature.
+
+Composer model recents and favorites are separate browser-local menu chrome.
+The Composer presentation projects the exact Agent Target identity together
+with narrow provider-native catalog testimony, and one focused controller owns
+storage reads, writes, cross-window refresh, and reconciliation. An unresolved
+active-Session target disables history instead of reading or writing a shared
+fallback bucket. Only an authoritative, settled native catalog may retire a
+recent model; loading, empty catalogs, requested-origin entries, and
+selected-model-only echoes remain unverifiable. Favorites preserve explicit
+user intent even when a model is currently unavailable. The legacy shared
+`default` bucket migrates lazily to the first exact target: recents pass through
+current authoritative testimony before migration, while favorites migrate
+without availability filtering.
+Quick Composer projects the same history identity and testimony from its exact
+selected target and host-owned options capability. Host-level option loading
+keeps that testimony unsettled, so a retained last-good catalog cannot retire
+history while the embedding host is refreshing or changing targets.
+
 Bare Up/Down recalls older/newer structured drafts only from an empty composer
 or an unchanged recalled entry, and only when the collapsed caret is at a
 whole-document boundary. Palette handling and IME composition take precedence,
@@ -2150,6 +2321,16 @@ otherwise recover interactively.
 | `hostCapabilities` | host catalog, readiness, menus, icons     |
 | `hostActions`      | host mutations, Workbench/window actions  |
 | `renderSlots`      | narrow product-neutral presentation slots |
+
+`AgentToolBrowserPanel` owns its BrowserNode feature, surface identity, and
+tab state. It also owns the single browser chrome instance for that surface.
+Its controller may activate an existing page by URL inside that one surface;
+the product Host remains responsible for choosing among Browser surfaces and
+focusing the owning top-level node or window.
+Hosts compose window controls into the tab strip through `defaultActions`,
+pass draggable-header semantics through `dragHandleProps`, and use
+`navigationActions` for address-row actions. A host must not wrap the panel in
+a second visible title bar or recreate the browser header outside the panel.
 
 Host-issued `runtimeRequests.composerAppend` values are one-shot requests.
 AgentGUI waits until the exact requested Session is the active conversation,
@@ -2273,7 +2454,15 @@ AgentGUI performance correlation is package-owned through
 existing Session-event subscription, a clock, and a product-neutral event
 sink. The monitor joins AgentGUI's preserved `submittedAtUnixMs` and queue
 diagnostics to exact Session and Turn identities, then emits activation
-settlement, Prompt admission, first-token receipt, and Turn settlement facts.
+settlement, Prompt admission, first-token receipt, Turn settlement, and
+Composer-options load facts. `trackComposerOptionsLoad` emits a start fact
+before calling either the runtime `getComposerOptions` or exposed Engine
+`loadComposerOptions` path, then emits a correlated completed or failed fact
+with exact duration. An unmatched start therefore remains observable when a
+Provider options request never settles. The facts distinguish runtime from
+session-Engine entry, force refresh, directory presence, bounded error
+category, and model count without carrying paths, settings, model names, or
+error messages.
 Hosts map those facts to their own analytics catalogs; they must not copy the
 Turn-binding, early-event buffering, duration-bucket, or token-classification
 logic.
@@ -2624,6 +2813,15 @@ while waiting for user input. If the provider can emit follow-up frames during
 that wait, the adapter keeps reading and joins them before publishing the
 canonical Interaction. When the answer is delivered, local call resolution is
 serialized ahead of provider terminal messages caused by that answer.
+Codex app-server requests are classified explicitly against the generated
+server-request surface. A request being schema-known does not make it a
+background request that may be declined silently. Message-only MCP form
+elicitations reuse the canonical approval Interaction and preserve the exact
+`accept`, `decline`, `cancel`, and advertised persistence semantics in the
+app-server response. Field-bearing forms, URL elicitations, and other request
+shapes that AgentGUI cannot represent losslessly fail closed before publishing
+an Interaction; adapters must not coerce them into a partial approval or
+question surface.
 When a standard ACP provider bridges a structured question through
 one `session/request_permission` as the complete question transaction, one
 selected permission option is that bridge's entire response capacity. The

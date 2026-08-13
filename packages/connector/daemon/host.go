@@ -17,7 +17,6 @@ type HostConfig struct {
 	Repository               market.Repository
 	CatalogSource            market.CatalogSource
 	ReleaseInstallations     market.ReleaseInstallationManager
-	InstallationChecker      market.InstallationChecker
 	ImplementationHost       market.ImplementationHost
 	Authorization            market.AuthorizationProvider
 	AuthorizationProjections market.AuthorizationProjectionStore
@@ -51,6 +50,8 @@ type Host struct {
 	authorizationSyncWake      chan struct{}
 	authorizationEventsDone    chan struct{}
 	authorizationScopeWake     chan struct{}
+	runtimeRecoveryDone        chan struct{}
+	runtimeRecoveryWake        chan struct{}
 	closeOnce                  sync.Once
 	bootstrapMu                sync.Mutex
 	bootstrapped               bool
@@ -66,6 +67,7 @@ type Host struct {
 	authorizationEvents        market.AuthorizationEventSource
 	authorizationReadiness     *market.AuthorizationReadinessGate
 	authorizationDirty         map[string]map[string]struct{}
+	runtimeRecoveryPending     map[string]struct{}
 }
 
 type capabilityPublicationGate interface {
@@ -82,15 +84,10 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 	hostContext, cancel := context.WithCancel(parent)
 	scheduler := NewOperationScheduler(hostContext)
 	activationGate := newActivationGateHost(config.ImplementationHost)
-	installationChecker := config.InstallationChecker
-	if installationChecker == nil {
-		installationChecker, _ = config.ImplementationHost.(market.InstallationChecker)
-	}
 	application, err := market.NewApplication(market.ApplicationConfig{
 		Repository:               config.Repository,
 		CatalogSource:            config.CatalogSource,
 		ReleaseInstallations:     config.ReleaseInstallations,
-		InstallationChecker:      installationChecker,
 		Host:                     activationGate,
 		Authorization:            config.Authorization,
 		AuthorizationProjections: config.AuthorizationProjections,
@@ -119,6 +116,8 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 		authorizationSyncWake:   make(chan struct{}, 1),
 		authorizationEventsDone: make(chan struct{}),
 		authorizationScopeWake:  make(chan struct{}, 1),
+		runtimeRecoveryDone:     make(chan struct{}),
+		runtimeRecoveryWake:     make(chan struct{}, 1),
 		repository:              config.Repository,
 		implementationHost:      config.ImplementationHost,
 		activationGate:          activationGate,
@@ -127,6 +126,7 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 		authorizationEvents:     config.AuthorizationEvents,
 		authorizationReadiness:  config.AuthorizationReadiness,
 		authorizationDirty:      make(map[string]map[string]struct{}),
+		runtimeRecoveryPending:  make(map[string]struct{}),
 	}
 	if snapshotStore, ok := config.AuthorizationProjections.(market.AuthorizationSnapshotStore); ok {
 		host.authorizationSnapshotStore = snapshotStore
@@ -155,6 +155,10 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 	if _, ok := config.Authorization.(market.AuthorizationObserver); ok {
 		go host.runAuthorizationReconcileWorker(hostContext)
 	}
+	go func() {
+		defer close(host.runtimeRecoveryDone)
+		host.runRuntimeRecoveryWorker(hostContext)
+	}()
 	cleanupWorker := LifecycleCleanupWorker{Store: config.Lifecycle, Policy: config.LifecyclePolicy}
 	go func() {
 		defer close(host.lifecycleDone)
@@ -179,30 +183,7 @@ func (host *Host) runAuthorizationReconcileWorker(ctx context.Context) {
 				cancel()
 				continue
 			}
-			intents, err := host.Application.ReconcileAuthorizations(reconcileContext, scope)
-			if err == nil && len(intents) > 0 {
-				// ReconcileAuthorizations persists projection intent and enqueues
-				// runtime operations. Drain a scoped operation for every affected
-				// remote Connector before releasing the lifecycle fence, so logout
-				// or account switching cannot be followed by a late old-account
-				// route publication.
-				connectorKeys := make(map[string]struct{}, len(intents))
-				for _, intent := range intents {
-					connectorKeys[intent.ConnectorKey] = struct{}{}
-				}
-				for connectorKey := range connectorKeys {
-					if reconcileErr := host.reconcileRuntimeForScopeLocked(reconcileContext, scope, connectorKey); reconcileErr != nil {
-						err = errors.Join(err, reconcileErr)
-					}
-				}
-				if err == nil {
-					for _, intent := range intents {
-						if resolveErr := host.repository.ResolveAuthorizationSession(reconcileContext, intent.OperationID, intent.Resolution); resolveErr != nil {
-							err = errors.Join(err, resolveErr)
-						}
-					}
-				}
-			}
+			err := host.reconcileAuthorizationsLocked(reconcileContext, scope)
 			host.bootstrapMu.Unlock()
 			cancel()
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -210,6 +191,35 @@ func (host *Host) runAuthorizationReconcileWorker(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (host *Host) reconcileAuthorizationsLocked(ctx context.Context, scope market.OperationScope) error {
+	intents, err := host.Application.ReconcileAuthorizations(ctx, scope)
+	if err != nil || len(intents) == 0 {
+		return err
+	}
+	// ReconcileAuthorizations persists projection intent. Create or join one
+	// scoped runtime operation for every affected Connector before releasing the
+	// lifecycle fence, so logout or account switching cannot be followed by a
+	// late old-account route publication.
+	connectorKeys := make(map[string]struct{}, len(intents))
+	for _, intent := range intents {
+		connectorKeys[intent.ConnectorKey] = struct{}{}
+	}
+	for connectorKey := range connectorKeys {
+		if reconcileErr := host.reconcileRuntimeForScopeLocked(ctx, scope, connectorKey); reconcileErr != nil {
+			err = errors.Join(err, reconcileErr)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	for _, intent := range intents {
+		if resolveErr := host.repository.ResolveAuthorizationSession(ctx, intent.OperationID, intent.Resolution); resolveErr != nil {
+			err = errors.Join(err, resolveErr)
+		}
+	}
+	return err
 }
 
 // Bootstrap restores durable local runtime intent without depending on the
@@ -230,9 +240,10 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	defer host.bootstrapMu.Unlock()
 	sameScope := host.bootstrapScope == scope
 	if host.bootstrapped && sameScope && !host.activationGate.requiresRecovery() {
-		return nil
+		return host.reconcilePendingRuntimesLocked(ctx, scope)
 	}
 	host.bootstrapScope = scope
+	host.runtimeRecoveryPending = make(map[string]struct{})
 	if host.authorizationReadiness != nil && strings.TrimSpace(scope.AccountID) != "" {
 		host.authorizationReadiness.SetReady(scope.AccountID, false)
 	}
@@ -290,8 +301,16 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 		}
 	}
 	host.activationGate.setOpen(scope, true)
-	if err := host.Application.ReconcileInstalledRuntimesForScope(ctx, scope); err != nil {
-		return err
+	reconcileErr := host.Application.ReconcileInstalledRuntimesForScope(ctx, scope)
+	var reconcileFailures *market.RuntimeReconcileFailures
+	if reconcileErr != nil && !errors.As(reconcileErr, &reconcileFailures) {
+		return reconcileErr
+	}
+	if reconcileFailures != nil {
+		for _, connectorKey := range reconcileFailures.ConnectorKeys() {
+			host.runtimeRecoveryPending[connectorKey] = struct{}{}
+		}
+		host.notifyRuntimeRecovery()
 	}
 	if err := host.applyCapabilityPublication(ctx, scope, true); err != nil {
 		return err
@@ -299,6 +318,9 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	host.activationGate.markRecovered()
 	host.bootstrapped = true
 	committed = true
+	if reconcileFailures != nil {
+		slog.Warn("connector market bootstrap completed with unavailable connectors", "error", reconcileFailures)
+	}
 	return nil
 }
 
@@ -509,6 +531,7 @@ func (host *Host) FenceForScope(ctx context.Context, scope market.OperationScope
 	}
 	host.bootstrapped = false
 	host.bootstrapScope = scope
+	host.runtimeRecoveryPending = make(map[string]struct{})
 	host.notifyAuthorizationScopeChanged()
 	publicationErr := host.applyCapabilityPublication(ctx, scope, false)
 	fenceErr := host.activationGate.FailClosed(ctx, time.Now().Add(10*time.Second))
@@ -538,25 +561,36 @@ func (host *Host) ReconcileRuntimeForScope(ctx context.Context, scope market.Ope
 }
 
 func (host *Host) reconcileRuntimeForScopeLocked(ctx context.Context, scope market.OperationScope, connectorKey string) error {
-	connector, err := host.Application.GetConnector(ctx, connectorKey)
-	if errors.Is(err, market.ErrNotFound) || err == nil && connector.Installation.State != market.InstallationStateInstalled {
-		return nil
+	for {
+		connector, err := host.Application.GetConnector(ctx, connectorKey)
+		if errors.Is(err, market.ErrNotFound) || err == nil && connector.Installation.State != market.InstallationStateInstalled {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result, err := host.Application.EnsureRuntimeReconcile(ctx, scope, connectorKey)
+		if err != nil {
+			return err
+		}
+		operation, waitErr := host.waitForOperationTerminal(ctx, result.Operation.OperationID)
+		if result.Created {
+			if waitErr != nil {
+				return waitErr
+			}
+			if operation.State == market.OperationStateFailed {
+				return fmt.Errorf("connector market runtime reconcile failed: %s", operation.FailureCode)
+			}
+			return nil
+		}
+		if waitErr != nil {
+			return waitErr
+		}
+		// A joined operation may have resolved its runtime binding before the
+		// current authorization projection was persisted. Ensure once more after
+		// it reaches terminal state so success proves convergence of current
+		// desired state rather than merely completion of older work.
 	}
-	if err != nil {
-		return err
-	}
-	snapshot, err := host.Application.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	result, err := host.Application.ReconcileRuntime(ctx, market.ConnectorMutation{
-		Mutation:     market.Mutation{ClientRequestID: "daemon-runtime-drift/" + uuid.NewString(), ExpectedRevision: snapshot.Revision},
-		ConnectorKey: connectorKey, AccountID: scope.AccountID,
-	})
-	if err != nil {
-		return err
-	}
-	return host.waitForOperation(ctx, result.Operation.OperationID, "runtime reconcile")
 }
 
 // ObserveAuthorizationForScope commits account authorization and its runtime
@@ -572,18 +606,10 @@ func (host *Host) ObserveAuthorizationForScope(
 	}
 	host.bootstrapMu.Lock()
 	defer host.bootstrapMu.Unlock()
-	snapshot, err := host.Application.Snapshot(ctx)
-	if err != nil {
+	if err := host.Application.ProjectAuthorization(ctx, scope, projection); err != nil {
 		return err
 	}
-	result, err := host.Application.ObserveAuthorization(ctx, market.ConnectorMutation{
-		Mutation:     market.Mutation{ClientRequestID: "daemon-authorization-observation/" + uuid.NewString(), ExpectedRevision: snapshot.Revision},
-		ConnectorKey: projection.ConnectorKey, AccountID: scope.AccountID,
-	}, projection)
-	if err != nil {
-		return err
-	}
-	return host.waitForOperation(ctx, result.Operation.OperationID, "authorization reconcile")
+	return host.reconcileRuntimeForScopeLocked(ctx, scope, projection.ConnectorKey)
 }
 
 func (host *Host) applyCapabilityPublication(ctx context.Context, scope market.OperationScope, enabled bool) error {
@@ -670,23 +696,21 @@ func (host *Host) refreshAndWait(ctx context.Context) error {
 	}
 }
 
-func (host *Host) waitForOperation(ctx context.Context, operationID, label string) error {
+func (host *Host) waitForOperationTerminal(ctx context.Context, operationID string) (market.Operation, error) {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		operation, err := host.Application.GetOperation(ctx, operationID)
 		if err != nil {
-			return err
+			return market.Operation{}, err
 		}
 		switch operation.State {
-		case market.OperationStateCompleted:
-			return nil
-		case market.OperationStateFailed:
-			return fmt.Errorf("connector market %s failed: %s", label, operation.FailureCode)
+		case market.OperationStateCompleted, market.OperationStateFailed:
+			return operation, nil
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return market.Operation{}, ctx.Err()
 		case <-ticker.C:
 		}
 	}
@@ -757,6 +781,7 @@ func (host *Host) Close() {
 		<-host.lifecycleDone
 		<-host.authorizationSyncDone
 		<-host.authorizationEventsDone
+		<-host.runtimeRecoveryDone
 		host.scheduler.Wait()
 	})
 }
@@ -779,6 +804,12 @@ type unavailableReleaseInstaller struct{}
 
 func (unavailableReleaseInstaller) InstallRelease(context.Context, market.InstallReleaseRequest) (market.ReleaseInstallationReceipt, error) {
 	return market.ReleaseInstallationReceipt{}, errors.New("connector release installation is not registered")
+}
+
+func (unavailableReleaseInstaller) InspectReleaseInstallation(_ context.Context, request market.InspectReleaseInstallationRequest) (market.ReleaseInstallationObservation, error) {
+	return market.ReleaseInstallationObservation{State: market.ReleaseInstallationIndeterminate,
+		ConnectorKey: request.Release.ConnectorKey, ReleaseDigest: request.Release.ReleaseDigest,
+		ReasonCode: "release_installation_manager_unavailable"}, nil
 }
 
 func (unavailableReleaseInstaller) CommitReleaseInstallation(context.Context, market.CommitReleaseInstallationRequest) error {

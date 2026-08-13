@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -129,9 +130,14 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		value(input.Model),
 		input.ReasoningEffort,
 	)
-	worktreeLock := s.worktreeLock()
-	worktreeLock.RLock()
-	defer worktreeLock.RUnlock()
+	if isolationMode == WorktreeIsolationMode {
+		// Serialize the explicit worktree create transaction with worktree
+		// management operations. Ordinary Session creation has no worktree
+		// lifecycle relationship and does not take this lock.
+		worktreeLock := s.worktreeLock()
+		worktreeLock.Lock()
+		defer worktreeLock.Unlock()
+	}
 	nodeStartedAt = time.Now()
 	if isolationMode == WorktreeIsolationMode && strings.TrimSpace(value(input.Cwd)) == "" {
 		err := &WorktreeIsolationError{Kind: ErrNotAGitRepo}
@@ -447,7 +453,7 @@ func normalizePermissionModeIDForLaunch(provider string, providerTargetRef map[s
 }
 
 func normalizeReasoningEffortForLaunch(provider string, providerTargetRef map[string]any, value string) string {
-	if providerTargetRefKind(providerTargetRef) == "agent_extension" {
+	if providerTargetRefKind(providerTargetRef) == "agent_extension" && agentprovider.Normalize(provider) == "" {
 		return strings.TrimSpace(value)
 	}
 	return normalizeReasoningEffortForProvider(provider, value)
@@ -599,21 +605,7 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 	}
 	effectiveBrowserUse := s.clampComposerBrowserUseForLaunch(ctx, provider, input.ProviderTargetRef, input.BrowserUse)
 	effectiveComputerUse := s.clampComposerComputerUseForLaunch(ctx, provider, input.ProviderTargetRef, input.ComputerUse)
-	connectorHints := s.activeConnectorRoutingHints()
-	var connectorMCPServers []runtimeprep.MCPServerBinding
-	connectorBound := false
-	if s.ConnectorRuntime != nil {
-		binding, bindingErr := s.ConnectorRuntime.BindSession(workspaceID, strings.TrimSpace(input.AgentSessionID))
-		if bindingErr != nil {
-			if gatewayRegistered {
-				s.ModelGateway.Unregister(context.WithoutCancel(ctx), workspaceID, input.AgentSessionID)
-			}
-			return preparedRuntime{}, bindingErr
-		}
-		connectorMCPServers = []runtimeprep.MCPServerBinding{binding}
-		connectorBound = true
-	}
-	prepared, err := s.RuntimePreparer.Prepare(ctx, runtimeprep.PrepareInput{
+	prepareInput := runtimeprep.PrepareInput{
 		WorkspaceID:               workspaceID,
 		AgentSessionID:            strings.TrimSpace(input.AgentSessionID),
 		AgentTargetID:             strings.TrimSpace(input.AgentTargetID),
@@ -639,22 +631,66 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		AgentSkills:               append([]string(nil), input.AgentSkills...),
 		AgentTools:                append([]string(nil), input.AgentTools...),
 		ExtraSkills:               sessionSkillBundlesToProviderSkillBundles(input.ExtraSkills),
-		ConnectorRoutingHints:     connectorHints,
-		MCPServers:                connectorMCPServers,
 		Metadata:                  input.Metadata,
 		CommandCapabilityProjection: cloneCommandCapabilityProjection(
 			input.CommandCapabilityProjection,
 		),
 		ExternalRolloutSourcePath: input.ExternalRolloutSourcePath,
-	})
+	}
+	prepared, err := s.RuntimePreparer.Prepare(ctx, prepareInput)
 	if err != nil {
-		if connectorBound {
-			s.ConnectorRuntime.RevokeSession(workspaceID, strings.TrimSpace(input.AgentSessionID))
-		}
 		if gatewayRegistered {
 			s.ModelGateway.Unregister(context.WithoutCancel(ctx), workspaceID, input.AgentSessionID)
 		}
 		return preparedRuntime{}, err
+	}
+	if strings.TrimSpace(prepared.Cwd) == "" {
+		prepared.Cwd = cwd
+	}
+	if s.ConnectorRuntime != nil && s.ConnectorCapabilities != nil {
+		httpMCP, capabilityErr := s.ConnectorCapabilities.ConnectorHTTPMCPSupported(ctx, ConnectorCapabilityInput{
+			WorkspaceID: workspaceID, AgentSessionID: strings.TrimSpace(input.AgentSessionID),
+			AgentTargetID: strings.TrimSpace(input.AgentTargetID), Provider: provider,
+			Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...),
+			ProviderTargetRef: clonePayload(input.ProviderTargetRef), PermissionModeID: value(input.PermissionModeID),
+			Settings: ComposerSettings{
+				Model: value(input.Model), ReasoningEffort: value(input.ReasoningEffort),
+				PlanMode: valueBool(input.PlanMode), BrowserUse: effectiveCapabilitySetting(input.BrowserUse, effectiveBrowserUse),
+				ComputerUse:    effectiveCapabilitySetting(input.ComputerUse, effectiveComputerUse),
+				CodexSaverMode: valueBool(input.CodexSaverMode), ConversationDetailMode: input.ConversationDetailMode,
+			},
+		})
+		if capabilityErr != nil {
+			slog.WarnContext(ctx, "Connector capability probe failed; continuing without Connector",
+				"event", "agent.connector.capability_probe_failed", "provider", provider,
+				"agent_session_id", input.AgentSessionID, "error", capabilityErr)
+		} else if httpMCP {
+			contextBinding, bindingErr := s.ConnectorRuntime.BindSession(workspaceID, strings.TrimSpace(input.AgentSessionID))
+			if bindingErr != nil {
+				slog.WarnContext(ctx, "Connector session binding failed; continuing without Connector",
+					"event", "agent.connector.binding_failed", "provider", provider,
+					"agent_session_id", input.AgentSessionID, "error", bindingErr)
+			} else {
+				contextBinding = cloneConnectorAgentContext(contextBinding)
+				prepareInput.Connector = &contextBinding
+				enhanced, enhanceErr := s.RuntimePreparer.Prepare(ctx, prepareInput)
+				if enhanceErr != nil {
+					s.ConnectorRuntime.RevokeSession(workspaceID, strings.TrimSpace(input.AgentSessionID))
+					slog.WarnContext(ctx, "Connector runtime enhancement failed; continuing without Connector",
+						"event", "agent.connector.runtime_enhancement_failed", "provider", provider,
+						"agent_session_id", input.AgentSessionID, "error", enhanceErr)
+					if restored, restoreErr := s.RuntimePreparer.Prepare(ctx, prepareInputWithoutConnector(prepareInput)); restoreErr == nil {
+						prepared = restored
+					} else {
+						slog.WarnContext(ctx, "restore ordinary Agent runtime after Connector enhancement failure",
+							"event", "agent.connector.runtime_restore_failed", "provider", provider,
+							"agent_session_id", input.AgentSessionID, "error", restoreErr)
+					}
+				} else {
+					prepared = enhanced
+				}
+			}
+		}
 	}
 	if strings.TrimSpace(prepared.Cwd) == "" {
 		prepared.Cwd = cwd
@@ -666,6 +702,13 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		BrowserUse:  effectiveCapabilitySetting(input.BrowserUse, effectiveBrowserUse),
 		ComputerUse: effectiveCapabilitySetting(input.ComputerUse, effectiveComputerUse),
 	}, nil
+}
+
+func prepareInputWithoutConnector(input runtimeprep.PrepareInput) runtimeprep.PrepareInput {
+	input.Connector = nil
+	input.ConnectorRoutingHints = nil
+	input.MCPServers = nil
+	return input
 }
 
 func cloneRuntimeMCPServerBindings(input []runtimeprep.MCPServerBinding) []runtimeprep.MCPServerBinding {
@@ -682,6 +725,16 @@ func cloneRuntimeMCPServerBindings(input []runtimeprep.MCPServerBinding) []runti
 		result = append(result, binding)
 	}
 	return result
+}
+
+func cloneConnectorAgentContext(input runtimeprep.ConnectorAgentContext) runtimeprep.ConnectorAgentContext {
+	input.MCPServers = cloneRuntimeMCPServerBindings(input.MCPServers)
+	input.RoutingHints = append([]runtimeprep.ConnectorRoutingHint(nil), input.RoutingHints...)
+	for index := range input.RoutingHints {
+		input.RoutingHints[index].Aliases = append([]string(nil), input.RoutingHints[index].Aliases...)
+	}
+	input.SkillRoots = append([]string(nil), input.SkillRoots...)
+	return input
 }
 
 func modelEndpointUsesOpenAIProtocol(endpoint *runtimeprep.ModelEndpointConfig) bool {

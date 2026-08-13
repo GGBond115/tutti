@@ -141,6 +141,22 @@ func (h *Host) prepareCancelRuntimeOperation(
 }
 
 func (h *Host) processRuntimeOperation(ctx context.Context, operation storesqlite.RuntimeOperation, recovering bool) (storesqlite.RuntimeOperation, error) {
+	if operation.Kind == storesqlite.RuntimeOperationKindPlanDecision {
+		var result storesqlite.RuntimeOperation
+		var processErr error
+		err := h.withWorkspaceRuntimeOperation(ctx, operation.WorkspaceID, func(operationCtx context.Context) error {
+			result, processErr = h.processRuntimeOperationAdmitted(operationCtx, operation, recovering)
+			return processErr
+		})
+		if err != nil {
+			return result, err
+		}
+		return result, processErr
+	}
+	return h.processRuntimeOperationAdmitted(ctx, operation, recovering)
+}
+
+func (h *Host) processRuntimeOperationAdmitted(ctx context.Context, operation storesqlite.RuntimeOperation, recovering bool) (storesqlite.RuntimeOperation, error) {
 	if operation.Status == storesqlite.RuntimeOperationStatusCompleted {
 		return operation, nil
 	}
@@ -500,8 +516,7 @@ func (h *Host) RecoverRuntimeOperations(ctx context.Context) error {
 }
 
 // Recover fixes startup order as durable runtime operations, goal operations,
-// the durable goal reconcile inbox, session Forks, unrecoverable stale turns,
-// and finally the adapter-specific worktree-isolation sweep.
+// the durable goal reconcile inbox, session Forks, and unrecoverable stale turns.
 func (h *Host) Recover(ctx context.Context) error {
 	if err := h.validateRecoveryConfiguration(); err != nil {
 		return err
@@ -523,7 +538,7 @@ func (h *Host) Recover(ctx context.Context) error {
 			return err
 		}
 	}
-	return h.RecoverWorktreeIsolation(ctx)
+	return nil
 }
 
 func (h *Host) validateRecoveryConfiguration() error {

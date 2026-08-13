@@ -13,13 +13,12 @@ import {
   claudeQueryOptionOverrides,
   type SidecarClaudeOptions
 } from "./options.ts";
-import { QueryGeneration, type ClaudeQueryRuntime } from "./queryGeneration.ts";
-import { queryGenerationHooks } from "./queryHooks.ts";
 import {
-  claudeAuthRefreshDiagnosticsEnabled,
-  claudeCredentialSnapshot,
-  debugClaudeAuthRefreshLog
-} from "./authDiagnostics.ts";
+  QueryGeneration,
+  type ClaudeQueryRuntime,
+  type QueryShutdownOptions
+} from "./queryGeneration.ts";
+import { queryGenerationHooks } from "./queryHooks.ts";
 import { errorMessage, errorPayload } from "./errors.ts";
 import { AssistantStreamProjector } from "./assistantStream.ts";
 import {
@@ -58,6 +57,7 @@ import {
   ProviderTurnAcceptanceCoordinator,
   type ProviderTurnPhase
 } from "./providerTurnAcceptance.ts";
+import { ClaudeSessionDiagnostics } from "./sessionDiagnostics.ts";
 import {
   canBypassPermissions,
   effectivePermissionMode,
@@ -141,6 +141,7 @@ export class SessionRuntime {
   private readonly driver?: SidecarTestDriver;
   private readonly goalExecQueue: GoalExecQueue;
   private readonly providerTurnAcceptance: ProviderTurnAcceptanceCoordinator;
+  private readonly diagnostics: ClaudeSessionDiagnostics;
   private readonly emittedProviderCheckpoints = new Set<string>();
 
   get query(): ClaudeQueryRuntime | undefined {
@@ -218,6 +219,12 @@ export class SessionRuntime {
           binding.providerCheckpointMessageId
         ),
       resolutionTimeoutMs: providerTurnIdentityResolutionTimeoutMs
+    });
+    this.diagnostics = new ClaudeSessionDiagnostics({
+      cwd: this.cwd,
+      providerSessionId: () => this.providerSessionId,
+      turns: () => this.turns.queue,
+      phaseForTurn: (turnId) => this.providerTurnAcceptance.phase(turnId)
     });
     this.assistantStream = new AssistantStreamProjector(
       () => this.turns.activeId,
@@ -346,7 +353,7 @@ export class SessionRuntime {
   }
 
   async start(): Promise<void> {
-    this.logAuthRefresh("session_start.begin", {
+    this.diagnostics.logAuthRefresh("session_start.begin", {
       restore: this.restore,
       initialized: this.initialized,
       queryClosed: this.sessionClosed
@@ -380,7 +387,7 @@ export class SessionRuntime {
       // Default never has to be inferred from the advertised catalog label.
       this.consume(generation);
     }
-    this.logAuthRefresh("session_start.succeeded", {
+    this.diagnostics.logAuthRefresh("session_start.succeeded", {
       restore: this.restore,
       initialized: this.initialized,
       queryClosed: this.sessionClosed
@@ -517,13 +524,17 @@ export class SessionRuntime {
             content: outboundContent
           }
         } as SDKUserMessage);
+        this.diagnostics.scheduleProviderTurnIdentityWarning(
+          turn,
+          generation.id
+        );
         this.consume(generation);
       })
       .catch((error) => {
         if (executionEpoch !== this.executionEpoch || turn.settled) {
           return;
         }
-        this.logAuthRefresh("exec.ensure_query_failed", {
+        this.diagnostics.logAuthRefresh("exec.ensure_query_failed", {
           turnId,
           error: errorPayload(error)
         });
@@ -537,59 +548,74 @@ export class SessionRuntime {
       });
   }
 
-  guide(prompt: string, content?: unknown): void {
+  async guide(prompt: string, content?: unknown): Promise<void> {
     if (this.driver) {
       this.driver.guide(prompt);
       return;
     }
     if (this.sessionClosed) {
-      emit({
-        type: "error",
-        payload: {
-          error: "Claude SDK query is closed"
-        }
-      });
-      return;
+      throw new Error("Claude SDK query is closed");
     }
     const executionEpoch = this.executionEpoch;
-    void this.ensureQuery()
-      .then(() =>
-        this.runConfigurationTask(() => this.configuration.applyPendingFlags())
-      )
-      .then(async () => {
-        const generation = this.queryGeneration;
-        if (
-          !generation ||
-          !this.isQueryGenerationActive(generation) ||
-          executionEpoch !== this.executionEpoch
-        ) {
-          return;
-        }
-        // Preempt in-flight tool work before enqueueing guidance. Without
-        // interrupt, Bash/etc. finish first and the model often ignores the
-        // steered prompt — unlike Codex turn/steer which interrupts mid-turn.
-        // Mark the interrupt so the following error_during_execution result
-        // keeps this turn alive for the guided prompt (see messageRouter).
-        this.pendingGuidanceInterrupt = true;
-        try {
-          await generation.query?.interrupt?.();
-        } catch (error) {
-          this.pendingGuidanceInterrupt = false;
-          this.logAuthRefresh("guide.interrupt_failed", {
-            error: errorPayload(error)
-          });
-        }
-        if (
-          !this.isQueryGenerationActive(generation) ||
-          executionEpoch !== this.executionEpoch
-        ) {
-          this.pendingGuidanceInterrupt = false;
-          return;
-        }
-        const sdkContent = sdkContentFromPromptBlocks(
-          content,
-          prompt
-        ) as unknown as SDKUserMessage["message"]["content"];
+    try {
+      const generation = this.queryGeneration;
+      if (
+        !generation ||
+        !this.isQueryGenerationActive(generation) ||
+        executionEpoch !== this.executionEpoch
+      ) {
+        throw new Error("Claude SDK query changed before guidance preemption");
+      }
+      const turnId = this.turns.activeId.trim();
+      if (!turnId) {
+        throw new Error("Claude SDK guidance requires an active turn");
+      }
+      const interrupt = generation.query?.interrupt;
+      if (typeof interrupt !== "function") {
+        throw new Error(
+          "Claude SDK query does not support guidance preemption"
+        );
+      }
+      // Preempt in-flight tool work before enqueueing guidance. Without
+      // interrupt, Bash/etc. finish first and the model often ignores the
+      // inserted prompt while the old response remains active.
+      // Mark the interrupt so the following error_during_execution result
+      // keeps this turn alive for the guided prompt (see messageRouter).
+      this.pendingGuidanceInterrupt = true;
+      try {
+        // Calling the SDK method happens before this async function first
+        // yields. Guidance must not wait behind query setup or configuration
+        // work while the current provider response keeps running.
+        await interrupt.call(generation.query);
+      } catch (error) {
+        this.pendingGuidanceInterrupt = false;
+        this.diagnostics.logAuthRefresh("guide.interrupt_failed", {
+          error: errorPayload(error)
+        });
+        throw new Error(
+          `Claude SDK guidance preemption failed: ${errorMessage(error)}`,
+          { cause: error }
+        );
+      }
+      if (
+        !this.isQueryGenerationActive(generation) ||
+        executionEpoch !== this.executionEpoch
+      ) {
+        this.pendingGuidanceInterrupt = false;
+        throw new Error("Claude SDK query changed during guidance preemption");
+      }
+      // Publish the response boundary as soon as the SDK confirms the
+      // interrupt, before the guided prompt is enqueued. The later
+      // error_during_execution result is only a provider bookkeeping event.
+      emit({
+        type: "guidance_interrupted",
+        payload: { turnId }
+      });
+      const sdkContent = sdkContentFromPromptBlocks(
+        content,
+        prompt
+      ) as unknown as SDKUserMessage["message"]["content"];
+      try {
         generation.promptQueue.push({
           uuid: crypto.randomUUID(),
           type: "user",
@@ -601,24 +627,22 @@ export class SessionRuntime {
           }
         } as SDKUserMessage);
         this.consume(generation);
-      })
-      .catch((error) => {
-        if (executionEpoch !== this.executionEpoch) {
-          return;
-        }
-        this.logAuthRefresh("guide.ensure_query_failed", {
-          error: errorPayload(error)
-        });
-        emit({
-          type: "error",
-          payload: {
-            error: errorMessage(error)
-          }
-        });
+      } catch (error) {
+        this.pendingGuidanceInterrupt = false;
+        throw error;
+      }
+    } catch (error) {
+      this.diagnostics.logAuthRefresh("guide.failed", {
+        error: errorPayload(error)
       });
+      throw error;
+    }
   }
 
-  async cancel(expectedTurnId = ""): Promise<SessionCancelResult> {
+  async cancel(
+    expectedTurnId = "",
+    shutdownOptions: QueryShutdownOptions = {}
+  ): Promise<SessionCancelResult> {
     expectedTurnId =
       expectedTurnId.trim() || this.turns.activeTurn?.turnId.trim() || "";
     if (this.sessionClosed) {
@@ -687,7 +711,7 @@ export class SessionRuntime {
     this.canceledQueryTailPending = true;
     this.interactions.rejectAll(new Error("Tool use aborted"));
     this.queryGeneration = undefined;
-    await generation.shutdown(true);
+    await generation.shutdown(true, shutdownOptions);
     for (const turnId of generationTurnIds) {
       if (!this.turns.commitExactCancellation(turnId)) {
         throw new Error(`Claude SDK lost canceled Query turn ${turnId}`);
@@ -850,7 +874,8 @@ export class SessionRuntime {
         if (isAbortError(error) && !this.isQueryGenerationActive(generation)) {
           return;
         }
-        this.logAuthRefresh("query_consume.failed", {
+        this.diagnostics.logQueryFailure(generation.id, error);
+        this.diagnostics.logAuthRefresh("query_consume.failed", {
           activeTurnId: this.turns.activeId,
           queuedTurnIds: this.turns.queue
             .filter((turn) => !turn.settled)
@@ -860,6 +885,7 @@ export class SessionRuntime {
         this.turns.failLiveTurns(errorMessage(error));
       } finally {
         if (this.queryGeneration === generation) {
+          this.diagnostics.logQueryEnd(generation.id);
           this.queryGeneration = undefined;
           generation.revoke();
           generation.closeQuery();
@@ -986,7 +1012,7 @@ export class SessionRuntime {
           this.activities.handleTaskLifecycleHook(input)
       })
     } as ClaudeQueryOptions;
-    this.logAuthRefresh("query_create.begin", {
+    this.diagnostics.logAuthRefresh("query_create.begin", {
       initialize: startOptions.initialize === true,
       restore: this.resumeQueries,
       permissionMode,
@@ -1003,7 +1029,7 @@ export class SessionRuntime {
         prompt: generation.promptQueue.iterate(),
         options: queryOptions
       }) as ClaudeQueryRuntime;
-      this.logAuthRefresh("query_create.succeeded", {
+      this.diagnostics.logAuthRefresh("query_create.succeeded", {
         initialize: startOptions.initialize === true,
         restore: this.resumeQueries,
         hasInitializationResult:
@@ -1011,7 +1037,7 @@ export class SessionRuntime {
       });
       if (startOptions.initialize || this.resumeQueries) {
         try {
-          this.logAuthRefresh("query_initialization.begin", {
+          this.diagnostics.logAuthRefresh("query_initialization.begin", {
             restore: this.resumeQueries
           });
           const initializationResult =
@@ -1025,12 +1051,12 @@ export class SessionRuntime {
           this.configuration.applyInitializationResult(initializationResult);
           this.initialized = true;
           this.resumeQueries = true;
-          this.logAuthRefresh("query_initialization.succeeded", {
+          this.diagnostics.logAuthRefresh("query_initialization.succeeded", {
             restore: this.resumeQueries,
             resultKeys: Object.keys(recordValue(initializationResult) ?? {})
           });
         } catch (error) {
-          this.logAuthRefresh("query_initialization.failed", {
+          this.diagnostics.logAuthRefresh("query_initialization.failed", {
             restore: this.resumeQueries,
             error: errorPayload(error)
           });
@@ -1139,21 +1165,6 @@ export class SessionRuntime {
     this.resumeQueries = true;
     QueryGeneration.retire(this.queryGeneration, () => {
       this.queryGeneration = undefined;
-    });
-  }
-
-  private logAuthRefresh(
-    stage: string,
-    payload: Record<string, unknown>
-  ): void {
-    if (!claudeAuthRefreshDiagnosticsEnabled()) {
-      return;
-    }
-    debugClaudeAuthRefreshLog(stage, {
-      providerSessionId: this.providerSessionId,
-      cwd: this.cwd,
-      credentials: claudeCredentialSnapshot(),
-      ...payload
     });
   }
 

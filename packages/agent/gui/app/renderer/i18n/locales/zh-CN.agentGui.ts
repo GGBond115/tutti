@@ -20,7 +20,7 @@ export const zhCNAgentGui = {
   initialPlaceholder: "输入 @ 引用会话、文件、任务和应用",
   followupPlaceholder: "要求 {{provider}} 继续后续变更",
   installRequiredPlaceholder: "请先连接 {{provider}}，然后再发送消息",
-  installRequiredAction: "连接",
+  installRequiredAction: "安装",
   providerGateCheckingTitle: "正在检查 Agent",
   providerGateCheckingDescription:
     "稍等一下，我们正在确认 {{provider}} 是否已经可用。",
@@ -29,7 +29,7 @@ export const zhCNAgentGui = {
   providerGateInstallTitle: "先连接 {{provider}}",
   providerGateInstallDescription:
     "需要先连接 {{provider}}，才能在这里开始新的对话。",
-  providerGateInstallAction: "连接",
+  providerGateInstallAction: "安装",
   providerGateLoginTitle: "登录 {{provider}}",
   providerGateLoginDescription: "使用账号登录后即可开始使用 {{provider}} 对话",
   providerGateLoginAction: "登录",
@@ -591,9 +591,6 @@ export const zhCNAgentGui = {
   sessionNoLongerAvailable: "之前的 Agent 会话已不可用",
   promptImagesUnsupported: "当前模型不支持图片输入。",
   ...zhCNAgentGuiRuntimeNotices,
-  contextCompactionInProgress: "正在压缩上下文",
-  contextCompactionCompleted: "已压缩上下文",
-  contextCompactionInterrupted: "上下文压缩已中断",
   tuttiModeCheckpointWakeTaskSettled: "某任务已完成，待审查",
   tuttiModeCheckpointWakeTaskFailed: "某任务失败，待审查",
   tuttiModeCheckpointWakeTaskCanceled: "某任务已取消，待审查",

@@ -38,23 +38,24 @@ func (p *ActivityProjection) SettleStaleTurnsOnStartup(ctx context.Context) erro
 	)
 	delta := agenthost.StaleTurnSettlementDelta(settlements)
 	for index, settled := range delta.RootTurnsSettled {
-		delta.RootTurnsSettled[index].IsChildSession = p.sessionIsChild(ctx, settled.WorkspaceID, settled.AgentSessionID)
+		delta.RootTurnsSettled[index].Provider, delta.RootTurnsSettled[index].IsChildSession =
+			p.sessionTerminalFailureIdentity(ctx, settled.WorkspaceID, settled.AgentSessionID)
 	}
 	p.observeCommittedOutsideHost(ctx, delta)
 	return nil
 }
 
-// sessionIsChild reports whether a canonical session is a provider-native
-// subagent session.
-func (p *ActivityProjection) sessionIsChild(ctx context.Context, workspaceID, agentSessionID string) bool {
+// sessionTerminalFailureIdentity resolves fields that message and stale-turn
+// reports do not repeat but terminal failure analytics need.
+func (p *ActivityProjection) sessionTerminalFailureIdentity(ctx context.Context, workspaceID, agentSessionID string) (string, bool) {
 	workspaceID, agentSessionID = strings.TrimSpace(workspaceID), strings.TrimSpace(agentSessionID)
 	if p == nil || p.repo == nil || workspaceID == "" || agentSessionID == "" {
-		return false
+		return "", false
 	}
 	session, found, err := p.repo.GetSession(ctx, workspaceID, agentSessionID)
 	if err != nil || !found {
-		return false
+		return "", false
 	}
-	return strings.EqualFold(strings.TrimSpace(session.Kind), agentactivitybiz.SessionKindChild) ||
+	return strings.TrimSpace(session.Provider), strings.EqualFold(strings.TrimSpace(session.Kind), agentactivitybiz.SessionKindChild) ||
 		strings.TrimSpace(session.ParentToolCallID) != ""
 }

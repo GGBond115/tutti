@@ -72,6 +72,10 @@ export interface ConnectorManagedCliCommand {
 export interface ConnectorManagedCliInterface {
   entrypoint: string;
   arguments?: string[];
+  readinessProbe?: {
+    arguments: string[];
+    timeoutMs: number;
+  };
   commands: ConnectorManagedCliCommand[];
 }
 
@@ -130,6 +134,7 @@ export interface ConnectorManifest {
   requiredCapabilities?: string[];
   implementation: ConnectorManifestImplementation;
   authorizationKind: string;
+  authorizationInteraction?: unknown;
   compatibility?: ConnectorCompatibilityRequirements;
 }
 

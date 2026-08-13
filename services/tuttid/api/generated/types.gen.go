@@ -262,6 +262,7 @@ func (e AgentProviderActiveActionStepStatus) Valid() bool {
 // Defines values for AgentProviderAuthStatus.
 const (
 	AgentProviderAuthStatusAuthenticated AgentProviderAuthStatus = "authenticated"
+	AgentProviderAuthStatusConfigured    AgentProviderAuthStatus = "configured"
 	AgentProviderAuthStatusRequired      AgentProviderAuthStatus = "required"
 	AgentProviderAuthStatusUnknown       AgentProviderAuthStatus = "unknown"
 )
@@ -270,6 +271,8 @@ const (
 func (e AgentProviderAuthStatus) Valid() bool {
 	switch e {
 	case AgentProviderAuthStatusAuthenticated:
+		return true
+	case AgentProviderAuthStatusConfigured:
 		return true
 	case AgentProviderAuthStatusRequired:
 		return true
@@ -6236,12 +6239,15 @@ type ConnectorMarketInstallationState string
 
 // ConnectorMarketManifest defines model for ConnectorMarketManifest.
 type ConnectorMarketManifest struct {
-	AgentRouting      *ConnectorMarketAgentRouting              `json:"agentRouting,omitempty"`
-	AuthorizationKind string                                    `json:"authorizationKind"`
-	Compatibility     *ConnectorMarketCompatibilityRequirements `json:"compatibility,omitempty"`
-	Description       *string                                   `json:"description,omitempty"`
-	DisplayName       string                                    `json:"displayName"`
-	IconUrl           string                                    `json:"iconUrl"`
+	AgentRouting *ConnectorMarketAgentRouting `json:"agentRouting,omitempty"`
+
+	// AuthorizationInteraction Opaque Connector-owned authorization interaction configuration. Hosts transport this value without interpreting its UI semantics; renderers must validate it against the versioned protocol.
+	AuthorizationInteraction *map[string]interface{}                   `json:"authorizationInteraction,omitempty"`
+	AuthorizationKind        string                                    `json:"authorizationKind"`
+	Compatibility            *ConnectorMarketCompatibilityRequirements `json:"compatibility,omitempty"`
+	Description              *string                                   `json:"description,omitempty"`
+	DisplayName              string                                    `json:"displayName"`
+	IconUrl                  string                                    `json:"iconUrl"`
 
 	// Implementation Public implementation discriminator; sensitive host configuration is never returned.
 	Implementation ConnectorMarketImplementation        `json:"implementation"`
@@ -6650,6 +6656,11 @@ type DeleteWorkspaceFileEntryRequest struct {
 type DeleteWorkspaceFileEntryResponse struct {
 	Path        string `json:"path"`
 	WorkspaceId string `json:"workspaceId"`
+}
+
+// DeleteWorkspaceManagedWorktreeResponse defines model for DeleteWorkspaceManagedWorktreeResponse.
+type DeleteWorkspaceManagedWorktreeResponse struct {
+	Deleted bool `json:"deleted"`
 }
 
 // DeleteWorkspaceResponse defines model for DeleteWorkspaceResponse.
@@ -9014,10 +9025,13 @@ type WorkspaceAgentSessionGoalSyncStateSyncStatus string
 
 // WorkspaceAgentSessionIsolation defines model for WorkspaceAgentSessionIsolation.
 type WorkspaceAgentSessionIsolation struct {
-	BaseCommit   string                             `json:"baseCommit"`
-	Branch       string                             `json:"branch"`
-	Mode         WorkspaceAgentSessionIsolationMode `json:"mode"`
-	WorktreePath string                             `json:"worktreePath"`
+	BaseCommit string                             `json:"baseCommit"`
+	Branch     string                             `json:"branch"`
+	Mode       WorkspaceAgentSessionIsolationMode `json:"mode"`
+
+	// WorktreeId Independent managed worktree resource identity. Legacy sessions may omit it.
+	WorktreeId   *string `json:"worktreeId,omitempty"`
+	WorktreePath string  `json:"worktreePath"`
 }
 
 // WorkspaceAgentSessionIsolationMode defines model for WorkspaceAgentSessionIsolationMode.
@@ -9681,6 +9695,22 @@ type WorkspaceGitPatchSupportResponse struct {
 
 // WorkspaceGitPatchTarget defines model for WorkspaceGitPatchTarget.
 type WorkspaceGitPatchTarget string
+
+// WorkspaceManagedWorktree defines model for WorkspaceManagedWorktree.
+type WorkspaceManagedWorktree struct {
+	BaseCommit   string  `json:"baseCommit"`
+	Branch       string  `json:"branch"`
+	RelativeCwd  *string `json:"relativeCwd,omitempty"`
+	RepoRoot     string  `json:"repoRoot"`
+	WorkspaceId  string  `json:"workspaceId"`
+	WorktreeId   string  `json:"worktreeId"`
+	WorktreePath string  `json:"worktreePath"`
+}
+
+// WorkspaceManagedWorktreeListResponse defines model for WorkspaceManagedWorktreeListResponse.
+type WorkspaceManagedWorktreeListResponse struct {
+	Worktrees []WorkspaceManagedWorktree `json:"worktrees"`
+}
 
 // WorkspaceResponse defines model for WorkspaceResponse.
 type WorkspaceResponse struct {

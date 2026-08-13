@@ -16,6 +16,149 @@ import (
 
 const protocolVersion = "2026-07-28"
 
+type scopedRouterStub struct {
+	toolsScope connectormcpserver.RequestScope
+	callScope  connectormcpserver.RequestScope
+	contextOK  bool
+}
+
+func (router *scopedRouterStub) Tools(ctx context.Context, scope connectormcpserver.RequestScope) ([]implementationhost.MCPTool, error) {
+	router.toolsScope = scope
+	contextScope, ok := connectormcpserver.RequestScopeFromContext(ctx)
+	router.contextOK = ok && contextScope == scope
+	return []implementationhost.MCPTool{{
+		Name: "documents_search", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+	}}, nil
+}
+
+func (router *scopedRouterStub) CallValidated(
+	ctx context.Context,
+	scope connectormcpserver.RequestScope,
+	_ string,
+	_ map[string]any,
+	validate func(implementationhost.MCPTool) error,
+) (json.RawMessage, error) {
+	router.callScope = scope
+	contextScope, ok := connectormcpserver.RequestScopeFromContext(ctx)
+	router.contextOK = router.contextOK && ok && contextScope == scope
+	tool := implementationhost.MCPTool{Name: "documents_search", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}}
+	if validate != nil {
+		if err := validate(tool); err != nil {
+			return nil, err
+		}
+	}
+	return json.RawMessage(`{"resultType":"complete","content":[]}`), nil
+}
+
+func (*scopedRouterStub) Subscribe(connectormcpserver.RequestScope) (<-chan struct{}, func()) {
+	updates := make(chan struct{})
+	return updates, func() { close(updates) }
+}
+
+func TestSessionRouterReceivesBearerDerivedScope(t *testing.T) {
+	router := &scopedRouterStub{}
+	server, err := connectormcpserver.Start(connectormcpserver.Config{SessionRouter: router})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close(context.Background()) })
+	binding, err := server.Bind(connectormcpserver.BindingScope{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		InvocationID: "invocation-1", InvocationGeneration: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listing := postModernRPC(t, binding.URL, binding.Headers["Authorization"], 1, "tools/list", map[string]any{})
+	listing.Body.Close()
+	wantScope := connectormcpserver.RequestScope{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		InvocationID: "invocation-1", InvocationGeneration: 7,
+	}
+	if listing.StatusCode != http.StatusOK || router.toolsScope != wantScope || !router.contextOK {
+		t.Fatalf("tools scope=%#v contextOK=%v status=%d", router.toolsScope, router.contextOK, listing.StatusCode)
+	}
+	call := postModernRPC(t, binding.URL, binding.Headers["Authorization"], 2, "tools/call", map[string]any{
+		"name": "documents_search", "arguments": map[string]any{},
+	})
+	call.Body.Close()
+	if call.StatusCode != http.StatusOK || router.callScope != router.toolsScope || !router.contextOK {
+		t.Fatalf("call scope=%#v contextOK=%v status=%d", router.callScope, router.contextOK, call.StatusCode)
+	}
+}
+
+func TestServerServesProviderNativeMCP(t *testing.T) {
+	server, err := connectormcpserver.Start(connectormcpserver.Config{Registry: implementationhost.NewMCPRegistry()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close(context.Background()) })
+	binding, err := server.Binding("workspace-1", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialized := postProviderRPC(t, binding.URL, binding.Headers["Authorization"], 1, "initialize", map[string]any{
+		"protocolVersion": "2025-06-18",
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "codex", "version": "1"},
+	})
+	defer initialized.Body.Close()
+	var initializePayload struct {
+		Result struct {
+			ProtocolVersion string `json:"protocolVersion"`
+			ServerInfo      struct {
+				Name string `json:"name"`
+			} `json:"serverInfo"`
+		} `json:"result"`
+	}
+	if initialized.StatusCode != http.StatusOK || json.NewDecoder(initialized.Body).Decode(&initializePayload) != nil ||
+		initializePayload.Result.ProtocolVersion != "2025-06-18" || initializePayload.Result.ServerInfo.Name != "connector" {
+		t.Fatalf("initialize status=%d payload=%#v", initialized.StatusCode, initializePayload)
+	}
+
+	listing := postProviderRPC(t, binding.URL, binding.Headers["Authorization"], 2, "tools/list", map[string]any{})
+	defer listing.Body.Close()
+	var listPayload struct {
+		Result struct {
+			Tools []implementationhost.MCPTool `json:"tools"`
+		} `json:"result"`
+	}
+	if listing.StatusCode != http.StatusOK || json.NewDecoder(listing.Body).Decode(&listPayload) != nil || listPayload.Result.Tools == nil {
+		t.Fatalf("tools/list status=%d payload=%#v", listing.StatusCode, listPayload)
+	}
+
+	resources := postProviderRPC(t, binding.URL, binding.Headers["Authorization"], 3, "resources/list", map[string]any{})
+	defer resources.Body.Close()
+	var resourcesPayload struct {
+		Result struct {
+			Resources []any `json:"resources"`
+		} `json:"result"`
+	}
+	if resources.StatusCode != http.StatusOK || json.NewDecoder(resources.Body).Decode(&resourcesPayload) != nil || resourcesPayload.Result.Resources == nil {
+		t.Fatalf("resources/list status=%d payload=%#v", resources.StatusCode, resourcesPayload)
+	}
+}
+
+func TestBindRejectsPartialInvocationScopeAndLegacyBindingRemainsCompatible(t *testing.T) {
+	server, err := connectormcpserver.Start(connectormcpserver.Config{Registry: implementationhost.NewMCPRegistry()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close(context.Background()) })
+	invalid := []connectormcpserver.BindingScope{
+		{WorkspaceID: "workspace-1", AgentSessionID: "session-1", InvocationID: "invocation-1"},
+		{WorkspaceID: "workspace-1", AgentSessionID: "session-1", InvocationGeneration: 1},
+	}
+	for _, scope := range invalid {
+		if _, err := server.Bind(scope); err == nil {
+			t.Fatalf("partial Invocation scope was accepted: %#v", scope)
+		}
+	}
+	if _, err := server.Binding("workspace-1", "session-1"); err != nil {
+		t.Fatalf("legacy Session binding failed: %v", err)
+	}
+}
+
 func TestServerIssuesSessionScopedBindingAndServesModernMCP(t *testing.T) {
 	server, err := connectormcpserver.Start(connectormcpserver.Config{Registry: implementationhost.NewMCPRegistry()})
 	if err != nil {
@@ -199,6 +342,26 @@ func readSSEPayload(t *testing.T, reader *bufio.Reader) map[string]any {
 func postModernRPC(t *testing.T, endpoint, authorization string, id int, method string, params map[string]any) *http.Response {
 	t.Helper()
 	request := modernRPCRequest(t, endpoint, authorization, id, method, params)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func postProviderRPC(t *testing.T, endpoint, authorization string, id int, method string, params map[string]any) *http.Response {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", authorization)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)

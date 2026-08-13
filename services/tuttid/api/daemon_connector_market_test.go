@@ -16,6 +16,7 @@ type stubConnectorMarketService struct {
 	categoriesFn func(context.Context) ([]market.CatalogCategory, error)
 	pageFn       func(context.Context, market.CatalogPageQuery) (market.CatalogPage, error)
 	installFn    func(context.Context, market.ConnectorMutation) (market.MutationResult, error)
+	uninstallFn  func(context.Context, market.ConnectorMutation) (market.MutationResult, error)
 	projectionFn func(context.Context, string, string) (market.AuthorizationProjection, error)
 }
 
@@ -32,6 +33,10 @@ func (service stubConnectorMarketService) Snapshot(ctx context.Context) (market.
 
 func (service stubConnectorMarketService) Install(ctx context.Context, mutation market.ConnectorMutation) (market.MutationResult, error) {
 	return service.installFn(ctx, mutation)
+}
+
+func (service stubConnectorMarketService) Uninstall(ctx context.Context, mutation market.ConnectorMutation) (market.MutationResult, error) {
+	return service.uninstallFn(ctx, mutation)
 }
 
 func (service stubConnectorMarketService) ListCatalogCategories(ctx context.Context) ([]market.CatalogCategory, error) {
@@ -162,6 +167,47 @@ func TestDaemonAPIConnectorMarketInstallMapsUnsupportedImplementation(t *testing
 	var response tuttigenerated.ConnectorMarketError
 	decodeGeneratedRouteResponse(t, recorder, &response)
 	if response.Code != tuttigenerated.ConnectorImplementationUnsupported || response.Retryable {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestDaemonAPIConnectorMarketUninstallPreservesMutationScope(t *testing.T) {
+	now := time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)
+	service := stubConnectorMarketService{
+		uninstallFn: func(_ context.Context, mutation market.ConnectorMutation) (market.MutationResult, error) {
+			if mutation.ConnectorKey != "notion" || mutation.ClientRequestID != "request-uninstall-1" ||
+				mutation.ExpectedRevision != 7 || mutation.AccountID != "account-1" {
+				t.Fatalf("mutation = %#v", mutation)
+			}
+			return market.MutationResult{
+				Operation: market.Operation{
+					OperationID: "operation-uninstall-1", ClientRequestID: mutation.ClientRequestID,
+					ConnectorKey: mutation.ConnectorKey, Kind: market.OperationKindUninstall,
+					State: market.OperationStateAccepted, Stage: market.OperationStageAccepted,
+					CreatedAt: now, UpdatedAt: now,
+				},
+				Revision: 8,
+			}, nil
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		ConnectorMarketService: service,
+		ConnectorMarketScope: func() market.OperationScope {
+			return market.OperationScope{AccountID: "account-1"}
+		},
+	}))
+
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost, "/v1/connector-market/connectors/notion:uninstall", map[string]any{
+		"clientRequestId":  "request-uninstall-1",
+		"expectedRevision": 7,
+	})
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusAccepted, recorder.Body.String())
+	}
+	var response tuttigenerated.ConnectorMarketMutationResponse
+	decodeGeneratedRouteResponse(t, recorder, &response)
+	if response.Operation.Kind != tuttigenerated.Uninstall || response.Revision != 8 {
 		t.Fatalf("response = %#v", response)
 	}
 }

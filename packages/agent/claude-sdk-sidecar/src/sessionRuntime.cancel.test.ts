@@ -151,6 +151,55 @@ test("dispatched pre-accept cancel publishes terminal only after interrupt ack",
   }
 });
 
+test("dispatched cancel terminates the Query when interrupt ack never arrives", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  let markPromptObserved: () => void = () => {};
+  const promptObserved = new Promise<void>((resolve) => {
+    markPromptObserved = resolve;
+  });
+  let closed = false;
+  try {
+    const session = cancelTestSession(({ prompt }) => ({
+      async *[Symbol.asyncIterator]() {
+        await prompt[Symbol.asyncIterator]().next();
+        markPromptObserved();
+        await new Promise(() => {});
+        yield {} as SDKMessage;
+      },
+      async interrupt() {
+        await new Promise(() => {});
+      },
+      close() {
+        closed = true;
+      }
+    }));
+
+    await session.start();
+    session.exec("turn-interrupt-timeout", "hello");
+    await promptObserved;
+    const result = await session.cancel("turn-interrupt-timeout", {
+      interruptTimeoutMs: 10,
+      drainTimeoutMs: 10
+    });
+
+    assert.equal(result.canceled, true);
+    assert.equal(closed, true);
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "turn_canceled" &&
+          event.payload?.turnId === "turn-interrupt-timeout"
+      ),
+      true
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
 test("cancel aborting identity resolution cannot publish terminal before interrupt ack", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -297,7 +346,7 @@ test("cancel settles every dispatched prompt retired with the Query generation",
   }
 });
 
-test("interrupt failure leaves exact cancellation unresolved without terminal", async () => {
+test("interrupt failure closes the owned Query and settles cancellation", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const restoreSink = withSidecarEventSinkForTest((event) =>
     events.push(event)
@@ -306,6 +355,7 @@ test("interrupt failure leaves exact cancellation unresolved without terminal", 
   const promptObserved = new Promise<void>((resolve) => {
     markPromptObserved = resolve;
   });
+  let closed = false;
   try {
     const session = cancelTestSession(({ prompt }) => ({
       async *[Symbol.asyncIterator]() {
@@ -319,24 +369,22 @@ test("interrupt failure leaves exact cancellation unresolved without terminal", 
       async interrupt() {
         throw new Error("interrupt failed");
       },
-      close() {}
+      close() {
+        closed = true;
+      }
     }));
 
     await session.start();
     session.exec("turn-interrupt-failed", "hello");
     await promptObserved;
 
-    await assert.rejects(
-      session.cancel("turn-interrupt-failed"),
-      /interrupt failed/
-    );
+    const result = await session.cancel("turn-interrupt-failed");
+
+    assert.equal(result.canceled, true);
+    assert.equal(closed, true);
     assert.equal(
       events.some((event) => event.type === "turn_canceled"),
-      false
-    );
-    await assert.rejects(
-      session.cancel("turn-interrupt-failed"),
-      /remains unresolved/
+      true
     );
   } finally {
     restoreSink();
