@@ -149,6 +149,10 @@ function buildChildSessionLane(input: {
   );
   const latestTurn = input.childSession.latestTurn;
   const status = childSessionStatus(input.childSession);
+  const finalResultMarkdown =
+    status === "completed"
+      ? childSessionFinalResultMarkdown(childTimelineItems)
+      : null;
   const terminalAtUnixMs =
     status === "running"
       ? null
@@ -165,6 +169,7 @@ function buildChildSessionLane(input: {
     laneCount: 1,
     latestActivity: latestActivity?.text ?? null,
     latestActivityKind: latestActivity?.kind ?? null,
+    finalResultMarkdown,
     activityLog: activity.entries,
     activityOmittedCount: activity.omittedCount,
     queued: input.childSession.activeTurn?.phase === "submitted",
@@ -195,6 +200,7 @@ function emptyCycleLane(session: AgentActivitySession): AgentTaskSubAgentVM {
     laneCount: 1,
     latestActivity: null,
     latestActivityKind: null,
+    finalResultMarkdown: null,
     activityLog: [],
     activityOmittedCount: 0,
     failureDetail: session.latestTurn?.error?.message?.trim() ?? null,
@@ -323,10 +329,36 @@ function timelineItemText(item: WorkspaceAgentActivityTimelineItem): string {
     .trim();
 }
 
+function childSessionFinalResultMarkdown(
+  timelineItems: readonly WorkspaceAgentActivityTimelineItem[]
+): string | null {
+  for (let index = timelineItems.length - 1; index >= 0; index -= 1) {
+    const item = timelineItems[index];
+    if (!item) continue;
+    const itemType = item.itemType?.trim().toLowerCase() ?? "";
+    const role = item.role?.trim().toLowerCase() ?? "";
+    if (
+      role !== "assistant" ||
+      itemType === "message.assistant_thinking" ||
+      isWorkspaceAgentToolCallItem(item)
+    ) {
+      continue;
+    }
+    const markdown = (
+      stringValue(item.payload?.text) ??
+      stringValue(item.payload?.content) ??
+      stringValue(item.content) ??
+      ""
+    ).trim();
+    if (markdown) return markdown;
+  }
+  return null;
+}
+
 function snippet(text: string): string {
   return text.length <= 140
     ? text
-    : String.fromCodePoint(0x2026) + text.slice(-140);
+    : text.slice(0, 140) + String.fromCodePoint(0x2026);
 }
 
 function assignSiblingLanePositions(lanes: AgentTaskSubAgentVM[]): void {

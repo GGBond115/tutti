@@ -7,6 +7,7 @@ import type { AgentToolCallVM } from "../contracts/agentToolCallVM";
 import { CollapsibleReveal } from "./CollapsibleReveal";
 import { useAgentConversationNowUnixMs } from "./AgentConversationClock";
 import { formatAgentToolDurationMs } from "./tool-renderers/render-data/agentToolRenderData";
+import { ToolMarkdownBlock } from "./tool-renderers/agentToolContentShared";
 
 // A delegated sub-agent renders as a first-class row aligned with tool rows:
 // header = "Sub-agent · <name> · <elapsed> · <status>" with a chevron, body =
@@ -62,6 +63,7 @@ function subAgentVMEquals(
     left.laneIndex === right.laneIndex &&
     left.laneCount === right.laneCount &&
     left.latestActivity === right.latestActivity &&
+    left.finalResultMarkdown === right.finalResultMarkdown &&
     left.failureDetail === right.failureDetail &&
     left.queued === right.queued &&
     left.startedAtUnixMs === right.startedAtUnixMs &&
@@ -186,7 +188,7 @@ function SubAgentBody({
             {subAgent.task}
           </div>
         ) : null}
-        <SubAgentProgress subAgent={subAgent} />
+        <SubAgentProgress subAgent={subAgent} onLinkClick={onLinkClick} />
         {subAgent.childSessions.length > 0 ? (
           <div className="workspace-agents-status-panel__detail-subagent-children">
             {subAgent.childSessions.map((childSession) => (
@@ -204,16 +206,29 @@ function SubAgentBody({
 }
 
 function SubAgentProgress({
-  subAgent
+  subAgent,
+  onLinkClick
 }: {
   subAgent: AgentTaskSubAgentVM;
+  onLinkClick?: (href: string) => void;
 }): JSX.Element {
   "use memo";
-  // Progress stays a single line - the sub-agent's most recent activity (or
-  // failure detail), not a scrolling log.
+  if (subAgent.status === "completed" && subAgent.finalResultMarkdown?.trim()) {
+    return (
+      <div className="workspace-agents-status-panel__detail-subagent-activity workspace-agents-status-panel__detail-subagent-activity--in-terminal">
+        <ToolMarkdownBlock
+          content={subAgent.finalResultMarkdown}
+          onLinkClick={onLinkClick}
+        />
+      </div>
+    );
+  }
+  // Process activity is only a live progress summary. Terminal cards fall
+  // back to their terminal status rather than presenting a truncated activity
+  // snippet as the final result.
   const text =
     subAgent.failureDetail ??
-    subAgent.latestActivity ??
+    (subAgent.status === "running" ? subAgent.latestActivity : null) ??
     translate(
       subAgent.status === "completed"
         ? "agentHost.agentTool.statusCompleted"

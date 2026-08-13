@@ -375,6 +375,40 @@ func TestServiceCreateUsesProviderDefaultModelWhenModelOmitted(t *testing.T) {
 	}
 }
 
+func TestServiceCreateRecoversRetiredRememberedModelToProviderDefault(t *testing.T) {
+	runtime := newFakeRuntime()
+	service := newTestService(runtime)
+	service.AgentComposerDefaultsReader = fakeAgentComposerDefaultsReader{
+		agenttargetbiz.IDLocalCodex: {Model: "gpt-5.4"},
+	}
+	service.ModelCatalog = fakeModelCatalog{
+		result: AgentModelCatalogResult{
+			Provider: "codex",
+			Source:   "codex-cli",
+			Models: []AgentModelOption{
+				{ID: "gpt-5.6-sol", DisplayName: "GPT-5.6-Sol", IsDefault: true},
+				{ID: "gpt-5.5", DisplayName: "GPT-5.5"},
+			},
+		},
+	}
+
+	session, err := service.Create(context.Background(), "ws-1", CreateSessionInput{
+		AgentSessionID: "34343434-3434-4434-8434-343434343434",
+		AgentTargetID:  agenttargetbiz.IDLocalCodex,
+		Provider:       "codex",
+		InitialContent: TextPromptContent("hello"),
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if len(runtime.startCalls) != 1 || runtime.startCalls[0].Model != "gpt-5.6-sol" {
+		t.Fatalf("runtime start calls = %#v, want provider default model", runtime.startCalls)
+	}
+	if session.Settings == nil || session.Settings.Model != "gpt-5.6-sol" {
+		t.Fatalf("session settings = %#v, want provider default model", session.Settings)
+	}
+}
+
 func TestServiceCreateClampsLegacyMaxToSelectedModelCapability(t *testing.T) {
 	runtime := newFakeRuntime()
 	service := newTestService(runtime)
@@ -411,6 +445,78 @@ func TestServiceCreateClampsLegacyMaxToSelectedModelCapability(t *testing.T) {
 	}
 	if session.Settings == nil || session.Settings.ReasoningEffort != "xhigh" {
 		t.Fatalf("session settings = %#v, want Spark reasoning xhigh", session.Settings)
+	}
+}
+
+func TestServiceCreateClampsInheritedOpenCodeReasoningToTargetModel(t *testing.T) {
+	runtime := newFakeRuntime()
+	service := newTestService(runtime)
+	service.ModelCatalog = fakeModelCatalog{
+		result: AgentModelCatalogResult{
+			Provider: "opencode",
+			Source:   "opencode-cli",
+			Models: []AgentModelOption{{
+				ID:                         "openai/gpt-5.3-codex-spark",
+				IsDefault:                  true,
+				DefaultReasoningEffort:     "medium",
+				ReasoningEffortsAdvertised: true,
+				SupportedReasoningEfforts: []AgentModelReasoningEffortOption{
+					{Value: "low"},
+					{Value: "medium"},
+					{Value: "high"},
+					{Value: "xhigh"},
+				},
+			}},
+		},
+	}
+
+	session, err := service.Create(context.Background(), "ws-1", CreateSessionInput{
+		AgentSessionID:  "45454545-4545-4545-8545-454545454545",
+		AgentTargetID:   agenttargetbiz.IDLocalOpenCode,
+		Provider:        "opencode",
+		Model:           stringRef("openai/gpt-5.3-codex-spark"),
+		ReasoningEffort: stringRef("none"),
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if len(runtime.startCalls) != 1 || runtime.startCalls[0].ReasoningEffort != "medium" {
+		t.Fatalf("runtime start calls = %#v, want target default reasoning", runtime.startCalls)
+	}
+	if session.Settings == nil || session.Settings.ReasoningEffort != "medium" {
+		t.Fatalf("session settings = %#v, want target default reasoning", session.Settings)
+	}
+}
+
+func TestServiceCreateDropsInheritedOpenCodeReasoningWithoutAdvertisedMetadata(t *testing.T) {
+	runtime := newFakeRuntime()
+	service := newTestService(runtime)
+	service.ModelCatalog = fakeModelCatalog{
+		result: AgentModelCatalogResult{
+			Provider: "opencode",
+			Source:   "opencode-cli",
+			Models: []AgentModelOption{{
+				ID:        "openai/gpt-5.3-codex-spark",
+				IsDefault: true,
+			}},
+		},
+	}
+
+	session, err := service.Create(context.Background(), "ws-1", CreateSessionInput{
+		AgentSessionID:  "46464646-4646-4646-8646-464646464646",
+		AgentTargetID:   agenttargetbiz.IDLocalOpenCode,
+		Provider:        "opencode",
+		Model:           stringRef("openai/gpt-5.3-codex-spark"),
+		ReasoningEffort: stringRef("none"),
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if len(runtime.startCalls) != 1 || runtime.startCalls[0].ReasoningEffort != "" {
+		t.Fatalf("runtime start calls = %#v, want no unadvertised reasoning", runtime.startCalls)
+	}
+	if session.Settings == nil || session.Settings.ReasoningEffort != "" {
+		t.Fatalf("session settings = %#v, want no unadvertised reasoning", session.Settings)
 	}
 }
 

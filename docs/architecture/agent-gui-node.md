@@ -222,14 +222,16 @@ entry capability may additionally hide or disable an experimental control; the
 activation boundary must fail closed as well, so a remembered `true` value
 cannot outlive a disabled host entry. Provider support comes from the resolved
 composer descriptor rather than provider-name checks in shared UI code.
-Extension-owned model catalogs can change independently of target-scoped
+Provider and extension model catalogs can change independently of target-scoped
 remembered defaults. On Create, the daemon treats such a default as a fallback
-preference and resolves an obsolete value to the extension runtime's current
-model. Non-explicit model-dependent settings, such as reasoning effort, resolve
-against that effective model rather than remaining bound to the obsolete
-preference. A model or dependent setting explicitly supplied by the caller
-remains strict. If the runtime rejects an explicit model selection, startup
-fails rather than continuing with an undisclosed provider default.
+preference and resolves an obsolete value to the current catalog default from
+the same target. Non-explicit model-dependent settings, such as reasoning
+effort, resolve against that effective model rather than remaining bound to the
+obsolete preference. A strict per-model catalog never forwards an inherited
+value that the target model did not advertise. A model or dependent setting
+explicitly supplied by the caller remains strict. If the runtime rejects an
+explicit model selection, startup fails rather than continuing with an
+undisclosed provider default.
 
 Settings that affect provider preparation are immutable after launch. The
 daemon validates them against current product policy and resolved provider
@@ -582,6 +584,13 @@ delegation call and the canonical child Session/Turn. AgentGUI attaches the
 child lane only through the immutable `parentToolCallId`; it must not parse
 provider-native spawn events, invent a missing parent card, or create a
 presentation-only child lane.
+
+The parent-side child lane projects live activity and the terminal assistant
+result as different fields. Activity is a bounded plain-text progress summary;
+it cannot become the completed result. The terminal result preserves the full
+canonical Markdown and uses the ordinary safe Markdown/link boundary, so a
+character-level progress truncation cannot corrupt a generated-file link or
+drop earlier result context.
 
 User-initiated Fork creates a new root Session rather than a provider-native
 subagent. The child records durable lineage to the source Session and inclusive
@@ -1476,7 +1485,13 @@ command flows. Plural consumer selectors exclude them before Rail and Message
 Center collection projection; a hidden Session must not become a list row just
 because it is resumable or receives later canonical updates.
 
-When runtime sections are enabled, projection unions IDs from the current section, search, and reconciliation, then joins canonical Sessions. Unchanged summaries preserve structural sharing so unrelated engine updates do not rebuild the whole Rail snapshot.
+When runtime sections are enabled, projection unions IDs from the current
+section, search, reconciliation, and every in-progress root Session in the
+exact target scope, then joins canonical Sessions. In-progress Sessions remain
+display overlays until the bounded section query contains them; overlay rows
+do not alter cursors, `hasMore`, or server totals. Unchanged summaries preserve
+structural sharing so unrelated engine updates do not rebuild the whole Rail
+snapshot.
 
 Scroll, section collapse, visible limits, and search query belong to mounted view scope. Non-search state is isolated by `workspaceId + agentTargetId/all`; search creates a temporary navigation scope. `activeConversationId` expresses selection only. Scrolling requires an explicit reveal intent.
 

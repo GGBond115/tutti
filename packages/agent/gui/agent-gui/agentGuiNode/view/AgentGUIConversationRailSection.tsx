@@ -124,7 +124,7 @@ export const AgentGUIConversationRailSection = memo(
     const projectId = section.project?.id?.trim() ?? "";
     const hasProjectPath = Boolean(projectPath);
     const pageableItems = section.items.filter(
-      (item) => item.projectionSource !== "pending_activation"
+      (item) => item.projectionSource === undefined
     );
     const visibleItemCount = isSectionCollapsed
       ? 0
@@ -132,13 +132,13 @@ export const AgentGUIConversationRailSection = memo(
     const baseItems = isSectionCollapsed
       ? []
       : section.items
-          .filter((item) => item.projectionSource !== "pending_activation")
+          .filter((item) => item.projectionSource === undefined)
           .slice(0, visibleItemCount);
     let visibleItems = isSectionCollapsed
       ? []
       : [
           ...section.items.filter(
-            (item) => item.projectionSource === "pending_activation"
+            (item) => item.projectionSource !== undefined
           ),
           ...baseItems
         ];

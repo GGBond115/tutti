@@ -77,6 +77,53 @@ describe("buildChildSessionLanesByParentToolCallId", () => {
     });
   });
 
+  it("preserves the complete terminal assistant Markdown separately from activity", () => {
+    const child = childSession({
+      id: "child-1",
+      parentSessionId: "root-1",
+      parentToolCallId: "spawn-1",
+      turn: turn("child-1", "settled", "completed")
+    });
+    const markdown =
+      "Complete report with earlier context and [PDF](C:/Reports/final%20report.pdf)";
+    const lanes = buildChildSessionLanesByParentToolCallId({
+      rootSession: rootSession(),
+      rootTimelineItems: [spawnCall("root-1", "spawn-1", "Build report")],
+      childSessions: [child],
+      messagesBySessionId: {
+        "child-1": [message("child-1", markdown, 20)]
+      }
+    });
+
+    expect(lanes.get("spawn-1")?.[0]).toMatchObject({
+      finalResultMarkdown: markdown,
+      status: "completed"
+    });
+  });
+
+  it("keeps the beginning of long progress instead of dropping prior context", () => {
+    const child = childSession({
+      id: "child-1",
+      parentSessionId: "root-1",
+      parentToolCallId: "spawn-1",
+      turn: turn("child-1", "running", null)
+    });
+    const activity = `important-prefix-${"x".repeat(180)}`;
+    const lanes = buildChildSessionLanesByParentToolCallId({
+      rootSession: rootSession(),
+      rootTimelineItems: [spawnCall("root-1", "spawn-1", "Build report")],
+      childSessions: [child],
+      messagesBySessionId: {
+        "child-1": [message("child-1", activity, 20)]
+      }
+    });
+
+    expect(lanes.get("spawn-1")?.[0]?.latestActivity).toMatch(
+      /^important-prefix-/
+    );
+    expect(lanes.get("spawn-1")?.[0]?.finalResultMarkdown).toBeNull();
+  });
+
   it("does not reconstruct legacy owner fields without a child session", () => {
     const legacyItem: WorkspaceAgentActivityTimelineItem = {
       id: 2,

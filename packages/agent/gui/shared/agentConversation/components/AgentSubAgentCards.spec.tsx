@@ -168,6 +168,33 @@ describe("AgentSubAgentCard", () => {
     expect(screen.queryByText("Starting…")).not.toBeInTheDocument();
   });
 
+  it("renders the complete terminal Markdown and routes its link", async () => {
+    setAgentGuiI18nTestLocale("en");
+    const onLinkClick = vi.fn();
+    render(
+      <AgentSubAgentCard
+        subAgent={subAgent({
+          status: "completed",
+          finalResultMarkdown:
+            "Earlier context remains available in the [report](https://example.com/report.pdf)",
+          latestActivity: "…report.pdf)",
+          terminalAtUnixMs: 2_000
+        })}
+        onLinkClick={onLinkClick}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Sub-agent Repo smell analyst Completed/
+      })
+    );
+    fireEvent.click(await screen.findByRole("link", { name: "report" }));
+
+    expect(onLinkClick).toHaveBeenCalledWith("https://example.com/report.pdf");
+    expect(screen.queryByText("…report.pdf)")).not.toBeInTheDocument();
+  });
+
   it("shows failed instead of starting when failure detail is absent", async () => {
     setAgentGuiI18nTestLocale("en");
 

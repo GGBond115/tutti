@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	"github.com/tutti-os/tutti/services/tuttid/biz/agentprovider"
 )
@@ -30,9 +31,7 @@ func clampReasoningEffortForModelWithCatalog(
 	selected string,
 ) string {
 	selected = strings.TrimSpace(selected)
-	// Only Codex-derived providers currently treat model-advertised reasoning
-	// values as authoritative. OpenCode uses its model catalog for discovery but
-	// keeps the static reasoning vocabulary.
+	profile := composerProfileFor(provider)
 	if !composerProviderUsesModelReasoningCatalog(provider) {
 		return normalizeReasoningEffortForProvider(provider, selected)
 	}
@@ -41,6 +40,11 @@ func clampReasoningEffortForModelWithCatalog(
 	}
 	catalogOptions, ok := composerModelOptionsFromCatalog(ctx, catalog, provider, "", model)
 	if !ok || !catalogOptions.Selection.ReasoningEffortsAdvertised {
+		if profile.ReasoningEffortOptions == providerregistry.ReasoningEffortOptionsStrictModelCatalog {
+			// Strict catalogs intentionally have no provider-wide fallback. Do not
+			// forward an inherited value that the target model never advertised.
+			return ""
+		}
 		return normalizeReasoningEffortForProvider(provider, selected)
 	}
 	return resolveAdvertisedReasoningEffort(

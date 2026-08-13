@@ -111,6 +111,15 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	requestedModel := value(input.Model)
 	nodeStartedAt := time.Now()
 	planResolution, err := s.resolveCreateSessionModelForPlanOrProvider(ctx, workspaceID, provider, requestedModel, &input)
+	var invalidRememberedModel *InvalidModelError
+	if !modelExplicit && errors.As(err, &invalidRememberedModel) {
+		// Target-scoped defaults are fallback preferences. A provider catalog can
+		// retire a remembered model between launches, so retry resolution without
+		// that preference while keeping explicit caller selections strict.
+		input.Model = nil
+		requestedModel = ""
+		planResolution, err = s.resolveCreateSessionModelForPlanOrProvider(ctx, workspaceID, provider, requestedModel, &input)
+	}
 	if err != nil {
 		s.reportAgentServiceNodeFailure(ctx, input.AgentSessionID, "session_create", "model_validated", provider, nodeStartedAt, err)
 		return createSessionFailureResult(input, err)

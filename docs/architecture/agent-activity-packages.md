@@ -108,6 +108,11 @@ implementation. `daemon/hostadapter` is the official daemon-runtime-to-Host
 adapter, `host.SQLiteWorkspaceStore` is the workspace-routed canonical store,
 and `daemon/modelcatalog` owns provider model/reasoning/speed normalization;
 product daemons compose these modules instead of copying their mappings.
+Tool adapters also preserve raw output and exit code while translating a
+tool-specific result into the provider-neutral completed/failed state. The
+generic fallback remains zero-success/nonzero-failure; a documented nonzero
+result such as `git diff --no-index` exit 1 is accepted only by an exact
+command classifier, never by a global exit-code exception or a GUI branch.
 
 Canonical delete is a lossless tombstone transition. The transaction preserves
 each selected root/child Session component, its Turns, Messages, Interactions,
@@ -1123,7 +1128,7 @@ createAgentSessionEngine({
   identity: { workspaceId, origin },
   clock,
   scheduler,
-  commandPort
+  commandPort,
 });
 ```
 
@@ -1169,32 +1174,32 @@ export interface AgentActivityAdapter {
   }): Promise<AgentActivityMessagePage>;
 
   loadComposerOptions(
-    input: AgentActivityLoadComposerOptionsInput
+    input: AgentActivityLoadComposerOptionsInput,
   ): Promise<AgentActivityComposerOptions>;
 
   createSession(
-    input: AgentActivityCreateSessionInput
+    input: AgentActivityCreateSessionInput,
   ): Promise<AgentActivitySession>;
   sendInput(
-    input: AgentActivitySendInput
+    input: AgentActivitySendInput,
   ): Promise<AgentActivitySendInputResult>;
   goalControl(
-    input: AgentActivityGoalControlInput
+    input: AgentActivityGoalControlInput,
   ): Promise<AgentActivityGoalControlResult>;
   submitInteractive(
-    input: AgentActivitySubmitInteractiveInput
+    input: AgentActivitySubmitInteractiveInput,
   ): Promise<AgentActivitySubmitInteractiveResult>;
   deleteSession(
-    input: AgentActivityDeleteSessionInput
+    input: AgentActivityDeleteSessionInput,
   ): Promise<AgentActivityDeleteSessionResult>;
   deleteSessions(
-    input: AgentActivityDeleteSessionsInput
+    input: AgentActivityDeleteSessionsInput,
   ): Promise<AgentActivityDeleteSessionsResult>;
   renameSession(
-    input: AgentActivityRenameSessionInput
+    input: AgentActivityRenameSessionInput,
   ): Promise<AgentActivitySession>;
   setSessionPinned(
-    input: AgentActivitySetSessionPinnedInput
+    input: AgentActivitySetSessionPinnedInput,
   ): Promise<AgentActivitySession>;
 }
 ```
