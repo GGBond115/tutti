@@ -2294,6 +2294,7 @@ function reduce(
             content: [],
             errorCode: null,
             errorMessage: null,
+            errorReason: null,
             expiresAtUnixMs: 1,
             requestedAtUnixMs: 1,
             status: "requested",
