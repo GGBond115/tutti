@@ -125,7 +125,7 @@ func TestWindowsPowerShellUTF8PipelinePreservesDynamicInput(t *testing.T) {
 	}
 }
 
-func TestDynamicStdinUTF8Helper(t *testing.T) {
+func TestDynamicStdinUTF8Helper(_ *testing.T) {
 	if os.Getenv("TUTTI_TEST_STDIN_UTF8_HELPER") != "1" {
 		return
 	}

@@ -24,10 +24,6 @@ func shouldHideWorkspaceEntry(directoryPath string, entry fs.DirEntry) bool {
 	return platformFileIsHidden(filepath.Join(directoryPath, name))
 }
 
-func shouldHideWorkspacePath(rootPath, physicalPath string) bool {
-	return shouldHideWorkspacePathCached(rootPath, physicalPath, nil)
-}
-
 // shouldHideWorkspacePathCached memoizes visibility for a single request.
 // Indexed search returns many siblings, so checking every ancestor again for
 // every candidate would otherwise multiply synchronous filesystem calls.
