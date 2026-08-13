@@ -693,6 +693,15 @@ func (a *ClaudeCodeSDKAdapter) completeClaudeSDKWaiterEvent(
 }
 
 func (a *ClaudeCodeSDKAdapter) failClaudeSDKReader(agentSessionID string, adapterSession *claudeSDKAdapterSession, err error) {
+	a.failClaudeSDKReaderWithOwnership(agentSessionID, adapterSession, err, false)
+}
+
+func (a *ClaudeCodeSDKAdapter) failClaudeSDKReaderWithOwnership(
+	agentSessionID string,
+	adapterSession *claudeSDKAdapterSession,
+	err error,
+	retainSession bool,
+) {
 	if a == nil || adapterSession == nil {
 		return
 	}
@@ -733,7 +742,9 @@ func (a *ClaudeCodeSDKAdapter) failClaudeSDKReader(agentSessionID string, adapte
 		pendingFailureEvents,
 		a.failAllClaudeSDKRootProviderTurns(adapterSession, session, err)...,
 	)
-	a.removeSession(agentSessionID, adapterSession)
+	if !retainSession {
+		a.removeSession(agentSessionID, adapterSession)
+	}
 	a.emitClaudeSDKSessionEvents(agentSessionID, pendingFailureEvents)
 	for _, waiter := range turns {
 		waiter.mu.Lock()
