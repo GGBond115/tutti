@@ -132,6 +132,14 @@ history. Its trusted `RuntimeContextOverlay` is visible only to runtime
 preparation (for example to mint an Invocation-scoped bearer); it is not
 persisted or installed as provider RuntimeContext. A successful reprepare must
 precede the Turn whose tools use that binding.
+`DisconnectWorkspaceRuntime` is the attachment-loss boundary for releasing
+every live provider transport in one Workspace without deleting canonical or
+Controller Session state. Host serializes each Session against ordinary
+mutations, preserves the provider Session identity and history, and never
+resumes a provider or replays a prompt. Provider adapters terminalize active
+work and pending interactions before dropping the transport, and transport-only
+disconnect must not invoke a destructive provider `session/close`. A later
+user command follows the ordinary just-in-time Resume path.
 `CreateSessionInput.RailPlacement` optionally carries the caller-selected,
 versioned canonical rail identity. Host validates it before provider startup
 and persists its opaque `SectionKey` exactly on first creation. An idempotent

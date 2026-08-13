@@ -410,13 +410,33 @@ func (a *CodexAppServerAdapter) ReleaseLiveSession(_ context.Context, session Se
 	return a.closeLiveSession(agentSessionID)
 }
 
+// DisconnectLiveSession resolves pending interactions and drops only the
+// app-server transport. The Codex thread remains resumable; no provider
+// thread/session deletion request is sent.
+func (a *CodexAppServerAdapter) DisconnectLiveSession(_ context.Context, session Session) error {
+	if a == nil {
+		return nil
+	}
+	agentSessionID := strings.TrimSpace(session.AgentSessionID)
+	unlockLifecycle := a.lockSessionLifecycle(agentSessionID)
+	defer unlockLifecycle()
+	a.rejectPendingRequests(agentSessionID, ErrSessionDisconnected)
+	return a.closeLiveSession(agentSessionID)
+}
+
 func (a *CodexAppServerAdapter) closeLiveSession(agentSessionID string) error {
 	a.mu.Lock()
 	appSession := a.sessions[agentSessionID]
-	delete(a.sessions, agentSessionID)
 	a.mu.Unlock()
 	if appSession != nil && appSession.client != nil {
-		return appSession.client.Close()
+		if err := appSession.client.Close(); err != nil {
+			return err
+		}
+		a.mu.Lock()
+		if a.sessions[agentSessionID] == appSession {
+			delete(a.sessions, agentSessionID)
+		}
+		a.mu.Unlock()
 	}
 	return nil
 }

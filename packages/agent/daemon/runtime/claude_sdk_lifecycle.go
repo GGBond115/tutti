@@ -240,3 +240,25 @@ func (a *ClaudeCodeSDKAdapter) HasLiveSession(session Session) bool {
 func (a *ClaudeCodeSDKAdapter) ReleaseLiveSession(ctx context.Context, session Session) error {
 	return a.Close(ctx, session)
 }
+
+// DisconnectLiveSession terminalizes provider-owned work through the same
+// external-failure path as a broken sidecar connection, then closes only the
+// transport. It deliberately does not send the sidecar "close" request,
+// which is the graceful provider-session close contract.
+func (a *ClaudeCodeSDKAdapter) DisconnectLiveSession(_ context.Context, session Session) error {
+	adapterSession := a.getSession(session.AgentSessionID)
+	if adapterSession == nil {
+		return nil
+	}
+	a.failClaudeSDKReaderWithOwnership(
+		session.AgentSessionID,
+		adapterSession,
+		ErrSessionDisconnected,
+		true,
+	)
+	if err := adapterSession.conn.Close(); err != nil {
+		return err
+	}
+	a.removeSession(session.AgentSessionID, adapterSession)
+	return nil
+}

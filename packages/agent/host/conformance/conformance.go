@@ -203,6 +203,33 @@ type Driver interface {
 	Metrics() Metrics
 }
 
+// WorkspaceRuntimeDisconnectDriver is a narrow opt-in lifecycle contract so a
+// new Host capability does not source-break existing external conformance
+// drivers that implement the stable Driver interface.
+type WorkspaceRuntimeDisconnectDriver interface {
+	Driver
+	DisconnectWorkspaceRuntime(context.Context, string) (agenthost.DisconnectWorkspaceRuntimeResult, error)
+}
+
+type WorkspaceRuntimeDisconnectScenario struct {
+	Name string
+	run  func(context.Context, WorkspaceRuntimeDisconnectDriver) error
+}
+
+func RunWorkspaceRuntimeDisconnect(
+	ctx context.Context,
+	driver WorkspaceRuntimeDisconnectDriver,
+	scenario WorkspaceRuntimeDisconnectScenario,
+) error {
+	if driver == nil {
+		return fmt.Errorf("workspace runtime disconnect conformance driver is required")
+	}
+	if scenario.run == nil {
+		return fmt.Errorf("workspace runtime disconnect scenario %q has no runner", scenario.Name)
+	}
+	return scenario.run(ctx, driver)
+}
+
 // ProviderlessTerminalDriver is the narrow fault-injection capability for a
 // Runtime that durably fails the exact canonical Turn before it acquires a
 // provider identity. It stays separate from Fixture so downstream conformance
