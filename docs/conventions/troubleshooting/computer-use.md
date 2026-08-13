@@ -71,10 +71,13 @@ nested `powershell.exe -Command` invocation changes quotes and backslashes.
 ### Root cause and fix
 
 JSON embedded in a command string crosses both the outer launcher and Windows
-shell parsing boundaries. Encode the UTF-8 JSON object as base64 and pass it
-through `--arguments-base64`; do not launch a second PowerShell process around
-the Tutti CLI command. `--arguments-json` remains supported for compatible
-existing scripts, but the two flags cannot be combined.
+shell parsing boundaries. Serialize the object with the shell's JSON library
+and pipe it through `--arguments-json -`; do not launch a second PowerShell
+process around the Tutti CLI command. `--arguments-json` remains supported for
+simple existing scripts, but the two input sources cannot be combined.
+When using Windows PowerShell 5.1, temporarily set `$OutputEncoding` to
+`[Text.UTF8Encoding]::new($false)` around the pipeline and restore it in a
+`finally` block; its default ASCII encoding cannot preserve non-ASCII JSON.
 
 If the driver returns `isError=true` together with Windows success status
 `0x00000000`, treat it as an inconsistent driver result rather than successful
@@ -83,7 +86,7 @@ different application target; never automate the authorization UI.
 
 ### Validation
 
-- Base64 input round-trips nested JSON, backslashes, spaces, and non-ASCII text.
+- Stdin JSON round-trips nested values, backslashes, spaces, and non-ASCII text.
 - Every state-changing action is followed by a fresh screenshot.
 - An inconsistent success-code error and a protected authorization target have
   explicit diagnostic messages.

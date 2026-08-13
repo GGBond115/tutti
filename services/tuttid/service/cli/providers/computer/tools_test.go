@@ -2,7 +2,6 @@ package computer
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -16,39 +15,6 @@ func TestNativeToolCommandsAreRegistered(t *testing.T) {
 	commands := NewProvider(nil, &fakeComputerService{}).Commands()
 	for _, id := range []string{"computer.tool.list", "computer.tool.describe", "computer.tool.call"} {
 		commandByID(t, commands, id)
-	}
-}
-
-func TestNativeToolCallAcceptsBase64ArgumentsWithoutShellJSONParsing(t *testing.T) {
-	computer := &fakeComputerService{catalog: testToolCatalog()}
-	command := commandByID(t, NewProvider(nil, computer).Commands(), "computer.tool.call")
-	encoded := base64.StdEncoding.EncodeToString([]byte(`{"scope":"desktop","path":"C:\\Temp\\示例.png"}`))
-	_, err := command.Handler(context.Background(), cliservice.InvokeRequest{
-		Input: map[string]any{
-			"name":             "click",
-			"arguments-base64": encoded,
-		},
-		OutputMode: cliservice.OutputModePlain,
-		Context:    cliservice.InvokeContext{WorkspaceID: "workspace-1"},
-	})
-	if err != nil {
-		t.Fatalf("tool call: %v", err)
-	}
-	want := map[string]any{
-		"scope": "desktop",
-		"path":  `C:\Temp\示例.png`,
-	}
-	if len(computer.nativeCalls) != 1 || !reflect.DeepEqual(computer.nativeCalls[0].args, want) {
-		t.Fatalf("native calls = %#v, want %#v", computer.nativeCalls, want)
-	}
-}
-
-func TestParseToolArgumentsRejectsAmbiguousOrInvalidBase64Input(t *testing.T) {
-	if _, err := parseToolArguments(`{"x":1}`, "e30="); err == nil {
-		t.Fatal("expected combined argument formats to fail")
-	}
-	if _, err := parseToolArguments("", "not-base64"); err == nil {
-		t.Fatal("expected invalid base64 to fail")
 	}
 }
 
