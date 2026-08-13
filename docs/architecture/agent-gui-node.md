@@ -2172,6 +2172,20 @@ as ordinary prompts.
 The host capability remains explicit so unsupported hosts can fail closed, but
 Tutti Desktop always supplies `sessionInputHistoryEnabled: true`; historical
 `lab.agentInputHistory` preference values do not hide or disable the feature.
+
+Composer model recents and favorites are separate browser-local menu chrome.
+The Composer presentation projects the exact Agent Target identity together
+with narrow provider-native catalog testimony, and one focused controller owns
+storage reads, writes, cross-window refresh, and reconciliation. An unresolved
+active-Session target disables history instead of reading or writing a shared
+fallback bucket. Only an authoritative, settled native catalog may retire a
+recent model; loading, empty catalogs, requested-origin entries, and
+selected-model-only echoes remain unverifiable. Favorites preserve explicit
+user intent even when a model is currently unavailable. The legacy shared
+`default` bucket migrates lazily to the first exact target: recents pass through
+current authoritative testimony before migration, while favorites migrate
+without availability filtering.
+
 Bare Up/Down recalls older/newer structured drafts only from an empty composer
 or an unchanged recalled entry, and only when the collapsed caret is at a
 whole-document boundary. Palette handling and IME composition take precedence,

@@ -1,7 +1,6 @@
 import {
   Fragment,
   cloneElement,
-  useCallback,
   useState,
   type HTMLAttributes,
   type ReactElement
@@ -32,14 +31,7 @@ import {
   type AgentComposerSettingsMenuLabels,
   type ComposerMenuOption
 } from "./model/composerSettingsMenuModel";
-import {
-  composerModelFavoritesStorageKey,
-  composerModelRecentsStorageKey,
-  parseComposerModelIdList,
-  recordRecentComposerModel,
-  serializeComposerModelIdList,
-  toggleFavoriteComposerModel
-} from "./model/composerModelChoiceHistory";
+import { useComposerModelChoiceHistory } from "./controller/useComposerModelChoiceHistory";
 import { translate } from "../../i18n/index";
 import styles from "./AgentGUINode.styles";
 
@@ -84,7 +76,7 @@ export function AgentModelReasoningDropdown({
   composerSettings,
   disabled = false,
   labels,
-  modelHistoryTargetId = null,
+  modelHistoryTargetId,
   onRetryComposerOptions,
   onSettingsChange
 }: {
@@ -92,8 +84,8 @@ export function AgentModelReasoningDropdown({
   disabled?: boolean;
   labels: AgentComposerSettingsMenuLabels;
   /**
-   * Stable per-target key for the recents/favorites localStorage chrome
-   * state; omit to fall back to one shared "default" bucket.
+   * Optional test/embedding override. Omission uses the controller-projected
+   * exact target; explicit null disables model history.
    */
   modelHistoryTargetId?: string | null;
   onRetryComposerOptions?: () => void;
@@ -106,41 +98,19 @@ export function AgentModelReasoningDropdown({
   "use memo";
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
-  const [favoriteModelIds, setFavoriteModelIds] = useState<readonly string[]>(
-    () =>
-      parseComposerModelIdList(
-        readComposerLocalStorage(
-          composerModelFavoritesStorageKey(modelHistoryTargetId)
-        )
-      )
-  );
-  const [recentModelIds, setRecentModelIds] = useState<readonly string[]>(() =>
-    parseComposerModelIdList(
-      readComposerLocalStorage(
-        composerModelRecentsStorageKey(modelHistoryTargetId)
-      )
-    )
-  );
-  const reloadModelHistory = useCallback(() => {
-    setFavoriteModelIds(
-      parseComposerModelIdList(
-        readComposerLocalStorage(
-          composerModelFavoritesStorageKey(modelHistoryTargetId)
-        )
-      )
-    );
-    setRecentModelIds(
-      parseComposerModelIdList(
-        readComposerLocalStorage(
-          composerModelRecentsStorageKey(modelHistoryTargetId)
-        )
-      )
-    );
-  }, [modelHistoryTargetId]);
+  const projectedModelHistory = composerSettings.modelChoiceHistory;
+  const modelHistory = useComposerModelChoiceHistory({
+    targetId:
+      modelHistoryTargetId === undefined
+        ? (projectedModelHistory?.targetId ?? null)
+        : modelHistoryTargetId,
+    catalog: projectedModelHistory?.catalog ?? null
+  });
+  const { favoriteModelIds, recentModelIds } = modelHistory;
   const handleMenuOpenChange = (open: boolean): void => {
     if (open) {
       // Pick up writes from other windows and clear the previous filter.
-      reloadModelHistory();
+      modelHistory.refreshFromStorage();
       setModelSearchQuery("");
     }
     setMenuOpen(open);
@@ -175,24 +145,11 @@ export function AgentModelReasoningDropdown({
     setMenuOpen(false);
   };
   const applyModelSelection = (value: string): void => {
-    const nextRecentIds = recordRecentComposerModel(recentModelIds, value);
-    setRecentModelIds(nextRecentIds);
-    writeComposerLocalStorage(
-      composerModelRecentsStorageKey(modelHistoryTargetId),
-      serializeComposerModelIdList(nextRecentIds)
-    );
+    modelHistory.recordRecentModel(value);
     applySettingsChange({ model: value });
   };
   const handleToggleFavoriteModel = (value: string): void => {
-    const nextFavoriteIds = toggleFavoriteComposerModel(
-      favoriteModelIds,
-      value
-    );
-    setFavoriteModelIds(nextFavoriteIds);
-    writeComposerLocalStorage(
-      composerModelFavoritesStorageKey(modelHistoryTargetId),
-      serializeComposerModelIdList(nextFavoriteIds)
-    );
+    modelHistory.toggleFavoriteModel(value);
   };
   const favoriteValueSet = new Set(menu.model.favoriteValues);
   const modelDescriptionPresentation = menu.model.optionDescriptionInline
@@ -530,29 +487,6 @@ export function AgentModelReasoningDropdown({
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-function readComposerLocalStorage(key: string): string | null {
-  try {
-    if (typeof window === "undefined" || !window.localStorage) {
-      return null;
-    }
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeComposerLocalStorage(key: string, value: string): void {
-  try {
-    if (typeof window === "undefined" || !window.localStorage) {
-      return;
-    }
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Chrome-state persistence is best-effort; never break the menu.
-    return;
-  }
 }
 
 // Renders a list of pick-to-apply menu items. Pointer activation applies

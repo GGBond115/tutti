@@ -30,9 +30,11 @@ describe("AgentModelReasoningDropdown", () => {
     const onSettingsChange = vi.fn();
     render(
       <AgentModelReasoningDropdown
-        composerSettings={composerModelSettings()}
+        composerSettings={{
+          ...composerModelSettings(),
+          modelChoiceHistory: { targetId: "target-1", catalog: null }
+        }}
         labels={modelSettingsLabels}
-        modelHistoryTargetId="target-1"
         onSettingsChange={onSettingsChange}
       />
     );
@@ -65,6 +67,11 @@ describe("AgentModelReasoningDropdown", () => {
         "agent-gui:composer-model-favorites:target-1"
       )
     ).toBe('["gpt-5.4"]');
+    expect(
+      globalThis.localStorage.getItem(
+        "agent-gui:composer-model-favorites:default"
+      )
+    ).toBeNull();
     expect(screen.getByText("Model selection")).toBeInTheDocument();
   });
 
