@@ -122,6 +122,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     sessionInputHistoryEnabled = false,
     sessionForkEnabled = false,
     sessionWorktreeEnabled = false,
+    sessionExecutionContextStatusEnabled = false,
     sessionLaunchModesByProjectSectionKey,
     codexSaverModeEntryEnabled = false
   } = hostCapabilities;
@@ -585,6 +586,9 @@ export const AgentGUINode = memo(function AgentGUINode({
               sessionInputHistoryEnabled={sessionInputHistoryEnabled}
               sessionForkEnabled={sessionForkEnabled}
               sessionWorktreeEnabled={sessionWorktreeEnabled}
+              statusExecutionContextEnabled={
+                sessionExecutionContextStatusEnabled
+              }
               sessionLaunchModesByProjectSectionKey={
                 sessionLaunchModesByProjectSectionKey
               }

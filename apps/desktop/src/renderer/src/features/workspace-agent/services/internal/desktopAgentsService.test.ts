@@ -266,7 +266,6 @@ test("desktop agents service lists a custom Agent with its Harness target catalo
       kind: "agent-directory",
       provider: "codex"
     },
-    sessionLaunchMode: "local",
     targetId: "workspace-agent:reviewer"
   });
 });

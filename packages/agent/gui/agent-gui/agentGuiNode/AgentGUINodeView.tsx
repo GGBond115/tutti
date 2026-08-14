@@ -81,6 +81,7 @@ export function AgentGUINodeView({
   sessionInputHistoryEnabled = false,
   sessionForkEnabled = false,
   sessionWorktreeEnabled = false,
+  statusExecutionContextEnabled = false,
   sessionLaunchModesByProjectSectionKey,
   onSessionLaunchModePreferenceChange,
   renderAgentTargetInfo,
@@ -692,6 +693,7 @@ export function AgentGUINodeView({
                 sessionInputHistoryEnabled={sessionInputHistoryEnabled}
                 sessionForkEnabled={sessionForkEnabled}
                 sessionWorktreeEnabled={sessionWorktreeEnabled}
+                statusExecutionContextEnabled={statusExecutionContextEnabled}
                 sessionLaunchModesByProjectSectionKey={
                   sessionLaunchModesByProjectSectionKey
                 }

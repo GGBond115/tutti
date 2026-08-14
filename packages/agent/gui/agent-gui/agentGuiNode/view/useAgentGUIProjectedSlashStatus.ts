@@ -10,7 +10,26 @@ import {
   useStableSlashStatus
 } from "./agentGUIDetailModelHelpers";
 
+export function projectAgentGUISlashStatusExecutionContext(input: {
+  activeConversation: AgentGUINodeViewModel["rail"]["activeConversation"];
+  baseSlashStatus: AgentComposerSlashStatus;
+  enabled: boolean;
+  selectedAgentTarget: AgentGUINodeViewModel["rail"]["selectedAgentTarget"];
+}): AgentComposerSlashStatus {
+  if (!input.enabled || !input.activeConversation) {
+    return input.baseSlashStatus;
+  }
+  return {
+    ...input.baseSlashStatus,
+    cwd: input.activeConversation.cwd.trim() || null,
+    executionLocation: resolveAgentGUISlashStatusExecutionLocation(
+      input.selectedAgentTarget
+    )
+  };
+}
+
 export function useAgentGUIProjectedSlashStatus(input: {
+  executionContextEnabled: boolean;
   slashStatusLimits: readonly AgentComposerSlashStatusLimit[];
   slashStatusLimitsLoading: boolean;
   slashStatusLimitsUnavailable: boolean;
@@ -27,16 +46,14 @@ export function useAgentGUIProjectedSlashStatus(input: {
         limitsUnavailable: input.slashStatusLimitsUnavailable,
         usage: input.viewModel.detail.usage
       });
-    const activeConversation = input.viewModel.rail.activeConversation;
-    if (!activeConversation) return baseSlashStatus;
-    return {
-      ...baseSlashStatus,
-      cwd: activeConversation.cwd.trim() || null,
-      executionLocation: resolveAgentGUISlashStatusExecutionLocation(
-        input.viewModel.rail.selectedAgentTarget
-      )
-    };
+    return projectAgentGUISlashStatusExecutionContext({
+      activeConversation: input.viewModel.rail.activeConversation,
+      baseSlashStatus,
+      enabled: input.executionContextEnabled,
+      selectedAgentTarget: input.viewModel.rail.selectedAgentTarget
+    });
   }, [
+    input.executionContextEnabled,
     input.slashStatusLimits,
     input.slashStatusLimitsLoading,
     input.slashStatusLimitsUnavailable,

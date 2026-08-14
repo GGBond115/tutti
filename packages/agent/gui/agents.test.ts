@@ -130,6 +130,15 @@ describe("projectAgentGUIAgentsToTargets", () => {
     expect(target?.disabled).toBeUndefined();
   });
 
+  it("omits launch metadata when the Host declares no launch variants", () => {
+    const [target] = projectAgentGUIAgentsToTargets([
+      createAgent("local:codex")
+    ]);
+
+    expect(target?.sessionLaunchMode).toBeUndefined();
+    expect(target?.sessionLaunchTargets).toBeUndefined();
+  });
+
   it("preserves availability separately from disabled interaction state", () => {
     const [target] = projectAgentGUIAgentsToTargets([
       createAgent("agent-a", {

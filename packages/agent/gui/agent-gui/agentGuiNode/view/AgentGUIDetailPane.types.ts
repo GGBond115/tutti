@@ -40,6 +40,7 @@ export interface AgentGUIDetailPaneProps extends AgentGUIDetailExternalPromptPro
   sessionInputHistoryEnabled?: boolean;
   sessionForkEnabled?: boolean;
   sessionWorktreeEnabled?: boolean;
+  statusExecutionContextEnabled?: boolean;
   sessionLaunchModesByProjectSectionKey?: Readonly<
     Record<string, AgentGUISessionLaunchPreferenceMode>
   >;

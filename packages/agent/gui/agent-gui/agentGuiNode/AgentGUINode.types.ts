@@ -132,6 +132,8 @@ export interface AgentGUINodeHostCapabilities {
   sessionForkEnabled?: boolean;
   /** Host-owned opt-in for launching self-owned local Sessions in git worktrees. */
   sessionWorktreeEnabled?: boolean;
+  /** Host-owned opt-in for cwd and execution location in on-demand status. */
+  sessionExecutionContextStatusEnabled?: boolean;
   /** Host-owned durable launch preference projection for this workspace. */
   sessionLaunchModesByProjectSectionKey?: Readonly<
     Record<string, AgentGUISessionLaunchPreferenceMode>
@@ -429,6 +431,8 @@ export function areAgentGUINodePropsEqual(
     pc.sessionInputHistoryEnabled === nc.sessionInputHistoryEnabled &&
     pc.sessionForkEnabled === nc.sessionForkEnabled &&
     pc.sessionWorktreeEnabled === nc.sessionWorktreeEnabled &&
+    pc.sessionExecutionContextStatusEnabled ===
+      nc.sessionExecutionContextStatusEnabled &&
     pc.sessionLaunchModesByProjectSectionKey ===
       nc.sessionLaunchModesByProjectSectionKey &&
     pc.codexSaverModeEntryEnabled === nc.codexSaverModeEntryEnabled &&

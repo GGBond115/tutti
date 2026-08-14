@@ -26,6 +26,7 @@ import styles from "../AgentGUINode.styles";
 interface Input {
   bottomDockDismissedPromptRequestId: string | null;
   labels: AgentGUIViewLabels;
+  sessionExecutionContextStatusEnabled: boolean;
   slashStatusLimits: readonly AgentComposerSlashStatusLimit[];
   slashStatusLimitsLoading: boolean;
   slashStatusLimitsUnavailable: boolean;
@@ -53,6 +54,7 @@ export function useAgentGUIDetailModel(input: Input) {
   const {
     bottomDockDismissedPromptRequestId,
     labels,
+    sessionExecutionContextStatusEnabled,
     slashStatusLimits,
     slashStatusLimitsLoading,
     slashStatusLimitsUnavailable,
@@ -102,6 +104,7 @@ export function useAgentGUIDetailModel(input: Input) {
     sessionChrome.recovery
   );
   const slashStatus = useAgentGUIProjectedSlashStatus({
+    executionContextEnabled: sessionExecutionContextStatusEnabled,
     slashStatusLimits,
     slashStatusLimitsLoading,
     slashStatusLimitsUnavailable,

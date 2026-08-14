@@ -1,5 +1,4 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
 import { latestAssistantMessageText } from "../../../shared/agentConversation/projection/agentConversationProjection";
 import { AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT } from "../../../workbench/contribution";
 import type { AgentComposerProps } from "../AgentComposer";
@@ -33,8 +32,7 @@ import type { AgentGUIDetailPaneProps } from "./AgentGUIDetailPane.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { submitAgentInteractionResponseAndDismiss } from "../../../shared/agentConversation/interactionResponseAdmission";
 import { useAgentGUISessionLaunchModeChange } from "./useAgentGUISessionLaunchModeChange";
-export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
-  [];
+export const EMPTY_WORKSPACE_APP_ICONS = [] as const;
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   shell,
   rail,
@@ -48,6 +46,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   sessionInputHistoryEnabled = false,
   sessionForkEnabled = false,
   sessionWorktreeEnabled = false,
+  statusExecutionContextEnabled = false,
   sessionLaunchModesByProjectSectionKey,
   onSessionLaunchModePreferenceChange,
   composerEngagement,
@@ -146,6 +145,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   } = useAgentGUIDetailModel({
     bottomDockDismissedPromptRequestId,
     labels,
+    sessionExecutionContextStatusEnabled: statusExecutionContextEnabled,
     slashStatusLimits,
     slashStatusLimitsLoading,
     slashStatusLimitsUnavailable,

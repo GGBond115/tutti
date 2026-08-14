@@ -418,6 +418,12 @@ without a frame is a failed refresh: a retained value may remain visible, but
 the UI must show the refresh failure rather than treating the old value as a
 new success.
 
+Working directory and execution-location fields in `/status` are an optional
+host presentation capability. Hosts must opt in explicitly; omission preserves
+the existing status surface and target projection. A cloud launch relation
+continues to be declared structurally through
+`AgentGUIAgent.sessionLaunchTargets` rather than inferred from provider names.
+
 Desktop availability analytics reads the renderer's loaded managed-provider
 snapshot and must not turn a pageview or focus event into a daemon request. A
 stale visibility snapshot may reconcile through a non-forced tuttid status

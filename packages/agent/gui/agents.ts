@@ -130,9 +130,9 @@ export function projectAgentGUIAgentsToTargets(
     ...(agent.availability.reason
       ? { unavailableReason: agent.availability.reason }
       : {}),
-    sessionLaunchMode: "local",
     ...(agent.sessionLaunchTargets?.length
       ? {
+          sessionLaunchMode: "local" as const,
           sessionLaunchTargets: [
             {
               mode: "local" as const,
