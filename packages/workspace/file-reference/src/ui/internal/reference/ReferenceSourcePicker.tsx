@@ -64,7 +64,6 @@ import type {
 } from "../../../contracts/index.ts";
 import type { ReferenceSourceAggregator } from "../../../core/referenceSourceAggregator.ts";
 import {
-  base64UrlDecode,
   nodeRefKey,
   SOURCE_ROOT_NODE_ID,
   type ReferenceFilterCategory
@@ -81,6 +80,11 @@ import {
   resolveReferencePreviewTimestampMs,
   resolveReferencePreviewSizeBytes
 } from "./referenceSourcePickerPresentation.ts";
+import {
+  ReferenceSearchResultList,
+  type ReferenceSearchResultActions
+} from "./ReferenceSearchResultList.tsx";
+import { referenceNodeToWorkspaceFileEntry } from "./referenceNodeIconEntry.ts";
 
 export interface ReferenceSourcePickerProps {
   aggregator: ReferenceSourceAggregator;
@@ -288,7 +292,7 @@ export function ReferenceSourcePicker({
     submitting: boolean;
   } | null>(null);
   const hasVisibleContent = view.isQuery
-    ? view.searchResults.length > 0
+    ? view.searchResultCount > 0
     : view.currentEntries.length > 0;
   const contentErrorAction = view.contentError
     ? (resolveContentErrorAction?.(view.contentError) ?? null)
@@ -423,7 +427,6 @@ export function ReferenceSourcePicker({
         currentEntries: view.currentEntries,
         expandedKeys: view.expandedKeys,
         focusedNode: view.focusedNode,
-        searchResults: view.searchResults,
         selection: view.selection,
         sidebarGroupsBySource: view.sidebarGroupsBySource
       }),
@@ -432,7 +435,6 @@ export function ReferenceSourcePicker({
       view.currentEntries,
       view.expandedKeys,
       view.focusedNode,
-      view.searchResults,
       view.selection,
       view.sidebarGroupsBySource
     ]
@@ -591,6 +593,19 @@ export function ReferenceSourcePicker({
       x: event.clientX,
       y: event.clientY
     });
+  };
+  const [searchViewportElement, setSearchViewportElement] =
+    useState<HTMLDivElement | null>(null);
+  const searchResultActionsRef = useRef<ReferenceSearchResultActions | null>(
+    null
+  );
+  searchResultActionsRef.current = {
+    isSelectable: view.isSelectable,
+    onContextMenu: openReferenceContextMenu,
+    onFocus: view.setFocusedNode,
+    onOpen: view.openNode,
+    onSingleSelect: view.toggleSingleSelectionAndExpand,
+    onToggle: view.toggleSelection
   };
 
   if (!open) {
@@ -767,12 +782,14 @@ export function ReferenceSourcePicker({
                   </div>
                   <ScrollArea
                     className="min-h-0 flex-1"
+                    viewportRef={setSearchViewportElement}
                     viewportProps={{
-                      // 拉到底部(距底 <120px)自动加载更多 —— 查询态走增长式分页,
-                      // 浏览态走 cursor 续页。已在加载/无更多时由 loadMore 内部 no-op。
+                      // 浏览态拉到底部(距底 <120px)续页。查询态由虚拟列表按逻辑末端续页，
+                      // 避免压缩滚动高度后追加结果不再触发原生 scroll 事件。
                       onScroll: (event) => {
                         const el = event.currentTarget;
                         if (
+                          !view.isQuery &&
                           view.hasMore &&
                           !view.isLoading &&
                           !view.isLoadingMore &&
@@ -799,7 +816,7 @@ export function ReferenceSourcePicker({
                         />
                       ) : view.isQuery ? (
                         // 查询态(关键词或筛选):扁平结果
-                        view.searchResults.length === 0 ? (
+                        view.searchResultCount === 0 ? (
                           <Feedback>
                             {copy.t(
                               purpose === "directory"
@@ -808,23 +825,19 @@ export function ReferenceSourcePicker({
                             )}
                           </Feedback>
                         ) : (
-                          view.searchResults.map((node) => (
-                            <SearchResultRow
-                              key={nodeRefKey(node.ref)}
-                              focused={isFocused(view.focusedNode, node)}
-                              iconUrls={iconUrls}
-                              node={node}
-                              selected={view.isSelected(node)}
-                              onFocus={view.setFocusedNode}
-                              onContextMenu={openReferenceContextMenu}
-                              onOpen={view.openNode}
-                              selectable={view.isSelectable(node)}
-                              onSingleSelect={
-                                view.toggleSingleSelectionAndExpand
-                              }
-                              onToggle={view.toggleSelection}
-                            />
-                          ))
+                          <ReferenceSearchResultList
+                            actionsRef={searchResultActionsRef}
+                            focusedNode={view.focusedNode}
+                            hasMore={view.hasMore}
+                            isLoadingMore={view.isLoading || view.isLoadingMore}
+                            onEndReached={view.loadMore}
+                            resolveEntryIconUrl={resolveEntryIconUrl}
+                            resultCount={view.searchResultCount}
+                            resultIdentity={view.searchResultIdentity}
+                            resultIndex={view.searchResultIndex}
+                            scrollElement={searchViewportElement}
+                            selection={view.selection}
+                          />
                         )
                       ) : view.currentEntries.length === 0 ? (
                         <Feedback>
@@ -1034,7 +1047,7 @@ export function ReferenceSourceContentPane({
     searchResultKind: "file"
   });
   const hasVisibleContent = view.isQuery
-    ? view.searchResults.length > 0
+    ? view.searchResultCount > 0
     : view.currentEntries.length > 0;
   useEffect(() => {
     if (!initialNodeRef) {
@@ -1085,7 +1098,6 @@ export function ReferenceSourceContentPane({
         currentEntries: view.currentEntries,
         expandedKeys: view.expandedKeys,
         focusedNode: view.focusedNode,
-        searchResults: view.searchResults,
         selection: view.selection,
         sidebarGroupsBySource: view.sidebarGroupsBySource
       }),
@@ -1094,7 +1106,6 @@ export function ReferenceSourceContentPane({
       view.currentEntries,
       view.expandedKeys,
       view.focusedNode,
-      view.searchResults,
       view.selection,
       view.sidebarGroupsBySource
     ]
@@ -1237,6 +1248,19 @@ export function ReferenceSourceContentPane({
       y: event.clientY
     });
   };
+  const [searchViewportElement, setSearchViewportElement] =
+    useState<HTMLDivElement | null>(null);
+  const searchResultActionsRef = useRef<ReferenceSearchResultActions | null>(
+    null
+  );
+  searchResultActionsRef.current = {
+    isSelectable: view.isSelectable,
+    onContextMenu: openReferenceContextMenu,
+    onFocus: view.setFocusedNode,
+    onOpen: view.openNode,
+    onSingleSelect: view.toggleSingleSelectionAndExpand,
+    onToggle: view.toggleSelection
+  };
   const hasSelectedGroup = view.selectedGroupKey != null;
 
   return (
@@ -1279,10 +1303,12 @@ export function ReferenceSourceContentPane({
         </div>
         <ScrollArea
           className="min-h-0 flex-1"
+          viewportRef={setSearchViewportElement}
           viewportProps={{
             onScroll: (event) => {
               const el = event.currentTarget;
               if (
+                !view.isQuery &&
                 view.hasMore &&
                 !view.isLoading &&
                 !view.isLoadingMore &&
@@ -1301,24 +1327,22 @@ export function ReferenceSourceContentPane({
             ) : view.contentError && !hasVisibleContent ? (
               <ContentError copy={copy} />
             ) : view.isQuery ? (
-              view.searchResults.length === 0 ? (
+              view.searchResultCount === 0 ? (
                 <Feedback>{copy.t("referencePicker.emptySearch")}</Feedback>
               ) : (
-                view.searchResults.map((node) => (
-                  <SearchResultRow
-                    key={nodeRefKey(node.ref)}
-                    focused={isFocused(view.focusedNode, node)}
-                    iconUrls={iconUrls}
-                    node={node}
-                    selected={view.isSelected(node)}
-                    onFocus={view.setFocusedNode}
-                    onContextMenu={openReferenceContextMenu}
-                    onOpen={view.openNode}
-                    selectable={view.isSelectable(node)}
-                    onSingleSelect={view.toggleSingleSelectionAndExpand}
-                    onToggle={view.toggleSelection}
-                  />
-                ))
+                <ReferenceSearchResultList
+                  actionsRef={searchResultActionsRef}
+                  focusedNode={view.focusedNode}
+                  hasMore={view.hasMore}
+                  isLoadingMore={view.isLoading || view.isLoadingMore}
+                  onEndReached={view.loadMore}
+                  resolveEntryIconUrl={resolveEntryIconUrl}
+                  resultCount={view.searchResultCount}
+                  resultIdentity={view.searchResultIdentity}
+                  resultIndex={view.searchResultIndex}
+                  scrollElement={searchViewportElement}
+                  selection={view.selection}
+                />
               )
             ) : view.currentEntries.length === 0 ? (
               <Feedback>
@@ -1568,102 +1592,6 @@ function SourceSidebar({
         })}
       </div>
     </ScrollArea>
-  );
-}
-
-function SearchResultRow({
-  node,
-  focused,
-  iconUrls,
-  selected,
-  selectable,
-  onFocus,
-  onContextMenu,
-  onSingleSelect,
-  onOpen,
-  onToggle
-}: {
-  node: ReferenceNode;
-  focused: boolean;
-  iconUrls: ReferenceNodeIconUrlState;
-  selected: boolean;
-  selectable: boolean;
-  onFocus: (node: ReferenceNode) => void;
-  onContextMenu: (event: MouseEvent<HTMLElement>, node: ReferenceNode) => void;
-  onOpen: (node: ReferenceNode) => Promise<void>;
-  onSingleSelect: (node: ReferenceNode) => void;
-  onToggle: (node: ReferenceNode) => void;
-}): JSX.Element {
-  const contextLabel = node.contextLabel?.trim() || null;
-  const active = selected || (focused && selectable);
-  return (
-    <div
-      className={cn(
-        "grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[6px] border py-2.5 pr-1 pl-3 transition-colors",
-        active
-          ? "border-border bg-transparency-block"
-          : "border-transparent bg-transparent hover:border-border/70 hover:bg-transparency-block"
-      )}
-      onClick={() => {
-        onFocus(node);
-        onSingleSelect(node);
-      }}
-      onContextMenu={(event) => onContextMenu(event, node)}
-      onDoubleClick={(event) => {
-        if (node.kind !== "file") {
-          return;
-        }
-        event.stopPropagation();
-        onFocus(node);
-        void onOpen(node);
-      }}
-    >
-      <div className="flex min-w-0 items-center gap-3 text-left">
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--transparency-block)] text-[var(--text-tertiary)]">
-          <ReferenceNodeIcon
-            frameClassName="size-7"
-            iconClassName="size-6"
-            iconUrls={iconUrls}
-            node={node}
-          />
-        </span>
-        <span className="min-w-0">
-          <FullTextTooltip content={node.displayName}>
-            <span className="block truncate text-[13px] font-medium text-[var(--text-primary)]">
-              {node.displayName}
-            </span>
-          </FullTextTooltip>
-          {contextLabel ? (
-            <FullTextTooltip content={contextLabel}>
-              <span className="block truncate text-[11px] text-[var(--text-secondary)]">
-                {contextLabel}
-              </span>
-            </FullTextTooltip>
-          ) : null}
-        </span>
-      </div>
-      {selectable ? (
-        <Button
-          aria-label={node.displayName}
-          aria-pressed={selected}
-          size="icon-sm"
-          type="button"
-          variant="ghost"
-          onClick={(event) => {
-            event.stopPropagation();
-            onFocus(node);
-            onToggle(node);
-          }}
-          onDoubleClick={(event) => event.stopPropagation()}
-        >
-          {selected ? (
-            <CheckIcon size={14} />
-          ) : (
-            <AddLinedIcon className="text-[var(--text-secondary)]" size={16} />
-          )}
-        </Button>
-      ) : null}
-    </div>
   );
 }
 
@@ -2498,7 +2426,6 @@ function collectReferenceNodeIconEntries(input: {
   currentEntries: readonly ReferenceNode[];
   expandedKeys: PickerView["expandedKeys"];
   focusedNode: ReferenceNode | null;
-  searchResults: readonly ReferenceNode[];
   selection: readonly ReferenceNode[];
   sidebarGroupsBySource: PickerView["sidebarGroupsBySource"];
 }): WorkspaceFileEntry[] {
@@ -2518,7 +2445,6 @@ function collectReferenceNodeIconEntries(input: {
   };
 
   input.currentEntries.forEach(retainTree);
-  input.searchResults.forEach(retain);
   input.selection.forEach(retain);
   if (input.focusedNode) {
     retain(input.focusedNode);
@@ -2528,30 +2454,6 @@ function collectReferenceNodeIconEntries(input: {
   }
 
   return [...byKey.values()].map(referenceNodeToWorkspaceFileEntry);
-}
-
-function referenceNodeToWorkspaceFileEntry(
-  node: ReferenceNode
-): WorkspaceFileEntry {
-  return {
-    hasChildren: node.kind === "folder",
-    kind: node.kind === "folder" ? "directory" : "file",
-    mtimeMs: node.mtimeMs ?? null,
-    name: node.displayName,
-    path: resolveReferenceNodeIconPath(node),
-    sizeBytes: node.sizeBytes ?? null
-  };
-}
-
-function resolveReferenceNodeIconPath(node: ReferenceNode): string {
-  if (node.kind === "file" && node.ref.nodeId.startsWith("f:")) {
-    try {
-      return base64UrlDecode(node.ref.nodeId.slice(2));
-    } catch {
-      return node.ref.nodeId;
-    }
-  }
-  return node.ref.nodeId;
 }
 
 function noopVoid(): void {}
