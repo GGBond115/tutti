@@ -21,6 +21,7 @@ var (
 	ErrSessionNoActiveTurn           = errors.New("agent session has no active turn")
 	ErrCancelTargetMismatch          = errors.New("agent cancellation target is no longer active")
 	ErrActiveTurnTargetRequired      = errors.New("active-turn guidance requires an exact target turn")
+	ErrActiveTurnTargetInactive      = errors.New("active-turn guidance target is no longer active")
 	ErrActiveTurnTargetMismatch      = errors.New("active-turn guidance target is no longer active")
 	ErrActiveTurnGuidanceUnsupported = errors.New("agent provider does not support active-turn guidance")
 	ErrMCPHTTPUnsupported            = errors.New("agent provider does not support HTTP MCP servers")

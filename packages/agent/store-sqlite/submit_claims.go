@@ -8,17 +8,30 @@ import (
 	"strings"
 )
 
-var ErrSubmitClaimTurnConflict = errors.New("workspace agent submit claim canonical turn conflict")
+var (
+	ErrSubmitClaimTurnConflict                = errors.New("workspace agent submit claim canonical turn conflict")
+	ErrSubmitClaimGuidanceDispositionConflict = errors.New("workspace agent submit claim guidance disposition conflict")
+)
+
+type SubmitClaimGuidanceDisposition string
+
+const (
+	SubmitClaimGuidanceDispositionApplied            SubmitClaimGuidanceDisposition = "applied"
+	SubmitClaimGuidanceDispositionPreconditionFailed SubmitClaimGuidanceDisposition = "not_dispatched_precondition_failed"
+	SubmitClaimGuidanceDispositionExplicitRejection  SubmitClaimGuidanceDisposition = "not_dispatched_explicit_rejection"
+	SubmitClaimGuidanceDispositionOutcomeUnknown     SubmitClaimGuidanceDisposition = "outcome_unknown"
+)
 
 type SubmitClaim struct {
-	WorkspaceID     string
-	AgentSessionID  string
-	ClientSubmitID  string
-	Status          string
-	CanonicalTurnID string
-	TurnID          string
-	CreatedAtUnixMS int64
-	UpdatedAtUnixMS int64
+	WorkspaceID         string
+	AgentSessionID      string
+	ClientSubmitID      string
+	Status              string
+	CanonicalTurnID     string
+	TurnID              string
+	GuidanceDisposition SubmitClaimGuidanceDisposition
+	CreatedAtUnixMS     int64
+	UpdatedAtUnixMS     int64
 }
 
 type SubmitClaimPrepare struct {
@@ -26,6 +39,15 @@ type SubmitClaimPrepare struct {
 	AgentSessionID  string
 	ClientSubmitID  string
 	CanonicalTurnID string
+	NowUnixMS       int64
+}
+
+type SubmitClaimGuidanceDispositionRecord struct {
+	WorkspaceID     string
+	AgentSessionID  string
+	ClientSubmitID  string
+	CanonicalTurnID string
+	Disposition     SubmitClaimGuidanceDisposition
 	NowUnixMS       int64
 }
 
@@ -227,6 +249,118 @@ func (s *Store) RejectSubmitClaim(ctx context.Context, workspaceID, agentSession
 	return claim, updated, nil
 }
 
+// RecordSubmitClaimGuidanceDisposition durably commits a one-shot guidance
+// verdict before Host exposes it to a consumer. Identical retries are
+// idempotent; conflicting rewrites fail closed and never alter the first fact.
+func (s *Store) RecordSubmitClaimGuidanceDisposition(
+	ctx context.Context,
+	input SubmitClaimGuidanceDispositionRecord,
+) (SubmitClaim, bool, error) {
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.AgentSessionID = strings.TrimSpace(input.AgentSessionID)
+	input.ClientSubmitID = strings.TrimSpace(input.ClientSubmitID)
+	input.CanonicalTurnID = strings.TrimSpace(input.CanonicalTurnID)
+	if input.WorkspaceID == "" || input.AgentSessionID == "" || input.ClientSubmitID == "" ||
+		input.CanonicalTurnID == "" || input.NowUnixMS <= 0 || !validSubmitClaimGuidanceDisposition(input.Disposition) {
+		return SubmitClaim{}, false, fmt.Errorf("invalid submit claim guidance disposition")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SubmitClaim{}, false, fmt.Errorf("begin record submit claim guidance disposition: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	claim, found, err := getSubmitClaimTx(
+		ctx, tx, input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID,
+	)
+	if err != nil {
+		return SubmitClaim{}, false, err
+	}
+	if !found {
+		return SubmitClaim{}, false, fmt.Errorf("submit claim guidance disposition claim does not exist")
+	}
+	if claim.CanonicalTurnID != input.CanonicalTurnID {
+		return claim, false, fmt.Errorf(
+			"%w: claim canonical=%q requested=%q",
+			ErrSubmitClaimTurnConflict,
+			claim.CanonicalTurnID,
+			input.CanonicalTurnID,
+		)
+	}
+	if claim.GuidanceDisposition != "" {
+		if claim.GuidanceDisposition != input.Disposition {
+			return claim, false, fmt.Errorf(
+				"%w: existing=%q requested=%q",
+				ErrSubmitClaimGuidanceDispositionConflict,
+				claim.GuidanceDisposition,
+				input.Disposition,
+			)
+		}
+		if err := tx.Commit(); err != nil {
+			return SubmitClaim{}, false, fmt.Errorf("commit submit claim guidance disposition replay: %w", err)
+		}
+		return claim, false, nil
+	}
+	if claim.Status != "prepared" {
+		return claim, false, fmt.Errorf(
+			"%w: status=%q has no guidance disposition",
+			ErrSubmitClaimGuidanceDispositionConflict,
+			claim.Status,
+		)
+	}
+	if err := requireSessionForkSourceWritableTx(
+		ctx, tx, input.WorkspaceID, input.AgentSessionID,
+	); err != nil {
+		return SubmitClaim{}, false, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE workspace_agent_submit_claims
+SET guidance_disposition=?, updated_at_unix_ms=?
+WHERE workspace_id=? AND agent_session_id=? AND client_submit_id=?
+  AND status='prepared' AND canonical_turn_id=? AND guidance_disposition IS NULL`,
+		input.Disposition, input.NowUnixMS,
+		input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID, input.CanonicalTurnID,
+	)
+	if err != nil {
+		return SubmitClaim{}, false, fmt.Errorf("record submit claim guidance disposition: %w", err)
+	}
+	changed, err := rowsWereAffected(result, "record submit claim guidance disposition")
+	if err != nil {
+		return SubmitClaim{}, false, err
+	}
+	claim, found, err = getSubmitClaimTx(
+		ctx, tx, input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID,
+	)
+	if err != nil {
+		return SubmitClaim{}, false, err
+	}
+	if !found {
+		return SubmitClaim{}, false, fmt.Errorf("submit claim disappeared after guidance disposition")
+	}
+	if !changed || claim.GuidanceDisposition != input.Disposition {
+		return claim, false, fmt.Errorf(
+			"%w: existing=%q requested=%q",
+			ErrSubmitClaimGuidanceDispositionConflict,
+			claim.GuidanceDisposition,
+			input.Disposition,
+		)
+	}
+	if err := tx.Commit(); err != nil {
+		return SubmitClaim{}, false, fmt.Errorf("commit submit claim guidance disposition: %w", err)
+	}
+	return claim, true, nil
+}
+
+func validSubmitClaimGuidanceDisposition(disposition SubmitClaimGuidanceDisposition) bool {
+	switch disposition {
+	case SubmitClaimGuidanceDispositionApplied,
+		SubmitClaimGuidanceDispositionPreconditionFailed,
+		SubmitClaimGuidanceDispositionExplicitRejection,
+		SubmitClaimGuidanceDispositionOutcomeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Store) DeleteSubmitClaim(ctx context.Context, workspaceID, agentSessionID, clientSubmitID string) (bool, error) {
 	workspaceID, agentSessionID, clientSubmitID = strings.TrimSpace(workspaceID), strings.TrimSpace(agentSessionID), strings.TrimSpace(clientSubmitID)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -284,7 +418,8 @@ func (s *Store) FindSubmitClaimByCanonicalTurn(
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT workspace_id, agent_session_id, client_submit_id, status,
-       canonical_turn_id, turn_id, created_at_unix_ms, updated_at_unix_ms
+       canonical_turn_id, turn_id, guidance_disposition,
+       created_at_unix_ms, updated_at_unix_ms
 FROM workspace_agent_submit_claims
 WHERE workspace_id = ? AND agent_session_id = ? AND canonical_turn_id = ?
   AND status IN ('prepared', 'accepted')
@@ -323,7 +458,7 @@ LIMIT 2
 func (s *Store) getSubmitClaim(ctx context.Context, workspaceID, agentSessionID, clientSubmitID string) (SubmitClaim, bool, error) {
 	return scanSubmitClaim(s.db.QueryRowContext(
 		ctx,
-		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, created_at_unix_ms, updated_at_unix_ms
+		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, guidance_disposition, created_at_unix_ms, updated_at_unix_ms
 		FROM workspace_agent_submit_claims WHERE workspace_id=? AND agent_session_id=? AND client_submit_id=?`,
 		workspaceID,
 		agentSessionID,
@@ -338,7 +473,7 @@ func getSubmitClaimTx(
 ) (SubmitClaim, bool, error) {
 	return scanSubmitClaim(tx.QueryRowContext(
 		ctx,
-		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, created_at_unix_ms, updated_at_unix_ms
+		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, guidance_disposition, created_at_unix_ms, updated_at_unix_ms
 		FROM workspace_agent_submit_claims WHERE workspace_id=? AND agent_session_id=? AND client_submit_id=?`,
 		workspaceID,
 		agentSessionID,
@@ -350,6 +485,7 @@ func scanSubmitClaim(row rowScanner) (SubmitClaim, bool, error) {
 	var claim SubmitClaim
 	var canonicalTurnID sql.NullString
 	var turnID sql.NullString
+	var guidanceDisposition sql.NullString
 	err := row.Scan(
 		&claim.WorkspaceID,
 		&claim.AgentSessionID,
@@ -357,6 +493,7 @@ func scanSubmitClaim(row rowScanner) (SubmitClaim, bool, error) {
 		&claim.Status,
 		&canonicalTurnID,
 		&turnID,
+		&guidanceDisposition,
 		&claim.CreatedAtUnixMS,
 		&claim.UpdatedAtUnixMS,
 	)
@@ -371,6 +508,9 @@ func scanSubmitClaim(row rowScanner) (SubmitClaim, bool, error) {
 	}
 	if canonicalTurnID.Valid {
 		claim.CanonicalTurnID = canonicalTurnID.String
+	}
+	if guidanceDisposition.Valid {
+		claim.GuidanceDisposition = SubmitClaimGuidanceDisposition(guidanceDisposition.String)
 	}
 	return claim, true, nil
 }

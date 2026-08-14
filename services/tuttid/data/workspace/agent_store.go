@@ -520,6 +520,13 @@ func (s *SQLiteStore) PrepareSubmitClaim(ctx context.Context, input agentactivit
 	return s.agentStore().PrepareSubmitClaim(ctx, input)
 }
 
+func (s *SQLiteStore) RecordSubmitClaimGuidanceDisposition(
+	ctx context.Context,
+	input agentactivitybiz.SubmitClaimGuidanceDispositionRecord,
+) (agentactivitybiz.SubmitClaim, bool, error) {
+	return s.agentStore().RecordSubmitClaimGuidanceDisposition(ctx, input)
+}
+
 func (s *SQLiteStore) GetSubmitClaim(ctx context.Context, workspaceID, agentSessionID, clientSubmitID string) (agentactivitybiz.SubmitClaim, bool, error) {
 	return s.agentStore().GetSubmitClaim(ctx, workspaceID, agentSessionID, clientSubmitID)
 }

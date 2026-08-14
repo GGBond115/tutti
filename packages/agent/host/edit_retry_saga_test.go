@@ -432,6 +432,7 @@ type hostEditRetryRuntime struct {
 	execNotDispatchedBeforeTurn bool
 	guidanceMismatch            bool
 	guidanceTransportFailure    bool
+	guidanceFailureDisposition  agenthost.GuidanceDeliveryDisposition
 	reconcileAcceptanceCalls    int
 	reconcileAcceptanceInput    agenthost.RuntimeProviderTurnAcceptanceInput
 	goalControlCalls            int
@@ -464,9 +465,11 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 	notDispatchedBeforeTurn := r.execNotDispatchedBeforeTurn
 	guidanceMismatch := r.guidanceMismatch
 	guidanceTransportFailure := r.guidanceTransportFailure
+	guidanceFailureDisposition := r.guidanceFailureDisposition
 	r.execOutcomeUnknown = false
 	r.execOutcomeUnknownAccepted = false
 	r.execNotDispatchedBeforeTurn = false
+	r.guidanceFailureDisposition = ""
 	if !outcomeUnknown || outcomeUnknownAccepted {
 		if !notDispatchedBeforeTurn {
 			r.providerTurns = append(r.providerTurns, agenthost.RuntimeHistoryTurn{
@@ -481,7 +484,8 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 		return agenthost.RuntimeExecResult{
 			TurnID: input.TurnID,
 			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
-				Disposition: agenthost.RuntimeDispatchDispositionNotDispatched,
+				Disposition:         agenthost.RuntimeDispatchDispositionNotDispatched,
+				GuidanceDisposition: agenthost.GuidanceDeliveryDispositionTargetInactive,
 			},
 		}, fmt.Errorf("%w: guidance target changed before provider admission", agenthost.ErrActiveTurnTargetMismatch)
 	}
@@ -489,9 +493,26 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 		return agenthost.RuntimeExecResult{
 			TurnID: input.TurnID,
 			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
-				Disposition: agenthost.RuntimeDispatchDispositionNotDispatched,
+				Disposition:         agenthost.RuntimeDispatchDispositionNotDispatched,
+				GuidanceDisposition: agenthost.GuidanceDeliveryDispositionPreconditionFailed,
 			},
 		}, errors.New("guidance transport failed before provider admission")
+	}
+	if input.Guidance && guidanceFailureDisposition != "" {
+		dispatchDisposition := agenthost.RuntimeDispatchDispositionOutcomeUnknown
+		switch guidanceFailureDisposition {
+		case agenthost.GuidanceDeliveryDispositionPreconditionFailed:
+			dispatchDisposition = agenthost.RuntimeDispatchDispositionNotDispatched
+		case agenthost.GuidanceDeliveryDispositionExplicitRejection:
+			dispatchDisposition = agenthost.RuntimeDispatchDispositionRejected
+		}
+		return agenthost.RuntimeExecResult{
+			TurnID: input.TurnID,
+			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
+				Disposition:         dispatchDisposition,
+				GuidanceDisposition: guidanceFailureDisposition,
+			},
+		}, fmt.Errorf("guidance failed with disposition %s", guidanceFailureDisposition)
 	}
 	if notDispatchedBeforeTurn {
 		return agenthost.RuntimeExecResult{
@@ -542,7 +563,7 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 	}); err != nil {
 		return agenthost.RuntimeExecResult{}, err
 	}
-	return agenthost.RuntimeExecResult{
+	result := agenthost.RuntimeExecResult{
 		TurnID: input.TurnID,
 		ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
 			Disposition: agenthost.RuntimeDispatchDispositionApplied,
@@ -551,7 +572,11 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 				Source: agenthost.RuntimeAcceptanceSourceTurnStartResponse,
 			},
 		},
-	}, nil
+	}
+	if input.Guidance {
+		result.ProviderDispatch.GuidanceDisposition = agenthost.GuidanceDeliveryDispositionApplied
+	}
+	return result, nil
 }
 func (r *hostEditRetryRuntime) ReconcileProviderTurnAcceptance(
 	ctx context.Context,

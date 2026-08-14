@@ -251,11 +251,12 @@ test("send-now native guidance can send against a canonical active turn", () => 
   const lifecycle = canonicalLifecycle("running", 1);
   let state = reduce(
     createInitialPromptQueueState(),
-    enqueue("prompt-guidance"),
+    enqueue("prompt-guidance", "work"),
     lifecycle
   ).state;
   const guided = reduce(state, sendNow("prompt-guidance"), lifecycle);
   assert.equal(send(guided.commands[0]).guidance, true);
+  assert.equal(send(guided.commands[0]).guidanceFallback, "work");
   assert.equal(send(guided.commands[0]).targetTurnId, "turn-1");
 });
 
@@ -269,7 +270,7 @@ test("drain after settle strips a stale guidance flag from the queue head", () =
 
   // While prompt-1's turn runs, a second prompt is promoted to steer it.
   const running = canonicalLifecycle("running", 2, "turn-1");
-  const queued = reduce(first.state, enqueue("prompt-2"), running);
+  const queued = reduce(first.state, enqueue("prompt-2", "work"), running);
   const promoted = reduce(queued.state, sendNow("prompt-2"), running);
   assert.deepEqual(promoted.commands, []);
   assert.equal(
@@ -293,6 +294,7 @@ test("drain after settle strips a stale guidance flag from the queue head", () =
   );
   assert.equal(send(settled.commands[0]).promptId, "prompt-2");
   assert.equal(send(settled.commands[0]).guidance, undefined);
+  assert.equal(send(settled.commands[0]).guidanceFallback, undefined);
 });
 
 test("guidance failure without the no-active-turn reason still blocks the queue", () => {
@@ -1158,7 +1160,7 @@ function sendNow(promptId: string) {
   };
 }
 
-function enqueue(promptId: string) {
+function enqueue(promptId: string, guidanceFallback?: "work") {
   return {
     type: "queue/enqueued" as const,
     agentSessionId: "session-1",
@@ -1166,6 +1168,7 @@ function enqueue(promptId: string) {
       id: promptId,
       content: [{ type: "text" as const, text: promptId }],
       createdAtUnixMs: 1,
+      ...(guidanceFallback ? { guidanceFallback } : {}),
       submitDiagnostics
     },
     workspaceId: "workspace-1"

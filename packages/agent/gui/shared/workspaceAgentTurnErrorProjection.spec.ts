@@ -12,8 +12,29 @@ import type { WorkspaceAgentActivityCard } from "./workspaceAgentActivityListVie
 import type { WorkspaceAgentSessionDetailTurn } from "./workspaceAgentSessionDetailViewModel";
 import type { WorkspaceAgentActivityTimelineItem } from "./workspaceAgentTimelineTypes";
 import { enrichProjectedTurnsWithCanonicalErrors } from "./workspaceAgentTurnErrorProjection";
+import { visibleErrorFromPayload } from "./workspaceAgentTimelineProjectionHelpers";
 
 describe("canonical Turn error projection", () => {
+  it("omits an incomplete or oversized visible-error custom action", () => {
+    expect(
+      visibleErrorFromPayload({
+        kind: "agent_visible_error",
+        code: "guidance_not_applied",
+        actionKind: "adaptive-steer-edit-resend",
+        actionLabel: "Edit and resend"
+      })
+    ).not.toHaveProperty("actionKind");
+    expect(
+      visibleErrorFromPayload({
+        kind: "agent_visible_error",
+        code: "guidance_not_applied",
+        actionKind: "adaptive-steer-edit-resend",
+        actionLabel: "Edit and resend",
+        actionHref: `mention://adaptive-steer/${"x".repeat(10_000)}`
+      })
+    ).not.toHaveProperty("actionKind");
+  });
+
   it("projects visible agent errors from assistant message payloads", () => {
     const conversation = projectWorkspaceAgentTimelineToConversationVM({
       activity: activity(),
@@ -40,6 +61,9 @@ describe("canonical Turn error projection", () => {
             provider: "hermes",
             detail: "Config invalid",
             retryable: false,
+            actionKind: "adaptive-steer-edit-resend",
+            actionLabel: "Edit and resend",
+            actionHref: "mention://adaptive-steer/edit-resend/submit-1",
             content: "Hermes failed to start.",
             text: "Hermes failed to start."
           },
@@ -62,7 +86,10 @@ describe("canonical Turn error projection", () => {
       phase: "start",
       provider: "hermes",
       detail: "Config invalid",
-      retryable: false
+      retryable: false,
+      actionKind: "adaptive-steer-edit-resend",
+      actionLabel: "Edit and resend",
+      actionHref: "mention://adaptive-steer/edit-resend/submit-1"
     });
   });
 

@@ -668,6 +668,9 @@ function sendCommandFromQueuedPrompt(
     content: head.runtimeContent ?? head.content,
     ...(head.displayPrompt ? { displayPrompt: head.displayPrompt } : {}),
     ...(guidance ? { guidance: true } : {}),
+    ...(guidance && head.guidanceFallback
+      ? { guidanceFallback: head.guidanceFallback }
+      : {}),
     ...(guidance && head.targetTurnId?.trim()
       ? { targetTurnId: head.targetTurnId.trim() }
       : {}),

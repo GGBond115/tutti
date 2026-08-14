@@ -15,6 +15,9 @@ export function queuedPromptFromSubmitIntent(
     content: intent.content,
     createdAtUnixMs: intent.requestedAtUnixMs,
     ...(intent.displayPrompt ? { displayPrompt: intent.displayPrompt } : {}),
+    ...(intent.guidanceFallback
+      ? { guidanceFallback: intent.guidanceFallback }
+      : {}),
     id: intent.clientSubmitId,
     ...clonePromptRequiredSettingsPatch(intent.requiredSettingsPatch),
     submitDiagnostics: {

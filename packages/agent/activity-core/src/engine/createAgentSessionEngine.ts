@@ -578,6 +578,9 @@ export function createAgentSessionEngine({
       clientSubmitId,
       content,
       ...(displayPrompt ? { displayPrompt } : {}),
+      ...(input.guidanceFallback
+        ? { guidanceFallback: input.guidanceFallback }
+        : {}),
       expiresAtUnixMs:
         requestedAtUnixMs + SESSION_PROMPT_CONFIRMATION_TIMEOUT_MS,
       ...(input.requiredSettingsPatch

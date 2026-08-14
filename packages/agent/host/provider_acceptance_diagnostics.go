@@ -23,6 +23,7 @@ type RuntimeProviderAcceptanceReceipt struct {
 // the provider supplied positive evidence for the dispatched turn.
 type RuntimeProviderDispatchResult struct {
 	Disposition           RuntimeDispatchDisposition
+	GuidanceDisposition   GuidanceDeliveryDisposition
 	Acceptance            *RuntimeProviderAcceptanceReceipt
 	AcceptanceDiagnostics *RuntimeProviderAcceptanceDiagnostics
 }

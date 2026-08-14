@@ -100,6 +100,66 @@ afterEach(() => {
 });
 
 describe("AgentVisibleErrorMessage", () => {
+  it("dispatches a complete visible-error custom action through the Host link seam", () => {
+    const onLinkAction = vi.fn();
+    const { getByRole } = renderBlock(
+      buildRow({
+        code: "guidance_not_applied",
+        phase: "turn",
+        provider: "codex",
+        detail: null,
+        retryable: false,
+        actionKind: "adaptive-steer-edit-resend",
+        actionLabel: "Edit and resend",
+        actionHref: "mention://adaptive-steer/edit-resend/submit-1"
+      }),
+      "codex",
+      onLinkAction
+    );
+
+    fireEvent.click(getByRole("button", { name: "Edit and resend" }));
+    expect(onLinkAction).toHaveBeenCalledWith({
+      type: "open-custom-mention",
+      kind: "adaptive-steer-edit-resend",
+      href: "mention://adaptive-steer/edit-resend/submit-1",
+      source: "agent-visible-error"
+    });
+  });
+
+  it("fails closed for incomplete custom actions or a missing Host callback", () => {
+    const onLinkAction = vi.fn();
+    const incomplete = renderBlock(
+      buildRow({
+        code: "guidance_not_applied",
+        phase: "turn",
+        provider: "codex",
+        detail: null,
+        retryable: false,
+        actionKind: "adaptive-steer-edit-resend",
+        actionLabel: "Edit and resend"
+      }),
+      "codex",
+      onLinkAction
+    );
+    expect(incomplete.queryByText("Edit and resend")).toBeNull();
+
+    incomplete.unmount();
+    const withoutCallback = renderBlock(
+      buildRow({
+        code: "guidance_not_applied",
+        phase: "turn",
+        provider: "codex",
+        detail: null,
+        retryable: false,
+        actionKind: "adaptive-steer-edit-resend",
+        actionLabel: "Edit and resend",
+        actionHref: "mention://adaptive-steer/edit-resend/submit-1"
+      })
+    );
+    expect(withoutCallback.queryByText("Edit and resend")).toBeNull();
+    expect(onLinkAction).not.toHaveBeenCalled();
+  });
+
   it("routes an env-fixable run failure to the matching wizard step", () => {
     const { getByText, getAllByRole, onOpenAgentEnvPanel } = renderBlock(
       buildRow(

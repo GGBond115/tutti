@@ -57,11 +57,12 @@ func TestClaudeCodeSDKAdapterGuideActiveTurnSendsSidecarGuide(t *testing.T) {
 		err    error
 	}
 	results := make(chan guidanceResult, 1)
+	dispatches := make(chan ProviderDispatchResult, 1)
 	go func() {
-		events, err := adapter.GuideActiveTurn(context.Background(), session, []PromptContentBlock{
+		events, err := adapter.GuideActiveTurnWithDispatch(context.Background(), session, []PromptContentBlock{
 			{Type: "text", Text: "guide current turn"},
 			{Type: "image", MimeType: "image/png", URL: imageURL},
-		}, "", "turn-guidance", nil, nil)
+		}, "", "turn-guidance", nil, nil, func(result ProviderDispatchResult) { dispatches <- result })
 		results <- guidanceResult{events: events, err: err}
 	}()
 
@@ -89,12 +90,88 @@ func TestClaudeCodeSDKAdapterGuideActiveTurnSendsSidecarGuide(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for GuideActiveTurn")
 	}
+	if dispatch := <-dispatches; dispatch.GuidanceDisposition != GuidanceDeliveryDispositionApplied {
+		t.Fatalf("guidance dispatch = %#v, want applied", dispatch)
+	}
 	messages := eventsOfType(events, activityshared.EventMessageAppended)
 	if len(messages) != 1 {
 		t.Fatalf("guidance events = %#v, want one message", events)
 	}
 	if guidance, ok := messages[0].Payload.Metadata["guidance"].(bool); !ok || !guidance {
 		t.Fatalf("guidance metadata = %#v, want guidance=true", messages[0].Payload.Metadata)
+	}
+}
+
+func TestClaudeCodeSDKAdapterGuidanceErrorDispositionComesFromSidecar(t *testing.T) {
+	tests := []struct {
+		name               string
+		payloadDisposition string
+		wantDispatch       DispatchDisposition
+		wantGuidance       GuidanceDeliveryDisposition
+	}{
+		{
+			name:         "missing disposition fails closed",
+			wantDispatch: DispatchDispositionOutcomeUnknown,
+			wantGuidance: GuidanceDeliveryDispositionOutcomeUnknown,
+		},
+		{
+			name:               "precondition before provider boundary",
+			payloadDisposition: string(GuidanceDeliveryDispositionPreconditionFailed),
+			wantDispatch:       DispatchDispositionNotDispatched,
+			wantGuidance:       GuidanceDeliveryDispositionPreconditionFailed,
+		},
+		{
+			name:               "typed explicit provider rejection",
+			payloadDisposition: string(GuidanceDeliveryDispositionExplicitRejection),
+			wantDispatch:       DispatchDispositionRejected,
+			wantGuidance:       GuidanceDeliveryDispositionExplicitRejection,
+		},
+		{
+			name:               "provider boundary outcome unknown",
+			payloadDisposition: string(GuidanceDeliveryDispositionOutcomeUnknown),
+			wantDispatch:       DispatchDispositionOutcomeUnknown,
+			wantGuidance:       GuidanceDeliveryDispositionOutcomeUnknown,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter := NewClaudeCodeSDKAdapter(nil)
+			session := standardTestSession(ProviderClaudeCode)
+			conn := newBlockingClaudeSDKConnection()
+			defer func() { _ = conn.Close() }()
+			adapterSession := &claudeSDKAdapterSession{
+				conn: conn, reader: &claudeSDKLineReader{conn: conn},
+				pendingRequests:  make(map[string]*pendingInteractiveRequest),
+				pendingResponses: make(map[string]chan claudeSDKSidecarEvent),
+				liveState:        newClaudeSDKLiveState(),
+			}
+			adapter.storeSession(session.AgentSessionID, adapterSession)
+
+			dispatches := make(chan ProviderDispatchResult, 1)
+			errors := make(chan error, 1)
+			go func() {
+				_, err := adapter.GuideActiveTurnWithDispatch(
+					context.Background(), session, textPrompt("guide"), "", "turn-guidance", nil, nil,
+					func(result ProviderDispatchResult) { dispatches <- result },
+				)
+				errors <- err
+			}()
+			request := waitForClaudeSDKSentRequest(t, conn, "guide")
+			payload := map[string]any{"error": "guide rejected"}
+			if tt.payloadDisposition != "" {
+				payload["deliveryDisposition"] = tt.payloadDisposition
+			}
+			conn.pushEvent(claudeSDKSidecarEvent{
+				ID: request.ID, Type: "error", Payload: payload,
+			})
+			if err := <-errors; err == nil {
+				t.Fatal("GuideActiveTurnWithDispatch error = nil, want guidance error")
+			}
+			if dispatch := <-dispatches; dispatch.Disposition != tt.wantDispatch ||
+				dispatch.GuidanceDisposition != tt.wantGuidance {
+				t.Fatalf("guidance dispatch = %#v, want %q/%q", dispatch, tt.wantDispatch, tt.wantGuidance)
+			}
+		})
 	}
 }
 

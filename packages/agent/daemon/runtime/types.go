@@ -544,6 +544,19 @@ const (
 	DispatchDispositionOutcomeUnknown             DispatchDisposition = "outcome_unknown"
 )
 
+// GuidanceDeliveryDisposition is the exact-target guidance verdict exposed
+// across the daemon and Agent Host boundary. Only TargetInactive is a proof
+// that no provider call occurred and permits adaptive conversion to work.
+type GuidanceDeliveryDisposition string
+
+const (
+	GuidanceDeliveryDispositionApplied            GuidanceDeliveryDisposition = "applied"
+	GuidanceDeliveryDispositionTargetInactive     GuidanceDeliveryDisposition = "not_dispatched_target_inactive"
+	GuidanceDeliveryDispositionPreconditionFailed GuidanceDeliveryDisposition = "not_dispatched_precondition_failed"
+	GuidanceDeliveryDispositionExplicitRejection  GuidanceDeliveryDisposition = "not_dispatched_explicit_rejection"
+	GuidanceDeliveryDispositionOutcomeUnknown     GuidanceDeliveryDisposition = "outcome_unknown"
+)
+
 type AcceptanceSource string
 
 const (
@@ -575,6 +588,7 @@ type ProviderAcceptanceDiagnostics struct {
 
 type ProviderDispatchResult struct {
 	Disposition           DispatchDisposition            `json:"disposition"`
+	GuidanceDisposition   GuidanceDeliveryDisposition    `json:"guidanceDisposition,omitempty"`
 	Acceptance            *ProviderAcceptanceReceipt     `json:"acceptance,omitempty"`
 	AcceptanceDiagnostics *ProviderAcceptanceDiagnostics `json:"acceptanceDiagnostics,omitempty"`
 	// Failure is a process-local provider observation. It is carried only to

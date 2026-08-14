@@ -1146,13 +1146,59 @@ test("guidance rejects instead of enqueueing when SDK preemption fails", async (
     session.exec("turn-1", "start working");
     await waitForCondition(() => prompts.length === 1, "initial prompt");
 
-    await assert.rejects(
-      session.guide("prefer the focused path"),
-      /guidance preemption failed: interrupt rejected/
-    );
+    await assert.rejects(session.guide("prefer the focused path"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(
+        error.message,
+        /guidance preemption failed: interrupt rejected/
+      );
+      assert.equal(
+        Reflect.get(error, "deliveryDisposition"),
+        "outcome_unknown"
+      );
+      assert.equal(Reflect.get(error, "stage"), "provider_interrupt");
+      return true;
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     assert.deepEqual(prompts, ["start working"]);
+  } finally {
+    restoreSink();
+  }
+});
+
+test("guidance failure before provider interrupt is a typed precondition", async () => {
+  const restoreSink = withSidecarEventSinkForTest(() => {});
+  try {
+    const session = new SessionRuntime(
+      "provider-session-1",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => fakeGuidancePromptQuery(prompt, [])
+    );
+
+    await session.start();
+    await assert.rejects(session.guide("prefer the focused path"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /requires an active turn/);
+      assert.equal(
+        Reflect.get(error, "deliveryDisposition"),
+        "not_dispatched_precondition_failed"
+      );
+      assert.equal(Reflect.get(error, "stage"), "precondition");
+      return true;
+    });
   } finally {
     restoreSink();
   }

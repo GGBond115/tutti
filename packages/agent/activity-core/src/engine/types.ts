@@ -522,6 +522,8 @@ export interface AgentSessionSubmitPromptInput {
   clientSubmitId: string;
   content: readonly AgentPromptContentBlock[];
   displayPrompt?: string;
+  /** Request one host-owned exact-target guidance-or-work resolution. */
+  guidanceFallback?: AgentActivityGuidanceFallback;
   requiredSettingsPatch?: Readonly<AgentActivitySubmitSettingsPatch>;
   routing?: "auto" | "immediate" | "send_now";
   /** Exact canonical active Turn targeted when routing as guidance. */
@@ -643,6 +645,7 @@ import type {
   AgentActivityDeleteSessionsInput,
   AgentActivityDeleteSessionsResult,
   AgentActivityGoalControlResult,
+  AgentActivityGuidanceFallback,
   AgentActivityInitialGoalControl,
   AgentActivityRenameSessionInput,
   AgentActivitySendInput,

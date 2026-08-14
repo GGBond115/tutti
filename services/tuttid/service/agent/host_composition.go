@@ -173,6 +173,23 @@ func composeApplicationHost(
 	runtime agenthost.RuntimeController,
 	goalRuntime agenthost.GoalRuntimeController,
 ) *agenthost.Host {
+	return composeApplicationHostWithSessionMutationActor(
+		support, canonical, sessionManagement, sessionBatchManagement,
+		sessionForkRecovery, historicalState, runtime, goalRuntime, nil,
+	)
+}
+
+func composeApplicationHostWithSessionMutationActor(
+	support HostSupportPorts,
+	canonical agenthost.CanonicalStore,
+	sessionManagement agenthost.SessionManagementStore,
+	sessionBatchManagement agenthost.SessionBatchManagementStore,
+	sessionForkRecovery agenthost.SessionForkRecoveryStore,
+	historicalState agenthost.HistoricalSessionStateStore,
+	runtime agenthost.RuntimeController,
+	goalRuntime agenthost.GoalRuntimeController,
+	sessionMutationActor *agenthost.SessionActor,
+) *agenthost.Host {
 	sessionForks, _ := canonical.(agenthost.SessionForkStore)
 	if sessionForkRecovery == nil {
 		sessionForkRecovery, _ = canonical.(agenthost.SessionForkRecoveryStore)
@@ -213,7 +230,7 @@ func composeApplicationHost(
 		GoalOwner: support.GoalOwner, GoalClock: support.GoalClock,
 		GoalAttemptTimeout: support.GoalAttemptTimeout, GoalRecoveryBudget: support.GoalRecoveryBudget,
 		GoalMaxAttempts: support.GoalMaxAttempts, GoalDispatchDeadline: support.GoalDispatchDeadline,
-		GoalActor: agenthost.NewSessionActor(),
+		GoalActor: agenthost.NewSessionActor(), SessionMutationActor: sessionMutationActor,
 		// Durable edit-and-retry (PR #1681) is neutralized: its saga can strand a
 		// session in a rolled-back-but-not-resent state whose runtime operation
 		// becomes a cold-recovery poison pill that crashes tuttid on launch.

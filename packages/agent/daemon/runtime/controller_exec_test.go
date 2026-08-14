@@ -528,6 +528,10 @@ func TestControllerExecGuidanceDuringActiveTurn(t *testing.T) {
 	if !result.Accepted || result.TurnID != first.TurnID {
 		t.Fatalf("guidance result = %#v, want active turn id %q", result, first.TurnID)
 	}
+	if result.ProviderDispatch == nil ||
+		result.ProviderDispatch.GuidanceDisposition != GuidanceDeliveryDispositionApplied {
+		t.Fatalf("guidance dispatch = %#v, want applied", result.ProviderDispatch)
+	}
 	if got := adapter.guidanceCalls.Load(); got != 1 {
 		t.Fatalf("guidance calls = %d, want 1", got)
 	}
@@ -600,11 +604,53 @@ func TestControllerExecGuidanceRejectsChangedExactTargetBeforeProviderCall(t *te
 	if !errors.Is(err, ErrActiveTurnTargetMismatch) {
 		t.Fatalf("guidance error = %v, want %v", err, ErrActiveTurnTargetMismatch)
 	}
-	if result.ProviderDispatch == nil || result.ProviderDispatch.Disposition != DispatchDispositionNotDispatched {
+	if !errors.Is(err, ErrActiveTurnTargetInactive) {
+		t.Fatalf("guidance error = %v, want ErrActiveTurnTargetInactive", err)
+	}
+	if result.ProviderDispatch == nil || result.ProviderDispatch.Disposition != DispatchDispositionNotDispatched ||
+		result.ProviderDispatch.GuidanceDisposition != GuidanceDeliveryDispositionTargetInactive {
 		t.Fatalf("guidance result = %#v, want not-dispatched result", result)
 	}
 	if got := adapter.guidanceCalls.Load(); got != 0 {
 		t.Fatalf("provider guidance calls = %d, want 0", got)
+	}
+
+	adapter.releaseNext()
+	waitForSessionStatus(t, controller, "room-1", started.Session.AgentSessionID, SessionStatusReady)
+}
+
+func TestControllerExecGuidanceWithoutAdapterDispatchReportIsOutcomeUnknown(t *testing.T) {
+	t.Parallel()
+
+	adapter := &unreportedGuidanceAdapter{guidanceBlockingAdapter: &guidanceBlockingAdapter{blockingExecAdapter: newBlockingExecAdapter()}}
+	controller := NewController([]Adapter{adapter}, nil)
+	ctx := context.Background()
+	started, err := controller.Start(ctx, StartInput{
+		RoomID: "room-1", AgentSessionID: "agent-session-1", Provider: ProviderCodex, Title: "Codex",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	first, err := controller.Exec(ctx, ExecInput{
+		RoomID: started.Session.RoomID, AgentSessionID: started.Session.AgentSessionID,
+		Content: textPrompt("first prompt"),
+	})
+	if err != nil {
+		t.Fatalf("first Exec: %v", err)
+	}
+	adapter.waitForPrompt(t, "first prompt")
+
+	result, err := controller.Exec(ctx, ExecInput{
+		RoomID: started.Session.RoomID, AgentSessionID: started.Session.AgentSessionID,
+		TurnID: first.TurnID, Content: textPrompt("guide current turn"), Guidance: true,
+	})
+	if err == nil {
+		t.Fatal("guidance error = nil, want missing-disposition error")
+	}
+	if result.ProviderDispatch == nil ||
+		result.ProviderDispatch.Disposition != DispatchDispositionOutcomeUnknown ||
+		result.ProviderDispatch.GuidanceDisposition != GuidanceDeliveryDispositionOutcomeUnknown {
+		t.Fatalf("guidance dispatch = %#v, want outcome unknown", result.ProviderDispatch)
 	}
 
 	adapter.releaseNext()
@@ -730,6 +776,23 @@ type guidanceBlockingAdapter struct {
 	guidanceCalls atomic.Int64
 }
 
+type unreportedGuidanceAdapter struct {
+	*guidanceBlockingAdapter
+}
+
+func (a *unreportedGuidanceAdapter) GuideActiveTurnWithDispatch(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	emitCommands CommandSnapshotSink,
+	_ ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	return a.GuideActiveTurn(ctx, session, content, displayPrompt, turnID, emit, emitCommands)
+}
+
 func (a *guidanceBlockingAdapter) GuideActiveTurn(ctx context.Context, session Session, content []PromptContentBlock, _ string, turnID string, emit EventSink, _ CommandSnapshotSink) ([]activityshared.Event, error) {
 	a.guidanceCalls.Add(1)
 	events := []activityshared.Event{
@@ -741,6 +804,31 @@ func (a *guidanceBlockingAdapter) GuideActiveTurn(ctx context.Context, session S
 	if emit != nil {
 		emit(events)
 	}
+	return events, nil
+}
+
+func (a *guidanceBlockingAdapter) GuideActiveTurnWithDispatch(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	events, err := a.GuideActiveTurn(ctx, session, content, displayPrompt, turnID, emit, emitCommands)
+	if err != nil {
+		reportDispatch(ProviderDispatchResult{
+			Disposition:         DispatchDispositionOutcomeUnknown,
+			GuidanceDisposition: GuidanceDeliveryDispositionOutcomeUnknown,
+		})
+		return events, err
+	}
+	reportDispatch(ProviderDispatchResult{
+		Disposition:         DispatchDispositionAppliedWithoutProviderTurn,
+		GuidanceDisposition: GuidanceDeliveryDispositionApplied,
+	})
 	return events, nil
 }
 

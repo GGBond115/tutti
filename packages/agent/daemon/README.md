@@ -274,6 +274,21 @@ places the uncoalesced barrier behind earlier reports in the same FIFO. A
 barrier failure is delivery-unknown, and provider work is never blindly
 replayed.
 
+Active-turn guidance uses the additive
+`ActiveTurnGuidanceDispatchAdapter` contract. Adapters report exactly one typed
+guidance disposition before returning: applied, exact target inactive before
+dispatch, another precondition failure, explicit provider rejection, or
+outcome unknown. The Controller supplies target-inactive only from its
+lifecycle-locked exact-Turn check. After invoking an adapter, a missing report
+or any unclassified error fails closed as outcome unknown; generic
+`NotDispatched` is never inferred from a post-send failure. The legacy
+`ActiveTurnGuidanceAdapter` method remains callable for local compatibility,
+but Host-backed Controller admission requires the dispatch-aware interface.
+Claude's sidecar attaches the typed disposition and failure stage to guidance
+errors. Local validation before SDK interrupt is a precondition failure;
+interrupt invocation and every later enqueue/consume failure are outcome
+unknown. A generic sidecar `error` without that payload is also outcome unknown.
+
 ```go
 client := agentsessionstore.NewClient(agentsessionstore.Config{
     BaseURL: "https://controlplane.example.com",

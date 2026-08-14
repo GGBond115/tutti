@@ -623,6 +623,7 @@ test("a steer that loses the settle race is retried as a plain send", async () =
     clientSubmitId: "submit-1",
     content: [{ type: "text", text: "steer" }],
     expiresAtUnixMs: 120_000,
+    guidanceFallback: "work",
     requestedAtUnixMs: 1,
     routing: "send_now",
     type: "submit/requested",
@@ -633,6 +634,14 @@ test("a steer that loses the settle race is retried as a plain send", async () =
   );
   assert.equal(steer?.type, "queue/sendPrompt");
   assert.equal(steer?.type === "queue/sendPrompt" && steer.guidance, true);
+  assert.equal(
+    steer?.type === "queue/sendPrompt" && steer.guidanceFallback,
+    "work"
+  );
+  assert.equal(
+    steer?.type === "queue/sendPrompt" && steer.targetTurnId,
+    "turn-1"
+  );
 
   // The daemon settled the turn before the steer landed and rejected it.
   assert.ok(steer && "commandId" in steer);
@@ -672,6 +681,14 @@ test("a steer that loses the settle race is retried as a plain send", async () =
   );
   assert.equal(
     resend?.type === "queue/sendPrompt" ? resend.guidance : true,
+    undefined
+  );
+  assert.equal(
+    resend?.type === "queue/sendPrompt" ? resend.guidanceFallback : "work",
+    undefined
+  );
+  assert.equal(
+    resend?.type === "queue/sendPrompt" ? resend.targetTurnId : "turn-1",
     undefined
   );
 });

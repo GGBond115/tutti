@@ -50,6 +50,40 @@ func TestDirectHostApplicationCoreConformance(t *testing.T) {
 	}
 }
 
+func TestHostGuidanceRestartConformance(t *testing.T) {
+	for _, scenario := range hostconformance.GuidanceRestartScenarios() {
+		scenario := scenario
+		for _, directHost := range []bool{false, true} {
+			directHost := directHost
+			t.Run(fmt.Sprintf("direct=%v/%s", directHost, scenario.Name), func(t *testing.T) {
+				driver := &legacyHostConformanceDriver{t: t, directHost: directHost}
+				if err := hostconformance.RunGuidanceRestart(
+					context.Background(), driver, scenario,
+				); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
+func TestHostGuidanceMutationAdmissionRestartConformance(t *testing.T) {
+	for _, scenario := range hostconformance.GuidanceMutationAdmissionRestartScenarios() {
+		scenario := scenario
+		for _, directHost := range []bool{false, true} {
+			directHost := directHost
+			t.Run(fmt.Sprintf("direct=%v/%s", directHost, scenario.Name), func(t *testing.T) {
+				driver := &legacyHostConformanceDriver{t: t, directHost: directHost}
+				if err := hostconformance.RunGuidanceMutationAdmissionRestart(
+					context.Background(), driver, scenario,
+				); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
 func TestHostWorkspaceRuntimeDisconnectConformance(t *testing.T) {
 	for _, scenario := range hostconformance.WorkspaceRuntimeDisconnectScenarios() {
 		scenario := scenario
@@ -305,11 +339,60 @@ type legacyHostConformanceDriver struct {
 	deletionEvents           *[]string
 	historicalState          *conformanceHistoricalStateStore
 	runtimeStartReportWrites int
+	baseSubmitClaimStore     SubmitClaimStore
+}
+
+type conformanceSubmitClaimDeleteFailureStore struct {
+	SubmitClaimStore
+	err error
+}
+
+type conformanceSubmitClaimAcceptFailureStore struct {
+	SubmitClaimStore
+	err error
+}
+
+type conformanceSubmitClaimPrepareSignalStore struct {
+	SubmitClaimStore
+	prepared chan struct{}
+	once     sync.Once
+}
+
+func (s *conformanceSubmitClaimPrepareSignalStore) PrepareSubmitClaim(
+	ctx context.Context,
+	input agentactivitybiz.SubmitClaimPrepare,
+) (agentactivitybiz.SubmitClaim, bool, error) {
+	claim, created, err := s.SubmitClaimStore.PrepareSubmitClaim(ctx, input)
+	if created && err == nil {
+		s.once.Do(func() { close(s.prepared) })
+	}
+	return claim, created, err
+}
+
+func (s conformanceSubmitClaimAcceptFailureStore) AcceptSubmitClaim(
+	context.Context,
+	string,
+	string,
+	string,
+	string,
+	int64,
+) (agentactivitybiz.SubmitClaim, bool, error) {
+	return agentactivitybiz.SubmitClaim{}, false, s.err
+}
+
+func (s conformanceSubmitClaimDeleteFailureStore) DeleteSubmitClaim(
+	context.Context,
+	string,
+	string,
+	string,
+) (bool, error) {
+	return false, s.err
 }
 
 func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconformance.Fixture) error {
 	d.runtime = newFakeRuntime()
 	d.runtime.guidanceTargetMismatch = fixture.GuidanceTargetMismatch
+	d.runtime.guidanceFailureDisposition = fixture.GuidanceFailureDisposition
 	d.sessions = &fakeSessionReader{
 		sessions: map[string]PersistedSession{}, tombstoned: map[string]bool{}, deletedAt: map[string]int64{},
 		parentByKey: map[string]string{},
@@ -397,6 +480,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	d.service.SessionReader = d.sessions
 	d.service.SessionPurgeStore = d.sessions
 	canonicalStore := openAgentServiceSQLiteStore(d.t)
+	d.baseSubmitClaimStore = canonicalStore
 	for index, projectPath := range fixture.RailProjectPaths {
 		if _, err := canonicalStore.PutUserProject(context.Background(), userprojectbiz.Project{
 			ID: fmt.Sprintf("host-conformance-project-%d", index), Path: projectPath,
@@ -412,6 +496,18 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	}
 	d.service.TurnSummaryReader = d.turns
 	d.service.SubmitClaimStore = canonicalStore
+	if fixture.GuidanceDeleteClaimErr != nil {
+		d.service.SubmitClaimStore = conformanceSubmitClaimDeleteFailureStore{
+			SubmitClaimStore: canonicalStore,
+			err:              fixture.GuidanceDeleteClaimErr,
+		}
+	}
+	if fixture.GuidanceAcceptClaimErr != nil {
+		d.service.SubmitClaimStore = conformanceSubmitClaimAcceptFailureStore{
+			SubmitClaimStore: canonicalStore,
+			err:              fixture.GuidanceAcceptClaimErr,
+		}
+	}
 	d.service.RuntimeOperationStore = d.operationPort
 	d.service.StaleTurnSettler = conformanceStaleTurnSettler{steps: &steps}
 	d.service.RuntimeOperationOwner = "host-conformance-worker"
@@ -705,6 +801,101 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	return nil
 }
 
+func (d *legacyHostConformanceDriver) RestartApplicationHost(context.Context) error {
+	if d.service == nil || d.baseSubmitClaimStore == nil {
+		return errors.New("guidance restart conformance store is unavailable")
+	}
+	d.service.SubmitClaimStore = d.baseSubmitClaimStore
+	hostStore := serviceHostStore{service: d.service}
+	hostSupport := hostSupportPortsForService(d.service, nil)
+	d.service.applicationHostMu.Lock()
+	d.service.applicationHost = nil
+	d.service.applicationHostProvider = nil
+	d.service.applicationHostMu.Unlock()
+	d.service.SetApplicationHost(composeApplicationHost(
+		hostSupport,
+		hostStore,
+		hostStore,
+		hostStore,
+		nil,
+		d.historicalState,
+		serviceHostRuntime{service: d.service},
+		serviceHostGoalRuntime{service: d.service},
+	))
+	return nil
+}
+
+func (d *legacyHostConformanceDriver) SendGuidanceCanceledWhileWaitingForMutation(
+	ctx context.Context,
+	ref agenthost.SessionRef,
+	input agenthost.SendInput,
+) (hostconformance.SendObservation, error) {
+	if d.service == nil || d.baseSubmitClaimStore == nil {
+		return hostconformance.SendObservation{}, errors.New("guidance mutation admission store is unavailable")
+	}
+	actor := agenthost.NewSessionActor()
+	prepared := make(chan struct{})
+	d.service.SubmitClaimStore = &conformanceSubmitClaimPrepareSignalStore{
+		SubmitClaimStore: d.baseSubmitClaimStore,
+		prepared:         prepared,
+	}
+	hostStore := serviceHostStore{service: d.service}
+	hostSupport := hostSupportPortsForService(d.service, nil)
+	d.service.applicationHostMu.Lock()
+	d.service.applicationHost = nil
+	d.service.applicationHostProvider = nil
+	d.service.applicationHostMu.Unlock()
+	d.service.SetApplicationHost(composeApplicationHostWithSessionMutationActor(
+		hostSupport,
+		hostStore,
+		hostStore,
+		hostStore,
+		nil,
+		d.historicalState,
+		serviceHostRuntime{service: d.service},
+		serviceHostGoalRuntime{service: d.service},
+		actor,
+	))
+
+	actorEntered := make(chan struct{})
+	releaseActor := make(chan struct{})
+	actorDone := make(chan error, 1)
+	go func() {
+		actorDone <- actor.Do(context.Background(), ref, func(context.Context) error {
+			close(actorEntered)
+			<-releaseActor
+			return nil
+		})
+	}()
+	<-actorEntered
+
+	requestCtx, cancel := context.WithCancel(ctx)
+	type sendOutcome struct {
+		observation hostconformance.SendObservation
+		err         error
+	}
+	sendDone := make(chan sendOutcome, 1)
+	go func() {
+		observation, err := d.SendInput(requestCtx, ref, input)
+		sendDone <- sendOutcome{observation: observation, err: err}
+	}()
+	select {
+	case <-prepared:
+	case <-time.After(time.Second):
+		cancel()
+		close(releaseActor)
+		<-actorDone
+		return hostconformance.SendObservation{}, errors.New("guidance claim was not prepared before mutation admission")
+	}
+	cancel()
+	outcome := <-sendDone
+	close(releaseActor)
+	if err := <-actorDone; err != nil {
+		return hostconformance.SendObservation{}, err
+	}
+	return outcome.observation, outcome.err
+}
+
 func (d *legacyHostConformanceDriver) ResetProviderlessTerminalExec(
 	ctx context.Context,
 	session *hostconformance.SessionSeed,
@@ -847,12 +1038,16 @@ func (d *legacyHostConformanceDriver) SendInput(
 	if d.directHost {
 		result, err := d.service.ApplicationHost().SendInput(ctx, ref, input)
 		if err != nil {
-			return hostconformance.SendObservation{}, err
+			return hostconformance.SendObservation{
+				TurnID: result.TurnID, Kind: result.Kind,
+				GuidanceDisposition: result.GuidanceDisposition,
+			}, err
 		}
 		d.recordSubmittedTurn(ref.WorkspaceID, ref.AgentSessionID, result.TurnID)
 		session, err := d.service.Get(ctx, ref.WorkspaceID, ref.AgentSessionID)
 		observation := hostconformance.SendObservation{
 			Session: legacyHostSessionObservation(session), TurnID: result.TurnID, Kind: result.Kind,
+			GuidanceDisposition: result.GuidanceDisposition,
 		}
 		if result.GoalControl != nil {
 			observation.Goal = clonePayload(result.GoalControl.Goal)
@@ -864,12 +1059,16 @@ func (d *legacyHostConformanceDriver) SendInput(
 	}
 	result, err := d.service.SendInput(ctx, ref.WorkspaceID, ref.AgentSessionID, input)
 	if err != nil {
-		return hostconformance.SendObservation{}, err
+		return hostconformance.SendObservation{
+			TurnID: result.TurnID, Kind: result.Kind,
+			GuidanceDisposition: result.GuidanceDisposition,
+		}, err
 	}
 	d.recordSubmittedTurn(ref.WorkspaceID, ref.AgentSessionID, result.TurnID)
 	observation := hostconformance.SendObservation{
 		Session: legacyHostSessionObservation(result.Session),
 		TurnID:  result.TurnID, Kind: result.Kind,
+		GuidanceDisposition: result.GuidanceDisposition,
 	}
 	if result.GoalControl != nil {
 		observation.Goal = clonePayload(result.GoalControl.Goal)

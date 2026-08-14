@@ -168,6 +168,7 @@ type TuttiModeActivationPort interface {
 type SubmitClaimStore interface {
 	PrepareSubmitClaim(context.Context, agentactivitybiz.SubmitClaimPrepare) (agentactivitybiz.SubmitClaim, bool, error)
 	GetSubmitClaim(context.Context, string, string, string) (agentactivitybiz.SubmitClaim, bool, error)
+	RecordSubmitClaimGuidanceDisposition(context.Context, agentactivitybiz.SubmitClaimGuidanceDispositionRecord) (agentactivitybiz.SubmitClaim, bool, error)
 	AcceptSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
 	RejectSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
 	DeleteSubmitClaim(context.Context, string, string, string) (bool, error)
@@ -771,13 +772,14 @@ type SendInput = agenthost.SendInput
 type CapabilityReference = agenthost.CapabilityReference
 
 type SendInputResult struct {
-	Session            Session
-	Kind               string
-	TurnID             string
-	Turn               *agentactivitybiz.Turn
-	TurnLifecycle      TurnLifecycle
-	SubmitAvailability SubmitAvailability
-	GoalControl        *GoalControlSessionResult
+	Session             Session
+	Kind                string
+	TurnID              string
+	Turn                *agentactivitybiz.Turn
+	TurnLifecycle       TurnLifecycle
+	SubmitAvailability  SubmitAvailability
+	GoalControl         *GoalControlSessionResult
+	GuidanceDisposition agenthost.GuidanceDeliveryDisposition
 }
 
 type PromptContentBlock = agenthost.PromptContentBlock

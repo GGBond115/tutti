@@ -12,9 +12,9 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 		scenarios []Scenario
 		wantCount int
 	}{
-		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 33},
-		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 28},
-		{name: "guidance", scenarios: GuidanceScenarios(), wantCount: 3},
+		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 37},
+		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 32},
+		{name: "guidance", scenarios: GuidanceScenarios(), wantCount: 7},
 		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 5},
 		{name: "submission fence", scenarios: SubmissionFenceScenarios(), wantCount: 1},
 		{name: "title policy", scenarios: TitlePolicyScenarios(), wantCount: 1},
@@ -41,6 +41,32 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 				t.Fatalf("scenario count=%d, want %d", len(seen), catalog.wantCount)
 			}
 		})
+	}
+}
+
+func TestPublishedGuidanceRestartScenariosHaveUniqueNames(t *testing.T) {
+	t.Parallel()
+	scenarios := GuidanceRestartScenarios()
+	if len(scenarios) != 2 {
+		t.Fatalf("guidance restart scenario count=%d, want 2", len(scenarios))
+	}
+	seen := map[string]struct{}{}
+	for _, scenario := range scenarios {
+		if scenario.Name == "" {
+			t.Fatal("guidance restart scenario has an empty name")
+		}
+		if _, found := seen[scenario.Name]; found {
+			t.Fatalf("duplicate guidance restart scenario %q", scenario.Name)
+		}
+		seen[scenario.Name] = struct{}{}
+	}
+}
+
+func TestPublishedGuidanceMutationAdmissionRestartScenariosHaveUniqueNames(t *testing.T) {
+	t.Parallel()
+	scenarios := GuidanceMutationAdmissionRestartScenarios()
+	if len(scenarios) != 1 || scenarios[0].Name == "" {
+		t.Fatalf("guidance mutation admission restart scenarios=%#v", scenarios)
 	}
 }
 
@@ -116,6 +142,10 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"guidance requires exact target before dispatch",
 		"guidance forwards exact target",
 		"guidance target mismatch does not dispatch provider and cleans claim",
+		"guidance precondition failure retains submit claim fence",
+		"guidance explicit rejection retains submit claim fence",
+		"guidance outcome unknown retains submit claim fence",
+		"guidance cleanup failure does not authorize ordinary reuse",
 		"new turns require durable provider acceptance",
 		"providerless canonical terminal settles and replays submission",
 		"rejected initial submit discards runtime without completing canonical session",
@@ -151,6 +181,10 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"guidance requires exact target before dispatch",
 		"guidance forwards exact target",
 		"guidance target mismatch does not dispatch provider and cleans claim",
+		"guidance precondition failure retains submit claim fence",
+		"guidance explicit rejection retains submit claim fence",
+		"guidance outcome unknown retains submit claim fence",
+		"guidance cleanup failure does not authorize ordinary reuse",
 		"new turns require durable provider acceptance",
 		"providerless canonical terminal settles and replays submission",
 		"rejected initial submit discards runtime without completing canonical session",

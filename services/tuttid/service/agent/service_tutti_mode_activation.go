@@ -74,12 +74,15 @@ func (s *Service) tuttiModeSnapshotForExec(ctx context.Context, workspaceID, age
 // prepareTuttiModeExec freezes the selected activation revision before a new
 // canonical turn is dispatched. Guidance reuses the existing frozen row.
 func (s *Service) prepareTuttiModeExec(ctx context.Context, workspaceID, agentSessionID string, guidance bool, runtimeSession ProviderRuntimeSession, canonicalTurnID string) (string, tuttimodeactivationbiz.TurnSnapshot, error) {
-	snapshot, err := s.tuttiModeSnapshotForExec(ctx, workspaceID, agentSessionID, guidance, runtimeSession)
-	if err != nil {
-		return "", tuttimodeactivationbiz.TurnSnapshot{}, err
-	}
 	if guidance {
-		turnID := activeRuntimeTurnID(runtimeSession)
+		// Preserve the caller's exact target through the service adapter. The
+		// Host is the action-time authority for whether that target is still
+		// active and owns the durable submit-claim cleanup on a known miss.
+		turnID := strings.TrimSpace(canonicalTurnID)
+		if turnID == "" {
+			turnID = activeRuntimeTurnID(runtimeSession)
+		}
+		var err error
 		if turnID == "" {
 			turnID, err = s.persistedActiveTurnID(ctx, workspaceID, agentSessionID)
 		}
@@ -89,18 +92,18 @@ func (s *Service) prepareTuttiModeExec(ctx context.Context, workspaceID, agentSe
 			}
 			return "", tuttimodeactivationbiz.TurnSnapshot{}, err
 		}
-		if expectedTurnID := strings.TrimSpace(canonicalTurnID); expectedTurnID != "" && expectedTurnID != turnID {
-			return "", tuttimodeactivationbiz.TurnSnapshot{}, errors.Join(
-				ErrSubmitRejectedBeforeAcceptance,
-				fmt.Errorf(
-					"%w: active turn changed from %q to %q before guidance dispatch",
-					ErrActiveTurnTargetMismatch,
-					expectedTurnID,
-					turnID,
-				),
-			)
+		if s.TuttiModeActivations == nil {
+			return turnID, tuttimodeactivationbiz.TurnSnapshot{}, nil
+		}
+		snapshot, err := s.TuttiModeActivations.ExistingTurnSnapshot(ctx, workspaceID, agentSessionID, turnID)
+		if err != nil {
+			return "", tuttimodeactivationbiz.TurnSnapshot{}, err
 		}
 		return turnID, snapshot, nil
+	}
+	snapshot, err := s.tuttiModeSnapshotForExec(ctx, workspaceID, agentSessionID, false, runtimeSession)
+	if err != nil {
+		return "", tuttimodeactivationbiz.TurnSnapshot{}, err
 	}
 	turnID := strings.TrimSpace(canonicalTurnID)
 	if turnID == "" {

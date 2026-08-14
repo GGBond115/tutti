@@ -166,7 +166,10 @@ test("projects shared commands onto typed lifecycle effects without host switche
     content: [{ text: "continue", type: "text" }],
     correlationId: "submit-send",
     displayPrompt: "Continue",
+    guidance: true,
+    guidanceFallback: "work",
     promptId: "prompt-1",
+    targetTurnId: "turn-1",
     type: "queue/sendPrompt",
     workspaceId: "workspace-1"
   });
@@ -297,6 +300,9 @@ test("projects shared commands onto typed lifecycle effects without host switche
     clientSubmitId: "submit-send",
     content: [{ text: "continue", type: "text" }],
     displayPrompt: "Continue",
+    guidance: true,
+    guidanceFallback: "work",
+    targetTurnId: "turn-1",
     workspaceId: "workspace-1"
   });
   assert.deepEqual(calls[2]?.input, {

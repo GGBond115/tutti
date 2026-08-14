@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -18,7 +19,9 @@ func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessio
 		// canonical Turn captured by the caller. A durable claim can recover a
 		// retry only when that target is retained; it must not make a new request
 		// without an explicit target look valid.
-		return SendInputResult{}, ErrActiveTurnTargetRequired
+		return SendInputResult{
+			GuidanceDisposition: agenthost.GuidanceDeliveryDispositionPreconditionFailed,
+		}, ErrActiveTurnTargetRequired
 	}
 	input.ClientSubmitID = strings.TrimSpace(input.ClientSubmitID)
 	if input.ClientSubmitID == "" {
@@ -35,11 +38,11 @@ func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessio
 	normalizedContent, _, err := normalizePromptContent(input.Content)
 	if err != nil {
 		s.reportAgentServiceNodeFailure(ctx, agentSessionID, "message_send", "content_normalized", "", nodeStartedAt, err)
-		return SendInputResult{}, err
+		return serviceGuidanceFailure(input.Guidance, agenthost.GuidanceDeliveryDispositionPreconditionFailed), err
 	}
 	if err := s.validatePromptConnectors(ctx, normalizedContent); err != nil {
 		s.reportAgentServiceNodeFailure(ctx, agentSessionID, "message_send", "connectors_validated", "", nodeStartedAt, err)
-		return SendInputResult{}, err
+		return serviceGuidanceFailure(input.Guidance, agenthost.GuidanceDeliveryDispositionPreconditionFailed), err
 	}
 	s.reportAgentServiceNodeSuccess(ctx, agentSessionID, "message_send", "content_normalized", "", nodeStartedAt)
 	logAgentSubmitTrace("service.send.content_normalized", workspaceID, agentSessionID, input.ClientSubmitID, input.Metadata, map[string]any{
@@ -57,20 +60,26 @@ func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessio
 		runtimeSession, _ := s.controller().Session(workspaceID, agentSessionID)
 		existingCanonicalTurnID, claimErr := s.existingSubmitCanonicalTurnID(ctx, workspaceID, agentSessionID, input.ClientSubmitID, input.Metadata)
 		if claimErr != nil {
-			return SendInputResult{}, claimErr
+			return serviceGuidanceFailure(input.Guidance, agenthost.GuidanceDeliveryDispositionPreconditionFailed), claimErr
 		}
 		if existingCanonicalTurnID != "" {
 			// A durable claim already owns this submit: reuse its canonical
 			// turn so a retry reconciles instead of redispatching.
 			if input.Guidance && strings.TrimSpace(input.TurnID) != existingCanonicalTurnID {
-				return SendInputResult{}, ErrActiveTurnTargetMismatch
+				return SendInputResult{
+					GuidanceDisposition: agenthost.GuidanceDeliveryDispositionPreconditionFailed,
+				}, ErrActiveTurnTargetMismatch
 			}
 			preparedTurnID = existingCanonicalTurnID
 			hostInput.TurnID = existingCanonicalTurnID
 		} else {
 			preparedTurnID, preparedSnapshot, err = s.prepareTuttiModeExec(ctx, workspaceID, agentSessionID, input.Guidance, runtimeSession, input.TurnID)
 			if err != nil {
-				return SendInputResult{}, err
+				disposition := agenthost.GuidanceDeliveryDispositionPreconditionFailed
+				if input.Guidance && errors.Is(err, ErrActiveTurnTargetMismatch) {
+					disposition = agenthost.GuidanceDeliveryDispositionTargetInactive
+				}
+				return SendInputResult{GuidanceDisposition: disposition}, err
 			}
 			hostInput.TurnID = preparedTurnID
 			hostInput.TuttiModeSnapshot = runtimeTuttiModeTurnSnapshot(preparedSnapshot)
@@ -81,13 +90,18 @@ func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessio
 		hostInput,
 	)
 	if err != nil {
+		failureResult := SendInputResult{
+			TurnID:              hostResult.TurnID,
+			GuidanceDisposition: hostResult.GuidanceDisposition,
+		}
 		if preparedTurnID != "" {
 			abandonErr := s.abandonPreparedTuttiModeExec(context.WithoutCancel(ctx), workspaceID, agentSessionID, preparedTurnID, preparedSnapshot, input.Guidance)
 			if abandonErr != nil {
-				return SendInputResult{}, deliveryUnknownError(abandonErr)
+				failureResult.GuidanceDisposition = agenthost.GuidanceDeliveryDispositionPreconditionFailed
+				return failureResult, deliveryUnknownError(abandonErr)
 			}
 		}
-		return SendInputResult{}, err
+		return failureResult, err
 	}
 	if hostResult.Kind == "goalControl" && hostResult.GoalControl != nil {
 		session, getErr := s.Get(ctx, workspaceID, agentSessionID)
@@ -128,13 +142,21 @@ func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessio
 		input.ClientSubmitID, input.Metadata, turn,
 	)
 	return SendInputResult{
-		Session:            session,
-		Kind:               "turn",
-		TurnID:             turnID,
-		Turn:               turn,
-		TurnLifecycle:      hostResult.TurnLifecycle,
-		SubmitAvailability: hostResult.SubmitAvailability,
+		Session:             session,
+		Kind:                "turn",
+		TurnID:              turnID,
+		Turn:                turn,
+		TurnLifecycle:       hostResult.TurnLifecycle,
+		SubmitAvailability:  hostResult.SubmitAvailability,
+		GuidanceDisposition: hostResult.GuidanceDisposition,
 	}, nil
+}
+
+func serviceGuidanceFailure(guidance bool, disposition agenthost.GuidanceDeliveryDisposition) SendInputResult {
+	if !guidance {
+		return SendInputResult{}
+	}
+	return SendInputResult{GuidanceDisposition: disposition}
 }
 
 func (s *Service) observeTuttiModeSourceUserTurn(

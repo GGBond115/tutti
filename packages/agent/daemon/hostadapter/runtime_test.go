@@ -34,6 +34,16 @@ type closeRuntimeBackend struct {
 	input agentruntime.CloseInput
 }
 
+type execRuntimeBackend struct {
+	RuntimeBackend
+	result agentruntime.ExecResult
+	err    error
+}
+
+func (b *execRuntimeBackend) Exec(context.Context, agentruntime.ExecInput) (agentruntime.ExecResult, error) {
+	return b.result, b.err
+}
+
 type workspaceDisconnectBackend struct {
 	RuntimeBackend
 	sessions  []agentruntime.Session
@@ -291,6 +301,7 @@ func TestMapRuntimeErrorMapsGuidanceTargetVerdictsAcrossHostBoundary(t *testing.
 		hostErr    error
 	}{
 		{agentruntime.ErrActiveTurnTargetRequired, host.ErrActiveTurnTargetRequired},
+		{agentruntime.ErrActiveTurnTargetInactive, host.ErrActiveTurnTargetInactive},
 		{agentruntime.ErrActiveTurnTargetMismatch, host.ErrActiveTurnTargetMismatch},
 	} {
 		t.Run(testCase.runtimeErr.Error(), func(t *testing.T) {
@@ -302,6 +313,29 @@ func TestMapRuntimeErrorMapsGuidanceTargetVerdictsAcrossHostBoundary(t *testing.
 				t.Fatalf("mapped error = %v, want source runtime sentinel preserved", mapped)
 			}
 		})
+	}
+}
+
+func TestRuntimeControllerProjectsGuidanceDeliveryDisposition(t *testing.T) {
+	backend := &execRuntimeBackend{result: agentruntime.ExecResult{
+		AgentSessionID: "session-1",
+		TurnID:         "turn-1",
+		ProviderDispatch: &agentruntime.ProviderDispatchResult{
+			Disposition:         agentruntime.DispatchDispositionOutcomeUnknown,
+			GuidanceDisposition: agentruntime.GuidanceDeliveryDispositionOutcomeUnknown,
+		},
+	}}
+	controller := &RuntimeController{Backend: backend}
+
+	result, err := controller.Exec(t.Context(), host.RuntimeExecInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", TurnID: "turn-1", Guidance: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ProviderDispatch.Disposition != host.RuntimeDispatchDispositionOutcomeUnknown ||
+		result.ProviderDispatch.GuidanceDisposition != host.GuidanceDeliveryDispositionOutcomeUnknown {
+		t.Fatalf("provider dispatch = %#v, want typed outcome unknown", result.ProviderDispatch)
 	}
 }
 

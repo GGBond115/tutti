@@ -67,7 +67,7 @@ func (a *CodexAppServerAdapter) ExecAsync(
 	emit EventSink,
 	emitCommands CommandSnapshotSink,
 ) error {
-	return a.execAsync(ctx, session, content, displayPrompt, turnID, emit, emitCommands, nil)
+	return a.execAsync(ctx, session, content, displayPrompt, turnID, emit, emitCommands, nil, nil)
 }
 
 func (a *CodexAppServerAdapter) ExecHistoryReplacement(
@@ -101,9 +101,28 @@ type codexTurnExecOptions struct {
 }
 
 func (options codexTurnExecOptions) report(result ProviderDispatchResult) {
+	if options.continuation != nil && result.GuidanceDisposition == "" {
+		switch result.Disposition {
+		case DispatchDispositionApplied, DispatchDispositionAppliedWithoutProviderTurn:
+			result.GuidanceDisposition = GuidanceDeliveryDispositionApplied
+		case DispatchDispositionRejected:
+			result.GuidanceDisposition = GuidanceDeliveryDispositionExplicitRejection
+		case DispatchDispositionNotDispatched:
+			result.GuidanceDisposition = GuidanceDeliveryDispositionPreconditionFailed
+		default:
+			result.GuidanceDisposition = GuidanceDeliveryDispositionOutcomeUnknown
+		}
+	}
 	if options.reportDispatch != nil {
 		options.reportDispatch(result)
 	}
+}
+
+func (options codexTurnExecOptions) dispatchSink() ProviderDispatchSink {
+	if options.reportDispatch == nil {
+		return nil
+	}
+	return options.report
 }
 
 func (a *CodexAppServerAdapter) GuideActiveTurn(
@@ -115,8 +134,40 @@ func (a *CodexAppServerAdapter) GuideActiveTurn(
 	emit EventSink,
 	emitCommands CommandSnapshotSink,
 ) ([]activityshared.Event, error) {
+	return a.guideActiveTurnWithDispatch(
+		ctx, session, content, displayPrompt, turnID, emit, emitCommands, nil,
+	)
+}
+
+func (a *CodexAppServerAdapter) GuideActiveTurnWithDispatch(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	return a.guideActiveTurnWithDispatch(
+		ctx, session, content, displayPrompt, turnID, emit, emitCommands, reportDispatch,
+	)
+}
+
+func (a *CodexAppServerAdapter) guideActiveTurnWithDispatch(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	reporter := newGuidanceDispatchReporter(reportDispatch)
 	appSession := a.getSession(session.AgentSessionID)
 	if appSession == nil || appSession.client == nil {
+		reporter.preconditionFailed()
 		return nil, ErrSessionDisconnected
 	}
 	activeTurnID := a.sessionActiveTurnID(session.AgentSessionID)
@@ -131,12 +182,19 @@ func (a *CodexAppServerAdapter) GuideActiveTurn(
 		var err error
 		providerContent, err = materializeProviderPromptImagesAtBoundary(ctx, providerContent, a.promptImageMaterializer)
 		if err != nil {
+			reporter.preconditionFailed()
 			return nil, err
 		}
-		return a.steerActiveTurn(
+		events, err := a.steerActiveTurn(
 			ctx, appSession, session, content, providerContent,
 			explicitDisplayPrompt, visibleText, turnID, activeTurnID, emit,
 		)
+		if err != nil {
+			reporter.providerError(err)
+			return events, err
+		}
+		reporter.applied()
+		return events, nil
 	}
 	// The canonical root turn remains active while child sessions drain even
 	// after the provider's root turn has ended. Guidance in that window starts
@@ -145,9 +203,14 @@ func (a *CodexAppServerAdapter) GuideActiveTurn(
 	if a.sessionActiveTurn(session.AgentSessionID) != nil {
 		// The provider turn exists but turn/started has not supplied its id yet;
 		// starting another turn would race the existing one.
+		reporter.preconditionFailed()
 		return nil, ErrSessionNoActiveTurn
 	}
-	return a.startGuidanceContinuation(
+	var continuationDispatchSink ProviderDispatchSink
+	if reportDispatch != nil {
+		continuationDispatchSink = reporter.report
+	}
+	events, err := a.startGuidanceContinuation(
 		ctx,
 		session,
 		content,
@@ -155,7 +218,13 @@ func (a *CodexAppServerAdapter) GuideActiveTurn(
 		turnID,
 		emit,
 		emitCommands,
+		continuationDispatchSink,
 	)
+	if err != nil {
+		reporter.outcomeUnknown()
+		return events, err
+	}
+	return events, nil
 }
 
 func (appTurn *codexAppServerActiveTurn) markTerminated() {
@@ -343,7 +412,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 			// Goal commands are thread-level control operations; steering them
 			// would paste "/goal …" into the running turn as prompt text
 			// instead of executing the RPC.
-			return a.execGoalControlCommand(ctx, appSession, session, args, turnID, content, explicitDisplayPrompt, visibleText, emit, options.reportDispatch)
+			return a.execGoalControlCommand(ctx, appSession, session, args, turnID, content, explicitDisplayPrompt, visibleText, emit, options.dispatchSink())
 		}
 		providerContent := content
 		if mentionRoutingApplied {
@@ -357,10 +426,10 @@ func (a *CodexAppServerAdapter) execBlocking(
 		}
 		events, err := a.steerActiveTurn(ctx, appSession, session, content, providerContent, explicitDisplayPrompt, visibleText, turnID, activeTurnID, emit)
 		if err != nil {
-			reportCodexDispatchFailure(options.reportDispatch, err)
+			reportCodexDispatchFailure(options.dispatchSink(), err)
 			return events, err
 		}
-		reportCodexAppliedWithoutProviderTurn(options.reportDispatch)
+		reportCodexAppliedWithoutProviderTurn(options.dispatchSink())
 		return events, nil
 	}
 
@@ -487,7 +556,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 		return nil
 	}
 	admitWithoutProviderTurn := func() {
-		reportCodexAppliedWithoutProviderTurn(options.reportDispatch)
+		reportCodexAppliedWithoutProviderTurn(options.dispatchSink())
 		releaseProviderEvents()
 	}
 	// Signal turn termination once this goroutine returns (after terminal events
@@ -522,7 +591,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 			emitEvents,
 			emitTerminal,
 			emitCommands,
-			options.reportDispatch,
+			options.dispatchSink(),
 			admitProviderTurn,
 			admitWithoutProviderTurn,
 		); handled {
@@ -574,7 +643,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 	turnStartedAt := time.Now()
 	result, err := appSession.client.TurnStart(ctx, turnStartAckTimeout, turnParams)
 	if err != nil {
-		reportCodexDispatchFailure(options.reportDispatch, err)
+		reportCodexDispatchFailure(options.dispatchSink(), err)
 		durationMS := time.Since(turnStartedAt).Milliseconds()
 		appTurn.diagnostics.Finish("failed", "")
 		trace.Log("turn.start.failed", map[string]any{

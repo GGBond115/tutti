@@ -8,6 +8,11 @@ import (
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
+type guidanceSubmitClaimPreparation struct {
+	claim   storesqlite.SubmitClaim
+	created bool
+}
+
 func legacyClientSubmitID(metadata map[string]any) string {
 	value, _ := metadata["clientSubmitId"].(string)
 	return strings.TrimSpace(value)
@@ -27,6 +32,25 @@ func submissionMetadata(metadata map[string]any, typedClientSubmitID string) map
 }
 
 func (h *Host) prepareSubmitClaim(ctx context.Context, ref SessionRef, metadata map[string]any, canonicalTurnID string) (storesqlite.SubmitClaim, bool, error) {
+	return h.prepareSubmitClaimWithBinding(ctx, ref, metadata, canonicalTurnID, false)
+}
+
+func (h *Host) prepareGuidanceSubmitClaim(
+	ctx context.Context,
+	ref SessionRef,
+	metadata map[string]any,
+	canonicalTurnID string,
+) (storesqlite.SubmitClaim, bool, error) {
+	return h.prepareSubmitClaimWithBinding(ctx, ref, metadata, canonicalTurnID, true)
+}
+
+func (h *Host) prepareSubmitClaimWithBinding(
+	ctx context.Context,
+	ref SessionRef,
+	metadata map[string]any,
+	canonicalTurnID string,
+	requireCanonicalTurnBinding bool,
+) (storesqlite.SubmitClaim, bool, error) {
 	clientID := legacyClientSubmitID(metadata)
 	if h == nil || h.store == nil || clientID == "" {
 		return storesqlite.SubmitClaim{}, false, nil
@@ -35,8 +59,15 @@ func (h *Host) prepareSubmitClaim(ctx context.Context, ref SessionRef, metadata 
 		WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
 		ClientSubmitID: clientID, CanonicalTurnID: strings.TrimSpace(canonicalTurnID), NowUnixMS: h.now().UnixMilli(),
 	})
-	if err != nil || created || claim.Status != "prepared" {
+	if err != nil || created {
 		return claim, created, err
+	}
+	if requireCanonicalTurnBinding &&
+		strings.TrimSpace(claim.CanonicalTurnID) != strings.TrimSpace(canonicalTurnID) {
+		return claim, false, storesqlite.ErrSubmitClaimTurnConflict
+	}
+	if claim.Status != "prepared" {
+		return claim, false, nil
 	}
 	turnID, found, err := h.store.FindTurnByClientSubmitID(ctx, ref.WorkspaceID, ref.AgentSessionID, clientID)
 	if err != nil || !found {
@@ -51,6 +82,66 @@ func (h *Host) prepareSubmitClaim(ctx context.Context, ref SessionRef, metadata 
 	return claim, false, err
 }
 
+func (h *Host) recordGuidanceSubmitDisposition(
+	ref SessionRef,
+	clientID string,
+	turnID string,
+	disposition GuidanceDeliveryDisposition,
+) error {
+	if h == nil || h.store == nil || strings.TrimSpace(clientID) == "" {
+		return nil
+	}
+	stored, ok := storeGuidanceDisposition(disposition)
+	if !ok {
+		return storesqlite.ErrSubmitClaimGuidanceDispositionConflict
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _, err := h.store.RecordSubmitClaimGuidanceDisposition(
+		ctx,
+		storesqlite.SubmitClaimGuidanceDispositionRecord{
+			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
+			ClientSubmitID: clientID, CanonicalTurnID: strings.TrimSpace(turnID),
+			Disposition: stored, NowUnixMS: h.now().UnixMilli(),
+		},
+	)
+	return err
+}
+
+func storeGuidanceDisposition(
+	disposition GuidanceDeliveryDisposition,
+) (storesqlite.SubmitClaimGuidanceDisposition, bool) {
+	switch disposition {
+	case GuidanceDeliveryDispositionApplied:
+		return storesqlite.SubmitClaimGuidanceDispositionApplied, true
+	case GuidanceDeliveryDispositionPreconditionFailed:
+		return storesqlite.SubmitClaimGuidanceDispositionPreconditionFailed, true
+	case GuidanceDeliveryDispositionExplicitRejection:
+		return storesqlite.SubmitClaimGuidanceDispositionExplicitRejection, true
+	case GuidanceDeliveryDispositionOutcomeUnknown:
+		return storesqlite.SubmitClaimGuidanceDispositionOutcomeUnknown, true
+	default:
+		return "", false
+	}
+}
+
+func hostGuidanceDisposition(
+	disposition storesqlite.SubmitClaimGuidanceDisposition,
+) GuidanceDeliveryDisposition {
+	switch disposition {
+	case storesqlite.SubmitClaimGuidanceDispositionApplied:
+		return GuidanceDeliveryDispositionApplied
+	case storesqlite.SubmitClaimGuidanceDispositionPreconditionFailed:
+		return GuidanceDeliveryDispositionPreconditionFailed
+	case storesqlite.SubmitClaimGuidanceDispositionExplicitRejection:
+		return GuidanceDeliveryDispositionExplicitRejection
+	case storesqlite.SubmitClaimGuidanceDispositionOutcomeUnknown:
+		return GuidanceDeliveryDispositionOutcomeUnknown
+	default:
+		return ""
+	}
+}
+
 func (h *Host) abandonSubmitClaim(ref SessionRef, clientID string) {
 	if h == nil || h.store == nil || strings.TrimSpace(clientID) == "" {
 		return
@@ -58,6 +149,25 @@ func (h *Host) abandonSubmitClaim(ref SessionRef, clientID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, _ = h.store.DeleteSubmitClaim(ctx, ref.WorkspaceID, ref.AgentSessionID, clientID)
+}
+
+// abandonGuidanceSubmitClaim is the conversion barrier for adaptive guidance.
+// Unlike legacy best-effort cleanup, it returns only after the durable delete
+// is confirmed. A caller must not reuse the ClientSubmitID for ordinary work
+// when this method returns an error.
+func (h *Host) abandonGuidanceSubmitClaim(ref SessionRef, clientID string) error {
+	if h == nil || h.store == nil || strings.TrimSpace(clientID) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := h.store.DeleteSubmitClaim(ctx, ref.WorkspaceID, ref.AgentSessionID, clientID)
+	if err != nil {
+		return err
+	}
+	// The store contract is idempotent. deleted=false means another cleanup
+	// attempt already established the same durable absence postcondition.
+	return nil
 }
 
 func (h *Host) acceptSubmitClaim(ref SessionRef, clientID, turnID string) error {
@@ -113,4 +223,40 @@ func (h *Host) replayedSubmitResult(ctx context.Context, ref SessionRef, claim s
 		Session: live, Canonical: canonicalSession, Turn: &turn, TurnID: claim.TurnID,
 		TurnLifecycle: lifecycleFromTurn(turn), SubmitAvailability: availability,
 	}, nil
+}
+
+func (h *Host) replayedGuidanceSubmitResult(
+	ctx context.Context,
+	ref SessionRef,
+	claim storesqlite.SubmitClaim,
+) (SendInputResult, error) {
+	disposition := hostGuidanceDisposition(claim.GuidanceDisposition)
+	result := guidanceSendResult(claim.CanonicalTurnID, disposition)
+	switch disposition {
+	case GuidanceDeliveryDispositionApplied:
+		if claim.Status == "prepared" {
+			acceptCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			accepted, _, err := h.store.AcceptSubmitClaim(
+				acceptCtx, ref.WorkspaceID, ref.AgentSessionID,
+				claim.ClientSubmitID, claim.CanonicalTurnID, h.now().UnixMilli(),
+			)
+			cancel()
+			if err != nil {
+				return result, err
+			}
+			claim = accepted
+		}
+		replayed, err := h.replayedSubmitResult(ctx, ref, claim)
+		replayed.GuidanceDisposition = disposition
+		return replayed, err
+	case GuidanceDeliveryDispositionPreconditionFailed:
+		return result, ErrGuidancePreconditionFailed
+	case GuidanceDeliveryDispositionExplicitRejection:
+		return result, ErrGuidanceExplicitRejection
+	case GuidanceDeliveryDispositionOutcomeUnknown:
+		return result, ErrSubmitDeliveryUnknown
+	default:
+		return guidanceSendResult(claim.CanonicalTurnID, GuidanceDeliveryDispositionOutcomeUnknown),
+			ErrSubmitDeliveryUnknown
+	}
 }

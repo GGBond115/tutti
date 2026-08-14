@@ -45,8 +45,7 @@ import {
 import { useAgentUserMessageEditRetry } from "./useAgentUserMessageEditRetry";
 import { AgentCopyableMessageGroup } from "./AgentMessageActions";
 
-const DEFAULT_TOOL_CALLS_LABEL = (count: number): string =>
-  `${count} tool calls`;
+const DEFAULT_TOOL_CALLS_LABEL = (count: number): string => `${count} tool calls`;
 const TRANSPORT_RETRY_PROGRESS_PATTERN =
   /\b(reconnect(?:ing)?(?:\s*(?:\.\.\.|…|[.。]+|:|-))?\s*\(?\d+\s*\/\s*\d+\)?)/i;
 // All system-notice banners use the light-red danger surface. Yellow/warning
@@ -275,12 +274,14 @@ export function AgentMessageBlock({
           message={message}
           onAuthLogin={onAuthLogin}
           onExternalLink={handleExternalLinkClick}
+          onLinkAction={onLinkAction}
         />
       ) : recoveredError ? (
         <AgentVisibleErrorMessage
           message={recoveredError}
           onAuthLogin={onAuthLogin}
           onExternalLink={handleExternalLinkClick}
+          onLinkAction={onLinkAction}
         />
       ) : message.systemNotice ? (
         <AgentSystemNoticeMessage message={message} />

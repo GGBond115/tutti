@@ -114,3 +114,38 @@ CREATE INDEX idx_workspace_agent_submit_claims_canonical_turn
 	}
 	return nil
 }
+
+// V4 durably records the one-shot guidance delivery verdict. This closes the
+// crash window between Host returning its typed result and a consumer
+// persisting its own resolution intent. Target-inactive is deliberately absent:
+// that verdict deletes the claim and grants same-id ordinary conversion.
+func (s *Store) applyWorkspaceAgentSubmitClaimsV4(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceAgentSubmitClaimsV4)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace agent submit claims v4: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+ALTER TABLE workspace_agent_submit_claims
+ADD COLUMN guidance_disposition TEXT
+CHECK (guidance_disposition IS NULL OR guidance_disposition IN (
+  'applied',
+  'not_dispatched_precondition_failed',
+  'not_dispatched_explicit_rejection',
+  'outcome_unknown'
+));
+`); err != nil {
+		return fmt.Errorf("migrate workspace agent submit claims v4: %w", err)
+	}
+	if err := recordMigrationTx(ctx, tx, schemaMigrationWorkspaceAgentSubmitClaimsV4); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit workspace agent submit claims v4: %w", err)
+	}
+	return nil
+}

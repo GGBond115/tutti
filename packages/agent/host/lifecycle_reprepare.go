@@ -161,7 +161,7 @@ func (h *Host) ReprepareRuntimeSessionAndSendInput(
 			return reprepareErr
 		}
 		var sendErr error
-		result, sendErr = h.sendInputSerialized(actorCtx, ref, input.Send, normalized, promptText, metadata)
+		result, sendErr = h.sendInputSerialized(actorCtx, ref, input.Send, normalized, promptText, metadata, nil)
 		if sendErr != nil && !errors.Is(sendErr, ErrSubmitDeliveryUnknown) {
 			live, found := h.runtime.Session(ref.WorkspaceID, ref.AgentSessionID)
 			if !found || !runtimeSessionHasActiveTurn(live) {

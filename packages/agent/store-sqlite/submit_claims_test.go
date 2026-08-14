@@ -2,6 +2,7 @@ package storesqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -77,6 +78,59 @@ func TestSubmitClaimRejectIsTerminalAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestSubmitClaimGuidanceDispositionIsDurableFirstWriteWins(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, _, err := store.PrepareSubmitClaim(ctx, SubmitClaimPrepare{
+		WorkspaceID: "ws-1", AgentSessionID: "session-1", ClientSubmitID: "guidance-1",
+		CanonicalTurnID: "turn-1", NowUnixMS: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	recorded, changed, err := store.RecordSubmitClaimGuidanceDisposition(
+		ctx,
+		SubmitClaimGuidanceDispositionRecord{
+			WorkspaceID: "ws-1", AgentSessionID: "session-1", ClientSubmitID: "guidance-1",
+			CanonicalTurnID: "turn-1", Disposition: SubmitClaimGuidanceDispositionPreconditionFailed,
+			NowUnixMS: 20,
+		},
+	)
+	if err != nil || !changed || recorded.GuidanceDisposition != SubmitClaimGuidanceDispositionPreconditionFailed {
+		t.Fatalf("recorded=%#v changed=%v error=%v", recorded, changed, err)
+	}
+	replayed, changed, err := store.RecordSubmitClaimGuidanceDisposition(
+		ctx,
+		SubmitClaimGuidanceDispositionRecord{
+			WorkspaceID: "ws-1", AgentSessionID: "session-1", ClientSubmitID: "guidance-1",
+			CanonicalTurnID: "turn-1", Disposition: SubmitClaimGuidanceDispositionPreconditionFailed,
+			NowUnixMS: 30,
+		},
+	)
+	if err != nil || changed || replayed.UpdatedAtUnixMS != 20 {
+		t.Fatalf("idempotent replay=%#v changed=%v error=%v", replayed, changed, err)
+	}
+	conflicted, changed, err := store.RecordSubmitClaimGuidanceDisposition(
+		ctx,
+		SubmitClaimGuidanceDispositionRecord{
+			WorkspaceID: "ws-1", AgentSessionID: "session-1", ClientSubmitID: "guidance-1",
+			CanonicalTurnID: "turn-1", Disposition: SubmitClaimGuidanceDispositionExplicitRejection,
+			NowUnixMS: 40,
+		},
+	)
+	if !errors.Is(err, ErrSubmitClaimGuidanceDispositionConflict) || changed ||
+		conflicted.GuidanceDisposition != SubmitClaimGuidanceDispositionPreconditionFailed {
+		t.Fatalf("conflicted=%#v changed=%v error=%v", conflicted, changed, err)
+	}
+
+	afterRestart := New(store.db, store.opts)
+	durable, found, err := afterRestart.GetSubmitClaim(ctx, "ws-1", "session-1", "guidance-1")
+	if err != nil || !found || durable.GuidanceDisposition != SubmitClaimGuidanceDispositionPreconditionFailed {
+		t.Fatalf("restart claim=%#v found=%v error=%v", durable, found, err)
+	}
+}
+
 func TestSubmitClaimsAllowMultipleGuidanceSubmissionsForOneCanonicalTurn(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
@@ -91,7 +145,7 @@ func TestSubmitClaimsAllowMultipleGuidanceSubmissionsForOneCanonicalTurn(t *test
 	}
 }
 
-func TestSubmitClaimV2BackfillsAcceptedAndLeavesLegacyPreparedUnknown(t *testing.T) {
+func TestSubmitClaimMigrationsBackfillTurnsAndLeaveLegacyGuidanceUnknown(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := New(openTestDB(t), testOptions(&staticProjectPaths{}))
@@ -117,13 +171,14 @@ VALUES
 	if err := store.applyWorkspaceAgentSubmitClaimsV2(ctx); err != nil {
 		t.Fatal(err)
 	}
-	accepted, ok, err := store.getSubmitClaim(ctx, "ws-1", "session-1", "accepted-legacy")
-	if err != nil || !ok || accepted.CanonicalTurnID != "turn-accepted" {
-		t.Fatalf("accepted legacy claim=%#v ok=%v err=%v", accepted, ok, err)
-	}
-	prepared, ok, err := store.getSubmitClaim(ctx, "ws-1", "session-1", "prepared-legacy")
-	if err != nil || !ok || prepared.CanonicalTurnID != "" || prepared.Status != "prepared" {
-		t.Fatalf("prepared legacy claim=%#v ok=%v err=%v", prepared, ok, err)
+	var acceptedCanonical, preparedCanonical sql.NullString
+	if err := store.db.QueryRowContext(ctx, `
+SELECT
+  (SELECT canonical_turn_id FROM workspace_agent_submit_claims WHERE client_submit_id='accepted-legacy'),
+  (SELECT canonical_turn_id FROM workspace_agent_submit_claims WHERE client_submit_id='prepared-legacy')
+`).Scan(&acceptedCanonical, &preparedCanonical); err != nil ||
+		!acceptedCanonical.Valid || acceptedCanonical.String != "turn-accepted" || preparedCanonical.Valid {
+		t.Fatalf("v2 canonical accepted=%#v prepared=%#v error=%v", acceptedCanonical, preparedCanonical, err)
 	}
 	if err := store.applyWorkspaceAgentSubmitClaimsV3(ctx); err != nil {
 		t.Fatal(err)
@@ -135,8 +190,19 @@ VALUES ('ws-1', 'session-1', 'rejected-v3', 'rejected', 'turn-rejected', 3, 4, '
 `); err != nil {
 		t.Fatalf("insert rejected v3 claim: %v", err)
 	}
+	if err := store.applyWorkspaceAgentSubmitClaimsV4(ctx); err != nil {
+		t.Fatal(err)
+	}
+	accepted, ok, err := store.getSubmitClaim(ctx, "ws-1", "session-1", "accepted-legacy")
+	if err != nil || !ok || accepted.CanonicalTurnID != "turn-accepted" || accepted.GuidanceDisposition != "" {
+		t.Fatalf("accepted legacy claim=%#v ok=%v err=%v", accepted, ok, err)
+	}
+	prepared, ok, err := store.getSubmitClaim(ctx, "ws-1", "session-1", "prepared-legacy")
+	if err != nil || !ok || prepared.CanonicalTurnID != "" || prepared.Status != "prepared" || prepared.GuidanceDisposition != "" {
+		t.Fatalf("prepared legacy claim=%#v ok=%v err=%v", prepared, ok, err)
+	}
 	rejected, ok, err := store.getSubmitClaim(ctx, "ws-1", "session-1", "rejected-v3")
-	if err != nil || !ok || rejected.Status != "rejected" || rejected.TurnID != "turn-rejected" {
+	if err != nil || !ok || rejected.Status != "rejected" || rejected.TurnID != "turn-rejected" || rejected.GuidanceDisposition != "" {
 		t.Fatalf("rejected v3 claim=%#v ok=%v err=%v", rejected, ok, err)
 	}
 }

@@ -857,6 +857,9 @@ type SendInputResult struct {
 	SubmitAvailability SubmitAvailability
 	Kind               string
 	GoalControl        *GoalControlResult
+	// GuidanceDisposition is set for every guidance attempt, including typed
+	// failure returns. Ordinary sends leave it empty.
+	GuidanceDisposition GuidanceDeliveryDisposition
 }
 
 type UpdateTitleResult struct {

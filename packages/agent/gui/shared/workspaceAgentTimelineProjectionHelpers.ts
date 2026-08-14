@@ -147,13 +147,30 @@ export function visibleErrorFromPayload(
   payload: Record<string, unknown> | null
 ): WorkspaceAgentSessionDetailMessage["visibleError"] {
   if (stringRecordValue(payload, "kind") !== "agent_visible_error") return null;
+  const actionKind = boundedStringRecordValue(payload, "actionKind", 128);
+  const actionLabel = boundedStringRecordValue(payload, "actionLabel", 200);
+  const actionHref = boundedStringRecordValue(payload, "actionHref", 4_000);
+  const customAction =
+    actionKind && actionLabel && actionHref
+      ? { actionKind, actionLabel, actionHref }
+      : null;
   return {
     code: stringRecordValue(payload, "code"),
     phase: stringRecordValue(payload, "phase"),
     provider: stringRecordValue(payload, "provider"),
     detail: stringRecordValue(payload, "detail"),
-    retryable: booleanRecordValue(payload, "retryable")
+    retryable: booleanRecordValue(payload, "retryable"),
+    ...(customAction ?? {})
   };
+}
+
+function boundedStringRecordValue(
+  record: unknown,
+  key: string,
+  maxChars: number
+): string | null {
+  const value = stringRecordValue(record, key);
+  return value && value.length <= maxChars ? value : null;
 }
 
 export function systemNoticeFromPayload(

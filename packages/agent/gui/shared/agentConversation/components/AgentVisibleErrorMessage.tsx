@@ -10,6 +10,7 @@ import {
 } from "../../agentEnv/agentErrorPresentation";
 import { useAgentVisibleErrorPresentationOverrides } from "../../visibleError/AgentVisibleErrorPresentationContext";
 import type { AgentMessageContentVM } from "../contracts/agentMessageRowVM";
+import type { WorkspaceLinkAction } from "../../../contexts/workspace/presentation/renderer/actions/workspaceLinkActions";
 
 // All error banners use the light-red danger surface. Yellow/warning surfaces
 // are banned for notice boxes — see "Badges And Status" in
@@ -44,11 +45,13 @@ export function recoverVisibleErrorFromMessage(
 
 export function AgentVisibleErrorMessage({
   message,
-  onExternalLink
+  onExternalLink,
+  onLinkAction
 }: {
   message: AgentMessageContentVM;
   onAuthLogin?: (provider?: string | null) => void;
   onExternalLink?: (href: string) => void;
+  onLinkAction?: (action: WorkspaceLinkAction) => void;
 }): JSX.Element {
   "use memo";
   const openAgentEnvPanel = useOpenAgentEnvPanel();
@@ -79,6 +82,21 @@ export function AgentVisibleErrorMessage({
   const focus = presentation?.focus ?? null;
   const actionKey = presentation?.actionKey ?? null;
   const externalAction = presentationOverride?.action ?? null;
+  const customActionKind = error?.actionKind?.trim() ?? "";
+  const customActionLabel = error?.actionLabel?.trim() ?? "";
+  const customActionHref = error?.actionHref?.trim() ?? "";
+  const customAction =
+    customActionKind &&
+    customActionLabel &&
+    customActionHref &&
+    onLinkAction
+      ? {
+          kind: customActionKind,
+          label: customActionLabel,
+          href: customActionHref,
+          dispatch: onLinkAction
+        }
+      : null;
   const hint = visibleErrorHint(message);
   const rawDetail = error?.detail ?? "";
   const showRawDetail = error?.detailAvailable === true && rawDetail !== "";
@@ -113,7 +131,8 @@ export function AgentVisibleErrorMessage({
             />
           ) : null}
         </div>
-        {(externalAction?.url && onExternalLink) ||
+        {customAction ||
+        (externalAction?.url && onExternalLink) ||
         (actionKey && focus && openAgentEnvPanel) ? (
           <Button
             type="button"
@@ -121,6 +140,15 @@ export function AgentVisibleErrorMessage({
             size="sm"
             className="shrink-0"
             onClick={() => {
+              if (customAction) {
+                customAction.dispatch({
+                  type: "open-custom-mention",
+                  kind: customAction.kind,
+                  href: customAction.href,
+                  source: "agent-visible-error"
+                });
+                return;
+              }
               if (externalAction?.url) {
                 onExternalLink?.(externalAction.url);
                 return;
@@ -133,7 +161,9 @@ export function AgentVisibleErrorMessage({
               }
             }}
           >
-            {externalAction?.label || (actionKey ? translate(actionKey) : null)}
+            {customAction?.label ||
+              externalAction?.label ||
+              (actionKey ? translate(actionKey) : null)}
           </Button>
         ) : null}
       </div>

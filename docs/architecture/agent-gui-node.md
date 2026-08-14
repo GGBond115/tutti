@@ -1239,11 +1239,21 @@ The busy-session prompt queue is ephemeral durable-intent coordination in the wo
   and carries it through the queue, activity adapter, daemon API, Agent Host,
   and runtime Controller; `turnId` is required for every cross-process
   guidance request and is never inferred from the latest Session snapshot
-- Host and the runtime Controller compare that target with the live active
-  Turn while holding the lifecycle admission lock. A mismatch is a typed
-  pre-provider rejection (`NotDispatched`), and a prepared submit claim is
-  removed so the failed guidance cannot strand the queue or be redirected to a
-  newer Turn
+- shared hosts may set `guidanceFallback: "work"` with that locked target.
+  Activity Core forwards it only on a guidance command; if local drain observes
+  the target already settled, it preserves the existing same-`clientSubmitId`
+  ordinary send and strips the target and fallback before the effect boundary
+- Host and the runtime Controller compare the exact target with the live active
+  Turn while holding the lifecycle admission lock. Only the typed
+  `not_dispatched_target_inactive` verdict proves zero provider calls and causes
+  Host to durably remove the prepared guidance claim. Cleanup failure,
+  unrelated preconditions, explicit provider rejection, and outcome unknown
+  retain the identity fence and cannot become ordinary work
+- Host prepares the guidance claim before waiting for Workspace/Session
+  mutation admission and durably records every typed non-target-inactive
+  verdict before returning. Process restart therefore replays the same verdict
+  without provider dispatch, including cancellation while waiting for the
+  serialized mutation lane
 - otherwise send-now performs exact cancel-then-send
 - user Stop pauses the queue; cancellation must not leak the next prompt
 - a prompt settings precondition is an explicit preparation stage, not a nested
@@ -1588,6 +1598,14 @@ not call back into selection or Rail state. There is no separate messages-only
 Engine reconcile helper.
 
 Timeline projection is pure, deterministic, and provider-neutral. React views render rows/cards and dispatch actions.
+An `agent_visible_error` payload may optionally carry one bounded, atomic Host
+action through `actionKind`, `actionLabel`, and `actionHref`. Projection keeps
+the action only when all three non-empty values satisfy their bounds, and the
+visible-error card renders it only when the host supplied `onLinkAction`.
+Clicking dispatches `open-custom-mention` with source `agent-visible-error`;
+AgentGUI does not retry, resend, or reinterpret the href. Producers attach the
+action only to a known recoverable failure. An outcome-unknown failure omits
+the action so uncertain delivery cannot become an implicit retry.
 Transcript Turn membership and order come only from timeline items in the
 hydrated message window. Session-wide canonical Turn metadata may enrich an
 already projected Turn by exact `turnId`—for example, by adding a view-only

@@ -92,11 +92,16 @@ func TestCodexAppServerAdapterGuideActiveTurnUsesTurnSteer(t *testing.T) {
 		return adapter.sessionActiveTurnID(session.AgentSessionID) == "turn-1"
 	})
 
-	returned, err := adapter.GuideActiveTurn(
+	var dispatch ProviderDispatchResult
+	returned, err := adapter.GuideActiveTurnWithDispatch(
 		context.Background(), session, textPrompt("guide current turn"), "", "turn-local-1", nil, nil,
+		func(result ProviderDispatchResult) { dispatch = result },
 	)
 	if err != nil {
 		t.Fatalf("GuideActiveTurn: %v", err)
+	}
+	if dispatch.GuidanceDisposition != GuidanceDeliveryDispositionApplied {
+		t.Fatalf("guidance dispatch = %#v, want applied", dispatch)
 	}
 	steer := appServerRequestParams(t, transport.conn, appServerMethodTurnSteer)
 	if asString(steer["threadId"]) != "codex-thread-1" || asString(steer["expectedTurnId"]) != "turn-1" {

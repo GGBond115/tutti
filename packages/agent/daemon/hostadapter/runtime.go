@@ -276,6 +276,9 @@ func (a *RuntimeController) Exec(ctx context.Context, input host.RuntimeExecInpu
 		projected.ProviderDispatch.Disposition = host.RuntimeDispatchDisposition(
 			result.ProviderDispatch.Disposition,
 		)
+		projected.ProviderDispatch.GuidanceDisposition = host.GuidanceDeliveryDisposition(
+			result.ProviderDispatch.GuidanceDisposition,
+		)
 		if result.ProviderDispatch.Acceptance != nil {
 			projected.ProviderDispatch.Acceptance = &host.RuntimeProviderAcceptanceReceipt{
 				ProviderSessionID: result.ProviderDispatch.Acceptance.ProviderSessionID,
@@ -662,6 +665,9 @@ func mapRuntimeError(err error) error {
 	}
 	if errors.Is(err, agentruntime.ErrActiveTurnTargetRequired) {
 		return errors.Join(host.ErrActiveTurnTargetRequired, err)
+	}
+	if errors.Is(err, agentruntime.ErrActiveTurnTargetInactive) {
+		return errors.Join(host.ErrActiveTurnTargetInactive, err)
 	}
 	if errors.Is(err, agentruntime.ErrActiveTurnTargetMismatch) {
 		return errors.Join(host.ErrActiveTurnTargetMismatch, err)

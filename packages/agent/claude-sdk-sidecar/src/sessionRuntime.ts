@@ -85,6 +85,31 @@ export type SessionCancelResult = {
   dispatchPhase: ProviderTurnPhase | "pending_goal" | "unknown";
 };
 
+type GuidanceFailureDisposition =
+  | "not_dispatched_precondition_failed"
+  | "outcome_unknown";
+
+class GuidanceDeliveryError extends Error {
+  readonly deliveryDisposition: GuidanceFailureDisposition;
+  readonly stage: string;
+
+  constructor(
+    message: string,
+    deliveryDisposition: GuidanceFailureDisposition,
+    stage: string,
+    cause?: unknown
+  ) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "GuidanceDeliveryError";
+    this.deliveryDisposition = deliveryDisposition;
+    this.stage = stage;
+  }
+}
+
+function isGuidanceDeliveryError(error: unknown): error is GuidanceDeliveryError {
+  return error instanceof GuidanceDeliveryError;
+}
+
 function cancelResult(
   canceled: boolean,
   disposition: SessionCancelDisposition,
@@ -553,11 +578,13 @@ export class SessionRuntime {
       this.driver.guide(prompt);
       return;
     }
-    if (this.sessionClosed) {
-      throw new Error("Claude SDK query is closed");
-    }
     const executionEpoch = this.executionEpoch;
+    let providerBoundaryEntered = false;
+    let failureStage = "precondition";
     try {
+      if (this.sessionClosed) {
+        throw new Error("Claude SDK query is closed");
+      }
       const generation = this.queryGeneration;
       if (
         !generation ||
@@ -582,6 +609,8 @@ export class SessionRuntime {
       // Mark the interrupt so the following error_during_execution result
       // keeps this turn alive for the guided prompt (see messageRouter).
       this.pendingGuidanceInterrupt = true;
+      providerBoundaryEntered = true;
+      failureStage = "provider_interrupt";
       try {
         // Calling the SDK method happens before this async function first
         // yields. Guidance must not wait behind query setup or configuration
@@ -592,9 +621,11 @@ export class SessionRuntime {
         this.diagnostics.logAuthRefresh("guide.interrupt_failed", {
           error: errorPayload(error)
         });
-        throw new Error(
+        throw new GuidanceDeliveryError(
           `Claude SDK guidance preemption failed: ${errorMessage(error)}`,
-          { cause: error }
+          "outcome_unknown",
+          failureStage,
+          error
         );
       }
       if (
@@ -611,6 +642,7 @@ export class SessionRuntime {
         type: "guidance_interrupted",
         payload: { turnId }
       });
+      failureStage = "prompt_enqueue";
       const sdkContent = sdkContentFromPromptBlocks(
         content,
         prompt
@@ -632,10 +664,25 @@ export class SessionRuntime {
         throw error;
       }
     } catch (error) {
+      if (providerBoundaryEntered) {
+        this.pendingGuidanceInterrupt = false;
+      }
+      const deliveryError = isGuidanceDeliveryError(error)
+        ? error
+        : new GuidanceDeliveryError(
+            errorMessage(error),
+            providerBoundaryEntered
+              ? "outcome_unknown"
+              : "not_dispatched_precondition_failed",
+            failureStage,
+            error
+          );
       this.diagnostics.logAuthRefresh("guide.failed", {
-        error: errorPayload(error)
+        error: errorPayload(deliveryError),
+        deliveryDisposition: deliveryError.deliveryDisposition,
+        stage: deliveryError.stage
       });
-      throw error;
+      throw deliveryError;
     }
   }
 

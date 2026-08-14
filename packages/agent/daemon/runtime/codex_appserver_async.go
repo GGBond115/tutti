@@ -43,6 +43,7 @@ func (a *CodexAppServerAdapter) execAsync(
 	emit EventSink,
 	emitCommands CommandSnapshotSink,
 	continuation *codexGuidanceContinuationAdmission,
+	reportDispatch ProviderDispatchSink,
 ) error {
 	go func() {
 		events, err := a.execBlocking(
@@ -53,7 +54,7 @@ func (a *CodexAppServerAdapter) execAsync(
 			turnID,
 			emit,
 			emitCommands,
-			codexTurnExecOptions{continuation: continuation},
+			codexTurnExecOptions{continuation: continuation, reportDispatch: reportDispatch},
 		)
 		if continuation != nil && !continuation.published() {
 			return

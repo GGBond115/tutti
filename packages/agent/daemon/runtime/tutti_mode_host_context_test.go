@@ -406,6 +406,31 @@ func (a *tuttiModeGuidanceCaptureAdapter) GuideActiveTurn(
 	return events, nil
 }
 
+func (a *tuttiModeGuidanceCaptureAdapter) GuideActiveTurnWithDispatch(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	events, err := a.GuideActiveTurn(ctx, session, content, displayPrompt, turnID, emit, emitCommands)
+	if err != nil {
+		reportDispatch(ProviderDispatchResult{
+			Disposition:         DispatchDispositionOutcomeUnknown,
+			GuidanceDisposition: GuidanceDeliveryDispositionOutcomeUnknown,
+		})
+		return events, err
+	}
+	reportDispatch(ProviderDispatchResult{
+		Disposition:         DispatchDispositionAppliedWithoutProviderTurn,
+		GuidanceDisposition: GuidanceDeliveryDispositionApplied,
+	})
+	return events, nil
+}
+
 func TestControllerGuidanceReusesFrozenTuttiModeSnapshot(t *testing.T) {
 	adapter := &tuttiModeGuidanceCaptureAdapter{
 		blockingExecAdapter: newBlockingExecAdapter(),

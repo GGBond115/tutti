@@ -1,5 +1,6 @@
 import type {
   AgentActivityCapabilityReference,
+  AgentActivityGuidanceFallback,
   AgentActivityInitialGoalControl,
   AgentActivityInitialTuttiModeActivation,
   AgentActivityMessage,
@@ -269,6 +270,7 @@ export interface SubmitRequestedIntent {
   capabilityRefs?: readonly AgentActivityCapabilityReference[];
   content: readonly AgentPromptContentBlock[];
   displayPrompt?: string;
+  guidanceFallback?: AgentActivityGuidanceFallback;
   expiresAtUnixMs: number;
   submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
   requestedAtUnixMs: number;

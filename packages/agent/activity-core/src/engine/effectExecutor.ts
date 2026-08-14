@@ -317,6 +317,9 @@ function promptInput(
     content: [...command.content],
     displayPrompt: command.displayPrompt ?? null,
     ...(command.guidance === true ? { guidance: true } : {}),
+    ...(command.guidance === true && command.guidanceFallback
+      ? { guidanceFallback: command.guidanceFallback }
+      : {}),
     ...(command.guidance === true && command.targetTurnId?.trim()
       ? { targetTurnId: command.targetTurnId.trim() }
       : {}),

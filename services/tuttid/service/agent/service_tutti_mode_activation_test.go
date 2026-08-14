@@ -214,7 +214,7 @@ func TestExecWithTuttiModeSnapshotTreatsGuidanceTransportErrorAsUnknownWithoutDe
 	}
 }
 
-func TestExecWithTuttiModeSnapshotRejectsGuidanceWhenActiveTurnChangedBeforeDispatch(t *testing.T) {
+func TestExecWithTuttiModeSnapshotPreservesExactGuidanceTargetForHostCheck(t *testing.T) {
 	t.Parallel()
 	activeTurnID := "turn-new"
 	coordinator := &fakeTuttiModeActivationCoordinator{
@@ -222,14 +222,14 @@ func TestExecWithTuttiModeSnapshotRejectsGuidanceWhenActiveTurnChangedBeforeDisp
 	}
 	service := &Service{TuttiModeActivations: coordinator}
 	dispatches := 0
-	_, disposition, err := service.execWithTuttiModeSnapshot(context.Background(), "workspace-1", "session-1", true, ProviderRuntimeSession{
+	result, disposition, err := service.execWithTuttiModeSnapshot(context.Background(), "workspace-1", "session-1", true, ProviderRuntimeSession{
 		TurnLifecycle: &TurnLifecycle{ActiveTurnID: &activeTurnID},
-	}, "turn-old", func(string, *TuttiModeTurnSnapshot) (RuntimeExecResult, error) {
+	}, "turn-old", func(turnID string, _ *TuttiModeTurnSnapshot) (RuntimeExecResult, error) {
 		dispatches++
-		return RuntimeExecResult{}, nil
+		return RuntimeExecResult{TurnID: turnID, Accepted: true}, nil
 	})
-	if !errors.Is(err, ErrSubmitRejectedBeforeAcceptance) || disposition != submitDeliveryRejectedBeforeAcceptance || dispatches != 0 || coordinator.abandonedTurnID != "" {
-		t.Fatalf("error=%v disposition=%q dispatches=%d coordinator=%#v", err, disposition, dispatches, coordinator)
+	if err != nil || disposition != submitDeliveryAcceptedExact || result.TurnID != "turn-old" || dispatches != 1 || coordinator.existingTurnID != "turn-old" || coordinator.abandonedTurnID != "" {
+		t.Fatalf("result=%#v error=%v disposition=%q dispatches=%d coordinator=%#v", result, err, disposition, dispatches, coordinator)
 	}
 }
 

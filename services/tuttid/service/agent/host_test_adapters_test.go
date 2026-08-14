@@ -293,6 +293,16 @@ func (a serviceHostStore) PrepareSubmitClaim(ctx context.Context, input storesql
 	return a.service.SubmitClaimStore.PrepareSubmitClaim(ctx, input)
 }
 
+func (a serviceHostStore) RecordSubmitClaimGuidanceDisposition(
+	ctx context.Context,
+	input storesqlite.SubmitClaimGuidanceDispositionRecord,
+) (storesqlite.SubmitClaim, bool, error) {
+	if a.service.SubmitClaimStore == nil {
+		return storesqlite.SubmitClaim{}, false, nil
+	}
+	return a.service.SubmitClaimStore.RecordSubmitClaimGuidanceDisposition(ctx, input)
+}
+
 func (a serviceHostStore) AcceptSubmitClaim(ctx context.Context, workspaceID, sessionID, clientSubmitID, turnID string, now int64) (storesqlite.SubmitClaim, bool, error) {
 	if a.service.SubmitClaimStore == nil {
 		return storesqlite.SubmitClaim{}, false, nil

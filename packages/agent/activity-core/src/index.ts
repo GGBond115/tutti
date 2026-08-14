@@ -371,6 +371,7 @@ export type {
   AgentActivityActivationStatus,
   AgentActivityCancelTurnInput,
   AgentActivityGoalControlAction,
+  AgentActivityGuidanceFallback,
   AgentActivityInitialGoalControl,
   AgentActivityGoalControlInput,
   AgentActivityGoalControlResult,

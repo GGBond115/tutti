@@ -15,9 +15,15 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	if input.Guidance || input.HistoryReplacement || input.RequireProviderAcceptance {
 		defer func() {
 			if err != nil && result.ProviderDispatch == nil {
-				result.ProviderDispatch = &ProviderDispatchResult{
-					Disposition: DispatchDispositionNotDispatched,
+				dispatch := ProviderDispatchResult{Disposition: DispatchDispositionNotDispatched}
+				if input.Guidance {
+					// Every error before guideActiveTurn invokes a provider adapter is a
+					// known local precondition failure. Once an adapter is invoked, the
+					// guidance path below always installs its typed result and this
+					// fallback is unreachable.
+					dispatch.GuidanceDisposition = GuidanceDeliveryDispositionPreconditionFailed
 				}
+				result.ProviderDispatch = &dispatch
 			}
 		}()
 	}
@@ -346,13 +352,19 @@ func (c *Controller) guideActiveTurn(
 	capabilityRefs []activityshared.CapabilityReference,
 	expectedTurnID string,
 ) (ExecResult, error) {
-	guidanceAdapter, ok := adapter.(ActiveTurnGuidanceAdapter)
+	guidanceAdapter, ok := adapter.(ActiveTurnGuidanceDispatchAdapter)
 	if !ok {
-		return ExecResult{}, ErrActiveTurnGuidanceUnsupported
+		return guidanceExecResult(session.AgentSessionID, strings.TrimSpace(expectedTurnID), ProviderDispatchResult{
+			Disposition:         DispatchDispositionNotDispatched,
+			GuidanceDisposition: GuidanceDeliveryDispositionPreconditionFailed,
+		}), ErrActiveTurnGuidanceUnsupported
 	}
 	turnID, ok := c.activeTurnID(session.RoomID, session.AgentSessionID)
 	if !ok {
-		return ExecResult{}, ErrSessionNoActiveTurn
+		return guidanceExecResult(session.AgentSessionID, strings.TrimSpace(expectedTurnID), ProviderDispatchResult{
+			Disposition:         DispatchDispositionNotDispatched,
+			GuidanceDisposition: GuidanceDeliveryDispositionTargetInactive,
+		}), errors.Join(ErrActiveTurnTargetInactive, ErrActiveTurnTargetMismatch, ErrSessionNoActiveTurn)
 	}
 	// The lifecycle lock held by Exec makes this comparison and the provider
 	// admission below one serialized decision. A guidance request is allowed to
@@ -361,14 +373,13 @@ func (c *Controller) guideActiveTurn(
 	// this method. When a target is present, never retarget to whichever turn is
 	// current when the request happens to arrive.
 	if expectedTurnID = strings.TrimSpace(expectedTurnID); expectedTurnID != "" && expectedTurnID != turnID {
-		return ExecResult{
-			AgentSessionID: session.AgentSessionID,
-			Status:         ExecStatusStarted,
-			TurnID:         expectedTurnID,
-			ProviderDispatch: &ProviderDispatchResult{
-				Disposition: DispatchDispositionNotDispatched,
-			},
-		}, fmt.Errorf("%w: expected %q, current %q", ErrActiveTurnTargetMismatch, expectedTurnID, turnID)
+		return guidanceExecResult(session.AgentSessionID, expectedTurnID, ProviderDispatchResult{
+				Disposition:         DispatchDispositionNotDispatched,
+				GuidanceDisposition: GuidanceDeliveryDispositionTargetInactive,
+			}), errors.Join(
+				ErrActiveTurnTargetInactive,
+				fmt.Errorf("%w: expected %q, current %q", ErrActiveTurnTargetMismatch, expectedTurnID, turnID),
+			)
 	}
 	runCtx := ctx
 	if len(metadata) > 0 {
@@ -392,12 +403,44 @@ func (c *Controller) guideActiveTurn(
 	emitCommands := func(snapshot AgentSessionCommandSnapshot) {
 		c.applyCommandSnapshotByAgentSessionID(snapshot)
 	}
-	events, err := guidanceAdapter.GuideActiveTurn(runCtx, session, content, displayPrompt, turnID, emit, emitCommands)
+	dispatchObserver := newProviderDispatchObserver()
+	events, err := guidanceAdapter.GuideActiveTurnWithDispatch(
+		runCtx,
+		session,
+		content,
+		displayPrompt,
+		turnID,
+		emit,
+		emitCommands,
+		dispatchObserver.Report,
+	)
+	var dispatch ProviderDispatchResult
+	select {
+	case observation := <-dispatchObserver.result:
+		dispatch = observation.dispatch
+	default:
+		// The provider adapter was invoked, so a missing report can no longer
+		// prove non-dispatch. Fail closed even when the adapter returned a local
+		// looking error.
+		dispatch = ProviderDispatchResult{
+			Disposition:         DispatchDispositionOutcomeUnknown,
+			GuidanceDisposition: GuidanceDeliveryDispositionOutcomeUnknown,
+		}
+		if err == nil {
+			err = errors.New("active-turn guidance adapter returned without a delivery disposition")
+		}
+	}
+	result := guidanceExecResult(session.AgentSessionID, turnID, dispatch)
 	if err != nil {
 		logAgentSubmitTrace("runtime.exec.guidance_failed", session, turnID, metadata, map[string]any{
 			"error": err.Error(),
 		})
-		return ExecResult{}, err
+		return result, err
+	}
+	if dispatch.GuidanceDisposition != GuidanceDeliveryDispositionApplied ||
+		(dispatch.Disposition != DispatchDispositionApplied &&
+			dispatch.Disposition != DispatchDispositionAppliedWithoutProviderTurn) {
+		return result, errors.New("active-turn guidance adapter returned a non-applied disposition without an error")
 	}
 	emittedMu.Lock()
 	remaining := unemittedActivityEvents(events, emitted)
@@ -415,13 +458,8 @@ func (c *Controller) guideActiveTurn(
 	logAgentSubmitTrace("runtime.exec.guidance", session, turnID, metadata, map[string]any{
 		"activity_event_count": len(events),
 	})
-	result := ExecResult{
-		AgentSessionID: session.AgentSessionID,
-		Status:         ExecStatusStarted,
-		TurnID:         turnID,
-		Accepted:       true,
-		SessionStatus:  session.Status,
-	}
+	result.Accepted = true
+	result.SessionStatus = session.Status
 	if session.TurnLifecycle != nil {
 		result.TurnLifecycle = *session.TurnLifecycle
 	}
@@ -429,6 +467,15 @@ func (c *Controller) guideActiveTurn(
 		result.SubmitAvailability = *session.SubmitAvailability
 	}
 	return result, nil
+}
+
+func guidanceExecResult(agentSessionID, turnID string, dispatch ProviderDispatchResult) ExecResult {
+	return ExecResult{
+		AgentSessionID:   agentSessionID,
+		Status:           ExecStatusStarted,
+		TurnID:           turnID,
+		ProviderDispatch: &dispatch,
+	}
 }
 
 type GoalControlInput struct {

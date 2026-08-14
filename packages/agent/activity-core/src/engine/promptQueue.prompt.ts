@@ -30,6 +30,9 @@ export function normalizeQueuedPrompt(
       ? { displayPrompt: prompt.displayPrompt.trim() }
       : {}),
     ...(prompt.guidance === true ? { guidance: true } : {}),
+    ...(prompt.guidanceFallback
+      ? { guidanceFallback: prompt.guidanceFallback }
+      : {}),
     id,
     ...clonePromptRequiredSettingsPatch(prompt.requiredSettingsPatch),
     ...(prompt.submitDiagnostics

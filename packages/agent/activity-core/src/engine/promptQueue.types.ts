@@ -1,5 +1,6 @@
 import type {
   AgentActivityCapabilityReference,
+  AgentActivityGuidanceFallback,
   AgentActivitySubmitDiagnostics,
   AgentActivitySubmitSettingsPatch,
   AgentPromptContentBlock
@@ -12,6 +13,7 @@ export interface EngineQueuedPrompt {
   createdAtUnixMs: number;
   displayPrompt?: string;
   guidance?: boolean;
+  guidanceFallback?: AgentActivityGuidanceFallback;
   id: string;
   requiredSettingsPatch?: Readonly<AgentActivitySubmitSettingsPatch>;
   submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
@@ -107,6 +109,7 @@ export interface PromptQueueSendCommand {
   content: readonly AgentPromptContentBlock[];
   displayPrompt?: string;
   guidance?: boolean;
+  guidanceFallback?: AgentActivityGuidanceFallback;
   submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
   /** Exact canonical active Turn targeted by a native guidance send. */
   targetTurnId?: string;

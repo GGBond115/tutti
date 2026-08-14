@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,47 +25,48 @@ import (
 )
 
 type fakeRuntime struct {
-	mu                      sync.Mutex
-	nextID                  int
-	canResumeCalls          []RuntimeResumeInput
-	canResumeHook           func(RuntimeResumeInput) bool
-	cancelCalls             []RuntimeCancelInput
-	cancelResult            RuntimeCancelResult
-	cancelResultSet         bool
-	closeErr                error
-	closeCalls              []RuntimeCloseInput
-	execErr                 error
-	execHook                func(RuntimeExecInput) (RuntimeExecResult, error)
-	execCalls               []RuntimeExecInput
-	guidanceTargetMismatch  bool
-	guidanceTarget          string
-	guidanceProviderCalls   int
-	provenanceErr           error
-	provenanceHook          func(RuntimeSubmitProvenanceInput) error
-	provenanceCalls         []RuntimeSubmitProvenanceInput
-	goalControlCalls        []RuntimeGoalControlInput
-	goalControlHook         func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error)
-	goalReconcileCalls      []RuntimeGoalControlInput
-	goalReconcileHook       func(context.Context, RuntimeGoalControlInput) (RuntimeGoalReconcileResult, error)
-	goalRecoveryPolicyHook  func(context.Context, RuntimeGoalControlInput) (RuntimeGoalRecoveryPolicy, error)
-	goalGenerationFences    []RuntimeGoalGenerationFenceInput
-	goalGenerationFenceHook func(context.Context, RuntimeGoalGenerationFenceInput) error
-	resumeCalls             []RuntimeResumeInput
-	sessions                map[string]ProviderRuntimeSession
-	disconnectedSessions    map[string]bool
-	submitInteractiveCalls  []RuntimeSubmitInteractiveInput
-	submitInteractiveErr    error
-	interactiveDisposition  RuntimeInteractiveDisposition
-	startErr                error
-	startCalls              []RuntimeStartInput
-	startHook               func(RuntimeStartInput, ProviderRuntimeSession) ProviderRuntimeSession
-	publishInitCalls        []RuntimeSessionInitializationPublishInput
-	publishInitHook         func(RuntimeSessionInitializationPublishInput, ProviderRuntimeSession) error
-	pendingInits            map[string]bool
-	updateSettingsCalls     []RuntimeUpdateSettingsInput
-	closeHook               func(RuntimeCloseInput)
-	validateErr             error
-	validateCalls           []RuntimeExecInput
+	mu                         sync.Mutex
+	nextID                     int
+	canResumeCalls             []RuntimeResumeInput
+	canResumeHook              func(RuntimeResumeInput) bool
+	cancelCalls                []RuntimeCancelInput
+	cancelResult               RuntimeCancelResult
+	cancelResultSet            bool
+	closeErr                   error
+	closeCalls                 []RuntimeCloseInput
+	execErr                    error
+	execHook                   func(RuntimeExecInput) (RuntimeExecResult, error)
+	execCalls                  []RuntimeExecInput
+	guidanceTargetMismatch     bool
+	guidanceFailureDisposition agenthost.GuidanceDeliveryDisposition
+	guidanceTarget             string
+	guidanceProviderCalls      int
+	provenanceErr              error
+	provenanceHook             func(RuntimeSubmitProvenanceInput) error
+	provenanceCalls            []RuntimeSubmitProvenanceInput
+	goalControlCalls           []RuntimeGoalControlInput
+	goalControlHook            func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error)
+	goalReconcileCalls         []RuntimeGoalControlInput
+	goalReconcileHook          func(context.Context, RuntimeGoalControlInput) (RuntimeGoalReconcileResult, error)
+	goalRecoveryPolicyHook     func(context.Context, RuntimeGoalControlInput) (RuntimeGoalRecoveryPolicy, error)
+	goalGenerationFences       []RuntimeGoalGenerationFenceInput
+	goalGenerationFenceHook    func(context.Context, RuntimeGoalGenerationFenceInput) error
+	resumeCalls                []RuntimeResumeInput
+	sessions                   map[string]ProviderRuntimeSession
+	disconnectedSessions       map[string]bool
+	submitInteractiveCalls     []RuntimeSubmitInteractiveInput
+	submitInteractiveErr       error
+	interactiveDisposition     RuntimeInteractiveDisposition
+	startErr                   error
+	startCalls                 []RuntimeStartInput
+	startHook                  func(RuntimeStartInput, ProviderRuntimeSession) ProviderRuntimeSession
+	publishInitCalls           []RuntimeSessionInitializationPublishInput
+	publishInitHook            func(RuntimeSessionInitializationPublishInput, ProviderRuntimeSession) error
+	pendingInits               map[string]bool
+	updateSettingsCalls        []RuntimeUpdateSettingsInput
+	closeHook                  func(RuntimeCloseInput)
+	validateErr                error
+	validateCalls              []RuntimeExecInput
 }
 
 type fakeAgentTargetStore struct {
@@ -623,9 +625,30 @@ func (f *fakeRuntime) Exec(_ context.Context, input RuntimeExecInput) (RuntimeEx
 			AgentSessionID: input.AgentSessionID,
 			TurnID:         input.TurnID,
 			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
-				Disposition: agenthost.RuntimeDispatchDispositionNotDispatched,
+				Disposition:         agenthost.RuntimeDispatchDispositionNotDispatched,
+				GuidanceDisposition: agenthost.GuidanceDeliveryDispositionTargetInactive,
 			},
 		}, ErrActiveTurnTargetMismatch
+	}
+	if input.Guidance && f.guidanceFailureDisposition != "" {
+		disposition := f.guidanceFailureDisposition
+		dispatchDisposition := agenthost.RuntimeDispatchDispositionOutcomeUnknown
+		switch disposition {
+		case agenthost.GuidanceDeliveryDispositionPreconditionFailed:
+			dispatchDisposition = agenthost.RuntimeDispatchDispositionNotDispatched
+		case agenthost.GuidanceDeliveryDispositionExplicitRejection:
+			dispatchDisposition = agenthost.RuntimeDispatchDispositionRejected
+		case agenthost.GuidanceDeliveryDispositionOutcomeUnknown:
+			dispatchDisposition = agenthost.RuntimeDispatchDispositionOutcomeUnknown
+		}
+		return RuntimeExecResult{
+			AgentSessionID: input.AgentSessionID,
+			TurnID:         input.TurnID,
+			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
+				Disposition:         dispatchDisposition,
+				GuidanceDisposition: disposition,
+			},
+		}, fmt.Errorf("guidance failed with disposition %s", disposition)
 	}
 	if input.Guidance {
 		f.guidanceProviderCalls++
@@ -651,14 +674,21 @@ func (f *fakeRuntime) Exec(_ context.Context, input RuntimeExecInput) (RuntimeEx
 	if turnID == "" {
 		turnID = "turn-1"
 	}
-	return RuntimeExecResult{
+	result := RuntimeExecResult{
 		AgentSessionID: input.AgentSessionID,
 		Status:         "started",
 		Accepted:       true,
 		SessionStatus:  "working",
 		TurnID:         turnID,
 		TurnLifecycle:  TurnLifecycle{Phase: "submitted"},
-	}, nil
+	}
+	if input.Guidance {
+		result.ProviderDispatch = agenthost.RuntimeProviderDispatchResult{
+			Disposition:         agenthost.RuntimeDispatchDispositionApplied,
+			GuidanceDisposition: agenthost.GuidanceDeliveryDispositionApplied,
+		}
+	}
+	return result, nil
 }
 
 func (f *fakeRuntime) DurablyReportSubmitProvenance(_ context.Context, input RuntimeSubmitProvenanceInput) error {

@@ -77,8 +77,11 @@ type EffectiveHistoryStore interface {
 
 type CanonicalSubmitClaimStore interface {
 	PrepareSubmitClaim(context.Context, storesqlite.SubmitClaimPrepare) (storesqlite.SubmitClaim, bool, error)
+	RecordSubmitClaimGuidanceDisposition(context.Context, storesqlite.SubmitClaimGuidanceDispositionRecord) (storesqlite.SubmitClaim, bool, error)
 	AcceptSubmitClaim(context.Context, string, string, string, string, int64) (storesqlite.SubmitClaim, bool, error)
 	RejectSubmitClaim(context.Context, string, string, string, string, int64) (storesqlite.SubmitClaim, bool, error)
+	// DeleteSubmitClaim is idempotent: deleted=false with err=nil means the
+	// claim was already absent, so the durable absence postcondition holds.
 	DeleteSubmitClaim(context.Context, string, string, string) (bool, error)
 }
 

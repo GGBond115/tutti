@@ -1210,10 +1210,28 @@ boundary; Activity Core preserves it through queued intents (and captures the
 current active id when promoting an existing queued prompt to send-now) and
 emits it only on the guidance request. The Tutti adapter maps it to the daemon's
 `turnId`; ordinary new-Turn submits clear it. The daemon service, Host, and
-runtime Controller fail closed when guidance has no target or when the target
-is no longer active. That rejection is known `NotDispatched` provider
-delivery, so no provider call occurs and any prepared submit claim is cleaned
-up. A caller must not recover a target by reading a newer Session snapshot.
+runtime Controller fail closed when guidance has no target. A caller must not
+recover a target by reading a newer Session snapshot.
+
+`AgentSessionSubmitPromptInput.guidanceFallback: "work"` is the minimal
+host-neutral adaptive contract. Core preserves it with the locked
+`targetTurnId` and emits it only when the queue command is actually guidance.
+If the target settles before local wire send, the existing drain behavior
+reuses the same `clientSubmitId` for ordinary work and omits both fields; local
+AgentGUI callers that do not set the optional fallback are unchanged. The
+effect adapter, not Core, selects the transport-specific adaptive operation.
+After wire send, only Host's typed
+`not_dispatched_target_inactive` disposition and confirmed durable claim
+cleanup permit that same identity to become ordinary work. Precondition
+failure, explicit provider rejection, and outcome unknown never do. Host
+persists every non-target-inactive guidance verdict on the exact submit claim
+before returning it. A restart replays that typed verdict without provider
+dispatch; a failed disposition write collapses to outcome unknown. This closes
+the Host-result/consumer-intent crash gap without moving provider-delivery
+authority into Activity Core. Claim preparation also precedes Workspace and
+Session mutation admission, so cancellation while waiting is durably replayed;
+a duplicate observer of an already-prepared claim cannot overwrite the
+original request's eventual verdict.
 
 `AgentSessionActivateEffectInput` requires `agentTargetId` for
 `mode: "new"`. Shared UI passes it through unchanged; trusted host or daemon code

@@ -755,38 +755,6 @@ func (s *SQLiteWorkspaceStore) GetProviderSessionResumeEvidence(
 	return store.GetProviderSessionResumeEvidence(ctx, workspaceID, sessionID)
 }
 
-func (s *SQLiteWorkspaceStore) PrepareSubmitClaim(ctx context.Context, input storesqlite.SubmitClaimPrepare) (storesqlite.SubmitClaim, bool, error) {
-	store, err := s.store(input.WorkspaceID)
-	if err != nil {
-		return storesqlite.SubmitClaim{}, false, err
-	}
-	return store.PrepareSubmitClaim(ctx, input)
-}
-
-func (s *SQLiteWorkspaceStore) AcceptSubmitClaim(ctx context.Context, workspaceID, sessionID, clientSubmitID, turnID string, now int64) (storesqlite.SubmitClaim, bool, error) {
-	store, err := s.store(workspaceID)
-	if err != nil {
-		return storesqlite.SubmitClaim{}, false, err
-	}
-	return store.AcceptSubmitClaim(ctx, workspaceID, sessionID, clientSubmitID, turnID, now)
-}
-
-func (s *SQLiteWorkspaceStore) RejectSubmitClaim(ctx context.Context, workspaceID, sessionID, clientSubmitID, turnID string, now int64) (storesqlite.SubmitClaim, bool, error) {
-	store, err := s.store(workspaceID)
-	if err != nil {
-		return storesqlite.SubmitClaim{}, false, err
-	}
-	return store.RejectSubmitClaim(ctx, workspaceID, sessionID, clientSubmitID, turnID, now)
-}
-
-func (s *SQLiteWorkspaceStore) DeleteSubmitClaim(ctx context.Context, workspaceID, sessionID, clientSubmitID string) (bool, error) {
-	store, err := s.store(workspaceID)
-	if err != nil {
-		return false, err
-	}
-	return store.DeleteSubmitClaim(ctx, workspaceID, sessionID, clientSubmitID)
-}
-
 func (s *SQLiteWorkspaceStore) store(workspaceID string) (*storesqlite.Store, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if s == nil || s.StoreForWorkspace == nil || workspaceID == "" {

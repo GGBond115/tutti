@@ -87,6 +87,7 @@ type AgentActivityStore interface {
 	RequeueLeasedGoalGenerationFencesOnStartup(context.Context, int64) (int64, error)
 	PrepareSubmitClaim(context.Context, agentactivitybiz.SubmitClaimPrepare) (agentactivitybiz.SubmitClaim, bool, error)
 	GetSubmitClaim(context.Context, string, string, string) (agentactivitybiz.SubmitClaim, bool, error)
+	RecordSubmitClaimGuidanceDisposition(context.Context, agentactivitybiz.SubmitClaimGuidanceDispositionRecord) (agentactivitybiz.SubmitClaim, bool, error)
 	AcceptSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
 	RejectSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
 	DeleteSubmitClaim(context.Context, string, string, string) (bool, error)

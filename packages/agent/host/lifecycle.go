@@ -486,73 +486,6 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 	return result, nil
 }
 
-// SendInput reports at most one aggregated TerminalFailure for a failed
-// command. Guidance target binding and goal control own their own emissions.
-func (h *Host) SendInput(ctx context.Context, ref SessionRef, input SendInput) (SendInputResult, error) {
-	clientSubmitID := firstNonEmptyTrimmed(input.ClientSubmitID, legacyClientSubmitID(input.Metadata))
-	ctx, command := h.beginCommand(ctx, commandTerminalFailureInput{
-		flow: "message_send", workspaceID: ref.WorkspaceID, agentSessionID: ref.AgentSessionID,
-		operationID:    firstNonEmptyTrimmed(clientSubmitID, input.TurnID),
-		clientSubmitID: clientSubmitID, turnID: input.TurnID,
-	})
-	result, err := h.sendInput(ctx, ref, input)
-	command.finish(ctx, h, err)
-	return result, err
-}
-
-func (h *Host) sendInput(ctx context.Context, ref SessionRef, input SendInput) (SendInputResult, error) {
-	ref.WorkspaceID, ref.AgentSessionID = strings.TrimSpace(ref.WorkspaceID), strings.TrimSpace(ref.AgentSessionID)
-	if h == nil || h.runtime == nil || h.store == nil || ref.WorkspaceID == "" || ref.AgentSessionID == "" {
-		return SendInputResult{}, ErrInvalidArgument
-	}
-	// Guidance is a mutation of an already-running canonical Turn. Host
-	// consumers must bind that mutation to the exact Turn observed at the
-	// interaction boundary; allowing the runtime to infer "current" would make
-	// an A->B transition during transport silently steer B.
-	if input.Guidance && strings.TrimSpace(input.TurnID) == "" {
-		err := ErrActiveTurnTargetRequired
-		h.observeTerminalFailure(ctx, TerminalFailure{
-			Flow:           "guidance",
-			FailureStage:   "guidance_target",
-			WorkspaceID:    ref.WorkspaceID,
-			AgentSessionID: ref.AgentSessionID,
-			ClientSubmitID: strings.TrimSpace(input.ClientSubmitID),
-			ErrorCode:      guidanceTargetFailureCode(err),
-			ErrorMessage:   err.Error(),
-			Retryable:      false,
-		})
-		return SendInputResult{}, err
-	}
-	normalized, promptText, err := normalizePromptContent(input.Content)
-	if err != nil {
-		return SendInputResult{}, err
-	}
-	metadata := submissionMetadata(input.Metadata, input.ClientSubmitID)
-	if typedGoal, ok := ParseTypedGoalControl(normalized, input.Guidance); ok {
-		goalResult, goalErr := h.goalControl(ctx, GoalControlInput{
-			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
-			Action: typedGoal.Action, Objective: typedGoal.Objective,
-			ClientSubmitID:     input.ClientSubmitID,
-			SubmissionMetadata: metadata,
-		})
-		if goalErr != nil {
-			return SendInputResult{}, goalErr
-		}
-		session, _ := h.runtime.Session(ref.WorkspaceID, ref.AgentSessionID)
-		return SendInputResult{
-			Session: session, Canonical: goalResult.Canonical,
-			Kind: "goalControl", GoalControl: &goalResult,
-		}, nil
-	}
-	var result SendInputResult
-	err = h.withSessionMutationActor(ctx, ref.WorkspaceID, ref.AgentSessionID, func(actorCtx context.Context) error {
-		var sendErr error
-		result, sendErr = h.sendInputSerialized(actorCtx, ref, input, normalized, promptText, metadata)
-		return sendErr
-	})
-	return result, err
-}
-
 func (h *Host) sendInputSerialized(
 	ctx context.Context,
 	ref SessionRef,
@@ -560,34 +493,68 @@ func (h *Host) sendInputSerialized(
 	normalized []PromptContentBlock,
 	promptText string,
 	metadata map[string]any,
+	guidanceClaim *guidanceSubmitClaimPreparation,
 ) (SendInputResult, error) {
 	var err error
-	if err := h.requireSendAllowedByEffectiveHistory(ctx, ref); err != nil {
-		return SendInputResult{}, err
-	}
 	if !input.Guidance && strings.TrimSpace(input.TurnID) == "" {
 		input.TurnID = uuid.NewString()
 	}
-	claim, claimPending, err := h.prepareSubmitClaim(ctx, ref, metadata, input.TurnID)
+	var claim storesqlite.SubmitClaim
+	var claimPending bool
+	if guidanceClaim != nil && guidanceClaim.created {
+		claim, claimPending = guidanceClaim.claim, true
+	} else {
+		if input.Guidance {
+			claim, claimPending, err = h.prepareGuidanceSubmitClaim(ctx, ref, metadata, input.TurnID)
+		} else {
+			claim, claimPending, err = h.prepareSubmitClaim(ctx, ref, metadata, input.TurnID)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, storesqlite.ErrSubmitClaimTurnConflict) {
+			if input.Guidance {
+				return guidanceSendResult(input.TurnID, GuidanceDeliveryDispositionOutcomeUnknown), errors.Join(ErrSubmitDeliveryUnknown, err)
+			}
 			return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
+		}
+		if input.Guidance {
+			return guidanceSendResult(input.TurnID, GuidanceDeliveryDispositionOutcomeUnknown),
+				errors.Join(ErrSubmitDeliveryUnknown, err)
 		}
 		return SendInputResult{}, err
 	}
 	if claim.ClientSubmitID != "" && !claimPending {
+		if input.Guidance && claim.GuidanceDisposition != "" {
+			return h.replayedGuidanceSubmitResult(ctx, ref, claim)
+		}
 		if claim.Status != "accepted" && claim.Status != "rejected" {
+			if input.Guidance {
+				return guidanceSendResult(input.TurnID, GuidanceDeliveryDispositionOutcomeUnknown), ErrSubmitDeliveryUnknown
+			}
 			return SendInputResult{}, ErrSubmitDeliveryUnknown
 		}
-		return h.replayedSubmitResult(ctx, ref, claim)
+		replayed, replayErr := h.replayedSubmitResult(ctx, ref, claim)
+		if input.Guidance {
+			replayed.GuidanceDisposition = GuidanceDeliveryDispositionApplied
+		}
+		return replayed, replayErr
 	}
 	defer func() {
-		if claimPending {
+		if claimPending && !input.Guidance {
 			h.abandonSubmitClaim(ref, claim.ClientSubmitID)
 		}
 	}()
+	if err := h.requireSendAllowedByEffectiveHistory(ctx, ref); err != nil {
+		if input.Guidance {
+			return h.finishGuidancePreconditionFailure(ref, claim.ClientSubmitID, input.TurnID, err)
+		}
+		return SendInputResult{}, err
+	}
 	release, err := h.acquireSession(ctx, ref)
 	if err != nil {
+		if input.Guidance {
+			return h.finishGuidancePreconditionFailure(ref, claim.ClientSubmitID, input.TurnID, err)
+		}
 		return SendInputResult{}, err
 	}
 	defer release()
@@ -595,12 +562,18 @@ func (h *Host) sendInputSerialized(
 	session, err := h.ensureRuntimeSessionLocked(ctx, ref)
 	if err != nil {
 		h.observeStep(ctx, "message_send", "runtime_session_ready", ref.WorkspaceID, ref.AgentSessionID, "", startedAt, err)
+		if input.Guidance {
+			return h.finishGuidancePreconditionFailure(ref, claim.ClientSubmitID, input.TurnID, err)
+		}
 		return SendInputResult{}, err
 	}
 	h.observeStep(ctx, "message_send", "runtime_session_ready", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	if err := h.runtime.ValidatePromptContent(ctx, RuntimeExecInput{WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID, Content: normalized}); err != nil {
 		h.observeStep(ctx, "message_send", "prompt_validated", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
+		if input.Guidance {
+			return h.finishGuidancePreconditionFailure(ref, claim.ClientSubmitID, input.TurnID, err)
+		}
 		return SendInputResult{}, err
 	}
 	h.observeStep(ctx, "message_send", "prompt_validated", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
@@ -608,6 +581,9 @@ func (h *Host) sendInputSerialized(
 	preparedContent, err := h.prepareContent(ref.WorkspaceID, ref.AgentSessionID, normalized)
 	if err != nil {
 		h.observeStep(ctx, "message_send", "prompt_prepared", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
+		if input.Guidance {
+			return h.finishGuidancePreconditionFailure(ref, claim.ClientSubmitID, input.TurnID, err)
+		}
 		return SendInputResult{}, err
 	}
 	h.observeStep(ctx, "message_send", "prompt_prepared", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
@@ -619,6 +595,9 @@ func (h *Host) sendInputSerialized(
 	releaseStartup, err := h.acquireStartup(ctx, session.Provider)
 	if err != nil {
 		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
+		if input.Guidance {
+			return h.finishGuidancePreconditionFailure(ref, claim.ClientSubmitID, input.TurnID, err)
+		}
 		return SendInputResult{}, err
 	}
 	execResult, err := func() (RuntimeExecResult, error) {
@@ -638,17 +617,15 @@ func (h *Host) sendInputSerialized(
 		})
 	}()
 	recordProviderAcceptanceDiagnostics(ctx, execResult.ProviderDispatch)
+	if input.Guidance {
+		return h.finishGuidanceSend(
+			ctx, ref, input, session, claim.ClientSubmitID, claim.CreatedAtUnixMS,
+			claimPending, preparedContent, displayPrompt, execResult, startedAt, err,
+		)
+	}
 	if err != nil {
-		// Only an explicit target verdict is a guidance-target failure. Any
-		// other undispatched guidance is an ordinary runtime_exec failure that
-		// the command boundary aggregates.
-		if input.Guidance &&
-			(errors.Is(err, ErrActiveTurnTargetMismatch) || errors.Is(err, ErrActiveTurnTargetRequired)) {
-			h.observeGuidanceTargetFailure(ctx, ref, session.Provider, input.TurnID, claim.ClientSubmitID, startedAt, err)
-		} else {
-			h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
-		}
-		if !input.Guidance && strings.TrimSpace(execResult.TurnID) != "" {
+		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
+		if strings.TrimSpace(execResult.TurnID) != "" {
 			if persistErr := h.persistRuntimeSubmitOutcome(
 				ctx, ref, execResult,
 				firstNonEmpty(claim.ClientSubmitID, input.ClientSubmitID, legacyClientSubmitID(metadata)),
@@ -659,8 +636,7 @@ func (h *Host) sendInputSerialized(
 				return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err, persistErr)
 			}
 		}
-		if !input.Guidance &&
-			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionRejected {
+		if execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionRejected {
 			// The failed Turn and prompt are already durable. Resolve the claim to
 			// a terminal rejected state before the deferred cleanup can run.
 			if strings.TrimSpace(execResult.TurnID) != "" {
@@ -671,18 +647,10 @@ func (h *Host) sendInputSerialized(
 				return SendInputResult{}, err
 			}
 		}
-		if input.Guidance && execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionNotDispatched {
-			// The runtime rejected the exact target before provider admission. Keep
-			// claimPending true so the deferred cleanup removes the prepared claim;
-			// this is a known rejection, not an outcome-unknown delivery.
-			return SendInputResult{}, err
-		}
-		if input.Guidance ||
-			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied ||
+		if execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied ||
 			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionOutcomeUnknown {
-			// Guidance targets an already-live turn and transport failure cannot
-			// prove rejection. A positive/unknown provider dispatch likewise
-			// preserves the claim as a recovery fence.
+			// A positive/unknown provider dispatch preserves the claim as a
+			// recovery fence.
 			claimPending = false
 			return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
 		}
@@ -693,7 +661,7 @@ func (h *Host) sendInputSerialized(
 		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
 		return SendInputResult{}, ErrSubmitDeliveryUnknown
 	}
-	if expectedTurnID := strings.TrimSpace(input.TurnID); !input.Guidance && expectedTurnID != "" && turnID != expectedTurnID {
+	if expectedTurnID := strings.TrimSpace(input.TurnID); expectedTurnID != "" && turnID != expectedTurnID {
 		claimPending = false
 		return SendInputResult{}, ErrSubmitDeliveryUnknown
 	}
@@ -701,20 +669,18 @@ func (h *Host) sendInputSerialized(
 		if err := reporter.DurablyReportSubmitProvenance(ctx, RuntimeSubmitProvenanceInput{
 			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID, TurnID: turnID,
 			ClientSubmitID: claim.ClientSubmitID, CanonicalSubmitOccurredAtUnixMS: claim.CreatedAtUnixMS,
-			Content: preparedContent.Hydrated, DisplayPrompt: displayPrompt, Guidance: input.Guidance,
+			Content: preparedContent.Hydrated, DisplayPrompt: displayPrompt,
 		}); err != nil {
 			claimPending = false
 			return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
 		}
 	}
-	if !input.Guidance {
-		if err := h.recordTurnSubmission(
-			ctx, ref, turnID, input.ClientSubmitID, preparedContent.Persisted,
-			displayPrompt, input.CapabilityRefs, input.TuttiModeSnapshot,
-		); err != nil {
-			claimPending = false
-			return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
-		}
+	if err := h.recordTurnSubmission(
+		ctx, ref, turnID, input.ClientSubmitID, preparedContent.Persisted,
+		displayPrompt, input.CapabilityRefs, input.TuttiModeSnapshot,
+	); err != nil {
+		claimPending = false
+		return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
 	}
 	if claim.ClientSubmitID != "" {
 		claimPending = false

@@ -24,6 +24,9 @@ export interface WorkspaceAgentSessionDetailMessage {
     detail: string | null;
     detailAvailable?: boolean;
     retryable: boolean | null;
+    actionKind?: string;
+    actionLabel?: string;
+    actionHref?: string;
   } | null;
   systemNotice?: {
     noticeKind: string | null;

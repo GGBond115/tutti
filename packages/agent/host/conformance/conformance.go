@@ -82,6 +82,15 @@ type Fixture struct {
 	// explicit TurnID is not the Session.ActiveTurnID. It models the runtime
 	// target race without exposing a runtime/provider API to scenarios.
 	GuidanceTargetMismatch bool
+	// GuidanceFailureDisposition makes the runtime return the selected typed
+	// non-applied guidance verdict after the exact-target gate.
+	GuidanceFailureDisposition agenthost.GuidanceDeliveryDisposition
+	// GuidanceDeleteClaimErr fails the durable target-inactive conversion
+	// barrier after the runtime has proven the exact target inactive.
+	GuidanceDeleteClaimErr error
+	// GuidanceAcceptClaimErr simulates a provider-applied result whose local
+	// claim-accept acknowledgement fails before the consumer persists intent.
+	GuidanceAcceptClaimErr error
 	DeleteAdmissionErr     error
 	DeleteSessionPlans     [][]string
 }
@@ -99,11 +108,12 @@ type SessionObservation struct {
 }
 
 type SendObservation struct {
-	Session  SessionObservation
-	TurnID   string
-	Kind     string
-	Goal     map[string]any
-	Revision int64
+	Session             SessionObservation
+	TurnID              string
+	Kind                string
+	GuidanceDisposition agenthost.GuidanceDeliveryDisposition
+	Goal                map[string]any
+	Revision            int64
 }
 
 type GoalObservation struct {
@@ -204,6 +214,53 @@ type Driver interface {
 	StepGoalOperations(context.Context, int64) error
 	Recover(context.Context) error
 	Metrics() Metrics
+}
+
+// GuidanceRestartDriver recreates the Host application core while preserving
+// its durable canonical store and provider test double. It models the crash
+// window after Host returns but before a consumer persists its own intent.
+type GuidanceRestartDriver interface {
+	Driver
+	RestartApplicationHost(context.Context) error
+}
+
+// GuidanceMutationAdmissionRestartDriver can deterministically cancel one
+// guidance request after its durable submit claim exists but before it enters
+// the serialized Session mutation. It exercises the Host-result/consumer-
+// intent crash gap without exposing a concrete actor implementation.
+type GuidanceMutationAdmissionRestartDriver interface {
+	GuidanceRestartDriver
+	SendGuidanceCanceledWhileWaitingForMutation(
+		context.Context,
+		agenthost.SessionRef,
+		agenthost.SendInput,
+	) (SendObservation, error)
+}
+
+type GuidanceRestartScenario struct {
+	Name string
+	run  func(context.Context, GuidanceRestartDriver) error
+}
+
+func RunGuidanceRestart(
+	ctx context.Context,
+	driver GuidanceRestartDriver,
+	scenario GuidanceRestartScenario,
+) error {
+	return scenario.run(ctx, driver)
+}
+
+type GuidanceMutationAdmissionRestartScenario struct {
+	Name string
+	run  func(context.Context, GuidanceMutationAdmissionRestartDriver) error
+}
+
+func RunGuidanceMutationAdmissionRestart(
+	ctx context.Context,
+	driver GuidanceMutationAdmissionRestartDriver,
+	scenario GuidanceMutationAdmissionRestartScenario,
+) error {
+	return scenario.run(ctx, driver)
 }
 
 // WorkspaceRuntimeDisconnectDriver is a narrow opt-in lifecycle contract so a

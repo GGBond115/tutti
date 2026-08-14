@@ -507,16 +507,49 @@ func (a *ClaudeCodeSDKAdapter) GuideActiveTurn(
 	displayPrompt string,
 	turnID string,
 	emit EventSink,
-	_ CommandSnapshotSink,
+	emitCommands CommandSnapshotSink,
 ) ([]activityshared.Event, error) {
+	return a.guideActiveTurnWithDispatch(
+		ctx, session, content, displayPrompt, turnID, emit, emitCommands, nil,
+	)
+}
+
+func (a *ClaudeCodeSDKAdapter) GuideActiveTurnWithDispatch(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	return a.guideActiveTurnWithDispatch(
+		ctx, session, content, displayPrompt, turnID, emit, emitCommands, reportDispatch,
+	)
+}
+
+func (a *ClaudeCodeSDKAdapter) guideActiveTurnWithDispatch(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	_ CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	reporter := newGuidanceDispatchReporter(reportDispatch)
 	adapterSession := a.getSession(session.AgentSessionID)
 	if adapterSession == nil {
+		reporter.preconditionFailed()
 		return nil, ErrSessionDisconnected
 	}
 	session.ProviderSessionID = adapterSession.providerSessionID
 	explicitDisplayPrompt, visibleText := explicitAndVisiblePromptText(content, displayPrompt)
 	providerContent, err := materializeProviderPromptImagesAtBoundary(ctx, content, a.promptImageMaterializer)
 	if err != nil {
+		reporter.preconditionFailed()
 		return nil, err
 	}
 	events := []activityshared.Event{
@@ -527,11 +560,12 @@ func (a *ClaudeCodeSDKAdapter) GuideActiveTurn(
 		}),
 	}
 	if err := a.startClaudeSDKReader(session.AgentSessionID, adapterSession); err != nil {
+		reporter.preconditionFailed()
 		return events, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, claudeSDKGoalCommandTimeout)
 	defer cancel()
-	if err := a.roundTripClaudeSDK(ctx, session.AgentSessionID, adapterSession, claudeSDKSidecarRequest{
+	response, err := a.roundTripClaudeSDKResponse(ctx, session.AgentSessionID, adapterSession, claudeSDKSidecarRequest{
 		ID:   newID(),
 		Type: "guide",
 		Payload: map[string]any{
@@ -539,13 +573,39 @@ func (a *ClaudeCodeSDKAdapter) GuideActiveTurn(
 			"prompt":         promptTextForClaudeSDK(providerContent, visibleText),
 			"content":        promptContentForClaudeSDK(providerContent, visibleText),
 		},
-	}); err != nil {
+	})
+	if err != nil {
+		reportClaudeSDKGuidanceFailure(reporter, response, err)
 		return events, err
 	}
+	reporter.applied()
 	if emit != nil {
 		emit(events)
 	}
 	return events, nil
+}
+
+func reportClaudeSDKGuidanceFailure(
+	reporter *guidanceDispatchReporter,
+	response claudeSDKSidecarEvent,
+	err error,
+) {
+	disposition := GuidanceDeliveryDisposition(strings.TrimSpace(
+		payloadString(response.Payload, "deliveryDisposition"),
+	))
+	switch disposition {
+	case GuidanceDeliveryDispositionPreconditionFailed:
+		reporter.preconditionFailed()
+	case GuidanceDeliveryDispositionExplicitRejection:
+		reporter.explicitRejection(err)
+	case GuidanceDeliveryDispositionOutcomeUnknown:
+		reporter.outcomeUnknown()
+	default:
+		// A generic sidecar error does not prove that provider interruption or
+		// prompt admission never happened. Missing, invalid, target-inactive,
+		// and applied-on-error payloads therefore all fail closed.
+		reporter.outcomeUnknown()
+	}
 }
 
 func (a *ClaudeCodeSDKAdapter) Cancel(ctx context.Context, session Session, _ string) ([]activityshared.Event, error) {

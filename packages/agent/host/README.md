@@ -334,10 +334,44 @@ Guidance is a mutation of an existing canonical Turn, not a request to steer
 whatever happens to be current when transport completes. `SendInput.Guidance`
 therefore requires an explicit `TurnID` at the Host boundary. Host and the
 runtime Controller compare that identity with the live active Turn under the
-session lifecycle lock before provider admission. A mismatch returns a typed
-`NotDispatched` result, makes zero provider calls, and removes a prepared
-submit claim; callers must surface the rejection or retry with a newly captured
-target rather than silently redirecting the guidance.
+session lifecycle lock before provider admission. `SendInputResult` returns a
+`GuidanceDisposition` on success and error: `applied`,
+`not_dispatched_target_inactive`,
+`not_dispatched_precondition_failed`,
+`not_dispatched_explicit_rejection`, or `outcome_unknown`. Provider adapters
+must report exactly one corresponding dispatch result. Once a provider request
+begins, a timeout, transport loss, or missing adapter report is
+`outcome_unknown`; it can never default to `NotDispatched`.
+
+Only `not_dispatched_target_inactive` proves that the exact target is absent,
+mismatched, or settled before a provider call. Host then synchronously and
+durably deletes the prepared guidance submit claim. The disposition is returned
+only after that delete is confirmed, at which point the same `ClientSubmitID`
+may be reused by ordinary work. A cleanup error returns
+`ErrGuidanceSubmitClaimCleanupFailed` with
+`not_dispatched_precondition_failed`; every other failure retains the claim as
+a recovery/duplicate-delivery fence and does not authorize conversion. Claim
+deletion is idempotent: a successful store response that reports the claim was
+already absent satisfies the same durable cleanup postcondition.
+
+For every non-target-inactive verdict, Host records `guidance_disposition` on
+the canonical submit claim before returning to its caller. That write is a
+first-verdict-wins compare-and-set over the exact Workspace, Session,
+`ClientSubmitID`, and target Turn binding. A duplicate after process restart
+replays the stored typed result without provider dispatch; an `applied` verdict
+also repairs a prepared claim to accepted before replay. If the disposition
+cannot be recorded, Host may return only `outcome_unknown`, never the
+non-durable provider verdict. Admission-invalid operations rejected before a
+claim exists are caller contract errors rather than provider delivery
+decisions.
+
+Guidance prepares that claim before waiting for the Workspace operation gate or
+Session mutation actor. If the creating request is canceled while waiting,
+Host durably records its precondition verdict. A duplicate request that finds
+another request's still-prepared claim must not win that claim with its own
+cancellation; it returns outcome unknown unless an existing durable verdict can
+already be replayed.
+
 Accepted guidance follows the provider's native active-turn semantics while
 keeping the canonical Turn active. A soft-steering adapter may insert guidance
 into the current provider response without interrupting it. A preemptive

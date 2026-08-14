@@ -333,6 +333,28 @@ type ActiveTurnGuidanceAdapter interface {
 	GuideActiveTurn(context.Context, Session, []PromptContentBlock, string, string, EventSink, CommandSnapshotSink) ([]activityshared.Event, error)
 }
 
+// ActiveTurnGuidanceDispatchAdapter is the delivery-safe guidance contract.
+// Implementations report exactly one provider outcome before returning. A
+// provider call followed by a timeout or transport loss must report
+// OutcomeUnknown; it must never fall back to a pre-dispatch verdict.
+//
+// ActiveTurnGuidanceAdapter remains source-compatible for older adapters, but
+// Controller guidance admission fails closed unless this stronger interface is
+// implemented.
+type ActiveTurnGuidanceDispatchAdapter interface {
+	ActiveTurnGuidanceAdapter
+	GuideActiveTurnWithDispatch(
+		context.Context,
+		Session,
+		[]PromptContentBlock,
+		string,
+		string,
+		EventSink,
+		CommandSnapshotSink,
+		ProviderDispatchSink,
+	) ([]activityshared.Event, error)
+}
+
 type ResumeProbeAdapter interface {
 	CanResume(Session) bool
 }
