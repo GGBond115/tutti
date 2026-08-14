@@ -22,6 +22,7 @@ import {
 } from "../model/agentGuiSessionNavigationMemory";
 import { AGENT_SESSION_NOT_FOUND_ERROR } from "./agentGuiController.errors";
 import {
+  reportAgentGUIAttentionReadDecision,
   reportAgentGUIActiveConversationCleared,
   reportAgentGUIConversationListProjectionSkipped
 } from "./agentGuiController.reporting";
@@ -66,6 +67,8 @@ interface UseAgentGUIConversationSelectionControllerInput {
   intent: ConversationIntent;
   isComposerHomeRef: RefObject<boolean>;
   isMountedRef: RefObject<boolean>;
+  isSurfaceActive: boolean;
+  isSurfaceVisible: boolean;
   loadDraftComposerOptions(): void;
   loadSelectedConversationMessages(
     agentSessionId: string,
@@ -73,6 +76,7 @@ interface UseAgentGUIConversationSelectionControllerInput {
   ): Promise<void>;
   loadSessionState(agentSessionId: string): void;
   markSelectedConversationDetailPending(agentSessionId: string): string | null;
+  nodeId?: string;
   onDataChangeRef: RefObject<
     (updater: (current: AgentGUINodeData) => AgentGUINodeData) => void
   >;
@@ -104,15 +108,49 @@ export function clearRolledBackAgentGUISelection(
 
 export function shouldMarkActiveConversationRead(input: {
   activeConversationId: string;
+  isSurfaceActive: boolean;
+  isSurfaceVisible: boolean;
   previousActiveConversationId: string | null;
   record: AttentionReadRecord | undefined;
 }): boolean {
-  const { activeConversationId, previousActiveConversationId, record } = input;
+  const {
+    activeConversationId,
+    isSurfaceActive,
+    isSurfaceVisible,
+    previousActiveConversationId,
+    record
+  } = input;
   if (!record?.isUnread) return false;
+  if (!isSurfaceActive || !isSurfaceVisible) return false;
   return (
     !record.markedUnreadByUser ||
     previousActiveConversationId !== activeConversationId
   );
+}
+
+export function activeConversationReadDecisionReason(input: {
+  activeConversationId: string;
+  isSurfaceActive: boolean;
+  isSurfaceVisible: boolean;
+  previousActiveConversationId: string | null;
+  record: AttentionReadRecord;
+}):
+  | "active_selection"
+  | "manual_unread_current_selection"
+  | "reselected"
+  | "surface_hidden"
+  | "surface_inactive" {
+  if (!input.isSurfaceVisible) return "surface_hidden";
+  if (!input.isSurfaceActive) return "surface_inactive";
+  if (
+    input.record.markedUnreadByUser &&
+    input.previousActiveConversationId === input.activeConversationId
+  ) {
+    return "manual_unread_current_selection";
+  }
+  return input.previousActiveConversationId === input.activeConversationId
+    ? "active_selection"
+    : "reselected";
 }
 
 export function shouldClearMissingAgentGUISelection(input: {
@@ -149,10 +187,13 @@ export function useAgentGUIConversationSelectionController(
     intent,
     isComposerHomeRef,
     isMountedRef,
+    isSurfaceActive,
+    isSurfaceVisible,
     loadDraftComposerOptions,
     loadSelectedConversationMessages,
     loadSessionState,
     markSelectedConversationDetailPending,
+    nodeId,
     onDataChangeRef,
     sessionEngine,
     setActiveConversationId,
@@ -167,6 +208,7 @@ export function useAgentGUIConversationSelectionController(
     workspaceId
   } = input;
   const previousAttentionActiveConversationIdRef = useRef<string | null>(null);
+  const attentionReadDiagnosticKeyRef = useRef<string | null>(null);
   const rolledBackSelectionSessionIdRef = useRef<string | null>(null);
   const persistedConfirmedActivationRequestIdRef = useRef<string | null>(null);
   const attentionHydrationRef = useRef<{
@@ -279,13 +321,51 @@ export function useAgentGUIConversationSelectionController(
     const previousActiveConversationId =
       previousAttentionActiveConversationIdRef.current;
     previousAttentionActiveConversationIdRef.current = activeConversationId;
-    if (
-      shouldMarkActiveConversationRead({
+    const attentionRecord =
+      attentionReadRecordsBySessionId[activeConversationId];
+    const shouldMarkRead = shouldMarkActiveConversationRead({
+      activeConversationId,
+      isSurfaceActive,
+      isSurfaceVisible,
+      previousActiveConversationId,
+      record: attentionRecord
+    });
+    if (attentionRecord?.isUnread) {
+      const reason = activeConversationReadDecisionReason({
         activeConversationId,
+        isSurfaceActive,
+        isSurfaceVisible,
         previousActiveConversationId,
-        record: attentionReadRecordsBySessionId[activeConversationId]
-      })
-    ) {
+        record: attentionRecord
+      });
+      const diagnosticKey = [
+        attentionRecord.completionKey,
+        isSurfaceActive,
+        isSurfaceVisible,
+        previousActiveConversationId,
+        attentionRecord.markedUnreadByUser,
+        shouldMarkRead
+      ].join(":");
+      if (attentionReadDiagnosticKeyRef.current !== diagnosticKey) {
+        attentionReadDiagnosticKeyRef.current = diagnosticKey;
+        reportAgentGUIAttentionReadDecision({
+          agentSessionId: activeConversationId,
+          completionKey: attentionRecord.completionKey,
+          decision: shouldMarkRead ? "read" : "preserve_unread",
+          isSurfaceActive,
+          isSurfaceVisible,
+          markedUnreadByUser: attentionRecord.markedUnreadByUser,
+          nodeId,
+          previousActiveConversationId,
+          reason,
+          runtime: agentActivityRuntime,
+          workspaceId
+        });
+      }
+    } else {
+      attentionReadDiagnosticKeyRef.current = null;
+    }
+    if (shouldMarkRead) {
       sessionEngine.dispatch({
         type: "attention/read",
         agentSessionId: activeConversationId,
@@ -299,6 +379,8 @@ export function useAgentGUIConversationSelectionController(
     attentionReadRecordsBySessionId,
     clearRailRevealRequest,
     currentUserId,
+    isSurfaceActive,
+    isSurfaceVisible,
     sessionEngine,
     setActiveMessageSession,
     workspaceId

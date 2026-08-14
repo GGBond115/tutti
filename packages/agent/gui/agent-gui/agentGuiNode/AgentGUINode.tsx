@@ -282,6 +282,8 @@ export const AgentGUINode = memo(function AgentGUINode({
   ]);
   const { viewModel, actions } = useAgentGUINodeController({
     nodeId,
+    isSurfaceActive: isActive,
+    isSurfaceVisible: isVisible,
     workspaceId,
     currentUserId,
     workspacePath,

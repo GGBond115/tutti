@@ -3304,6 +3304,43 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [workspaceAgentActivityService.test.ts](../../../apps/desktop/src/renderer/src/features/workspace-agent/services/internal/workspaceAgentActivityService.test.ts)
   [attentionReadState.reducer.ts](../../../packages/agent/activity-core/src/engine/attentionReadState.reducer.ts)
 
+### Unfocused AgentGUI Session completion becomes read
+
+- Symptom:
+  A running Session settles after the user focuses another AgentGUI node or
+  window, but the original Session immediately loses its unread-completion lamp.
+- Quick checks:
+  Inspect `agent.gui.attention_read.decision`. The diagnostic identifies the
+  node, completion key, host focus and visibility, and whether the completion
+  was read or preserved. A retained node with `isSurfaceActive=false` or
+  `isSurfaceVisible=false` must report `decision=preserve_unread`; its local
+  `activeConversationId` is not evidence that the user is reading it.
+- Root cause:
+  AgentGUI selection is local to each mounted controller, while attention/read
+  state is shared by the workspace engine. Treating every controller's active
+  Session as visually selected allowed a hidden or unfocused retained node to
+  dispatch the shared `attention/read` intent. A second race can occur when an
+  authoritative history read starts before the live completion, then applies
+  its older detail afterward: attention first writes the completion unread,
+  the stale history removes it, and a later historical Session snapshot
+  recreates the same completion as read.
+- Fix:
+  Pass host-projected focus and visibility into the selection controller and
+  require both before dispatching `attention/read`. Keep the existing manual
+  unread provenance rule so a user-marked unread completion stays unread until
+  the Session is selected again. Do not let an older historical completion
+  replace a newer live attention record. When authoritative history temporarily
+  omits a live completion, remove its active attention record but retain its
+  bounded durable marker so a later historical restore cannot downgrade unread
+  to read.
+- Validation:
+  Keep two AgentGUI nodes mounted, run a Turn in the unfocused node's active
+  Session, and verify its completion key remains in `completed.unreadIds`.
+  Focusing that node should then move the exact key to `completed.readIds`.
+- References:
+  [AgentGUINode.tsx](../../../packages/agent/gui/agent-gui/agentGuiNode/AgentGUINode.tsx)
+  [useAgentGUIConversationSelectionController.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUIConversationSelectionController.ts)
+
 ### Completed agent session stays activating and disables the composer
 
 - Symptom:

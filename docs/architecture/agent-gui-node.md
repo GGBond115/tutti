@@ -2896,9 +2896,20 @@ such as TSH may persist their own Rail state without adopting Desktop behavior.
 
 Attention state preserves explicit user intent: marking the currently selected
 Session unread keeps its unread indicator while that selection remains open.
-Selecting the Session again marks it read. A new live completion or a durable
-unread completion discovered by hydration is still marked read immediately when
-its Session is already selected.
+Selecting the Session again marks it read. Selection is node-local while
+attention state is shared, so an active Session may mark its completion read
+only while that AgentGUI surface is both host-focused and host-visible. A
+retained hidden, occluded, or unfocused node must preserve unread attention even
+when its local `activeConversationId` still names the Session. A new live
+completion or a durable unread completion discovered by hydration is marked
+read immediately only when its selected surface satisfies those exposure
+conditions. The read-decision diagnostic records the exact node, completion,
+focus, visibility, and decision reason without logging on stream updates.
+An older historical completion must not replace a newer completion observed
+live. Authoritative history reconciliation may remove a completion that is
+absent from its effective Turn set, but it must retain the durable marker for a
+completion observed live in this run. Otherwise a later historical snapshot can
+recreate that same completion as read and discard its live unread provenance.
 
 Read-only host surfaces reuse the complete workbench header and declare the
 session actions they support. Omitting that capability list preserves the full

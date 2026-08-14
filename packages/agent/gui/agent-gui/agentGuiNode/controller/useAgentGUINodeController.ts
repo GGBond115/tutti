@@ -113,6 +113,8 @@ export type {
 
 export function useAgentGUINodeController({
   nodeId,
+  isSurfaceActive,
+  isSurfaceVisible,
   workspaceId,
   currentUserId,
   workspacePath,
@@ -505,10 +507,13 @@ export function useAgentGUINodeController({
     intent,
     isComposerHomeRef,
     isMountedRef,
+    isSurfaceActive,
+    isSurfaceVisible,
     loadDraftComposerOptions: () => loadDraftComposerOptionsRef.current(),
     loadSelectedConversationMessages,
     loadSessionState,
     markSelectedConversationDetailPending,
+    nodeId,
     onDataChangeRef,
     sessionEngine,
     requestRailReveal,

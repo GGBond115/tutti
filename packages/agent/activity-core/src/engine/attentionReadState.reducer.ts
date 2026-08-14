@@ -73,7 +73,8 @@ export function attentionReadStateReducer(
         state,
         context.sessionsById[turn.agentSessionId]?.userId ?? "",
         turn,
-        intent.type === "turn/projectionReceived" || intent.live !== false
+        intent.type === "turn/projectionReceived" || intent.live !== false,
+        context.previousTurnsById
       );
     }
     case "session/historyAuthoritativeSnapshotReceived":
@@ -93,7 +94,8 @@ export function attentionReadStateReducer(
             next,
             context.sessionsById[turn.agentSessionId]?.userId ?? "",
             turn,
-            false
+            false,
+            context.previousTurnsById
           ).state;
         }
       }
@@ -181,18 +183,32 @@ function reconcileAuthoritativeTurns(
         sessionId,
         authoritativeCompletionKeys
       );
-      if (
+      const filteredHydrated = {
+        completedReadIds,
+        completedUnreadIds,
+        failedReadIds,
+        failedUnreadIds
+      };
+      if (removeRecord && current?.observationProvenance === "live") {
+        // A detail read can be internally consistent yet still have started
+        // before this live completion. Remove the non-authoritative record so
+        // genuine retractions stop driving the lamp, but retain its durable
+        // marker. If a later historical snapshot restores the same completion,
+        // it must not silently downgrade the live unread observation to read.
+        nextHydrated = updateDurableMarker(
+          { ...partition, hydrated: filteredHydrated },
+          sessionId,
+          current.completionKey,
+          current.kind,
+          current.isUnread
+        ).hydrated;
+      } else if (
         completedReadIds !== hydrated.completedReadIds ||
         completedUnreadIds !== hydrated.completedUnreadIds ||
         failedReadIds !== hydrated.failedReadIds ||
         failedUnreadIds !== hydrated.failedUnreadIds
       ) {
-        nextHydrated = {
-          completedReadIds,
-          completedUnreadIds,
-          failedReadIds,
-          failedUnreadIds
-        };
+        nextHydrated = filteredHydrated;
       }
     }
     if (!removeRecord && nextHydrated === hydrated) continue;
@@ -245,7 +261,8 @@ function reconcileAuthoritativeHistoryAttention(
     reconciled.state,
     context.sessionsById[intent.agentSessionId]?.userId ?? "",
     liveTurn,
-    true
+    true,
+    context.previousTurnsById
   );
   return {
     commands: [...reconciled.commands, ...observed.commands],
@@ -269,7 +286,8 @@ function observeTurn(
   state: AttentionReadState,
   rawUserId: string,
   turn: AgentActivityTurn,
-  live: boolean
+  live: boolean,
+  previousTurnsById: Readonly<Record<string, AgentActivityTurn>> = {}
 ): EngineReducerResult<AttentionReadState> {
   const id = turn.agentSessionId.trim();
   const userId = rawUserId.trim();
@@ -279,6 +297,23 @@ function observeTurn(
   const partition = partitionFor(state, userId);
   const completionKey = `turn:${id}:${turnId}:${kind}`;
   const current = partition.recordsBySessionId[id];
+  if (
+    !live &&
+    current?.observationProvenance === "live" &&
+    current.completionKey !== completionKey
+  ) {
+    const currentLiveTurn = Object.values(previousTurnsById).find(
+      (candidate) =>
+        candidate.agentSessionId === id &&
+        completionKeyForTurn(candidate) === current.completionKey
+    );
+    if (
+      currentLiveTurn &&
+      currentLiveTurn.updatedAtUnixMs >= turn.updatedAtUnixMs
+    ) {
+      return unchanged(state);
+    }
+  }
   if (
     current?.completionKey === completionKey &&
     (current.observationProvenance === "live" || !live)
@@ -330,6 +365,15 @@ function observeTurn(
     replacePartition(state, userId, persistence.partition),
     persistence.commands
   );
+}
+
+function completionKeyForTurn(turn: AgentActivityTurn): string | null {
+  const kind = completionKind(turn);
+  const sessionId = turn.agentSessionId.trim();
+  const turnId = turn.turnId.trim();
+  return sessionId && turnId && kind
+    ? `turn:${sessionId}:${turnId}:${kind}`
+    : null;
 }
 
 function completionKind(

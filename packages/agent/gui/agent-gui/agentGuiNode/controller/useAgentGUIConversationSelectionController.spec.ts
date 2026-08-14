@@ -82,10 +82,13 @@ describe("clearRolledBackAgentGUISelection", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
+        nodeId: "node-1",
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
           dispatch: vi.fn(),
@@ -193,10 +196,13 @@ describe("clearRolledBackAgentGUISelection", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
+        nodeId: "node-1",
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
           dispatch: vi.fn(),
@@ -336,10 +342,13 @@ describe("clearRolledBackAgentGUISelection", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
+        nodeId: "node-1",
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
           dispatch: vi.fn(),
@@ -440,11 +449,14 @@ describe("conversation reload ownership", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages,
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: (agentSessionId) =>
           agentSessionId,
+        nodeId: "node-1",
         onDataChangeRef: {
           current: (updater) => {
             dataRef.current = updater(dataRef.current);
@@ -486,6 +498,8 @@ describe("shouldMarkActiveConversationRead", () => {
     expect(
       shouldMarkActiveConversationRead({
         activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         previousActiveConversationId: "session-1",
         record: { ...record, markedUnreadByUser: true }
       })
@@ -496,6 +510,8 @@ describe("shouldMarkActiveConversationRead", () => {
     expect(
       shouldMarkActiveConversationRead({
         activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         previousActiveConversationId: "session-2",
         record: { ...record, markedUnreadByUser: true }
       })
@@ -506,9 +522,35 @@ describe("shouldMarkActiveConversationRead", () => {
     expect(
       shouldMarkActiveConversationRead({
         activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         previousActiveConversationId: "session-1",
         record
       })
     ).toBe(true);
+  });
+
+  it("keeps unread attention when the selected Session belongs to an inactive surface", () => {
+    expect(
+      shouldMarkActiveConversationRead({
+        activeConversationId: "session-1",
+        isSurfaceActive: false,
+        isSurfaceVisible: true,
+        previousActiveConversationId: "session-1",
+        record
+      })
+    ).toBe(false);
+  });
+
+  it("keeps unread attention when the selected Session belongs to a hidden surface", () => {
+    expect(
+      shouldMarkActiveConversationRead({
+        activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceVisible: false,
+        previousActiveConversationId: "session-1",
+        record
+      })
+    ).toBe(false);
   });
 });
