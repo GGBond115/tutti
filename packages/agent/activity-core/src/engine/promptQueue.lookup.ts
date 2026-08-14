@@ -7,7 +7,8 @@ export function promptQueuePromptIdForClientSubmit(
 ): string | null {
   return (
     state.recordsBySessionId[agentSessionId.trim()]?.prompts.find(
-      (prompt) => prompt.clientSubmitId === clientSubmitId.trim()
+      (prompt) =>
+        (prompt.clientSubmitId?.trim() || prompt.id) === clientSubmitId.trim()
     )?.id ?? null
   );
 }

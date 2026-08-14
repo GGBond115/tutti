@@ -489,14 +489,14 @@ function confirmDeliveredPrompts(
   for (const [agentSessionId, current] of Object.entries(
     state.recordsBySessionId
   )) {
-    const matched = current.prompts.find((prompt) => {
-      const turnId = prompt.clientSubmitId
-        ? confirmedTurnByClientSubmitId.get(prompt.clientSubmitId)
-        : undefined;
-      return Boolean(turnId);
+    const matchingPrompts = current.prompts.filter((prompt) => {
+      const clientSubmitId = prompt.clientSubmitId?.trim() || prompt.id;
+      return confirmedTurnByClientSubmitId.has(clientSubmitId);
     });
-    if (!matched?.clientSubmitId) continue;
-    const turnId = confirmedTurnByClientSubmitId.get(matched.clientSubmitId);
+    if (matchingPrompts.length !== 1) continue;
+    const matched = matchingPrompts[0]!;
+    const clientSubmitId = matched.clientSubmitId?.trim() || matched.id;
+    const turnId = confirmedTurnByClientSubmitId.get(clientSubmitId);
     if (!turnId) continue;
     const record = compactQueueRecord({
       ...current,
@@ -636,6 +636,7 @@ function drainSession(
     {
       ...record,
       inFlight: {
+        clientSubmitId: head.clientSubmitId?.trim() || head.id,
         commandId,
         ...(decision.guidance ? { guidance: true as const } : {}),
         kind: "send",
@@ -664,7 +665,7 @@ function sendCommandFromQueuedPrompt(
     ...clonePromptCapabilityReferences(head.capabilityRefs),
     commandId,
     ...(head.clientSubmitId ? { correlationId: head.clientSubmitId } : {}),
-    clientSubmitId: head.clientSubmitId ?? head.id,
+    clientSubmitId: head.clientSubmitId?.trim() || head.id,
     content: head.runtimeContent ?? head.content,
     ...(head.displayPrompt ? { displayPrompt: head.displayPrompt } : {}),
     ...(guidance ? { guidance: true } : {}),

@@ -24,6 +24,7 @@ export interface EngineQueuedPrompt {
 export type PromptQueueSuspendReason = "user_stop";
 
 export interface PromptQueueInFlightCommand {
+  clientSubmitId?: string;
   commandId: string;
   /** Set when the command was dispatched as an active-turn steer. */
   guidance?: true;

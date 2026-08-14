@@ -102,6 +102,33 @@ test("command timeout is uncertain until the same client submit id is durable", 
   assert.deepEqual(confirmed.commands, []);
 });
 
+test("durable confirmation is idempotent and ignores a late command result", () => {
+  const requested = reduce(createInitialPendingIntentsState(), submit()).state;
+  const confirmed = reduce(requested, {
+    type: "message/snapshotReceived",
+    messages: [message("submit-1")]
+  });
+  assert.equal(
+    confirmed.state.submitsByClientSubmitId["submit-1"]?.status,
+    "confirmed"
+  );
+
+  const duplicate = reduce(confirmed.state, {
+    type: "message/snapshotReceived",
+    messages: [message("submit-1")]
+  });
+  assert.equal(duplicate.state, confirmed.state);
+
+  const lateResult = reduce(confirmed.state, {
+    type: "engine/commandResult",
+    commandId: "queue:send:session-1:1",
+    commandType: "queue/sendPrompt",
+    correlationId: "submit-1",
+    outcome: "timedOut"
+  });
+  assert.equal(lateResult.state, confirmed.state);
+});
+
 test("failed submit preserves the structured protocol reason for presentation", () => {
   let state = reduce(createInitialPendingIntentsState(), submit()).state;
   state = reduce(state, {

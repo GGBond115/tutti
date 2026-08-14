@@ -90,6 +90,11 @@ export function settleSubmitCommand(
   if (!record) {
     return unchanged(state);
   }
+  // A later timeout/failure must not regress a send that already has an
+  // accepted or durable confirmation. Replayed command results are no-ops.
+  if (record.status === "accepted" || record.status === "confirmed") {
+    return unchanged(state);
+  }
   if (intent.outcome === "succeeded") {
     if (!validation || validation.kind === "invalid") {
       return {
@@ -176,10 +181,14 @@ export function confirmFromMessages(
     if (record.turnId && messageTurnId && record.turnId !== messageTurnId) {
       continue;
     }
+    const nextTurnId = record.turnId ?? messageTurnId ?? null;
+    if (record.status === "confirmed" && record.turnId === nextTurnId) {
+      continue;
+    }
     next = replaceSubmit(next, {
       ...record,
       status: "confirmed",
-      turnId: record.turnId ?? messageTurnId ?? null
+      turnId: nextTurnId
     });
   }
   return next === state

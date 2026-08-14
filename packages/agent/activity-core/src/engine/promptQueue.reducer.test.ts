@@ -58,6 +58,28 @@ test("available canonical lifecycle sends an enqueued prompt immediately", () =>
   );
 });
 
+test("durable message removes an in-flight queued prompt by its prompt identity", () => {
+  const sending = reduce(
+    createInitialPromptQueueState(),
+    enqueue("prompt-1"),
+    canonicalLifecycle("settled", 1, "turn-0")
+  );
+  assert.equal(
+    sending.state.recordsBySessionId["session-1"]?.inFlight?.clientSubmitId,
+    "prompt-1"
+  );
+
+  const confirmed = reduce(
+    sending.state,
+    messagesReceived("prompt-1", "turn-1"),
+    canonicalLifecycle("running", 2, "turn-1")
+  );
+  const record = confirmed.state.recordsBySessionId["session-1"];
+  assert.deepEqual(record?.prompts, []);
+  assert.equal(record?.inFlight, null);
+  assert.equal(record?.deliveryBarrierTurnId, "turn-1");
+});
+
 test("user settings inFlight blocks drain until settings settle to idle", () => {
   let lifecycle = canonicalLifecycle("settled", 1);
   lifecycle = sessionLifecycleReducer(lifecycle, {
