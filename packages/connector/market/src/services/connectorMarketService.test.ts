@@ -1186,6 +1186,85 @@ test("continues one authorization session, opens each URL once, and clears loadi
   service.dispose();
 });
 
+test("waits for terminal authorization reconciliation before clearing loading", async () => {
+  const terminalConnector = deferred<Connector>();
+  const reconciliationStarted = deferred<void>();
+  let authorizationCalls = 0;
+  const initial = connector("notion", 1);
+  initial.authorization = { state: "disconnected" };
+  const pending = connector("notion", 2);
+  pending.authorization = { state: "pending" };
+  const connected = connector("notion", 3);
+  connected.authorization = { state: "connected" };
+  const acceptedOperation = {
+    ...operation("start_authorization", 2),
+    connectorKey: "notion",
+    operationId: "notion-authorization",
+    stage: "accepted" as const
+  };
+  const completedOperation = {
+    ...acceptedOperation,
+    state: "completed" as const,
+    stage: "completed" as const,
+    updatedAt: "2026-08-03T00:00:01Z"
+  };
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, [initial]),
+      beginAuthorization: async () => {
+        authorizationCalls += 1;
+        if (authorizationCalls === 1) {
+          return {
+            connector: pending,
+            operation: acceptedOperation,
+            authorizationUrl: "https://authorization.example/notion",
+            revision: 2
+          };
+        }
+        await reconciliationStarted.promise;
+        return {
+          connector: connected,
+          operation: acceptedOperation,
+          revision: 3
+        };
+      },
+      getOperation: async () => completedOperation,
+      getConnector: async () => {
+        reconciliationStarted.resolve();
+        return terminalConnector.promise;
+      }
+    }),
+    openAuthorizationUrl: async () => undefined
+  });
+  await service.ensureLoaded();
+
+  let settled = false;
+  const authorization = service.beginAuthorization("notion").finally(() => {
+    settled = true;
+  });
+  await waitFor(
+    () =>
+      service.dataStore.connectorsByKey.notion?.authorization.state ===
+      "connected"
+  );
+
+  assert.equal(settled, false);
+  assert.equal(
+    service.dataStore.operationsByConnectorKey.notion?.stage,
+    "accepted"
+  );
+
+  terminalConnector.resolve(connected);
+  await authorization;
+
+  assert.equal(
+    service.dataStore.operationsByConnectorKey.notion?.stage,
+    "completed"
+  );
+  assert.deepEqual(service.dataStore.authorizingConnectorKeys, {});
+  service.dispose();
+});
+
 test("late event subscription reconciles the authoritative snapshot and disposes once", async () => {
   const events = new TestEventSource();
   let revision = 1;

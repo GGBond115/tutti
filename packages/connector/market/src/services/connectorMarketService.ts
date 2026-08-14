@@ -300,6 +300,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
           openedAuthorizationUrls.size > 0 &&
           this.authorizationState(connectorKey) === "connected"
         ) {
+          await this.waitForAuthorizationOperation(connectorKey);
           return;
         }
         let result: ConnectorAuthorizationResult;
@@ -332,6 +333,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
           this.reconcileUninstallNotificationStates(next.operations);
           expectedRevision = this.dataStore.revision;
           if (this.authorizationState(connectorKey) === "connected") {
+            await this.waitForAuthorizationOperation(connectorKey);
             return;
           }
           if (canRecoverBusyContinuation) {
@@ -343,7 +345,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
           return;
         }
         applyConnectorMutationResult(this.dataStore, result);
-        this.trackOperation(result.operation);
+        const operationTrack = this.trackOperation(result.operation);
         const authorizationUrl = result.authorizationUrl;
         const discoveredNextStep =
           authorizationUrl !== undefined &&
@@ -355,6 +357,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
           }
         }
         if (this.authorizationState(connectorKey) === "connected") {
+          await operationTrack;
           return;
         }
         if (result.connector.authorization.state !== "pending") {
@@ -744,14 +747,19 @@ export class ConnectorMarketService implements IConnectorMarketService {
     }
   }
 
-  private trackOperation(operation: ConnectorOperation): void {
+  private trackOperation(
+    operation: ConnectorOperation
+  ): Promise<void> | undefined {
     if (
       this.disposed ||
       operation.state === "completed" ||
-      operation.state === "failed" ||
-      this.operationTracks.has(operation.operationId)
+      operation.state === "failed"
     ) {
       return;
+    }
+    const existing = this.operationTracks.get(operation.operationId);
+    if (existing) {
+      return existing;
     }
     const generation = this.dataGeneration;
     let promise!: Promise<void>;
@@ -770,6 +778,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
         }
       });
     this.operationTracks.set(operation.operationId, promise);
+    return promise;
   }
 
   private async runOperationTrack(
@@ -817,6 +826,14 @@ export class ConnectorMarketService implements IConnectorMarketService {
       if (operation.state === "completed" || operation.state === "failed") {
         try {
           await this.reconcileTerminalOperation(operation, generation);
+          if (this.isCurrent(generation)) {
+            // A continuation response for the same idempotent mutation may
+            // arrive while terminal connector reconciliation is in flight.
+            // Re-assert the authoritative terminal receipt after that await so
+            // the older accepted response cannot leave the card permanently
+            // busy until a later background refresh.
+            this.applyTrackedOperation(operation);
+          }
           return;
         } catch (error) {
           if (this.isRetryableOperationError(error)) {
@@ -926,6 +943,14 @@ export class ConnectorMarketService implements IConnectorMarketService {
 
   private authorizationState(connectorKey: string) {
     return this.dataStore.connectorsByKey[connectorKey]?.authorization.state;
+  }
+
+  private waitForAuthorizationOperation(connectorKey: string): Promise<void> {
+    const operation = this.dataStore.operationsByConnectorKey[connectorKey];
+    if (!operation || operation.kind !== "start_authorization") {
+      return Promise.resolve();
+    }
+    return this.trackOperation(operation) ?? Promise.resolve();
   }
 
   private waitForAuthorizationContinuation(): Promise<void> {
