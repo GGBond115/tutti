@@ -15,6 +15,7 @@ import { createConnectorMarketI18nRuntime } from "@tutti-os/connector-market/i18
 import { ConnectorMarketPanel } from "@tutti-os/connector-market/ui";
 import { IConnectorMarketModule } from "@tutti-os/connector-market/services";
 import type {
+  DesktopComputerUseActionResult,
   DesktopComputerUsePermissionPane,
   DesktopComputerUsePermissionsStatus,
   DesktopComputerUseStatus
@@ -1246,6 +1247,17 @@ function ComputerUseSetupRow({
         return;
       }
       const result = await settingsService.installComputerUse();
+      logPermissionDiagnostic(
+        "computer_use.permission_install_completed",
+        {
+          success: result.success,
+          exitCode: result.exitCode ?? null,
+          failureReason: result.failureReason ?? null,
+          outputBytes: result.output.length,
+          diagnosticMessage: truncateComputerUseActionOutput(result.output)
+        },
+        result.success ? "info" : "warn"
+      );
       setOperationProgress(100);
       await delay(computerUseOperationSettleMs);
       if (result.success) {
@@ -1278,10 +1290,31 @@ function ComputerUseSetupRow({
           }
         }
       } else {
-        setMessage(t("workspace.settings.general.computerUseInstallFailed"));
+        setMessage(
+          formatComputerUseActionFailure(
+            result,
+            t("workspace.settings.general.computerUseInstallFailed")
+          )
+        );
       }
-    } catch {
-      setMessage(t("workspace.settings.general.computerUseInstallFailed"));
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logPermissionDiagnostic(
+        "computer_use.permission_install_completed",
+        {
+          success: false,
+          failureReason: "renderer-error",
+          error: errorMessage
+        },
+        "error"
+      );
+      setMessage(
+        formatComputerUseActionFailure(
+          { output: errorMessage },
+          t("workspace.settings.general.computerUseInstallFailed")
+        )
+      );
     } finally {
       setOperation(null);
       setOperationProgress(0);
@@ -2120,6 +2153,26 @@ function summarizeComputerUseStatusForDiagnostic(
     permissionSource: status.permissions?.source ?? null,
     reason: status.reason ?? null
   };
+}
+
+const computerUseActionDiagnosticMaxLength = 600;
+
+function truncateComputerUseActionOutput(output: string): string | null {
+  const normalized = output.trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.length <= computerUseActionDiagnosticMaxLength
+    ? normalized
+    : `${normalized.slice(0, computerUseActionDiagnosticMaxLength)}…`;
+}
+
+function formatComputerUseActionFailure(
+  result: Pick<DesktopComputerUseActionResult, "output">,
+  fallback: string
+): string {
+  const diagnostic = truncateComputerUseActionOutput(result.output);
+  return diagnostic ? `${fallback}: ${diagnostic}` : fallback;
 }
 
 function delay(ms: number): Promise<void> {
