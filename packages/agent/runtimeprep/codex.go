@@ -145,7 +145,7 @@ func prepareCodexHome(codexHome string, input PrepareInput) error {
 	}
 	logRuntimePrepareTrace("runtime_prepare.codex.user_skills_resolved", input, nil)
 	logRuntimePrepareTrace("runtime_prepare.codex.native_skills_requested", input, nil)
-	skillPaths, err := installProviderNativeSkills(filepath.Join(codexHome, "skills"), input)
+	skillPaths, err := installProviderNativeSkillsSessionScoped(filepath.Join(codexHome, "skills"), input)
 	if err != nil {
 		return err
 	}

@@ -1081,6 +1081,40 @@ func TestDefaultPreparerCodexExposesRelativeModelCatalogJSON(t *testing.T) {
 	}
 }
 
+func TestDefaultPreparerCodexReconcilesNativeSkillsAcrossRepeatedPrepare(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	preparer := newTestPreparer(t.TempDir())
+	input := PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		AgentTargetID:  "local:codex",
+		Provider:       "codex",
+		Cwd:            t.TempDir(),
+	}
+	first, err := preparer.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("first Prepare() error = %v", err)
+	}
+	second, err := preparer.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("second Prepare() error = %v", err)
+	}
+
+	firstCodexHome := envValue(first.Env, "CODEX_HOME")
+	secondCodexHome := envValue(second.Env, "CODEX_HOME")
+	if firstCodexHome != secondCodexHome {
+		t.Fatalf("repeated Prepare() CODEX_HOME = %q and %q, want the same durable home", firstCodexHome, secondCodexHome)
+	}
+	if _, err := os.Stat(filepath.Join(secondCodexHome, "skills", "tutti-cli", "SKILL.md")); err != nil {
+		t.Fatalf("stable tutti-cli skill missing after repeated Prepare(): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(secondCodexHome, "skills", "tutti-cli-tutti")); !os.IsNotExist(err) {
+		t.Fatalf("repeated Prepare() created a suffixed tutti-cli skill, err = %v", err)
+	}
+}
+
 func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
