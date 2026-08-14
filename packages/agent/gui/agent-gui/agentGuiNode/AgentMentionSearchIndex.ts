@@ -45,6 +45,7 @@ export interface AgentMentionProviderQueryInput {
 export interface AgentMentionProviderGroupedQueryInput extends AgentMentionProviderQueryInput {}
 
 export async function fetchAgentMentionFilterResult(input: {
+  abortSignal?: AbortSignal;
   workspaceId: string;
   currentUserId: string;
   query: string;
@@ -98,9 +99,15 @@ export async function fetchAgentMentionFilterResult(input: {
               provenanceFilter: input.provenanceFilter
             })
           : Promise.resolve([] as AgentContextMentionItem[]);
+      const resolvedAgentGeneratedFileQuery = provenanceFilterActive
+        ? agentGeneratedFileQuery
+        : tolerateOptionalAgentGeneratedFileFailure({
+            abortSignal: input.abortSignal,
+            query: agentGeneratedFileQuery
+          });
       const [fileItems, agentGeneratedFileItems] = await Promise.all([
         fileQuery,
-        agentGeneratedFileQuery
+        resolvedAgentGeneratedFileQuery
       ]);
       const rawGroups = emptyAgentMentionRawGroups();
       rawGroups.opened_files = fileItems.filter((item) => item.kind === "file");
@@ -216,6 +223,22 @@ export async function fetchAgentMentionFilterResult(input: {
       };
     }
   }
+}
+
+function tolerateOptionalAgentGeneratedFileFailure(input: {
+  abortSignal?: AbortSignal;
+  query: Promise<AgentContextMentionItem[]>;
+}): Promise<AgentContextMentionItem[]> {
+  return input.query.catch((error: unknown) => {
+    if (input.abortSignal?.aborted || isAbortError(error)) {
+      throw error;
+    }
+    return [];
+  });
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 export async function queryAgentMentionProviderItems(input: {

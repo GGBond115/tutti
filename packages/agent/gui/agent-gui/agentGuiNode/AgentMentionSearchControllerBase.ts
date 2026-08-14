@@ -772,6 +772,7 @@ export class AgentMentionSearchControllerBase {
   ): Promise<AgentMentionBrowseFetchResult> {
     return fetchAgentMentionFilterResult({
       ...input,
+      abortSignal,
       fileLimit: this.fileLimit,
       currentFileSearchLimit: this.currentFileSearchLimit,
       currentIssueSearchLimit: this.currentIssueSearchLimit,
