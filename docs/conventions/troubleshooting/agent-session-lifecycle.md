@@ -877,36 +877,46 @@ be resent`). The app never opens.
 
 Turn state, loading, cancel, restore, file-change undo, rail projection, event updates, imports, and performance.
 
-### AgentGUI restores a provisional conversation after creation fails
+### AgentGUI restores or prematurely clears a provisional conversation
 
 - Symptom:
   A new conversation fails to start, but a renderer reload selects the same
   Session ID again. The Rail may show an optimistic row while the canonical
-  store has no matching Session.
+  store has no matching Session. The inverse symptom is an in-flight create
+  returning Home with “session no longer available” before Host finishes.
 - Quick checks:
   Correlate the activation request, Workbench
   `lastActiveAgentSessionId`, renderer reload, and canonical Session lookup by
   exact ID. If navigation persistence precedes canonical activation
   confirmation and the lookup returns typed `session.not_found`, this is a
   provisional-selection leak. A bounded Rail page that omits the Session is
-  not enough evidence.
+  not enough evidence. Also compare the reconcile failure time with activation
+  settlement; `session.not_found` arriving while that exact new activation is
+  requested or outcome-unknown is an observation race, not deletion proof.
 - Root cause:
   The new-conversation controller persisted its generated Session ID when it
   selected the optimistic row. A crash or reload could therefore restore that
   ID before Host committed a canonical Session. Reconcile errors also lost
   their typed code in the frontend engine, so AgentGUI could not distinguish a
-  proven missing Session from a transient read failure.
+  proven missing Session from a transient read failure. Conversely, treating
+  a typed missing result as authoritative while the matching create was still
+  pending could roll back a healthy but slow activation.
 - Fix:
   Keep provisional selection in mounted UI only. Persist it after the engine
   confirms activation from canonical Session state. Preserve reconcile
   `errorCode`; clear only the exact global and per-target navigation memories
-  when the active reconcile settles with `session.not_found`. Preserve them
-  for timeout, transport failure, and bounded-list absence.
+  when the active reconcile settles with `session.not_found` and no matching
+  new activation remains pending. Let activation settlement own rollback while
+  creation is requested or outcome-unknown, and suppress that provisional miss
+  from the detail error presentation. Preserve selection for timeout, transport
+  failure, and bounded-list absence.
 - Validation:
   Verify a requested activation performs no persistence, canonical
   confirmation writes once, create failure plus reload cannot restore the
   provisional ID, typed `session.not_found` clears only the matching memories,
-  and a transient reconcile error keeps the selection.
+  a matching requested or outcome-unknown activation survives an early
+  `session.not_found` without unavailable-session chrome, and a transient
+  reconcile error keeps the selection.
 - References:
   [agent-gui-node.md](../../architecture/agent-gui-node.md)
   [sessionReconcile.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionReconcile.reducer.ts)

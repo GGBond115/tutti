@@ -215,6 +215,15 @@ session metadata.
 
 ### New-session launch settings
 
+A Host may group an exact cloud execution target under one logical Agent with
+`AgentGUIAgent.sessionLaunchTargets`. This relation is authoritative identity,
+not a provider-name or label match. AgentGUI projects the selected launch
+variant as the Composer's exact target before loading options or activating a
+Session, while keeping one Agent entry in directory presentation. Existing
+Sessions backed by that cloud target resolve through the same relation.
+The relation also projects the exact variant's `setupKind`. Target setup remains
+variant-owned, so a cloud target does not inherit the local runtime setup gate.
+
 Remembered composer defaults are target-scoped preferences, not active Session
 state. AgentGUI reads them only while composing a new Session and sends the
 resolved sparse settings through the normal activation command. A host-owned
@@ -2233,6 +2242,15 @@ project-path probe through
 selector only when all four pieces exist, the selected target is explicitly
 self-owned, a real project path and section key are selected, and the probe
 succeeds. Existing Sessions and shared/remote targets never expose it.
+
+Cloud launch shares the visible location selector but not the durable project
+preference. `AgentGUISessionLaunchMode` includes `cloud` for presentation and
+selection. `AgentGUISessionLaunchPreferenceMode` remains `local | worktree`.
+Selecting Cloud resolves and selects the Host-authored exact
+`sessionLaunchTargets` identity; it never writes
+`sessionLaunchModesByProjectSectionKey`. This keeps Agent-target authority
+separate from project launch intent.
+
 Tutti Desktop carries the exact `agentTargetId` and project path through the
 generated daemon support contract. Tuttid resolves that target through its
 local launch authority and fails closed for shared-Agent identities. The
@@ -2782,11 +2800,16 @@ AgentGUI may select that optimistic conversation in mounted UI immediately,
 but it must not persist the provisional Session ID into Workbench navigation
 state. The selection becomes durable only after the workspace engine confirms
 the activation from an authoritative Session snapshot. On restart, absence
-from a bounded Rail page is not deletion evidence. A host that proves the
-selected Session is absent returns typed `session.not_found`; the activity
-engine retains that code, and AgentGUI clears only the matching global and
-per-target navigation memories before returning Home. Timeout, transport, and
-other reconcile failures preserve the remembered selection.
+from a bounded Rail page is not deletion evidence. While a new activation is
+still requested or outcome-unknown, an early `session.not_found` reconcile is
+also not deletion evidence: activation settlement owns whether the optimistic
+selection is preserved or rolled back, and the detail surface must not present
+that provisional miss as an unavailable Session. Outside that pending-create
+window, a host that proves the selected Session is absent returns typed
+`session.not_found`; the activity engine retains that code, and AgentGUI clears
+only the matching global and per-target navigation memories before returning
+Home. Timeout, transport, and other reconcile failures preserve the remembered
+selection.
 The controller's new-conversation command must distinguish rail placement from
 the active Session's runtime working directory before entering the home
 composer. A Session in the Chats section may have a generated `cwd`, but that

@@ -32,6 +32,7 @@ import type { AgentTranscriptVirtualScrollController } from "../../../shared/age
 import type { AgentGUIDetailPaneProps } from "./AgentGUIDetailPane.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { submitAgentInteractionResponseAndDismiss } from "../../../shared/agentConversation/interactionResponseAdmission";
+import { useAgentGUISessionLaunchModeChange } from "./useAgentGUISessionLaunchModeChange";
 export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
   [];
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
@@ -139,7 +140,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     stopDisabled,
     showTimelineSkeleton,
     showUnavailableChatEmpty,
-    slashStatus: derivedSlashStatus,
+    slashStatus,
     timelineConversationId,
     timelineInteractionLocked
   } = useAgentGUIDetailModel({
@@ -148,9 +149,9 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     slashStatusLimits,
     slashStatusLimitsLoading,
     slashStatusLimitsUnavailable,
+    slashStatusOverride,
     viewModel
   });
-  const slashStatus = slashStatusOverride ?? derivedSlashStatus;
   const handleForkThroughTurn = useStableEventCallback((turnId: string) => {
     const agentSessionId =
       conversation?.sourceDetail.session.agentSessionId.trim() ?? "";
@@ -345,6 +346,14 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
             target.agentTargetId === agentTargetId
           );
         }) ?? viewModel.rail.selectedAgentTarget);
+  const selectedProjectSectionKey =
+    viewModel.composer.composerSettings.selectedProjectSectionKey?.trim() ?? "";
+  const handleSessionLaunchModeChange = useAgentGUISessionLaunchModeChange({
+    onPreferenceChange: onSessionLaunchModePreferenceChange,
+    onSelectAgentTarget: selectHomeComposerAgentTargetAndFocus,
+    selectedAgentTarget: composerSelectedProviderTarget,
+    selectedProjectSectionKey
+  });
   const handoffSourceSessionId = viewModel.rail.activeConversationId;
   const stableHandoffConversation = useOptionalStableEventCallback(
     onHandoffConversation && handoffSourceSessionId !== null
@@ -402,20 +411,12 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         sessionWorktreeEnabled &&
         sessionLaunchModesByProjectSectionKey !== undefined,
       sessionLaunchMode:
-        sessionLaunchModesByProjectSectionKey?.[
-          viewModel.composer.composerSettings.selectedProjectSectionKey?.trim() ??
-            ""
-        ] ?? "local",
-      onSessionLaunchModeChange:
-        onSessionLaunchModePreferenceChange &&
-        viewModel.composer.composerSettings.selectedProjectSectionKey?.trim()
-          ? (mode) =>
-              onSessionLaunchModePreferenceChange({
-                mode,
-                projectSectionKey:
-                  viewModel.composer.composerSettings.selectedProjectSectionKey!.trim()
-              })
-          : undefined,
+        composerSelectedProviderTarget?.sessionLaunchMode === "cloud"
+          ? "cloud"
+          : (sessionLaunchModesByProjectSectionKey?.[
+              selectedProjectSectionKey
+            ] ?? "local"),
+      onSessionLaunchModeChange: handleSessionLaunchModeChange,
       agentTargets: composerProviderTargets,
       handoffAgentTargets: composerHandoffProviderTargets,
       showHandoffTargetOwnershipLabels,
@@ -566,6 +567,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       sessionWorktreeEnabled,
       sessionLaunchModesByProjectSectionKey,
       onSessionLaunchModePreferenceChange,
+      handleSessionLaunchModeChange,
+      selectedProjectSectionKey,
       stopDisabled,
       slashStatus,
       setTuttiModeEffect,

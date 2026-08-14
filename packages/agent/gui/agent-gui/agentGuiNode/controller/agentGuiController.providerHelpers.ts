@@ -11,7 +11,10 @@ import type {
 } from "../../../shared/agentSessionTypes";
 import type { AgentProviderId } from "../../../shared/contracts/dto";
 import type { AgentGUINodeData, AgentGUIAgentTarget } from "../../../types";
-import { agentGUIAgentTargetRefsEqual } from "../../../agentTargets";
+import {
+  agentGUIAgentTargetRefsEqual,
+  resolveAgentGUIAgentTarget
+} from "../../../agentTargets";
 import {
   matchesAgentGUIConversationSummaryFilter,
   type AgentGUIConversationFilter
@@ -270,11 +273,32 @@ export function isExplicitAgentGUIAgentTarget(
   target: AgentGUIAgentTarget,
   explicitTargets: readonly AgentGUIAgentTarget[]
 ): boolean {
-  return explicitTargets.some(
-    (candidate) =>
-      candidate.provider === target.provider &&
-      candidate.targetId === target.targetId &&
-      agentGUIAgentTargetRefsEqual(candidate.ref, target.ref)
+  if (
+    explicitTargets.some(
+      (candidate) =>
+        candidate.provider === target.provider &&
+        candidate.targetId === target.targetId &&
+        agentGUIAgentTargetRefsEqual(candidate.ref, target.ref)
+    )
+  ) {
+    return true;
+  }
+
+  const agentTargetId = target.agentTargetId?.trim() ?? "";
+  if (!agentTargetId) {
+    return false;
+  }
+  const resolvedTarget = resolveAgentGUIAgentTarget({
+    agentTargetId,
+    provider: target.provider,
+    agentTargets: explicitTargets,
+    useStaticCatalog: false
+  });
+  return Boolean(
+    resolvedTarget &&
+    resolvedTarget.provider === target.provider &&
+    resolvedTarget.targetId === target.targetId &&
+    agentGUIAgentTargetRefsEqual(resolvedTarget.ref, target.ref)
   );
 }
 

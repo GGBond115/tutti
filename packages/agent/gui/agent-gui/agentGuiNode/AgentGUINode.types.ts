@@ -55,7 +55,7 @@ import type { RichTextMentionService } from "@tutti-os/ui-rich-text/service";
 import type { AgentGUIEngagementEventSink } from "./engagement/agentGUIEngagement.types";
 import type { AgentGUIComposerAppendRequest } from "./controller/useAgentGUIComposerAppendRequest";
 import type { OpenAgentEnvPanelInput } from "../../shared/agentEnv";
-import type { AgentGUISessionLaunchMode } from "./model/agentSessionLaunchMode";
+import type { AgentGUISessionLaunchPreferenceMode } from "./model/agentSessionLaunchMode";
 
 export interface AgentGUINodeIdentity {
   nodeId: string;
@@ -134,7 +134,7 @@ export interface AgentGUINodeHostCapabilities {
   sessionWorktreeEnabled?: boolean;
   /** Host-owned durable launch preference projection for this workspace. */
   sessionLaunchModesByProjectSectionKey?: Readonly<
-    Record<string, AgentGUISessionLaunchMode>
+    Record<string, AgentGUISessionLaunchPreferenceMode>
   >;
   /** Host-owned experimental opt-in for the Codex saver-mode composer entry. */
   codexSaverModeEntryEnabled?: boolean;
@@ -212,7 +212,7 @@ export interface AgentGUINodeHostActions {
     input: AgentGUIRememberComposerDefaultsInput
   ) => void | Promise<AgentGUIRememberComposerDefaultsResult>;
   onSessionLaunchModePreferenceChange?: (input: {
-    mode: AgentGUISessionLaunchMode;
+    mode: AgentGUISessionLaunchPreferenceMode;
     projectSectionKey: string;
   }) => void | Promise<void>;
   isMuted?: boolean;

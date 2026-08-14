@@ -38,6 +38,7 @@ import { AgentSlashStatusPanel } from "../AgentSlashStatusPanel";
 import { AgentReviewPickerPanel } from "../AgentReviewPickerPanel";
 import { ComposerFloatingMenuSurface } from "../composerFloatingMenu/ComposerFloatingMenuSurface";
 import type { AgentComposerProps } from "./AgentComposer.types";
+import { agentSlashStatusPanelLabels } from "./agentSlashStatusPanelLabels";
 import {
   EMPTY_PROVIDER_SKILLS,
   EMPTY_WORKSPACE_APP_ICONS,
@@ -272,12 +273,17 @@ export function AgentComposerView(input: Props): React.JSX.Element {
     input.sessionWorktreeLaunch.visible &&
     input.props.labels.sessionLaunchModeLabel &&
     input.props.labels.sessionLaunchModeLocal &&
-    input.props.labels.sessionLaunchModeWorktree ? (
+    (!input.sessionWorktreeLaunch.availableModes.includes("worktree") ||
+      input.props.labels.sessionLaunchModeWorktree) &&
+    (!input.sessionWorktreeLaunch.availableModes.includes("cloud") ||
+      input.props.labels.sessionLaunchModeCloud) ? (
       <AgentSessionLaunchModeSelect
+        availableModes={input.sessionWorktreeLaunch.availableModes}
         labels={{
           launchMode: input.props.labels.sessionLaunchModeLabel,
           local: input.props.labels.sessionLaunchModeLocal,
-          worktree: input.props.labels.sessionLaunchModeWorktree
+          worktree: input.props.labels.sessionLaunchModeWorktree ?? "",
+          cloud: input.props.labels.sessionLaunchModeCloud ?? ""
         }}
         mode={input.sessionWorktreeLaunch.mode}
         onModeChange={input.sessionWorktreeLaunch.onModeChange}
@@ -638,29 +644,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             >
               <AgentSlashStatusPanel
                 status={slashStatus}
-                labels={{
-                  slashStatusTitle: labels.slashStatusTitle,
-                  slashStatusSession: labels.slashStatusSession,
-                  slashStatusBaseUrl: labels.slashStatusBaseUrl,
-                  slashStatusContext: labels.slashStatusContext,
-                  slashStatusLimits: labels.slashStatusLimits,
-                  slashStatusClose: labels.slashStatusClose,
-                  slashStatusContextValue: labels.slashStatusContextValue,
-                  slashStatusContextUnavailable:
-                    labels.slashStatusContextUnavailable,
-                  slashStatusLimitsUnavailable:
-                    labels.slashStatusLimitsUnavailable,
-                  slashStatusEmptyValue: labels.slashStatusEmptyValue,
-                  slashStatusUsageJustUpdated:
-                    labels.slashStatusUsageJustUpdated,
-                  slashStatusUsageMinutesAgo: labels.slashStatusUsageMinutesAgo,
-                  slashStatusUsageHoursAgo: labels.slashStatusUsageHoursAgo,
-                  slashStatusUsageUpdating: labels.slashStatusUsageUpdating,
-                  slashStatusUsageRefreshFailed:
-                    labels.slashStatusUsageRefreshFailed,
-                  slashStatusUsageRefreshAria:
-                    labels.slashStatusUsageRefreshAria
-                }}
+                labels={agentSlashStatusPanelLabels(labels)}
                 onClose={closeSlashStatusPanel}
                 onRefresh={onSlashStatusRefresh}
               />

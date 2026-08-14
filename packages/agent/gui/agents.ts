@@ -23,6 +23,9 @@ export function normalizeAgentGUIAgents(
     const ownerName = agent.owner?.name?.trim() ?? "";
     const ownerAvatarUrl = agent.owner?.avatarUrl?.trim() ?? "";
     const reason = agent.availability.reason?.trim() ?? "";
+    const sessionLaunchTargets = normalizeAgentGUISessionLaunchTargets(
+      agent.sessionLaunchTargets
+    );
     normalized.push({
       agentTargetId,
       name,
@@ -56,7 +59,8 @@ export function normalizeAgentGUIAgents(
       provider: agent.provider,
       ...(agent.setupKind === "target_runtime"
         ? { setupKind: "target_runtime" as const }
-        : {})
+        : {}),
+      ...(sessionLaunchTargets.length > 0 ? { sessionLaunchTargets } : {})
     });
   }
   return normalized;
@@ -125,8 +129,63 @@ export function projectAgentGUIAgentsToTargets(
       : {}),
     ...(agent.availability.reason
       ? { unavailableReason: agent.availability.reason }
+      : {}),
+    sessionLaunchMode: "local",
+    ...(agent.sessionLaunchTargets?.length
+      ? {
+          sessionLaunchTargets: [
+            {
+              mode: "local" as const,
+              agentTargetId: agent.agentTargetId,
+              availability: agent.availability,
+              setupKind: agent.setupKind ?? null
+            },
+            ...agent.sessionLaunchTargets
+          ]
+        }
       : {})
   }));
+}
+
+function normalizeAgentGUISessionLaunchTargets(
+  targets: AgentGUIAgent["sessionLaunchTargets"]
+): NonNullable<AgentGUIAgent["sessionLaunchTargets"]> {
+  const normalized: Array<
+    NonNullable<AgentGUIAgent["sessionLaunchTargets"]>[number]
+  > = [];
+  const seenModes = new Set<string>();
+  const seenTargetIds = new Set<string>();
+  for (const target of targets ?? []) {
+    const agentTargetId = target.agentTargetId.trim();
+    if (
+      target.mode !== "cloud" ||
+      !agentTargetId ||
+      seenModes.has(target.mode) ||
+      seenTargetIds.has(agentTargetId)
+    ) {
+      continue;
+    }
+    seenModes.add(target.mode);
+    seenTargetIds.add(agentTargetId);
+    normalized.push({
+      mode: target.mode,
+      agentTargetId,
+      setupKind:
+        target.setupKind === "target_runtime" ? "target_runtime" : null,
+      availability: {
+        status: normalizeAgentGUIAgentAvailabilityStatus(
+          target.availability.status
+        ),
+        ...(target.availability.reason?.trim()
+          ? { reason: target.availability.reason.trim() }
+          : {}),
+        ...(target.availability.pendingAction
+          ? { pendingAction: target.availability.pendingAction }
+          : {})
+      }
+    });
+  }
+  return normalized;
 }
 
 function normalizeAgentGUIAgentAvailabilityStatus(

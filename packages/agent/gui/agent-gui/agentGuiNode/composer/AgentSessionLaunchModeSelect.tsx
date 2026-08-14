@@ -5,6 +5,7 @@ import {
   SelectItem,
   SelectTrigger,
   WorktreeLinedIcon,
+  WebIcon,
   cn
 } from "@tutti-os/ui-system";
 import styles from "../AgentGUINode.styles";
@@ -15,7 +16,9 @@ export function AgentSessionLaunchModeSelect(input: {
     launchMode: string;
     local: string;
     worktree: string;
+    cloud: string;
   };
+  availableModes: readonly AgentGUISessionLaunchMode[];
   mode: AgentGUISessionLaunchMode;
   onModeChange: (mode: AgentGUISessionLaunchMode) => void;
 }): React.JSX.Element {
@@ -29,9 +32,7 @@ export function AgentSessionLaunchModeSelect(input: {
         <span className="flex min-w-0 items-center gap-2">
           <LaunchModeIcon mode={input.mode} />
           <span className="truncate">
-            {input.mode === "worktree"
-              ? input.labels.worktree
-              : input.labels.local}
+            {launchModeLabel(input.mode, input.labels)}
           </span>
         </span>
       </SelectTrigger>
@@ -42,12 +43,22 @@ export function AgentSessionLaunchModeSelect(input: {
             {input.labels.local}
           </span>
         </SelectItem>
-        <SelectItem value="worktree">
-          <span className="flex items-center gap-2">
-            <LaunchModeIcon mode="worktree" />
-            {input.labels.worktree}
-          </span>
-        </SelectItem>
+        {input.availableModes.includes("worktree") ? (
+          <SelectItem value="worktree">
+            <span className="flex items-center gap-2">
+              <LaunchModeIcon mode="worktree" />
+              {input.labels.worktree}
+            </span>
+          </SelectItem>
+        ) : null}
+        {input.availableModes.includes("cloud") ? (
+          <SelectItem value="cloud">
+            <span className="flex items-center gap-2">
+              <LaunchModeIcon mode="cloud" />
+              {input.labels.cloud}
+            </span>
+          </SelectItem>
+        ) : null}
       </SelectContent>
     </Select>
   );
@@ -58,17 +69,38 @@ function LaunchModeIcon({
 }: {
   mode: AgentGUISessionLaunchMode;
 }): React.JSX.Element {
-  return mode === "worktree" ? (
-    <WorktreeLinedIcon
-      aria-hidden="true"
-      data-agent-session-launch-icon="worktree"
-      size={15}
-    />
-  ) : (
+  if (mode === "worktree") {
+    return (
+      <WorktreeLinedIcon
+        aria-hidden="true"
+        data-agent-session-launch-icon="worktree"
+        size={15}
+      />
+    );
+  }
+  if (mode === "cloud") {
+    return (
+      <WebIcon
+        aria-hidden="true"
+        data-agent-session-launch-icon="cloud"
+        size={15}
+      />
+    );
+  }
+  return (
     <LocalComputerLinedIcon
       aria-hidden="true"
       data-agent-session-launch-icon="local"
       size={15}
     />
   );
+}
+
+function launchModeLabel(
+  mode: AgentGUISessionLaunchMode,
+  labels: { local: string; worktree: string; cloud: string }
+): string {
+  if (mode === "worktree") return labels.worktree;
+  if (mode === "cloud") return labels.cloud;
+  return labels.local;
 }

@@ -12,7 +12,7 @@ import type { AgentContextMentionItem } from "../agentRichText/agentFileMentionE
 import type { AgentGUIComposerEngagement } from "../engagement/agentGUIEngagement.types";
 import type { AgentGUINodeViewModel } from "../model/agentGuiNodeTypes";
 import type { AgentGUIManagedHomeTargetProjection } from "../model/agentGuiProviderRailOrder";
-import type { AgentGUISessionLaunchMode } from "../model/agentSessionLaunchMode";
+import type { AgentGUISessionLaunchPreferenceMode } from "../model/agentSessionLaunchMode";
 import type {
   AgentGUINodeViewProps,
   AgentGUIViewLabels
@@ -41,10 +41,10 @@ export interface AgentGUIDetailPaneProps extends AgentGUIDetailExternalPromptPro
   sessionForkEnabled?: boolean;
   sessionWorktreeEnabled?: boolean;
   sessionLaunchModesByProjectSectionKey?: Readonly<
-    Record<string, AgentGUISessionLaunchMode>
+    Record<string, AgentGUISessionLaunchPreferenceMode>
   >;
   onSessionLaunchModePreferenceChange?: (input: {
-    mode: AgentGUISessionLaunchMode;
+    mode: AgentGUISessionLaunchPreferenceMode;
     projectSectionKey: string;
   }) => void | Promise<void>;
   composerEngagement?: AgentGUIComposerEngagement;

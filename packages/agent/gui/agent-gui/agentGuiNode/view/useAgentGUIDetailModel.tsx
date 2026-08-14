@@ -2,7 +2,10 @@ import { useMemo } from "react";
 import { isAgentGUIAgentTargetComingSoon } from "../../../agentTargets";
 import { UnavailableChatIcon } from "../../../app/renderer/components/icons/UnavailableChatIcon";
 import { useProjectedAgentConversation } from "../../../shared/agentConversation/projection/useProjectedAgentConversation";
-import type { AgentComposerSlashStatusLimit } from "../AgentComposer";
+import type {
+  AgentComposerSlashStatus,
+  AgentComposerSlashStatusLimit
+} from "../AgentComposer";
 import type { AgentGoalBannerLabels } from "../AgentGoalBanner";
 import type {
   AgentGUIInlineNotice,
@@ -14,10 +17,9 @@ import {
   isContextCanceledMessage,
   isAgentGUIHomeStatusNoticeVisible,
   resolveAgentGUIHomeNoticeChrome,
-  resolveAgentGUIStopControl,
-  resolveSlashStatus,
-  useStableSlashStatus
+  resolveAgentGUIStopControl
 } from "./agentGUIDetailModelHelpers";
+import { useAgentGUIProjectedSlashStatus } from "./useAgentGUIProjectedSlashStatus";
 import { useAgentGUITimelineTransition } from "./useAgentGUITimelineTransition";
 import styles from "../AgentGUINode.styles";
 
@@ -27,6 +29,7 @@ interface Input {
   slashStatusLimits: readonly AgentComposerSlashStatusLimit[];
   slashStatusLimitsLoading: boolean;
   slashStatusLimitsUnavailable: boolean;
+  slashStatusOverride?: AgentComposerSlashStatus | null;
   viewModel: AgentGUINodeViewModel;
 }
 
@@ -53,6 +56,7 @@ export function useAgentGUIDetailModel(input: Input) {
     slashStatusLimits,
     slashStatusLimitsLoading,
     slashStatusLimitsUnavailable,
+    slashStatusOverride,
     viewModel
   } = input;
   const projectedConversation = useProjectedAgentConversation({
@@ -97,24 +101,13 @@ export function useAgentGUIDetailModel(input: Input) {
   const homeStatusNoticeVisible = isAgentGUIHomeStatusNoticeVisible(
     sessionChrome.recovery
   );
-  const rawSlashStatus = useMemo(
-    () =>
-      resolveSlashStatus({
-        rawState: viewModel.interaction.sessionChrome.rawState,
-        limits: slashStatusLimits,
-        limitsLoading: slashStatusLimitsLoading,
-        limitsUnavailable: slashStatusLimitsUnavailable,
-        usage: viewModel.detail.usage
-      }),
-    [
-      slashStatusLimits,
-      slashStatusLimitsLoading,
-      slashStatusLimitsUnavailable,
-      viewModel.detail.usage,
-      viewModel.interaction.sessionChrome.rawState
-    ]
-  );
-  const slashStatus = useStableSlashStatus(rawSlashStatus);
+  const slashStatus = useAgentGUIProjectedSlashStatus({
+    slashStatusLimits,
+    slashStatusLimitsLoading,
+    slashStatusLimitsUnavailable,
+    slashStatusOverride,
+    viewModel
+  });
   const tuttiModeUpdateNotice = useMemo(
     () =>
       resolveTuttiModeUpdateInlineNotice({
@@ -509,6 +502,11 @@ export function useAgentGUIDetailModel(input: Input) {
       slashStatusTitle: labels.slashStatusTitle,
       slashStatusSession: labels.slashStatusSession,
       slashStatusBaseUrl: labels.slashStatusBaseUrl,
+      slashStatusCwd: labels.slashStatusCwd,
+      slashStatusExecutionLocation: labels.slashStatusExecutionLocation,
+      slashStatusExecutionLocal: labels.slashStatusExecutionLocal,
+      slashStatusExecutionCloud: labels.slashStatusExecutionCloud,
+      slashStatusExecutionShared: labels.slashStatusExecutionShared,
       slashStatusContext: labels.slashStatusContext,
       slashStatusLimits: labels.slashStatusLimits,
       slashStatusAccount: labels.slashStatusAccount,
@@ -567,6 +565,7 @@ export function useAgentGUIDetailModel(input: Input) {
       sessionLaunchModeLabel: labels.sessionLaunchModeLabel,
       sessionLaunchModeLocal: labels.sessionLaunchModeLocal,
       sessionLaunchModeWorktree: labels.sessionLaunchModeWorktree,
+      sessionLaunchModeCloud: labels.sessionLaunchModeCloud,
       projectMissingDescription: labels.projectMissingDescription,
       promptTipsPrefix: labels.promptTipsPrefix,
       reviewPicker: labels.reviewPicker,
@@ -646,6 +645,7 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.sessionLaunchModeLabel,
       labels.sessionLaunchModeLocal,
       labels.sessionLaunchModeWorktree,
+      labels.sessionLaunchModeCloud,
       labels.projectMissingDescription,
       labels.promptTipsPrefix,
       labels.reviewPicker,
@@ -722,6 +722,11 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.slashStatusContextUnavailable,
       labels.slashStatusContextValue,
       labels.slashStatusBaseUrl,
+      labels.slashStatusCwd,
+      labels.slashStatusExecutionCloud,
+      labels.slashStatusExecutionLocal,
+      labels.slashStatusExecutionLocation,
+      labels.slashStatusExecutionShared,
       labels.slashStatusLimits,
       labels.slashStatusLimitsUnavailable,
       labels.slashStatusEmptyValue,

@@ -1,10 +1,6 @@
 import { useMemo } from "react";
 import type { WorkspaceFileReferenceCopy } from "@tutti-os/workspace-file-reference/contracts";
 import type { TranslateFn } from "../../i18n/index";
-import {
-  agentGUIProviderIdentityDisplayName,
-  resolveAgentGUIProviderCatalogIdentity
-} from "../../providerIdentityCatalog";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../shared/AgentMessageMarkdown";
 import type { AgentGUIHomeSuggestionId } from "../../types";
 import { resolveAgentGUIProviderDisplayLabel } from "./model/agentGuiProviderIdentity";
@@ -15,7 +11,7 @@ import {
   type AgentGUIConversationRailLabels
 } from "./view/agentGUIConversationRailLabels";
 import { agentGUIProviderManagerLabels } from "./view/agentGUIProviderManagerLabels";
-import { agentGUIUsageStatusLabels } from "./view/agentGUIUsageStatusLabels";
+import { agentGUISlashStatusLabels } from "./view/agentGUISlashStatusLabels";
 import { agentQuickPromptLabels } from "./composer/quickPrompts/agentQuickPromptLabels";
 import { agentSlashPaletteLabels } from "./composer/agentSlashPaletteLabels";
 import { agentGUIProjectLaunchLabels } from "./composer/agentGUIProjectLaunchLabels";
@@ -295,56 +291,7 @@ export function useAgentGUIViewLabels(input: {
       queuedPromptMoreActions: t("agentHost.agentGui.queuedPromptMoreActions"),
       stop: t("agentHost.agentGui.stop"),
       stopping: t("agentHost.agentGui.stopping"),
-      slashStatusTitle: t("agentHost.agentGui.slashStatusTitle"),
-      slashStatusSession: t("agentHost.agentGui.slashStatusSession"),
-      slashStatusBaseUrl: t("agentHost.agentGui.slashStatusBaseUrl"),
-      slashStatusContext: t("agentHost.agentGui.slashStatusContext"),
-      slashStatusLimits: t("agentHost.agentGui.slashStatusLimits"),
-      slashStatusAccount: t("agentHost.agentGui.slashStatusAccount"),
-      slashStatusProviderAccount: (provider: string) => {
-        const identity = resolveAgentGUIProviderCatalogIdentity(provider);
-        if (!identity) {
-          return null;
-        }
-        return t("agentHost.agentGui.slashStatusProviderAccount", {
-          provider: agentGUIProviderIdentityDisplayName(identity, t)
-        });
-      },
-      slashStatusClose: t("agentHost.agentGui.slashStatusClose"),
-      slashStatusContextValue: (input: {
-        percentLeft: number;
-        usedTokens: string;
-        totalTokens: string;
-      }) =>
-        t("agentHost.agentGui.slashStatusContextValue", {
-          percentLeft: input.percentLeft,
-          usedTokens: input.usedTokens,
-          totalTokens: input.totalTokens
-        }),
-      slashStatusContextUnavailable: t(
-        "agentHost.agentGui.slashStatusContextUnavailable"
-      ),
-      slashStatusLimitsUnavailable: t(
-        "agentHost.agentGui.slashStatusLimitsUnavailable"
-      ),
-      slashStatusEmptyValue: t("agentHost.agentGui.slashStatusEmptyValue"),
-      slashStatusUsageJustUpdated: t(
-        "agentHost.agentGui.slashStatusUsageJustUpdated"
-      ),
-      slashStatusUsageMinutesAgo: (count: number) =>
-        t("agentHost.agentGui.slashStatusUsageMinutesAgo", { count }),
-      slashStatusUsageHoursAgo: (count: number) =>
-        t("agentHost.agentGui.slashStatusUsageHoursAgo", { count }),
-      slashStatusUsageUpdating: t(
-        "agentHost.agentGui.slashStatusUsageUpdating"
-      ),
-      slashStatusUsageRefreshFailed: t(
-        "agentHost.agentGui.slashStatusUsageRefreshFailed"
-      ),
-      slashStatusUsageRefreshAria: t(
-        "agentHost.agentGui.slashStatusUsageRefreshAria"
-      ),
-      ...agentGUIUsageStatusLabels(t),
+      ...agentGUISlashStatusLabels(t),
       usageChipLabel: (input: { percent: number }) =>
         t("agentHost.agentGui.usageChipLabel", { percent: input.percent }),
       usageTooltipLabel: t("agentHost.agentGui.usageTooltipLabel"),

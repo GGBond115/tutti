@@ -4,5 +4,6 @@ export const enAgentGuiProjectLaunch = {
     "This conversation's working directory no longer exists",
   sessionLaunchModeLabel: "Session launch mode",
   sessionLaunchModeLocal: "Local",
-  sessionLaunchModeWorktree: "Worktree"
+  sessionLaunchModeWorktree: "Worktree",
+  sessionLaunchModeCloud: "Cloud"
 };

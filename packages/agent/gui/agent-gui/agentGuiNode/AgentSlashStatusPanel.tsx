@@ -4,6 +4,8 @@ import { AgentProbeUsageFreshness } from "./AgentProbeUsageFreshness";
 export interface AgentSlashStatusPanelStatus {
   agentSessionId?: string | null;
   baseUrl?: string | null;
+  cwd?: string | null;
+  executionLocation?: "local" | "cloud" | "shared" | null;
   contextWindow?: {
     usedTokens?: number | null;
     totalTokens?: number | null;
@@ -30,6 +32,11 @@ export interface AgentSlashStatusPanelLabels {
   slashStatusTitle: string;
   slashStatusSession: string;
   slashStatusBaseUrl: string;
+  slashStatusCwd: string;
+  slashStatusExecutionLocation: string;
+  slashStatusExecutionLocal: string;
+  slashStatusExecutionCloud: string;
+  slashStatusExecutionShared: string;
   slashStatusContext: string;
   slashStatusLimits: string;
   slashStatusClose: string;
@@ -103,6 +110,15 @@ export function AgentSlashStatusPanel({
   const limits = status?.limits ?? [];
   const agentSessionId = status?.agentSessionId?.trim() ?? "";
   const showSessionDetails = agentSessionId.length > 0;
+  const cwd = status?.cwd?.trim() ?? "";
+  const executionLocation = status?.executionLocation ?? null;
+  const executionLocationLabel = executionLocation
+    ? {
+        local: labels.slashStatusExecutionLocal,
+        cloud: labels.slashStatusExecutionCloud,
+        shared: labels.slashStatusExecutionShared
+      }[executionLocation]
+    : null;
   return (
     <section
       className="agent-gui-node__slash-status-panel"
@@ -156,6 +172,20 @@ export function AgentSlashStatusPanel({
               {labels.slashStatusSession}:
             </dt>
             <dd className="min-w-0 truncate">{agentSessionId}</dd>
+          </>
+        ) : null}
+        {cwd ? (
+          <>
+            <dt className="text-muted-foreground">{labels.slashStatusCwd}:</dt>
+            <dd className="min-w-0 truncate">{cwd}</dd>
+          </>
+        ) : null}
+        {executionLocationLabel ? (
+          <>
+            <dt className="text-muted-foreground">
+              {labels.slashStatusExecutionLocation}:
+            </dt>
+            <dd className="min-w-0">{executionLocationLabel}</dd>
           </>
         ) : null}
         <dt className="text-muted-foreground">{labels.slashStatusContext}:</dt>

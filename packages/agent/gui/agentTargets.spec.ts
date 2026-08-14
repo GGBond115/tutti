@@ -6,7 +6,8 @@ import {
   createSharedAgentGUIAgentTarget,
   isAgentGUIAgentTargetComingSoon,
   normalizeAgentGUIAgentTargets,
-  resolveAgentGUIAgentTarget
+  resolveAgentGUIAgentTarget,
+  resolveAgentGUISessionLaunchTarget
 } from "./agentTargets";
 
 describe("agent gui provider targets", () => {
@@ -123,6 +124,81 @@ describe("agent gui provider targets", () => {
 
   it("treats nullish provider target refs as equal", () => {
     expect(agentGUIAgentTargetRefsEqual(undefined, null)).toBe(true);
+  });
+
+  it("resolves an exact Cloud identity as a launch variant of the local target", () => {
+    const baseTarget = {
+      ...createLocalAgentGUIAgentTarget("codex"),
+      ref: {
+        kind: "agent-directory",
+        provider: "codex" as const,
+        setupKind: "target_runtime" as const
+      },
+      sessionLaunchMode: "local" as const,
+      sessionLaunchTargets: [
+        {
+          mode: "cloud" as const,
+          agentTargetId: "personal-agent:codex",
+          availability: { status: "ready" as const },
+          setupKind: null
+        }
+      ]
+    };
+
+    expect(
+      resolveAgentGUIAgentTarget({
+        agentTargetId: "personal-agent:codex",
+        provider: "codex",
+        agentTargets: [baseTarget],
+        useStaticCatalog: false
+      })
+    ).toMatchObject({
+      targetId: "local:codex",
+      agentTargetId: "personal-agent:codex",
+      sessionLaunchMode: "cloud",
+      disabled: false
+    });
+    expect(
+      resolveAgentGUIAgentTarget({
+        agentTargetId: "personal-agent:codex",
+        provider: "codex",
+        agentTargets: [baseTarget],
+        useStaticCatalog: false
+      })?.ref.setupKind
+    ).toBeUndefined();
+  });
+
+  it("restores local availability after switching back from Cloud", () => {
+    const target = {
+      ...createLocalAgentGUIAgentTarget("codex"),
+      agentTargetId: "personal-agent:codex",
+      availability: { status: "unavailable" as const },
+      disabled: true,
+      sessionLaunchMode: "cloud" as const,
+      sessionLaunchTargets: [
+        {
+          mode: "local" as const,
+          agentTargetId: "local:codex",
+          availability: { status: "ready" as const },
+          setupKind: "target_runtime" as const
+        },
+        {
+          mode: "cloud" as const,
+          agentTargetId: "personal-agent:codex",
+          availability: { status: "unavailable" as const },
+          setupKind: null
+        }
+      ]
+    };
+
+    expect(
+      resolveAgentGUISessionLaunchTarget({ mode: "local", target })
+    ).toMatchObject({
+      agentTargetId: "local:codex",
+      sessionLaunchMode: "local",
+      availability: { status: "ready" },
+      disabled: false
+    });
   });
 
   it("keeps host-owned opaque target refs without interpreting kind", () => {

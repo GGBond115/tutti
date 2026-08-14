@@ -246,6 +246,7 @@ describe("clearRolledBackAgentGUISelection", () => {
   it("keeps an active selection after a transient reconcile failure", () => {
     expect(
       shouldClearMissingAgentGUISelection({
+        activePendingActivation: null,
         activeConversationId: "session-1",
         currentActiveConversationId: "session-1",
         reconcileErrorCode: "request_timed_out"
@@ -253,12 +254,31 @@ describe("clearRolledBackAgentGUISelection", () => {
     ).toBe(false);
     expect(
       shouldClearMissingAgentGUISelection({
+        activePendingActivation: null,
         activeConversationId: "session-1",
         currentActiveConversationId: "session-newer",
         reconcileErrorCode: "session.not_found"
       })
     ).toBe(false);
   });
+
+  it.each(["requested", "uncertain"] as const)(
+    "keeps a new selection after session.not_found while activation is %s",
+    (status) => {
+      expect(
+        shouldClearMissingAgentGUISelection({
+          activePendingActivation: {
+            agentSessionId: "session-1",
+            mode: "new",
+            status
+          },
+          activeConversationId: "session-1",
+          currentActiveConversationId: "session-1",
+          reconcileErrorCode: "session.not_found"
+        })
+      ).toBe(false);
+    }
+  );
 
   it("does not reinterpret the failed selection persistence echo as a new request", async () => {
     const failedAgentSessionId = "session-failed";

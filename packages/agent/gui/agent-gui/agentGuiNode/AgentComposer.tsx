@@ -264,7 +264,7 @@ export function AgentComposer(props: AgentComposerProps): React.JSX.Element {
     composerSettings.selectedProjectSectionKey?.trim() ?? "";
   const sessionWorktreeLaunch = useSessionWorktreeLaunch({
     agentSessionId: props.agentSessionId,
-    enabled:
+    worktreeEnabled:
       props.sessionWorktreeEnabled &&
       Boolean(
         props.labels.sessionLaunchModeLabel &&

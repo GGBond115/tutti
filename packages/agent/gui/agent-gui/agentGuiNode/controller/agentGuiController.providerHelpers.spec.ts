@@ -6,11 +6,16 @@ import type {
 import {
   composerOptionsForTarget,
   composerOptionsLoadingForTarget,
+  isExplicitAgentGUIAgentTarget,
   ownerDeviceLabelForConversation,
   resolveAgentGUIProviderRailTargetSelection,
   targetConnectionForAgentGUIView
 } from "./agentGuiController.providerHelpers";
-import { createSharedAgentGUIAgentTarget } from "../../../agentTargets";
+import {
+  createLocalAgentGUIAgentTarget,
+  createSharedAgentGUIAgentTarget,
+  resolveAgentGUISessionLaunchTarget
+} from "../../../agentTargets";
 import type { AgentGUIComposerTargetData } from "./agentGuiController.composerPresentation";
 import type { AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
 
@@ -111,6 +116,56 @@ describe("provider rail target selection", () => {
         nextFilter: { kind: "all" }
       })
     ).toBe("open-home-composer");
+  });
+});
+
+describe("explicit agent target selection", () => {
+  const localTarget = {
+    ...createLocalAgentGUIAgentTarget("codex"),
+    ref: {
+      kind: "agent-directory",
+      provider: "codex" as const,
+      setupKind: "target_runtime" as const
+    },
+    sessionLaunchMode: "local" as const,
+    sessionLaunchTargets: [
+      {
+        mode: "cloud" as const,
+        agentTargetId: "personal-agent:codex",
+        availability: { status: "ready" as const },
+        setupKind: null
+      }
+    ]
+  };
+
+  it("accepts a projected cloud launch target declared by an explicit target", () => {
+    const cloudTarget = resolveAgentGUISessionLaunchTarget({
+      mode: "cloud",
+      target: localTarget
+    });
+
+    expect(cloudTarget).not.toBeNull();
+    expect(isExplicitAgentGUIAgentTarget(cloudTarget!, [localTarget])).toBe(
+      true
+    );
+  });
+
+  it("rejects a projected target that is absent from the explicit launch catalog", () => {
+    const cloudTarget = resolveAgentGUISessionLaunchTarget({
+      mode: "cloud",
+      target: localTarget
+    });
+
+    expect(cloudTarget).not.toBeNull();
+    expect(
+      isExplicitAgentGUIAgentTarget(
+        {
+          ...cloudTarget!,
+          agentTargetId: "personal-agent:unknown"
+        },
+        [localTarget]
+      )
+    ).toBe(false);
   });
 });
 

@@ -8,6 +8,9 @@ export function agentGUIProjectLaunchLabels(t: TranslateFn) {
     ),
     sessionLaunchModeLabel: t("agentHost.agentGui.sessionLaunchModeLabel"),
     sessionLaunchModeLocal: t("agentHost.agentGui.sessionLaunchModeLocal"),
-    sessionLaunchModeWorktree: t("agentHost.agentGui.sessionLaunchModeWorktree")
+    sessionLaunchModeWorktree: t(
+      "agentHost.agentGui.sessionLaunchModeWorktree"
+    ),
+    sessionLaunchModeCloud: t("agentHost.agentGui.sessionLaunchModeCloud")
   };
 }

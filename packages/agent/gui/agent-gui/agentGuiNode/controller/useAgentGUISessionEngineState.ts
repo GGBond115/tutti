@@ -42,7 +42,10 @@ import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
 import { EMPTY_QUEUED_PROMPTS } from "./agentGuiController.draftMessageHelpers";
 import { agentActivityInteractionListsEqual } from "./agentGuiController.providerHelpers";
 import { agentGUIQueueStatusFromPromptQueue } from "./agentGuiQueueStatus";
-import { isPendingNewConversationActivation } from "./useAgentGUIActivation";
+import {
+  isPendingNewConversationActivation,
+  isPendingNewConversationActivationForSession
+} from "./useAgentGUIActivation";
 
 export function useAgentGUISessionEngineState(input: {
   activeConversationId: string | null;
@@ -76,6 +79,11 @@ export function useAgentGUISessionEngineState(input: {
   const isCreatingConversation = isPendingNewConversationActivation(
     activePendingActivation
   );
+  const isAwaitingNewConversationAuthority =
+    isPendingNewConversationActivationForSession(
+      activePendingActivation,
+      activeConversationId
+    );
   const isSubmitting = useEngineSelector(sessionEngine, (state) =>
     selectSessionIsSubmitting(state, activeConversationId)
   );
@@ -244,10 +252,13 @@ export function useAgentGUISessionEngineState(input: {
     ),
     activeSessionState,
     activeSessionDetailLoading,
-    activeSessionReconcileErrorCode: activeSessionReconcile?.errorCode ?? null,
-    activeSessionReconcileError: activeSessionDetailHydrated
+    activeSessionReconcileErrorCode: isAwaitingNewConversationAuthority
       ? null
-      : (activeSessionReconcile?.errorMessage ?? null),
+      : (activeSessionReconcile?.errorCode ?? null),
+    activeSessionReconcileError:
+      activeSessionDetailHydrated || isAwaitingNewConversationAuthority
+        ? null
+        : (activeSessionReconcile?.errorMessage ?? null),
     isCreatingConversation,
     hasUnconfirmedSubmit,
     isRespondingToInteraction,

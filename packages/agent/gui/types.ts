@@ -106,6 +106,14 @@ export interface AgentGUIAgentOwner {
   avatarUrl?: string | null;
 }
 
+export interface AgentGUISessionLaunchTarget {
+  mode: "local" | "cloud";
+  agentTargetId: string;
+  availability: AgentGUIAgentAvailability;
+  /** Exact target-owned setup capability; null means no local runtime setup. */
+  setupKind: "target_runtime" | null;
+}
+
 /** Host-authoritative ownership classification for Agent directory entries. */
 export type AgentGUIAgentOwnership = "self" | "shared";
 
@@ -175,6 +183,8 @@ export interface AgentGUIAgent {
   availability: AgentGUIAgentAvailability;
   provider: AgentGUIProvider;
   setupKind?: "target_runtime" | null;
+  /** Host-authored alternate execution targets for this logical Agent. */
+  sessionLaunchTargets?: readonly AgentGUISessionLaunchTarget[] | null;
 }
 
 export type AgentGUIAgentDirectoryStatus =
@@ -227,6 +237,10 @@ export interface AgentGUIAgentTarget {
   availability?: AgentGUIAgentAvailability;
   disabled?: boolean;
   unavailableReason?: string;
+  /** Current execution location when this target is a projected launch variant. */
+  sessionLaunchMode?: "local" | "cloud";
+  /** Exact execution targets authored by the Host for this logical Agent. */
+  sessionLaunchTargets?: readonly AgentGUISessionLaunchTarget[];
 }
 
 /**

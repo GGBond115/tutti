@@ -1,7 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  agentGUIAgentTargetRefsEqual,
   normalizeAgentGUIAgentTargets,
   resolveAgentGUIAgentTarget
 } from "../../../agentTargets";
@@ -24,7 +23,8 @@ import {
 import {
   agentGUINodeDataHasComposerTarget,
   agentGUIProviderTargetsEqual,
-  composerTargetDataFromProviderTarget
+  composerTargetDataFromProviderTarget,
+  isExplicitAgentGUIAgentTarget
 } from "./agentGuiController.providerHelpers";
 
 interface UseAgentGUIProviderCatalogSelectionInput {
@@ -172,11 +172,9 @@ export function useAgentGUIProviderCatalogSelection(
   );
   const selectedAgentTargetIsExplicit = useMemo(
     () =>
-      normalizedExplicitProviderTargets.some(
-        (target) =>
-          target.provider === selectedAgentTarget.provider &&
-          target.targetId === selectedAgentTarget.targetId &&
-          agentGUIAgentTargetRefsEqual(target.ref, selectedAgentTarget.ref)
+      isExplicitAgentGUIAgentTarget(
+        selectedAgentTarget,
+        normalizedExplicitProviderTargets
       ),
     [normalizedExplicitProviderTargets, selectedAgentTarget]
   );
@@ -185,14 +183,9 @@ export function useAgentGUIProviderCatalogSelection(
   const homeComposerTargetOverrideIsExplicit = useMemo(
     () =>
       homeComposerTargetOverride
-        ? normalizedExplicitProviderTargets.some(
-            (target) =>
-              target.provider === homeComposerTargetOverride.provider &&
-              target.targetId === homeComposerTargetOverride.targetId &&
-              agentGUIAgentTargetRefsEqual(
-                target.ref,
-                homeComposerTargetOverride.ref
-              )
+        ? isExplicitAgentGUIAgentTarget(
+            homeComposerTargetOverride,
+            normalizedExplicitProviderTargets
           )
         : false,
     [homeComposerTargetOverride, normalizedExplicitProviderTargets]

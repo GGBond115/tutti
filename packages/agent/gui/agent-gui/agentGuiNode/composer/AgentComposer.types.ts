@@ -305,6 +305,11 @@ export interface AgentComposerProps {
     slashStatusTitle: string;
     slashStatusSession: string;
     slashStatusBaseUrl: string;
+    slashStatusCwd: string;
+    slashStatusExecutionLocation: string;
+    slashStatusExecutionLocal: string;
+    slashStatusExecutionCloud: string;
+    slashStatusExecutionShared: string;
     slashStatusContext: string;
     slashStatusLimits: string;
     slashStatusClose: string;
@@ -381,6 +386,7 @@ export interface AgentComposerProps {
     sessionLaunchModeLabel?: string;
     sessionLaunchModeLocal?: string;
     sessionLaunchModeWorktree?: string;
+    sessionLaunchModeCloud?: string;
     projectMissingDescription: string;
     promptTipsPrefix: string;
     reviewPicker: {
@@ -538,6 +544,8 @@ export interface AgentComposerPromptTip {
 export interface AgentComposerSlashStatus {
   agentSessionId?: string | null;
   baseUrl?: string | null;
+  cwd?: string | null;
+  executionLocation?: "local" | "cloud" | "shared" | null;
   contextWindow?: {
     usedTokens?: number | null;
     totalTokens?: number | null;

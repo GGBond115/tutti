@@ -6,9 +6,20 @@ import {
   resolveAgentGUITuttiStopTargets,
   resolveAgentGUIInteractionDisabledReason,
   resolveAgentGUIHomeNoticeChrome,
+  resolveAgentGUISlashStatusExecutionLocation,
   resolveAgentGUIStopControl,
   shouldShowAgentGUIStopButton
 } from "./agentGUIDetailModelHelpers.ts";
+
+describe("resolveAgentGUISlashStatusExecutionLocation", () => {
+  it.each([
+    [{ ownership: "self", sessionLaunchMode: "local" }, "local"],
+    [{ ownership: "self", sessionLaunchMode: "cloud" }, "cloud"],
+    [{ ownership: "shared", sessionLaunchMode: "local" }, "shared"]
+  ] as const)("projects %j as %s", (target, expected) => {
+    expect(resolveAgentGUISlashStatusExecutionLocation(target)).toBe(expected);
+  });
+});
 
 describe("buildAgentConversationHandoffPrompt", () => {
   it("delegates the active conversation to the canonical session handoff draft", () => {

@@ -102,6 +102,18 @@ export function resolveSlashStatus({
   };
 }
 
+export function resolveAgentGUISlashStatusExecutionLocation(
+  target: Pick<
+    AgentGUINodeViewModel["rail"]["selectedAgentTarget"],
+    "ownership" | "sessionLaunchMode"
+  >
+): NonNullable<AgentComposerSlashStatus["executionLocation"]> {
+  if (target.ownership === "shared") {
+    return "shared";
+  }
+  return target.sessionLaunchMode === "cloud" ? "cloud" : "local";
+}
+
 function slashStatusLimitsEqual(
   left: readonly AgentComposerSlashStatusLimit[] | null | undefined,
   right: readonly AgentComposerSlashStatusLimit[] | null | undefined
@@ -130,6 +142,8 @@ function slashStatusesEqual(
   return (
     (left.agentSessionId ?? null) === (right.agentSessionId ?? null) &&
     (left.baseUrl ?? null) === (right.baseUrl ?? null) &&
+    (left.cwd ?? null) === (right.cwd ?? null) &&
+    (left.executionLocation ?? null) === (right.executionLocation ?? null) &&
     (left.contextWindow?.usedTokens ?? null) ===
       (right.contextWindow?.usedTokens ?? null) &&
     (left.contextWindow?.totalTokens ?? null) ===

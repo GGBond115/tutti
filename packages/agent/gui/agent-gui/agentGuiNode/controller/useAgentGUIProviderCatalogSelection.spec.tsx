@@ -1,5 +1,9 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import {
+  createLocalAgentGUIAgentTarget,
+  resolveAgentGUISessionLaunchTarget
+} from "../../../agentTargets";
 import type { AgentGUIAgentTarget } from "../../../types";
 import { useAgentGUIProviderCatalogSelection } from "./useAgentGUIProviderCatalogSelection";
 
@@ -54,6 +58,52 @@ describe("useAgentGUIProviderCatalogSelection handoff catalog", () => {
     );
 
     expect(result.current.handoffAgentTargets).toEqual([local]);
+  });
+});
+
+describe("useAgentGUIProviderCatalogSelection explicit target", () => {
+  it("accepts a selected cloud target declared by an explicit local target", () => {
+    const local = {
+      ...createLocalAgentGUIAgentTarget("codex"),
+      sessionLaunchMode: "local" as const,
+      sessionLaunchTargets: [
+        {
+          mode: "cloud" as const,
+          agentTargetId: "personal-agent:codex",
+          availability: { status: "ready" as const },
+          setupKind: null
+        }
+      ]
+    };
+    const cloud = resolveAgentGUISessionLaunchTarget({
+      mode: "cloud",
+      target: local
+    });
+    expect(cloud).not.toBeNull();
+
+    const { result } = renderHook(() =>
+      useAgentGUIProviderCatalogSelection({
+        agentTargets: [local],
+        agentTargetsLoading: false,
+        comingSoonProviders: undefined,
+        data: {
+          agentTargetId: cloud!.agentTargetId,
+          lastActiveAgentSessionId: null,
+          provider: cloud!.provider
+        },
+        defaultAgentTargetId: local.agentTargetId,
+        handoffAgentTargets: undefined,
+        handoffAgentTargetsLoading: undefined,
+        providerRailMode: "exact",
+        providerReadinessGates: null
+      })
+    );
+
+    expect(result.current.selectedAgentTarget).toEqual(cloud);
+    expect(result.current.selectedAgentTargetIsExplicit).toBe(true);
+    expect(result.current.selectedComposerTargetData.agentTargetId).toBe(
+      "personal-agent:codex"
+    );
   });
 });
 

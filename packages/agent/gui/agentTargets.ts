@@ -2,7 +2,8 @@ import type {
   AgentGUIProvider,
   AgentGUIAgentTarget,
   AgentGUIAgentTargetBadge,
-  AgentGUIAgentTargetRef
+  AgentGUIAgentTargetRef,
+  AgentGUISessionLaunchTarget
 } from "./types.ts";
 import {
   migratedAgentGUIProviderIdentityCatalog,
@@ -193,6 +194,14 @@ export function resolveAgentGUIAgentTarget(input: {
     return agentTarget;
   }
   if (explicitAgentTargetId) {
+    for (const target of input.agentTargets) {
+      const launchTarget = target.sessionLaunchTargets?.find(
+        (candidate) => candidate.agentTargetId === explicitAgentTargetId
+      );
+      if (launchTarget) {
+        return projectAgentGUISessionLaunchTarget(target, launchTarget);
+      }
+    }
     return null;
   }
   const agentTargets = input.agentTargets.filter(
@@ -210,6 +219,48 @@ export function resolveAgentGUIAgentTarget(input: {
       ? null
       : createLocalAgentGUIAgentTarget(input.provider))
   );
+}
+
+export function resolveAgentGUISessionLaunchTarget(input: {
+  mode: "local" | "cloud";
+  target: AgentGUIAgentTarget;
+}): AgentGUIAgentTarget | null {
+  const launchTarget = input.target.sessionLaunchTargets?.find(
+    (candidate) => candidate.mode === input.mode
+  );
+  if (!launchTarget && input.mode === "local") {
+    return {
+      ...input.target,
+      agentTargetId: input.target.targetId,
+      sessionLaunchMode: "local"
+    };
+  }
+  return launchTarget
+    ? projectAgentGUISessionLaunchTarget(input.target, launchTarget)
+    : null;
+}
+
+function projectAgentGUISessionLaunchTarget(
+  baseTarget: AgentGUIAgentTarget,
+  launchTarget: AgentGUISessionLaunchTarget
+): AgentGUIAgentTarget {
+  const { setupKind: _baseSetupKind, ...baseRef } = baseTarget.ref;
+  return {
+    ...baseTarget,
+    ref: {
+      ...baseRef,
+      ...(launchTarget.setupKind === "target_runtime"
+        ? { setupKind: "target_runtime" as const }
+        : {})
+    },
+    agentTargetId: launchTarget.agentTargetId,
+    availability: launchTarget.availability,
+    disabled: launchTarget.availability.status !== "ready",
+    ...(launchTarget.availability.reason?.trim()
+      ? { unavailableReason: launchTarget.availability.reason.trim() }
+      : { unavailableReason: undefined }),
+    sessionLaunchMode: launchTarget.mode
+  };
 }
 
 export function isAgentGUIAgentTargetComingSoon(
@@ -256,6 +307,7 @@ function normalizeAgentGUIAgentTarget(
     ownerLabel,
     ownerDeviceLabel,
     unavailableReason,
+    sessionLaunchTargets,
     ...rest
   } = target;
   const targetId = target.targetId.trim();
@@ -267,6 +319,8 @@ function normalizeAgentGUIAgentTarget(
     return null;
   }
   const normalizedBadge = normalizeAgentGUIAgentTargetBadge(badge);
+  const normalizedSessionLaunchTargets =
+    normalizeAgentGUISessionLaunchTargets(sessionLaunchTargets);
   return {
     ...rest,
     targetId,
@@ -289,8 +343,39 @@ function normalizeAgentGUIAgentTarget(
       : {}),
     ...(unavailableReason?.trim()
       ? { unavailableReason: unavailableReason.trim() }
+      : {}),
+    ...(normalizedSessionLaunchTargets.length > 0
+      ? { sessionLaunchTargets: normalizedSessionLaunchTargets }
       : {})
   };
+}
+
+function normalizeAgentGUISessionLaunchTargets(
+  targets: readonly AgentGUISessionLaunchTarget[] | null | undefined
+): AgentGUISessionLaunchTarget[] {
+  const normalized: AgentGUISessionLaunchTarget[] = [];
+  const seenModes = new Set<string>();
+  const seenTargetIds = new Set<string>();
+  for (const target of targets ?? []) {
+    const agentTargetId = target.agentTargetId.trim();
+    if (
+      (target.mode !== "local" && target.mode !== "cloud") ||
+      !agentTargetId ||
+      seenModes.has(target.mode) ||
+      seenTargetIds.has(agentTargetId)
+    ) {
+      continue;
+    }
+    seenModes.add(target.mode);
+    seenTargetIds.add(agentTargetId);
+    normalized.push({
+      mode: target.mode,
+      agentTargetId,
+      availability: target.availability,
+      setupKind: target.setupKind === "target_runtime" ? "target_runtime" : null
+    });
+  }
+  return normalized;
 }
 
 function normalizeAgentGUIAgentTargetBadge(

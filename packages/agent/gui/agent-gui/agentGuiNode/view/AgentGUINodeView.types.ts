@@ -48,6 +48,7 @@ import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
 import type { AgentGUISessionLaunchMode } from "../model/agentSessionLaunchMode";
 import type { AgentProjectDropdownOptions } from "../AgentComposerProjectMenu";
+import type { AgentGUISessionLaunchPreferenceMode } from "../model/agentSessionLaunchMode";
 export type AgentMentionReferenceTargetResolver = (
   item: AgentContextMentionItem
 ) => ReferenceLocateTarget | null;
@@ -379,6 +380,11 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   slashStatusTitle: string;
   slashStatusSession: string;
   slashStatusBaseUrl: string;
+  slashStatusCwd: string;
+  slashStatusExecutionLocation: string;
+  slashStatusExecutionLocal: string;
+  slashStatusExecutionCloud: string;
+  slashStatusExecutionShared: string;
   slashStatusContext: string;
   slashStatusLimits: string;
   slashStatusAccount: string;
@@ -444,6 +450,7 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   sessionLaunchModeLabel?: string;
   sessionLaunchModeLocal?: string;
   sessionLaunchModeWorktree?: string;
+  sessionLaunchModeCloud?: string;
   projectMissingDescription: string;
   syncPending: string;
   syncSynced: string;
@@ -576,10 +583,10 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   sessionForkEnabled?: boolean;
   sessionWorktreeEnabled?: boolean;
   sessionLaunchModesByProjectSectionKey?: Readonly<
-    Record<string, AgentGUISessionLaunchMode>
+    Record<string, AgentGUISessionLaunchPreferenceMode>
   >;
   onSessionLaunchModePreferenceChange?: (input: {
-    mode: AgentGUISessionLaunchMode;
+    mode: AgentGUISessionLaunchPreferenceMode;
     projectSectionKey: string;
   }) => void | Promise<void>;
   /** Host-owned presentation for exact Agent targets; tooltip behavior stays AgentGUI-owned. */

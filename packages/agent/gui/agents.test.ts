@@ -145,6 +145,41 @@ describe("projectAgentGUIAgentsToTargets", () => {
     });
     expect(target?.availability?.status).not.toBe("coming_soon");
   });
+
+  it("keeps a Host-authored Cloud target under one logical Agent", () => {
+    const [agent] = normalizeAgentGUIAgents([
+      createAgent("local:codex", {
+        sessionLaunchTargets: [
+          {
+            mode: "cloud",
+            agentTargetId: " personal-agent:codex ",
+            availability: { status: "ready" },
+            setupKind: null
+          }
+        ]
+      })
+    ]);
+    const [target] = projectAgentGUIAgentsToTargets([agent!]);
+
+    expect(target).toMatchObject({
+      agentTargetId: "local:codex",
+      sessionLaunchMode: "local",
+      sessionLaunchTargets: [
+        {
+          mode: "local",
+          agentTargetId: "local:codex",
+          availability: { status: "ready" },
+          setupKind: null
+        },
+        {
+          mode: "cloud",
+          agentTargetId: "personal-agent:codex",
+          availability: { status: "ready" },
+          setupKind: null
+        }
+      ]
+    });
+  });
 });
 
 describe("resolveAgentGUISelectedDirectoryAgent", () => {

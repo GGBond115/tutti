@@ -9,6 +9,11 @@ const labels: AgentSlashStatusPanelLabels = {
   slashStatusTitle: "Status",
   slashStatusSession: "Session",
   slashStatusBaseUrl: "Base URL",
+  slashStatusCwd: "CWD",
+  slashStatusExecutionLocation: "Execution",
+  slashStatusExecutionLocal: "Local",
+  slashStatusExecutionCloud: "Cloud",
+  slashStatusExecutionShared: "Shared",
   slashStatusContext: "Context",
   slashStatusLimits: "Limits",
   slashStatusClose: "Close",
@@ -32,6 +37,8 @@ describe("AgentSlashStatusPanel", () => {
         status={{
           agentSessionId: "session-1",
           baseUrl: "https://private.example.test",
+          cwd: "/workspace/project-a",
+          executionLocation: "cloud",
           contextWindow: { usedTokens: 250, totalTokens: 1_000 },
           limits: [],
           limitsResolvedEmpty: true
@@ -41,6 +48,8 @@ describe("AgentSlashStatusPanel", () => {
     );
 
     expect(screen.getByText("session-1")).toBeInTheDocument();
+    expect(screen.getByText("/workspace/project-a")).toBeInTheDocument();
+    expect(screen.getByText("Cloud")).toBeInTheDocument();
     expect(screen.getByText("75% left")).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("Base URL:")).not.toBeInTheDocument();

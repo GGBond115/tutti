@@ -12,7 +12,7 @@ import {
 import { AgentGUI } from "@tutti-os/agent-gui/agent-gui";
 import {
   type AgentGUIProps,
-  type AgentGUISessionLaunchMode,
+  type AgentGUISessionLaunchPreferenceMode,
   type AgentHostInputApi,
   type AgentVisibleErrorOverrides
 } from "@tutti-os/agent-gui";
@@ -95,7 +95,7 @@ import {
 } from "../../../../../shared/featureFlags/catalog.ts";
 
 const EMPTY_AGENT_SESSION_LAUNCH_MODES_BY_PROJECT_SECTION_KEY: Readonly<
-  Record<string, AgentGUISessionLaunchMode>
+  Record<string, AgentGUISessionLaunchPreferenceMode>
 > = Object.freeze({});
 
 const AgentSessionReplayNodeReadiness = lazy(() =>

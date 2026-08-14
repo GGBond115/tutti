@@ -113,7 +113,17 @@ accepted for host capabilities that are not agent activity data:
 - user-project selection
 - local file picking/reading and batch export helpers
 
-## Worktree Session Launch
+## Session Launch Locations
+
+The same new-Session location selector can expose `Cloud` when the Host groups
+an exact cloud `agentTargetId` under a logical Agent through
+`AgentGUIAgent.sessionLaunchTargets`. AgentGUI does not match targets by
+provider or display name. Selecting Cloud switches the active Composer target,
+so composer options, connection readiness, and activation all use the exact
+cloud identity. Existing cloud Sessions resolve through that same explicit
+relation while the Agent directory continues to show one logical Agent row.
+Each launch variant also carries its own `setupKind`; cloud variants must not
+inherit a local target's runtime-install gate.
 
 New-Session worktree launch is an opt-in host contract. A host enables it with
 `hostCapabilities.sessionWorktreeEnabled`, supplies the current workspace's
@@ -122,6 +132,11 @@ durable `sessionLaunchModesByProjectSectionKey` projection, handles
 `AgentHostApi.workspace.resolveSessionWorktreeSupport`. Omitting any part fails
 closed and preserves the existing local-checkout launch behavior, so published
 AgentGUI consumers do not acquire the feature until they opt in.
+
+`AgentGUISessionLaunchMode` describes the visible selector and includes
+`cloud`. `AgentGUISessionLaunchPreferenceMode` describes the durable project
+preference and remains `local | worktree`; selecting Cloud changes the exact
+Agent target and never writes the project preference.
 
 AgentGUI exposes the selector only for a new Session whose exact selected Agent
 Target is self-owned and whose selected registered project passes the host

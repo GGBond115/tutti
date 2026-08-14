@@ -17,7 +17,10 @@ export type {
   AgentGUIReferenceProvenanceFilterCatalog
 } from "./AgentGUI";
 export type { AgentGUIAgentConfigMenuContext } from "./agent-gui/agentGuiNode/AgentGUINode.types";
-export type { AgentGUISessionLaunchMode } from "./agent-gui/agentGuiNode/model/agentSessionLaunchMode";
+export type {
+  AgentGUISessionLaunchMode,
+  AgentGUISessionLaunchPreferenceMode
+} from "./agent-gui/agentGuiNode/model/agentSessionLaunchMode";
 export { AgentGUIConfigAccountFallbackSuppressed } from "./agent-gui/agentGuiNode/view/AgentGUIAccountConfig";
 export type {
   TuttiModePlanAssignmentAgentDetail,
@@ -101,7 +104,8 @@ export {
   createSharedAgentGUIAgentTarget,
   localAgentGUIAgentTargetId,
   normalizeAgentGUIAgentTargets,
-  resolveAgentGUIAgentTarget
+  resolveAgentGUIAgentTarget,
+  resolveAgentGUISessionLaunchTarget
 } from "./agentTargets";
 export type {
   AgentGUIAgent,
@@ -113,6 +117,7 @@ export type {
   AgentGUIAgentAvailabilityStatus,
   AgentGUIAgentOwner,
   AgentGUIAgentOwnership,
+  AgentGUISessionLaunchTarget,
   AgentGUIHomeSuggestionId,
   AgentGUIAllAgentsPresentation,
   AgentGUIProvider,

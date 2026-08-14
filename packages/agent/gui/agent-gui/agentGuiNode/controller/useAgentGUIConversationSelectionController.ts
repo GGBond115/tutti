@@ -162,6 +162,10 @@ export function activeConversationReadDecisionReason(input: {
 }
 
 export function shouldClearMissingAgentGUISelection(input: {
+  activePendingActivation: Pick<
+    PendingActivationIntentRecord,
+    "agentSessionId" | "mode" | "status"
+  > | null;
   activeConversationId: string | null;
   currentActiveConversationId: string | null;
   reconcileErrorCode: string | null;
@@ -169,6 +173,10 @@ export function shouldClearMissingAgentGUISelection(input: {
   const activeConversationId = input.activeConversationId?.trim() ?? "";
   return (
     activeConversationId !== "" &&
+    !isPendingNewConversationActivationForSession(
+      input.activePendingActivation,
+      activeConversationId
+    ) &&
     activeConversationId ===
       (input.currentActiveConversationId?.trim() ?? "") &&
     input.reconcileErrorCode?.trim() === AGENT_SESSION_NOT_FOUND_ERROR
@@ -288,6 +296,7 @@ export function useAgentGUIConversationSelectionController(
     }
     if (
       shouldClearMissingAgentGUISelection({
+        activePendingActivation,
         activeConversationId,
         currentActiveConversationId: activeConversationIdRef.current,
         reconcileErrorCode: activeSessionReconcileErrorCode

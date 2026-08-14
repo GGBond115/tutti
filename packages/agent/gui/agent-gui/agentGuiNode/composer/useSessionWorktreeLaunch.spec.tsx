@@ -24,7 +24,7 @@ describe("useSessionWorktreeLaunch", () => {
     const onModeChange = vi.fn();
     const { result } = renderHook(() =>
       useSessionWorktreeLaunch({
-        enabled: true,
+        worktreeEnabled: true,
         mode: "worktree",
         onModeChange,
         projectSectionKey: "project:/workspace",
@@ -61,7 +61,7 @@ describe("useSessionWorktreeLaunch", () => {
     const onModeChange = vi.fn();
     const { result } = renderHook(() =>
       useSessionWorktreeLaunch({
-        enabled: true,
+        worktreeEnabled: true,
         mode: "worktree",
         onModeChange,
         projectSectionKey: "project:/workspace",
@@ -91,7 +91,7 @@ describe("useSessionWorktreeLaunch", () => {
     const onModeChange = vi.fn();
     const { result } = renderHook(() =>
       useSessionWorktreeLaunch({
-        enabled: true,
+        worktreeEnabled: true,
         mode: "worktree",
         onModeChange,
         projectSectionKey: "project:/workspace",
@@ -122,7 +122,7 @@ describe("useSessionWorktreeLaunch", () => {
     const { result } = renderHook(() =>
       useSessionWorktreeLaunch({
         agentSessionId: "session-1",
-        enabled: true,
+        worktreeEnabled: true,
         mode: "worktree",
         onModeChange,
         projectSectionKey: "project:/workspace",
@@ -142,5 +142,92 @@ describe("useSessionWorktreeLaunch", () => {
     act(() => result.current.onModeChange("local"));
     expect(resolveSupport).not.toHaveBeenCalled();
     expect(onModeChange).not.toHaveBeenCalled();
+  });
+
+  it("shows Cloud without project or worktree support for an explicit alternate target", () => {
+    const onModeChange = vi.fn();
+    const { result } = renderHook(() =>
+      useSessionWorktreeLaunch({
+        mode: "local",
+        onModeChange,
+        selectedAgentTarget: {
+          targetId: "local:codex",
+          agentTargetId: "local:codex",
+          label: "Codex",
+          ownership: "self",
+          provider: "codex",
+          ref: { kind: "local", provider: "codex" },
+          sessionLaunchMode: "local",
+          sessionLaunchTargets: [
+            {
+              mode: "cloud",
+              agentTargetId: "personal-agent:codex",
+              availability: { status: "ready" },
+              setupKind: null
+            }
+          ]
+        }
+      })
+    );
+
+    expect(result.current).toMatchObject({
+      visible: true,
+      mode: "local",
+      availableModes: ["local", "cloud"]
+    });
+    act(() => result.current.onModeChange("cloud"));
+    expect(onModeChange).toHaveBeenCalledWith("cloud");
+  });
+
+  it("keeps Worktree available from Cloud by probing the exact local target", async () => {
+    const resolveSupport = vi.fn(async () => ({ supported: true }));
+    setAgentHostApiForTests({
+      workspace: { resolveSessionWorktreeSupport: resolveSupport }
+    } as unknown as AgentHostRuntimeApi);
+    const { result } = renderHook(() =>
+      useSessionWorktreeLaunch({
+        worktreeEnabled: true,
+        mode: "local",
+        onModeChange: vi.fn(),
+        projectSectionKey: "project:/workspace",
+        selectedProjectPath: "/workspace",
+        selectedAgentTarget: {
+          targetId: "local:codex",
+          agentTargetId: "personal-agent:codex",
+          label: "Codex",
+          ownership: "self",
+          provider: "codex",
+          ref: { kind: "local", provider: "codex" },
+          sessionLaunchMode: "cloud",
+          sessionLaunchTargets: [
+            {
+              mode: "local",
+              agentTargetId: "local:codex",
+              availability: { status: "ready" },
+              setupKind: "target_runtime"
+            },
+            {
+              mode: "cloud",
+              agentTargetId: "personal-agent:codex",
+              availability: { status: "ready" },
+              setupKind: null
+            }
+          ]
+        }
+      })
+    );
+
+    await waitFor(() =>
+      expect(result.current.availableModes).toEqual([
+        "local",
+        "worktree",
+        "cloud"
+      ])
+    );
+    expect(result.current.mode).toBe("cloud");
+    expect(resolveSupport).toHaveBeenCalledWith({
+      agentTargetId: "local:codex",
+      cwd: "/workspace"
+    });
   });
 });
