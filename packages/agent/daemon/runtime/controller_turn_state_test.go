@@ -84,6 +84,33 @@ func TestFailedTurnActivityEventProjectsProviderStopReason(t *testing.T) {
 	}
 }
 
+func TestFailedTurnActivityEventProjectsUnknownCodeWithoutDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	session := Session{Provider: ProviderCodex, AgentSessionID: "agent-1", RoomID: "room-1"}
+	event := newTurnActivityEvent(
+		session,
+		EventTurnFailed,
+		"turn-1",
+		SessionStatusFailed,
+		"",
+		"",
+		nil,
+	)
+	patch, ok := statePatchFromSessionEvent(
+		canonical.EventSource{Provider: ProviderCodex},
+		event,
+		"agent-1",
+		200,
+	)
+	if !ok || patch.Turn == nil {
+		t.Fatalf("failed turn patch = %#v ok=%v", patch, ok)
+	}
+	if patch.Turn.ErrorCode != "unknown" || patch.Turn.ErrorMessage != "" {
+		t.Fatalf("failed turn error = %q/%q, want unknown/empty", patch.Turn.ErrorCode, patch.Turn.ErrorMessage)
+	}
+}
+
 func TestProviderStopFailureCodeUsesClosedVocabulary(t *testing.T) {
 	t.Parallel()
 
