@@ -95,6 +95,28 @@ func TestLocalFilesAdapterReadsExternalAbsolutePathsFromFilesystemRoot(t *testin
 	}
 }
 
+func TestLocalFilesAdapterRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(rootDir, "outside")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	adapter := LocalFilesAdapter{}
+	listing, err := adapter.ListDirectory(context.Background(), localFilesRoot(rootDir), "/workspace", false)
+	if err != nil {
+		t.Fatalf("ListDirectory() error = %v", err)
+	}
+	if len(listing.Entries) != 0 {
+		t.Fatalf("entries = %#v, want symlink escape filtered", listing.Entries)
+	}
+}
+
 func TestLocalFilesAdapterListDirectorySkipsHiddenEntriesByDefault(t *testing.T) {
 	t.Parallel()
 
