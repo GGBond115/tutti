@@ -2161,6 +2161,37 @@ func TestTuttiAgentManagedConfigPreservesLegacyProviderWithExtraKey(t *testing.T
 	}
 }
 
+func TestDefaultPreparerClaudeReconcilesNativeSkillsAcrossRepeatedPrepare(t *testing.T) {
+	preparer := newTestPreparer(t.TempDir())
+	input := PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		AgentTargetID:  "local:claude-code",
+		Provider:       "claude-code",
+		Cwd:            t.TempDir(),
+	}
+	first, err := preparer.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("first Prepare() error = %v", err)
+	}
+	second, err := preparer.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("second Prepare() error = %v", err)
+	}
+
+	firstPluginDir := envValue(first.Env, claudePluginDirEnv)
+	secondPluginDir := envValue(second.Env, claudePluginDirEnv)
+	if firstPluginDir != secondPluginDir {
+		t.Fatalf("repeated Prepare() Claude plugin dir = %q and %q, want the same runtime root", firstPluginDir, secondPluginDir)
+	}
+	if _, err := os.Stat(filepath.Join(secondPluginDir, "skills", "tutti-cli", "SKILL.md")); err != nil {
+		t.Fatalf("stable tutti-cli skill missing after repeated Prepare(): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(secondPluginDir, "skills", "tutti-cli-tutti")); !os.IsNotExist(err) {
+		t.Fatalf("repeated Prepare() created a suffixed tutti-cli skill, err = %v", err)
+	}
+}
+
 func TestDefaultPreparerCleanupRemovesClaudeSystemPromptRuntimeRoot(t *testing.T) {
 	stateDir := t.TempDir()
 	cwd := t.TempDir()

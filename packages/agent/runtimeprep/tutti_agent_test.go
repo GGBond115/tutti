@@ -87,6 +87,36 @@ func TestTuttiAgentPreparerUsesExplicitAuthSourceAndInstallsSkills(t *testing.T)
 	}
 }
 
+func TestTuttiAgentPreparerReconcilesNativeSkillsAcrossRepeatedPrepare(t *testing.T) {
+	userHome := t.TempDir()
+	setTestHome(t, userHome)
+	preparer := TuttiAgentPreparer{}
+	input := ProviderPrepareInput{
+		PrepareInput: testResolvedInput(t, PrepareInput{
+			AgentSessionID: "session-1",
+			AgentTargetID:  "local:tutti-agent",
+			Provider:       "tutti-agent",
+			CLICommand:     "tutti",
+		}),
+		RuntimeRoot: t.TempDir(),
+		Store:       LocalStore{StateDir: t.TempDir()},
+	}
+	if _, err := preparer.Prepare(t.Context(), input); err != nil {
+		t.Fatalf("first Prepare() error = %v", err)
+	}
+	if _, err := preparer.Prepare(t.Context(), input); err != nil {
+		t.Fatalf("second Prepare() error = %v", err)
+	}
+
+	skillRoot := filepath.Join(input.RuntimeRoot, "tutti-agent-home", "skills")
+	if _, err := os.Stat(filepath.Join(skillRoot, "tutti-cli", "SKILL.md")); err != nil {
+		t.Fatalf("stable tutti-cli skill missing after repeated Prepare(): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(skillRoot, "tutti-cli-tutti")); !os.IsNotExist(err) {
+		t.Fatalf("repeated Prepare() created a suffixed tutti-cli skill, err = %v", err)
+	}
+}
+
 func TestTuttiAgentPreparerRejectsRelativeAuthSource(t *testing.T) {
 	preparer := TuttiAgentPreparer{
 		ResolveAuthSource: func(context.Context, PrepareInput) (string, error) {

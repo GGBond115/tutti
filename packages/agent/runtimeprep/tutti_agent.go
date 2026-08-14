@@ -54,7 +54,7 @@ func (p TuttiAgentPreparer) Prepare(ctx context.Context, input ProviderPrepareIn
 		return ProviderPrepareResult{}, err
 	}
 	if strings.TrimSpace(p.StableSkillBundleRoot) == "" {
-		if _, err := installProviderNativeSkills(filepath.Join(home, "skills"), input.PrepareInput); err != nil {
+		if _, err := installProviderNativeSkillsSessionScoped(filepath.Join(home, "skills"), input.PrepareInput); err != nil {
 			return ProviderPrepareResult{}, fmt.Errorf("install tutti-agent native skills: %w", err)
 		}
 	} else {

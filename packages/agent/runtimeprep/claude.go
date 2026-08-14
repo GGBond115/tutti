@@ -105,7 +105,7 @@ func installClaudeTuttiPlugin(pluginDir string, input PrepareInput) error {
 	if err := os.WriteFile(filepath.Join(manifestDir, "plugin.json"), append(content, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write claude plugin manifest: %w", err)
 	}
-	if _, err := installProviderNativeSkills(filepath.Join(pluginDir, "skills"), input); err != nil {
+	if _, err := installProviderNativeSkillsSessionScoped(filepath.Join(pluginDir, "skills"), input); err != nil {
 		return fmt.Errorf("install claude tutti skill plugin: %w", err)
 	}
 	return nil
