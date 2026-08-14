@@ -562,9 +562,21 @@ type ProviderAcceptanceReceipt struct {
 	ProviderInputUnit *activityshared.ProviderInputUnitContext `json:"-"`
 }
 
+// ProviderAcceptanceDiagnostics describes the identity evidence observed at
+// the provider acceptance boundary. It is telemetry metadata only and must not
+// be used as durable coordination state.
+type ProviderAcceptanceDiagnostics struct {
+	Status                   string `json:"status"`
+	ProviderSessionIDPresent bool   `json:"providerSessionIdPresent"`
+	ProviderTurnIDPresent    bool   `json:"providerTurnIdPresent"`
+	ProviderTurnIDSource     string `json:"providerTurnIdSource,omitempty"`
+	FailureReason            string `json:"failureReason,omitempty"`
+}
+
 type ProviderDispatchResult struct {
-	Disposition DispatchDisposition        `json:"disposition"`
-	Acceptance  *ProviderAcceptanceReceipt `json:"acceptance,omitempty"`
+	Disposition           DispatchDisposition            `json:"disposition"`
+	Acceptance            *ProviderAcceptanceReceipt     `json:"acceptance,omitempty"`
+	AcceptanceDiagnostics *ProviderAcceptanceDiagnostics `json:"acceptanceDiagnostics,omitempty"`
 	// Failure is a process-local provider observation. It is carried only to
 	// the synchronous Controller caller and is never serialized or persisted as
 	// coordination state.

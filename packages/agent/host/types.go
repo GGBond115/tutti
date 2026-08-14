@@ -450,22 +450,6 @@ const (
 	RuntimeAcceptanceSourceHistoryRead       RuntimeAcceptanceSource = "history_read"
 )
 
-// RuntimeProviderAcceptanceReceipt is positive provider evidence that a
-// replacement turn crossed the provider delivery boundary.
-type RuntimeProviderAcceptanceReceipt struct {
-	ProviderSessionID string
-	ProviderTurnID    string
-	Source            RuntimeAcceptanceSource
-}
-
-// RuntimeProviderDispatchResult separates an explicit provider outcome from a
-// transport failure whose effect is unknown. Acceptance is present only when
-// the provider supplied positive evidence for the dispatched turn.
-type RuntimeProviderDispatchResult struct {
-	Disposition RuntimeDispatchDisposition
-	Acceptance  *RuntimeProviderAcceptanceReceipt
-}
-
 type RuntimeHistoryTurn struct {
 	ID                  string
 	Status              string

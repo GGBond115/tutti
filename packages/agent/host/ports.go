@@ -558,20 +558,21 @@ type LifecycleObserver interface {
 // settlement. It carries the failure stage and original error text so adapters
 // can report without depending on user-supplied logs.
 type TerminalFailure struct {
-	Flow            string
-	FailureStage    string
-	WorkspaceID     string
-	AgentSessionID  string
-	TurnID          string
-	OperationID     string
-	ClientSubmitID  string
-	RequestID       string
-	Provider        string
-	ErrorCode       string
-	ErrorMessage    string
-	ToolNameFamily  string
-	InteractionKind string
-	TurnOutcome     string
+	Flow                          string
+	FailureStage                  string
+	WorkspaceID                   string
+	AgentSessionID                string
+	TurnID                        string
+	OperationID                   string
+	ClientSubmitID                string
+	RequestID                     string
+	Provider                      string
+	ErrorCode                     string
+	ErrorMessage                  string
+	ProviderAcceptanceDiagnostics *RuntimeProviderAcceptanceDiagnostics
+	ToolNameFamily                string
+	InteractionKind               string
+	TurnOutcome                   string
 	// DurationMS is populated only when the canonical terminal fact carries a
 	// valid start and settlement timestamp. Zero means unavailable.
 	DurationMS int64

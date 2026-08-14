@@ -275,6 +275,7 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 		Metadata: cloneMap(metadata), TuttiModeSnapshot: input.TuttiModeSnapshot,
 		RequireProviderAcceptance: true,
 	})
+	recordProviderAcceptanceDiagnostics(ctx, execResult.ProviderDispatch)
 	if err != nil {
 		h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, err)
 		disposition := execResult.ProviderDispatch.Disposition
@@ -630,6 +631,7 @@ func (h *Host) sendInputSerialized(
 			RequireProviderAcceptance: !input.Guidance,
 		})
 	}()
+	recordProviderAcceptanceDiagnostics(ctx, execResult.ProviderDispatch)
 	if err != nil {
 		// Only an explicit target verdict is a guidance-target failure. Any
 		// other undispatched guidance is an ordinary runtime_exec failure that

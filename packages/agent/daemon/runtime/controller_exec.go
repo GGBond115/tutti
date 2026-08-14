@@ -204,8 +204,9 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	} else if acceptanceAdapter != nil {
 		acceptProviderTurn := func(receipt ProviderAcceptanceReceipt) error {
 			dispatch := ProviderDispatchResult{
-				Disposition: DispatchDispositionApplied,
-				Acceptance:  &receipt,
+				Disposition:           DispatchDispositionApplied,
+				Acceptance:            &receipt,
+				AcceptanceDiagnostics: codexProviderAcceptanceDiagnostics(receipt.ProviderSessionID, receipt.ProviderTurnID, ""),
 			}
 			confirmed, confirmErr := c.confirmProviderDispatchDurable(
 				// Provider acceptance persistence must finish even when the
@@ -291,7 +292,10 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 				// pre-acceptance interrupt races where adapter cancel settles
 				// before runCtx is canceled, caller disconnect) must not become
 				// delivery-unknown — that locks the Session for the next submit.
+				// An explicit acceptance diagnostic is different: it identifies a
+				// deterministic provider-boundary failure and must remain visible.
 				if dispatch.Acceptance == nil &&
+					dispatch.AcceptanceDiagnostics == nil &&
 					dispatch.Disposition != DispatchDispositionRejected &&
 					dispatch.Disposition != DispatchDispositionNotDispatched {
 					result.ProviderDispatch = &ProviderDispatchResult{
@@ -301,6 +305,14 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 				}
 				if dispatch.Failure != nil {
 					return result, dispatch.Failure
+				}
+				if diagnostics := dispatch.AcceptanceDiagnostics; diagnostics != nil &&
+					strings.TrimSpace(diagnostics.FailureReason) != "" {
+					return result, &AppError{
+						Code:    AppErrorProviderAcceptanceMissingIdentity,
+						Message: "provider turn was not durably accepted",
+						Cause:   errors.New(diagnostics.FailureReason),
+					}
 				}
 				return result, errors.New("provider turn was not durably accepted")
 			}
