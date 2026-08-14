@@ -23,7 +23,11 @@ export function WorkspaceWindow({
   const isWindows = containerInput.desktopApi.platform.os === "win32";
 
   useLayoutEffect(() => {
-    const overlayEnabled = isWindows && routeView === "agent";
+    // Every Windows workspace BrowserWindow uses Electron's titleBarOverlay,
+    // including the normal workspace route. Keep the body marker route-
+    // independent so fixed portal controls in embedded modules reserve the
+    // native caption-button area as well as standalone Agent windows.
+    const overlayEnabled = isWindows;
     if (overlayEnabled) {
       document.body.dataset.tuttiTitlebarOverlay = "true";
     } else {
@@ -32,7 +36,7 @@ export function WorkspaceWindow({
     return () => {
       delete document.body.dataset.tuttiTitlebarOverlay;
     };
-  }, [isWindows, routeView]);
+  }, [isWindows]);
 
   const routeFallback =
     routeView === "agent" ? (
