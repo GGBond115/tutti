@@ -369,9 +369,11 @@ cancellation and deadline failures unclassified because their delivery result
 is unknown and must remain recoverable. The narrow
 `NewProviderStartTimeoutError` exception is used only after the runtime owner
 has observed the provider adapter's Start stage time out before establishing a
-runtime Session. It preserves the deadline cause while exposing
-`provider_start_timeout` as a typed Provider failure; callers must not infer
-that verdict from an arbitrary context deadline.
+runtime Session. The daemon keeps the existing `request_timed_out` AppError
+code for API and presentation behavior and carries that narrow verdict as
+`ErrProviderStartTimeout` in the error chain. The Host runtime adapter maps the
+marker to `provider_start_timeout` while preserving the deadline cause; callers
+must not infer that verdict from an arbitrary context deadline.
 `UpdateSettings` serializes with runtime resume:
 historical sessions persist settings only, while live sessions update the
 runtime first and persist the resulting settings only after the runtime
