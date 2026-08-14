@@ -94,7 +94,6 @@ import {
   LAB_CONNECTORS_FLAG,
   LAB_WORKBENCH_SHORTCUTS_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
-  MOBILE_REMOTE_ACCESS_SETTINGS_FLAG,
   resolveDesktopWorkspaceUiMode
 } from "../../../../../shared/featureFlags/catalog.ts";
 import { resolveWorkspaceAgentGuiLabel } from "../services/workspaceAgentProviderCatalog";
@@ -215,11 +214,6 @@ export function WorkspaceSettingsPanel({
     pendingFeatureFlags,
     LAB_AUTOMATION_RULES_FLAG
   );
-  const mobileRemoteAccessSettingsEnabled = isFeatureEnabled(
-    pendingFeatureFlags,
-    MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
-  );
-
   useEffect(() => {
     if (settingsState.open) {
       settingsService.syncWorkspace({ id: workspace.id });
@@ -231,19 +225,6 @@ export function WorkspaceSettingsPanel({
       settingsService.selectSection("general");
     }
   }, [labSectionVisible, settingsService, settingsState.activeSection]);
-
-  useEffect(() => {
-    if (
-      !mobileRemoteAccessSettingsEnabled &&
-      settingsState.activeSection === "connection"
-    ) {
-      settingsService.selectSection("general");
-    }
-  }, [
-    mobileRemoteAccessSettingsEnabled,
-    settingsService,
-    settingsState.activeSection
-  ]);
 
   useEffect(() => {
     if (!automationRulesEnabled && settingsState.agentTab === "automation") {
@@ -333,14 +314,10 @@ export function WorkspaceSettingsPanel({
               id: "appearance" as const,
               label: t("workspace.settings.nav.appearance")
             },
-            ...(mobileRemoteAccessSettingsEnabled
-              ? [
-                  {
-                    id: "connection" as const,
-                    label: t("workspace.settings.nav.connection")
-                  }
-                ]
-              : []),
+            {
+              id: "connection" as const,
+              label: t("workspace.settings.nav.connection")
+            },
             {
               id: "deletedConversations" as const,
               label: t("workspace.settings.nav.deletedConversations")
@@ -620,12 +597,7 @@ export function WorkspaceSettingsPanel({
                 }}
               />
             ) : settingsState.activeSection === "connection" ? (
-              <WorkspaceConnectionSettingsSection
-                featureFlags={
-                  desktopPreferencesState.changingFeatureFlags ??
-                  desktopPreferencesState.featureFlags
-                }
-              />
+              <WorkspaceConnectionSettingsSection />
             ) : settingsState.activeSection === "deletedConversations" ? (
               <WorkspaceDeletedConversationsSection
                 changingRetentionDays={
