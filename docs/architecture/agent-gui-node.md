@@ -2905,11 +2905,23 @@ Rail state writer because it has no Workbench node-state source. The callback
 contract contains no Tutti Desktop preference or product policy, so other hosts
 such as TSH may persist their own Rail state without adopting Desktop behavior.
 
-Attention state preserves explicit user intent: marking the currently selected
-Session unread keeps its unread indicator while that selection remains open.
-Selecting the Session again marks it read. A new live completion or a durable
-unread completion discovered by hydration is still marked read immediately when
-its Session is already selected.
+Attention state is unread-only: a live completion or explicit user unread
+request creates a durable unread completion, and real user exposure removes it.
+Absence of an unread completion means read; no separate durable read marker is
+authoritative. Historical list/detail reads own canonical content but never
+create, remove, or reconcile attention. Hydration restores only
+`completed.unreadIds` and `failed.unreadIds`; legacy `readIds` are ignored on
+read and every write payload explicitly empties both read buckets so stale read
+markers cannot survive migration.
+
+Selection is node-local while attention state is shared. An active Session may
+remove unread attention only while its AgentGUI surface is host-focused,
+host-visible, and the renderer document is visible and focused. A retained
+hidden, occluded, unfocused, or backgrounded node must preserve unread
+attention even when its local `activeConversationId` still names the Session.
+The read-decision diagnostic records the exact node, completion, host focus,
+document exposure, visibility, and decision reason without logging on stream
+updates.
 
 Read-only host surfaces reuse the complete workbench header and declare the
 session actions they support. Omitting that capability list preserves the full

@@ -111,7 +111,8 @@ export function sessionReconcileReducer(
 
 function receiveDetailSnapshot(
   state: SessionReconcileState,
-  intent: Extract<EngineIntent, { type: "session/detailSnapshotReceived" }>
+  intent: Extract<EngineIntent, { type: "session/detailSnapshotReceived" }>,
+  liveTurnId?: string
 ): EngineReducerResult<SessionReconcileState> {
   const followUpIntents: EngineIntent[] = [
     {
@@ -131,8 +132,13 @@ function receiveDetailSnapshot(
     });
   }
   if (intent.live && intent.session.latestTurn) {
+    const replayAcceptedLiveCompletion =
+      !liveTurnId || intent.session.latestTurn.turnId === liveTurnId;
     followUpIntents.push({
       live: true,
+      ...(replayAcceptedLiveCompletion
+        ? { replayAcceptedLiveCompletion: true as const }
+        : {}),
       turn: intent.session.latestTurn,
       type: "turn/upserted"
     });
@@ -165,16 +171,20 @@ function receiveAuthoritativeHistorySnapshot(
     { type: "session/historyAuthoritativeSnapshotReceived" }
   >
 ): EngineReducerResult<SessionReconcileState> {
-  const detail = receiveDetailSnapshot(state, {
-    childSessions: intent.childSessions,
-    editRetry: intent.editRetry,
-    messages: intent.messages,
-    session: intent.session,
-    sessionMessageWindows: intent.sessionMessageWindows,
-    turns: intent.turns,
-    type: "session/detailSnapshotReceived",
-    workspaceId: intent.workspaceId
-  });
+  const detail = receiveDetailSnapshot(
+    state,
+    {
+      childSessions: intent.childSessions,
+      editRetry: intent.editRetry,
+      messages: intent.messages,
+      session: intent.session,
+      sessionMessageWindows: intent.sessionMessageWindows,
+      turns: intent.turns,
+      type: "session/detailSnapshotReceived",
+      workspaceId: intent.workspaceId
+    },
+    intent.liveTurnId
+  );
   const checkpoint = applyHistoryCheckpoint(
     state,
     {
