@@ -81,7 +81,7 @@ export function ConnectorAuthorizationDialog({
     <DialogContent className="max-h-[min(720px,calc(100vh-32px))] overflow-y-auto sm:max-w-[520px]">
       <DialogHeader className="items-center px-5 pt-4 text-center">
         <div className="mb-1 flex items-center gap-3">
-          <span className="flex size-12 items-center justify-center rounded-xl bg-[var(--accent-bg)] text-[var(--accent)]">
+          <span className="flex size-12 items-center justify-center rounded-xl bg-[var(--transparency-block)] text-[var(--accent)]">
             <TuttiMarkNew size={32} />
           </span>
           <ChangeLined className="size-4 text-[var(--text-tertiary)]" />

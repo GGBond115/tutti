@@ -424,43 +424,46 @@ export function WorkspaceSettingsPanel({
                 workbenchShortcuts={desktopPreferencesState.workbenchShortcuts}
               />
             ) : settingsState.activeSection === "agent" ? (
-              <div className="flex min-h-0 flex-col gap-5 pt-5">
-                <SectionTabs
-                  ariaLabel={t("workspace.settings.nav.agent")}
-                  className="h-8 shrink-0"
-                  tabs={[
-                    {
-                      value: "general" as const,
-                      label: t("workspace.settings.agent.tabs.general")
-                    },
-                    {
-                      value: "agents" as const,
-                      label: t("workspace.settings.agent.tabs.agents")
-                    },
-                    ...(connectorsVisible
-                      ? [
-                          {
-                            value: "connectors" as const,
-                            label: translateConnectorMarket("title")
-                          }
-                        ]
-                      : []),
-                    {
-                      value: "customAgents" as const,
-                      label: t("workspace.settings.agent.tabs.customAgents")
-                    },
-                    ...(automationRulesEnabled
-                      ? [
-                          {
-                            value: "automation" as const,
-                            label: t("workspace.settings.agent.tabs.automation")
-                          }
-                        ]
-                      : [])
-                  ]}
-                  value={settingsState.agentTab}
-                  onValueChange={(tab) => settingsService.selectAgentTab(tab)}
-                />
+              <div className="flex min-h-0 flex-col gap-5">
+              <div className="pb-[20px]">
+                <div className="sticky top-0 z-10 -mx-[22px] px-[22px] py-3 bg-[var(--background-fronted)]">
+                  <SectionTabs
+                    ariaLabel={t("workspace.settings.nav.agent")}
+                    className="h-8 shrink-0"
+                    tabs={[
+                      {
+                        value: "general" as const,
+                        label: t("workspace.settings.agent.tabs.general")
+                      },
+                      {
+                        value: "agents" as const,
+                        label: t("workspace.settings.agent.tabs.agents")
+                      },
+                      ...(connectorsVisible
+                        ? [
+                            {
+                              value: "connectors" as const,
+                              label: translateConnectorMarket("title")
+                            }
+                          ]
+                        : []),
+                      {
+                        value: "customAgents" as const,
+                        label: t("workspace.settings.agent.tabs.customAgents")
+                      },
+                      ...(automationRulesEnabled
+                        ? [
+                            {
+                              value: "automation" as const,
+                              label: t("workspace.settings.agent.tabs.automation")
+                            }
+                          ]
+                        : [])
+                    ]}
+                    value={settingsState.agentTab}
+                    onValueChange={(tab) => settingsService.selectAgentTab(tab)}
+                  />
+                </div>
                 {settingsState.agentTab === "agents" ? (
                   <WorkspaceAgentsSettingsTab
                     autoCheckEnabled={
@@ -512,7 +515,7 @@ export function WorkspaceSettingsPanel({
                   />
                 ) : settingsState.agentTab === "connectors" &&
                   connectorsVisible ? (
-                  <ConnectorMarketPanel
+                  <ConnectorMarketPanel 
                     i18n={connectorMarketI18n}
                     locale={desktopPreferencesState.locale}
                     onError={handleConnectorMarketError}
@@ -564,6 +567,7 @@ export function WorkspaceSettingsPanel({
                     onOpenExternalAgentImport={onOpenExternalAgentImport}
                   />
                 )}
+              </div>
               </div>
             ) : settingsState.activeSection === "appearance" ? (
               <WorkspaceAppearanceSettingsSection
