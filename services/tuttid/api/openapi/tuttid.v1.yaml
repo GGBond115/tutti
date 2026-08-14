@@ -7666,6 +7666,14 @@ components:
           type: string
           description: Caller agent session id hint. This is not an authorization boundary.
           nullable: true
+        agentCwd:
+          type: string
+          description: Host-injected caller Agent working directory inherited by nested Agent starts that omit an explicit cwd. This is not an authorization boundary.
+          nullable: true
+        agentRailPlacementJSON:
+          type: string
+          description: Host-injected versioned RailPlacement JSON inherited together with agentCwd. The Agent command provider validates this value before use.
+          nullable: true
     CliInvokeRequest:
       type: object
       additionalProperties: false

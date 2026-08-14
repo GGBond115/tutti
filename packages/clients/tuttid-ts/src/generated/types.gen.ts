@@ -242,6 +242,14 @@ export type CliInvokeContext = {
    * Caller agent session id hint. This is not an authorization boundary.
    */
   agentSessionId?: string | null;
+  /**
+   * Host-injected caller Agent working directory inherited by nested Agent starts that omit an explicit cwd. This is not an authorization boundary.
+   */
+  agentCwd?: string | null;
+  /**
+   * Host-injected versioned RailPlacement JSON inherited together with agentCwd. The Agent command provider validates this value before use.
+   */
+  agentRailPlacementJSON?: string | null;
 };
 
 export type CliInvokeRequest = {

@@ -5982,6 +5982,12 @@ type CliCommandWarning struct {
 
 // CliInvokeContext Client-supplied invocation context. These fields are hints for routing and audit only; authorization and workspace validation remain daemon-owned.
 type CliInvokeContext struct {
+	// AgentCwd Host-injected caller Agent working directory inherited by nested Agent starts that omit an explicit cwd. This is not an authorization boundary.
+	AgentCwd *string `json:"agentCwd,omitempty"`
+
+	// AgentRailPlacementJSON Host-injected versioned RailPlacement JSON inherited together with agentCwd. The Agent command provider validates this value before use.
+	AgentRailPlacementJSON *string `json:"agentRailPlacementJSON,omitempty"`
+
 	// AgentSessionId Caller agent session id hint. This is not an authorization boundary.
 	AgentSessionId *string `json:"agentSessionId,omitempty"`
 
