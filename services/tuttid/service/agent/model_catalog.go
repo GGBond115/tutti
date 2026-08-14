@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,11 +16,13 @@ import (
 	"github.com/tutti-os/tutti/services/tuttid/biz/agentprovider"
 	tuttiagentservice "github.com/tutti-os/tutti/services/tuttid/service/tuttiagent"
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	codexModelCacheTTL      = 30 * time.Second
-	codexModelErrorCacheTTL = 5 * time.Second
+	codexModelCacheTTL       = 5 * time.Minute
+	codexModelErrorCacheTTL  = 5 * time.Second
+	modelCatalogFetchTimeout = 12 * time.Second
 )
 
 type AgentModelOption = modelcatalog.ModelOption
@@ -33,6 +36,10 @@ type AgentModelCatalogResult struct {
 	Source    string
 	FetchedAt time.Time
 	Models    []AgentModelOption
+	// Stale means the result is usable for presentation but is being refreshed
+	// after an auth/config change or TTL expiry. Callers that need an
+	// authoritative validation result must not accept stale models.
+	Stale bool
 }
 
 type AgentModelCatalogInput struct {
@@ -115,12 +122,14 @@ func agentModelCatalogSpecFromDescriptor(descriptor providerregistry.ProviderDes
 				if c.Codex != nil {
 					return c.Codex
 				}
-				return CodexCLIModelLister{
+				lister := CodexCLIModelLister{
 					Command:          command[0],
 					Args:             append([]string(nil), command[1:]...),
 					Provider:         descriptor.Identity.ID,
 					ProviderCommands: c.ProviderCommands,
 				}
+				lister.Session = c.codexSession(descriptor.Identity.ID, lister)
+				return lister
 			},
 			configuredDefaultModel:    readCodexConfiguredDefaultModel,
 			missingDefaultDescription: descriptor.Identity.DisplayName + " configured custom model",
@@ -155,7 +164,9 @@ func agentModelCatalogSpecFromDescriptor(descriptor providerregistry.ProviderDes
 				if c.TuttiAgent != nil {
 					return c.TuttiAgent
 				}
-				return defaultTuttiAgentModelLister(descriptor.Identity.ID, c.ProviderCommands)
+				lister := defaultTuttiAgentModelLister(descriptor.Identity.ID, c.ProviderCommands)
+				lister.Session = c.codexSession(descriptor.Identity.ID, lister)
+				return lister
 			},
 			configuredDefaultModel: func() string { return "" },
 		}, true, nil
@@ -175,15 +186,31 @@ type CachedAgentModelCatalog struct {
 	ModelCapabilities ModelCapabilitiesResolver
 	ProviderCommands  ProviderCommandResolver
 	Now               func() time.Time
+	// OnRefresh is called after a stale catalog has been refreshed successfully.
+	// It is an invalidation hint; the next consumer read remains authoritative.
+	OnRefresh func(provider string)
 
-	mu    sync.Mutex
-	cache map[string]*agentModelCatalogCacheEntry
+	mu            sync.Mutex
+	cache         map[string]*agentModelCatalogCacheEntry
+	generation    map[string]uint64
+	codexSessions map[string]*codexAppServerSession
+	loads         singleflight.Group
 }
 
 type agentModelCatalogCacheEntry struct {
-	result      AgentModelCatalogResult
-	err         error
-	expiresAtMS int64
+	result           AgentModelCatalogResult
+	err              error
+	expiresAtMS      int64
+	refreshRetryAtMS int64
+	stale            bool
+	generation       uint64
+}
+
+type agentModelCatalogFetchOutcome struct {
+	result       AgentModelCatalogResult
+	err          error
+	staleRefresh bool
+	accepted     bool
 }
 
 func NewAgentModelCatalog() *CachedAgentModelCatalog {
@@ -201,9 +228,97 @@ func (c *CachedAgentModelCatalog) ListModels(ctx context.Context, input AgentMod
 	now := c.now()
 	if specCachesModelCatalog(spec) {
 		if cached := c.readCache(provider, now); cached != nil {
+			if cached.err == nil && cached.stale {
+				if now.UnixMilli() >= cached.refreshRetryAtMS {
+					c.startBackgroundRefresh(input, spec, cached.generation)
+				}
+				stale := cloneAgentModelCatalogResult(cached.result)
+				stale.Stale = true
+				return stale, nil
+			}
 			return cached.result, cached.err
 		}
 	}
+	return c.loadModels(ctx, input, spec, false, c.currentGeneration(provider))
+}
+
+func (c *CachedAgentModelCatalog) loadModels(
+	ctx context.Context,
+	input AgentModelCatalogInput,
+	spec agentModelCatalogSpec,
+	staleRefresh bool,
+	expectedGeneration uint64,
+) (AgentModelCatalogResult, error) {
+	provider := agentprovider.Normalize(input.Provider)
+	key := provider
+	if !specCachesModelCatalog(spec) {
+		key += "\x00" + strings.TrimSpace(input.Cwd)
+	}
+	startedAt := time.Now()
+	resultCh := c.loads.DoChan(key, func() (any, error) {
+		fetchContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelCatalogFetchTimeout)
+		defer cancel()
+		return c.fetchModels(fetchContext, input, spec, staleRefresh, expectedGeneration), nil
+	})
+	select {
+	case <-ctx.Done():
+		return AgentModelCatalogResult{}, ctx.Err()
+	case shared := <-resultCh:
+		outcome, ok := shared.Val.(agentModelCatalogFetchOutcome)
+		if !ok {
+			return AgentModelCatalogResult{}, fmt.Errorf("model catalog fetch returned invalid result")
+		}
+		if !outcome.accepted && !staleRefresh && specCachesModelCatalog(spec) {
+			// An auth/config invalidation raced the cold fetch. Do not return a
+			// catalog produced from the old credential generation.
+			return c.loadModels(ctx, input, spec, false, c.currentGeneration(provider))
+		}
+		slog.Info("agent model catalog request settled",
+			"event", "agent.model_catalog.request_settled",
+			"provider", provider,
+			"shared", shared.Shared,
+			"stale_refresh", staleRefresh,
+			"durationMs", time.Since(startedAt).Milliseconds(),
+			"error", outcome.err,
+		)
+		return cloneAgentModelCatalogResult(outcome.result), outcome.err
+	}
+}
+
+func (c *CachedAgentModelCatalog) startBackgroundRefresh(
+	input AgentModelCatalogInput,
+	spec agentModelCatalogSpec,
+	expectedGeneration uint64,
+) {
+	provider := agentprovider.Normalize(input.Provider)
+	key := provider
+	if !specCachesModelCatalog(spec) {
+		key += "\x00" + strings.TrimSpace(input.Cwd)
+	}
+	resultCh := c.loads.DoChan(key, func() (any, error) {
+		fetchContext, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), modelCatalogFetchTimeout)
+		defer cancel()
+		return c.fetchModels(fetchContext, input, spec, true, expectedGeneration), nil
+	})
+	go func() {
+		<-resultCh
+	}()
+}
+
+func (c *CachedAgentModelCatalog) fetchModels(
+	ctx context.Context,
+	input AgentModelCatalogInput,
+	spec agentModelCatalogSpec,
+	staleRefresh bool,
+	expectedGeneration uint64,
+) agentModelCatalogFetchOutcome {
+	provider := agentprovider.Normalize(input.Provider)
+	startedAt := time.Now()
+	slog.Info("agent model catalog fetch started",
+		"event", "agent.model_catalog.fetch_start",
+		"provider", provider,
+		"stale_refresh", staleRefresh,
+	)
 	listResult, err := spec.lister(c, input).ListModels(ctx)
 	configuredDefaultModel := spec.configuredDefaultModel()
 	models := applyConfiguredDefaultModel(listResult.Models, configuredDefaultModel, spec.missingDefaultDescription)
@@ -211,11 +326,23 @@ func (c *CachedAgentModelCatalog) ListModels(ctx context.Context, input AgentMod
 	result := AgentModelCatalogResult{
 		Provider:  provider,
 		Source:    spec.source,
-		FetchedAt: now,
+		FetchedAt: startedAt,
 		Models:    models,
 	}
-	c.writeCache(provider, spec, now, result, listResult.IsFallback, err)
-	return cloneAgentModelCatalogResult(result), err
+	accepted := c.writeCache(provider, spec, startedAt, result, listResult.IsFallback, err, expectedGeneration, staleRefresh)
+	if accepted && staleRefresh && err == nil && c.OnRefresh != nil {
+		c.OnRefresh(provider)
+	}
+	slog.Info("agent model catalog fetch settled",
+		"event", "agent.model_catalog.fetch_settled",
+		"provider", provider,
+		"durationMs", time.Since(startedAt).Milliseconds(),
+		"modelCount", len(models),
+		"stale_refresh", staleRefresh,
+		"accepted", accepted,
+		"error", err,
+	)
+	return agentModelCatalogFetchOutcome{result: result, err: err, staleRefresh: staleRefresh, accepted: accepted}
 }
 
 func specCachesModelCatalog(spec agentModelCatalogSpec) bool {
@@ -301,21 +428,37 @@ func withoutEnvKeys(env []string, keys ...string) []string {
 	return filtered
 }
 
-// Invalidate drops any cached model list for the given providers. Providers
-// without model-list caching are unaffected. Used when provider auth or config
-// files change on disk (for example via an external credential switcher).
+// Invalidate marks cached model lists stale for the given providers and closes
+// their persistent app-server sessions. The last known list remains available
+// for presentation while the next read refreshes it in the background.
 func (c *CachedAgentModelCatalog) Invalidate(providers ...string) {
 	if c == nil {
 		return
 	}
+	var sessions []*codexAppServerSession
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	for _, provider := range providers {
 		normalized := agentprovider.Normalize(provider)
 		if normalized == "" {
 			continue
 		}
-		delete(c.cache, normalized)
+		if c.generation == nil {
+			c.generation = make(map[string]uint64)
+		}
+		c.generation[normalized]++
+		if entry := c.cache[normalized]; entry != nil {
+			entry.stale = true
+			entry.refreshRetryAtMS = 0
+			entry.generation = c.generation[normalized]
+		}
+		if session := c.codexSessions[normalized]; session != nil {
+			sessions = append(sessions, session)
+			delete(c.codexSessions, normalized)
+		}
+	}
+	c.mu.Unlock()
+	for _, session := range sessions {
+		_ = session.Close()
 	}
 }
 
@@ -323,13 +466,24 @@ func (c *CachedAgentModelCatalog) readCache(provider string, now time.Time) *age
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry := c.cache[provider]
-	if entry == nil || now.UnixMilli() > entry.expiresAtMS {
+	if entry == nil {
+		return nil
+	}
+	if entry.err != nil && now.UnixMilli() > entry.expiresAtMS {
 		delete(c.cache, provider)
 		return nil
 	}
+	if !entry.stale && entry.err == nil && now.UnixMilli() > entry.expiresAtMS {
+		entry.stale = true
+		entry.refreshRetryAtMS = 0
+	}
 	return &agentModelCatalogCacheEntry{
-		result: cloneAgentModelCatalogResult(entry.result),
-		err:    entry.err,
+		result:           cloneAgentModelCatalogResult(entry.result),
+		err:              entry.err,
+		expiresAtMS:      entry.expiresAtMS,
+		refreshRetryAtMS: entry.refreshRetryAtMS,
+		stale:            entry.stale,
+		generation:       entry.generation,
 	}
 }
 
@@ -340,7 +494,9 @@ func (c *CachedAgentModelCatalog) writeCache(
 	result AgentModelCatalogResult,
 	isFallback bool,
 	err error,
-) {
+	expectedGeneration uint64,
+	staleRefresh bool,
+) bool {
 	ttl := spec.ttl
 	switch {
 	case err != nil:
@@ -349,18 +505,75 @@ func (c *CachedAgentModelCatalog) writeCache(
 		ttl = spec.fallbackTTL
 	}
 	if ttl <= 0 {
-		return
+		return true
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	currentGeneration := c.generation[provider]
+	if currentGeneration != expectedGeneration {
+		return false
+	}
 	if c.cache == nil {
 		c.cache = make(map[string]*agentModelCatalogCacheEntry)
+	}
+	if c.generation == nil {
+		c.generation = make(map[string]uint64)
+	}
+	if err != nil && staleRefresh {
+		if entry := c.cache[provider]; entry != nil && entry.generation == expectedGeneration {
+			entry.refreshRetryAtMS = now.Add(ttl).UnixMilli()
+		}
+		return false
 	}
 	c.cache[provider] = &agentModelCatalogCacheEntry{
 		result:      cloneAgentModelCatalogResult(result),
 		err:         err,
 		expiresAtMS: now.Add(ttl).UnixMilli(),
+		generation:  expectedGeneration,
 	}
+	return true
+}
+
+func (c *CachedAgentModelCatalog) currentGeneration(provider string) uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.generation[provider]
+}
+
+func (c *CachedAgentModelCatalog) codexSession(provider string, lister CodexCLIModelLister) *codexAppServerSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.codexSessions == nil {
+		c.codexSessions = make(map[string]*codexAppServerSession)
+	}
+	if session := c.codexSessions[provider]; session != nil {
+		return session
+	}
+	lister.Session = nil
+	session := newCodexAppServerSession(lister)
+	c.codexSessions[provider] = session
+	return session
+}
+
+// Close releases persistent provider app-server processes owned by the catalog.
+func (c *CachedAgentModelCatalog) Close() error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	sessions := make([]*codexAppServerSession, 0, len(c.codexSessions))
+	for provider, session := range c.codexSessions {
+		sessions = append(sessions, session)
+		delete(c.codexSessions, provider)
+	}
+	c.mu.Unlock()
+	var closeErr error
+	for _, session := range sessions {
+		if err := session.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+	}
+	return closeErr
 }
 
 func (c *CachedAgentModelCatalog) now() time.Time {
@@ -376,6 +589,7 @@ func cloneAgentModelCatalogResult(result AgentModelCatalogResult) AgentModelCata
 		Source:    result.Source,
 		FetchedAt: result.FetchedAt,
 		Models:    cloneAgentModelOptions(result.Models),
+		Stale:     result.Stale,
 	}
 }
 

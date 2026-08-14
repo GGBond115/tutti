@@ -394,6 +394,13 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 	if catalogProjectionOK {
 		modelOptions = s.enrichModelCapabilityOptions(ctx, provider, catalogProjection.ModelOptions)
 		runtimeContext["modelCatalogSource"] = catalogProjection.Source
+		if catalogProjection.Stale {
+			// Keep the last known catalog visible while the daemon refreshes it in
+			// the background. The activity adapter exposes this existing loading
+			// signal so the picker can distinguish stale options from a settled
+			// authoritative catalog.
+			runtimeContext["appServerStartup"] = map[string]any{"models": "loading"}
+		}
 		if composerProfileFor(provider).ReasoningEffort && len(catalogProjection.ReasoningProfiles) > 0 {
 			reasoningOptionsByModel = composerModelReasoningOptionsByModel(
 				provider,
@@ -554,7 +561,7 @@ func composerDefaultModel(
 ) string {
 	if composerOptionsProviderUsesModelCatalog(provider) && catalog != nil {
 		result, err := catalog.ListModels(ctx, AgentModelCatalogInput{Provider: provider, Cwd: cwd})
-		if err == nil {
+		if err == nil && !result.Stale {
 			for _, model := range result.Models {
 				modelID := strings.TrimSpace(model.ID)
 				if model.IsDefault && modelID != "" {

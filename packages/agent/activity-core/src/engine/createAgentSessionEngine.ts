@@ -310,7 +310,6 @@ export function createAgentSessionEngine({
     const initialEntry =
       publicSnapshot.composerOptions.entriesByTargetKey[targetKey];
     const joinedCommandId =
-      !input.force &&
       initialEntry?.status === "loading" &&
       initialEntry.loadingSignature === signature
         ? initialEntry.inFlightCommandId
@@ -393,7 +392,7 @@ export function createAgentSessionEngine({
       awaitedCommandId =
         entry?.inFlightCommandId === commandId
           ? commandId
-          : !input.force && entry?.loadingSignature === signature
+          : entry?.loadingSignature === signature
             ? (entry.inFlightCommandId ?? null)
             : null;
       previousEntry = entry;

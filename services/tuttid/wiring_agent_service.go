@@ -29,13 +29,13 @@ func startAgentModelInvalidationAuthWatcher(
 	events *eventstreamservice.Service,
 ) *agentservice.ProviderAuthWatcher {
 	// External credential switchers (for example cc-switch) rewrite provider
-	// auth/config files without notifying tuttid. Watch those files so cached
-	// model catalogs are dropped and the GUI hears about it immediately.
+	// auth/config files without notifying tuttid. Watch those files so model
+	// catalogs become stale, provider sessions are closed, and the GUI hears
+	// about it immediately.
 	publisher := eventstreamservice.AgentModelCatalogPublisher{Service: events}
-	return startProviderAuthWatcher(replayComposition, func(providers []string) {
-		modelCatalog.Invalidate(providers...)
-		for _, provider := range providers {
-			sessions.InvalidateLiveComposerModels(provider)
+	publish := func(providers []string, event string) {
+		if len(providers) == 0 {
+			return
 		}
 		if err := publisher.PublishAgentModelCatalogInvalidated(context.Background(), providers); err != nil {
 			slog.Warn("agent model catalog invalidation publish failed",
@@ -45,11 +45,27 @@ func startAgentModelInvalidationAuthWatcher(
 			)
 			return
 		}
-		slog.Info("agent provider auth files changed; model catalog invalidated",
-			"event", "agent.model_catalog.invalidated",
+		slog.Info("agent model catalog invalidation published",
+			"event", event,
 			"providers", providers,
 		)
+	}
+	watcher := startProviderAuthWatcher(replayComposition, func(providers []string) {
+		modelCatalog.Invalidate(providers...)
+		for _, provider := range providers {
+			sessions.InvalidateLiveComposerModels(provider)
+		}
+		publish(providers, "agent.model_catalog.invalidated")
 	})
+	if watcher != nil {
+		modelCatalog.OnRefresh = func(provider string) {
+			publish([]string{provider}, "agent.model_catalog.refreshed")
+		}
+		watcher.OnClose = func() {
+			_ = modelCatalog.Close()
+		}
+	}
+	return watcher
 }
 
 func agentWorkspaceIDs(

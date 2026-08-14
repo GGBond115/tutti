@@ -13,6 +13,7 @@ type composerModelCatalogProjection struct {
 	ModelOptions      []ComposerConfigOptionValue
 	ReasoningProfiles map[string]modelcatalog.ReasoningProfile
 	Source            string
+	Stale             bool
 }
 
 type composerModelCatalogLoadResult struct {
@@ -69,6 +70,7 @@ func composerModelOptionsFromCatalog(ctx context.Context, catalog AgentModelCata
 		ModelOptions:      options,
 		ReasoningProfiles: catalogProjection.ReasoningOptionsByModel,
 		Source:            strings.TrimSpace(result.Source),
+		Stale:             result.Stale,
 	}, true
 }
 

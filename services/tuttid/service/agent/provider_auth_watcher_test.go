@@ -152,6 +152,25 @@ func TestProviderAuthWatcherStartWithoutCallbackIsInert(_ *testing.T) {
 	watcher.Close()
 }
 
+func TestProviderAuthWatcherCloseRunsHookOnce(t *testing.T) {
+	closeCalls := 0
+	watcher := &ProviderAuthWatcher{
+		Entries: []ProviderAuthWatchEntry{
+			{Provider: agentprovider.Codex, Paths: []string{filepath.Join(t.TempDir(), "auth.json")}},
+		},
+		OnChange: func([]string) {},
+		OnClose: func() {
+			closeCalls++
+		},
+	}
+	watcher.Start()
+	watcher.Close()
+	watcher.Close()
+	if closeCalls != 1 {
+		t.Fatalf("OnClose calls = %d, want one", closeCalls)
+	}
+}
+
 func TestDefaultProviderAuthWatchEntriesCoverCredentialBackedCatalogs(t *testing.T) {
 	home := t.TempDir()
 	configDir := filepath.Join(home, "opencode-config")
@@ -177,6 +196,11 @@ func TestDefaultProviderAuthWatchEntriesCoverCredentialBackedCatalogs(t *testing
 	} {
 		if !containsString(codexPaths, want) {
 			t.Fatalf("codex paths = %v, want %q", codexPaths, want)
+		}
+	}
+	for _, entry := range entries {
+		if entry.Provider == agentprovider.Codex && entry.ContentFingerprint == nil {
+			t.Fatal("codex auth watch entry must fingerprint full file content")
 		}
 	}
 	if len(byProvider[agentprovider.ClaudeCode]) == 0 {

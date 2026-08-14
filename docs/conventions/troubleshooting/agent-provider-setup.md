@@ -995,14 +995,23 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   Start model-catalog loading before capability discovery so the two independent
   app-server exchanges overlap. Run every short-lived Codex app-server in its
   own process group, begin process reaping immediately, and make timeout cancel
-  the entire group. Keep the Desktop deadline unchanged so a genuinely stuck
-  daemon request still fails closed.
+  the entire group. The daemon then shares concurrent catalog loads, keeps one
+  initialized Codex app-server session warm per provider for up to two minutes,
+  and refreshes the five-minute catalog in the background after expiry or an
+  auth/config invalidation. Identical atomic rewrites of Codex auth/config do
+  not invalidate the catalog because the watcher compares file content. Keep
+  the Desktop deadline unchanged so a genuinely stuck daemon request still
+  fails closed.
 - Validation:
   Block both catalog fixtures and assert both start before either is released.
   Use a fake app-server whose child retains stdout and assert model and
-  capability timeouts return promptly with no surviving child. Finally, time a
-  cold Composer Options request and confirm it completes within the Desktop
-  deadline.
+  capability timeouts return promptly with no surviving child. Assert concurrent
+  cold catalog callers share one fetch, stale options remain visible while the
+  background refresh runs, and repeated requests reuse one app-server process.
+  Finally, time a cold Composer Options request and confirm it completes within
+  the Desktop deadline. Useful logs are
+  `agent.model_catalog.fetch_start`, `stage_settled`, `fetch_settled`,
+  `request_settled`, and `process_idle_close`.
 - References:
   [composer_options.go](../../../services/tuttid/service/agent/composer_options.go)
   [codex_appserver_process.go](../../../services/tuttid/service/agent/codex_appserver_process.go)

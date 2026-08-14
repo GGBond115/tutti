@@ -219,10 +219,14 @@ type ProviderAuthWatcher struct {
 	// Called from the watcher goroutine; implementations must not block for
 	// long.
 	OnChange func(providers []string)
+	// OnClose releases resources attached to the watcher, such as persistent
+	// provider processes owned by the same composition root.
+	OnClose func()
 
-	stopOnce sync.Once
-	stop     chan struct{}
-	done     chan struct{}
+	stopOnce      sync.Once
+	closeHookOnce sync.Once
+	stop          chan struct{}
+	done          chan struct{}
 }
 
 type providerAuthFileFingerprint struct {
@@ -260,6 +264,11 @@ func (w *ProviderAuthWatcher) Close() {
 		close(w.stop)
 	})
 	<-w.done
+	w.closeHookOnce.Do(func() {
+		if w.OnClose != nil {
+			w.OnClose()
+		}
+	})
 }
 
 func (w *ProviderAuthWatcher) interval() time.Duration {

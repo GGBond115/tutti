@@ -123,6 +123,23 @@ test("aborting one joined caller does not abort the shared composer load", async
   assert.equal((await first).models[0]?.value, "shared-model");
 });
 
+test("a forced identical request joins an already-running composer load", async () => {
+  const harness = createHarness();
+  const first = harness.engine.loadComposerOptions(loadInput());
+  const second = harness.engine.loadComposerOptions({
+    ...loadInput(),
+    force: true
+  });
+
+  assert.equal(harness.commands.length, 1);
+  harness.succeed(
+    harness.commands[0]!.commandId,
+    composerOptions("forced-shared-model")
+  );
+  assert.equal((await first).models[0]?.value, "forced-shared-model");
+  assert.equal((await second).models[0]?.value, "forced-shared-model");
+});
+
 test("invalidation keeps the current composer caller attached and makes the next load refetch", async () => {
   const harness = createHarness();
   const first = harness.engine.loadComposerOptions(loadInput());

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -197,6 +198,62 @@ done
 	}
 }
 
+func TestCodexCLIModelListerReusesPersistentAppServerSession(t *testing.T) {
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "codex")
+	countPath := filepath.Join(tempDir, "starts")
+	script := "#!/bin/sh\n" +
+		"count=0\n" +
+		"if [ -f \"$CODEX_TEST_STARTS\" ]; then count=$(cat \"$CODEX_TEST_STARTS\"); fi\n" +
+		"count=$((count + 1))\n" +
+		"printf '%s' \"$count\" > \"$CODEX_TEST_STARTS\"\n" +
+		"while IFS= read -r line; do\n" +
+		"  case \"$line\" in\n" +
+		"    *'\"method\":\"initialize\"'*)\n" +
+		"      id=$(printf '%s' \"$line\" | sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p')\n" +
+		"      printf '{\"id\":\"%s\",\"result\":{}}\\n' \"$id\"\n" +
+		"      ;;\n" +
+		"    *'\"method\":\"model/list\"'*)\n" +
+		"      id=$(printf '%s' \"$line\" | sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p')\n" +
+		"      printf '{\"id\":\"%s\",\"result\":{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\"}]}}\\n' \"$id\"\n" +
+		"      ;;\n" +
+		"  esac\n" +
+		"done\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write persistent fake codex: %v", err)
+	}
+	base := CodexCLIModelLister{
+		Command: scriptPath,
+		Environ: func() []string {
+			return []string{"PATH=/usr/bin:/bin", "CODEX_TEST_STARTS=" + countPath}
+		},
+		Timeout: 2 * time.Second,
+	}
+	lister := base
+	lister.Session = newCodexAppServerSession(base)
+	first, err := lister.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("first ListModels returned error: %v", err)
+	}
+	second, err := lister.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("second ListModels returned error: %v", err)
+	}
+	if len(first.Models) != 1 || len(second.Models) != 1 || first.Models[0].ID != "gpt-5" || second.Models[0].ID != "gpt-5" {
+		t.Fatalf("models = %#v / %#v, want gpt-5", first.Models, second.Models)
+	}
+	starts, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatalf("read process start count: %v", err)
+	}
+	if string(starts) != "1" {
+		t.Fatalf("app-server starts = %q, want one persistent process", starts)
+	}
+	if err := lister.Session.Close(); err != nil {
+		t.Fatalf("close persistent app-server: %v", err)
+	}
+}
+
 func TestCachedAgentModelCatalogCachesCodexModels(t *testing.T) {
 	now := time.UnixMilli(1000)
 	lister := &fakeAgentModelLister{
@@ -225,6 +282,92 @@ func TestCachedAgentModelCatalogCachesCodexModels(t *testing.T) {
 	}
 }
 
+func TestCachedAgentModelCatalogSharesConcurrentColdFetch(t *testing.T) {
+	lister := &blockingAgentModelLister{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		models:  []AgentModelOption{{ID: "gpt-5", DisplayName: "GPT-5"}},
+	}
+	catalog := &CachedAgentModelCatalog{Codex: lister}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := catalog.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"})
+			results <- err
+		}()
+	}
+	select {
+	case <-lister.started:
+	case <-time.After(time.Second):
+		t.Fatal("model lister did not start")
+	}
+	close(lister.release)
+	for range 2 {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatalf("ListModels returned error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("shared model catalog fetch did not settle")
+		}
+	}
+	if lister.calls() != 1 {
+		t.Fatalf("lister calls = %d, want one shared fetch", lister.calls())
+	}
+}
+
+func TestCachedAgentModelCatalogRefreshesStaleModelsInBackground(t *testing.T) {
+	lister := &sequencedAgentModelLister{
+		models: []AgentModelListResult{
+			{Models: []AgentModelOption{{ID: "old-model", DisplayName: "Old"}}},
+			{Models: []AgentModelOption{{ID: "new-model", DisplayName: "New"}}},
+		},
+		secondStarted: make(chan struct{}),
+		secondRelease: make(chan struct{}),
+	}
+	refreshed := make(chan string, 1)
+	catalog := &CachedAgentModelCatalog{
+		Codex: lister,
+		OnRefresh: func(provider string) {
+			refreshed <- provider
+		},
+	}
+	first, err := catalog.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("initial ListModels returned error: %v", err)
+	}
+	catalog.Invalidate("codex")
+	stale, err := catalog.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("stale ListModels returned error: %v", err)
+	}
+	if !stale.Stale || stale.Models[0].ID != first.Models[0].ID {
+		t.Fatalf("stale result = %#v, want old model marked stale", stale)
+	}
+	select {
+	case <-lister.secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("background refresh did not start")
+	}
+	close(lister.secondRelease)
+	select {
+	case provider := <-refreshed:
+		if provider != "codex" {
+			t.Fatalf("refresh provider = %q, want codex", provider)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background refresh did not publish completion")
+	}
+	fresh, err := catalog.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("fresh ListModels returned error: %v", err)
+	}
+	if fresh.Stale || len(fresh.Models) == 0 || fresh.Models[0].ID != "new-model" {
+		t.Fatalf("fresh result = %#v, want new model", fresh)
+	}
+}
+
 type fakeAgentModelLister struct {
 	calls    int
 	models   []AgentModelOption
@@ -235,4 +378,59 @@ type fakeAgentModelLister struct {
 func (f *fakeAgentModelLister) ListModels(context.Context) (AgentModelListResult, error) {
 	f.calls += 1
 	return AgentModelListResult{Models: f.models, IsFallback: f.fallback}, f.err
+}
+
+type blockingAgentModelLister struct {
+	started chan struct{}
+	release chan struct{}
+	models  []AgentModelOption
+	mu      sync.Mutex
+	count   int
+	once    sync.Once
+}
+
+func (l *blockingAgentModelLister) ListModels(ctx context.Context) (AgentModelListResult, error) {
+	l.mu.Lock()
+	l.count++
+	l.mu.Unlock()
+	l.once.Do(func() { close(l.started) })
+	select {
+	case <-l.release:
+		return AgentModelListResult{Models: l.models}, nil
+	case <-ctx.Done():
+		return AgentModelListResult{}, ctx.Err()
+	}
+}
+
+func (l *blockingAgentModelLister) calls() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.count
+}
+
+type sequencedAgentModelLister struct {
+	models        []AgentModelListResult
+	secondStarted chan struct{}
+	secondRelease chan struct{}
+	mu            sync.Mutex
+	count         int
+}
+
+func (l *sequencedAgentModelLister) ListModels(ctx context.Context) (AgentModelListResult, error) {
+	l.mu.Lock()
+	index := l.count
+	l.count++
+	l.mu.Unlock()
+	if index == 1 {
+		close(l.secondStarted)
+		select {
+		case <-l.secondRelease:
+		case <-ctx.Done():
+			return AgentModelListResult{}, ctx.Err()
+		}
+	}
+	if index >= len(l.models) {
+		index = len(l.models) - 1
+	}
+	return l.models[index], nil
 }

@@ -115,9 +115,11 @@ function requestLoad(
     settings: intent.settings
   });
   const current = state.entriesByTargetKey[targetKey];
-  if (!intent.force && current) {
+  if (current) {
     const cacheHit =
-      current.status === "ready" && current.settledSignature === signature;
+      !intent.force &&
+      current.status === "ready" &&
+      current.settledSignature === signature;
     const inFlightDuplicate =
       current.status === "loading" && current.loadingSignature === signature;
     if (cacheHit || inFlightDuplicate) {
