@@ -181,6 +181,7 @@ type ManagedMCPInterface struct {
 
 type ManagedCLIInterface struct {
 	Entrypoint     string             `json:"entrypoint"`
+	Command        string             `json:"command,omitempty"`
 	Arguments      []string           `json:"arguments,omitempty"`
 	TimeoutMS      int                `json:"timeoutMs,omitempty"`
 	ReadinessProbe *CLIReadinessProbe `json:"readinessProbe,omitempty"`
@@ -400,6 +401,7 @@ type RuntimeReceipt struct {
 // never contain credentials, filesystem paths, or Skill bodies.
 type ConnectorSummary struct {
 	Key         string                      `json:"key"`
+	Version     string                      `json:"version,omitempty"`
 	Name        string                      `json:"name"`
 	Description string                      `json:"description"`
 	Skills      []ConnectorSkillSummary     `json:"skills"`

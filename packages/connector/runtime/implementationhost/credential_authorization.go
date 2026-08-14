@@ -25,6 +25,7 @@ type managedCLILaunch struct {
 	executable    connectorruntime.ConnectorExecutable
 	language      string
 	stateDir      string
+	timeout       time.Duration
 }
 
 type credentialBrokerCLILaunch struct {
@@ -167,7 +168,7 @@ func (provider *managedCredentialAuthorizationProvider) Disconnect(
 	if err != nil {
 		return fmt.Errorf("start connector credential broker disconnect: %w", err)
 	}
-	defer route.releaseProcess(processID, connection)
+	defer func() { _ = route.releaseProcess(processID, connection) }()
 	event, err := readCredentialBrokerTerminalEvent(operationContext, connection)
 	if err != nil {
 		return fmt.Errorf("disconnect connector authorization: %w", err)
@@ -196,7 +197,7 @@ func (provider *managedCredentialAuthorizationProvider) Inspect(
 	if err != nil {
 		return market.AuthorizationObservation{}, fmt.Errorf("start connector credential broker inspect: %w", err)
 	}
-	defer route.releaseProcess(processID, connection)
+	defer func() { _ = route.releaseProcess(processID, connection) }()
 	event, err := readCredentialBrokerInspectionEvent(operationContext, connection)
 	if err != nil {
 		return market.AuthorizationObservation{}, fmt.Errorf("inspect connector authorization: %w", err)
@@ -262,7 +263,7 @@ func consumeAuthorizationEvents(
 	session *credentialBrokerSession,
 ) {
 	defer session.cancel()
-	defer route.releaseProcess(processID, connection)
+	defer func() { _ = route.releaseProcess(processID, connection) }()
 	var stdout, stderr strings.Builder
 	for {
 		frame, err := receiveCredentialBrokerFrame(connection)
@@ -512,7 +513,7 @@ func (host *Host) startCredentialBroker(
 		}
 	}
 	if err != nil {
-		route.releaseProcess(processID, connection)
+		_ = route.releaseProcess(processID, connection)
 		return nil, 0, err
 	}
 	return connection, processID, nil

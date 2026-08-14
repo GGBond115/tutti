@@ -271,6 +271,9 @@ func validateManagedStdio(managed ManagedStdioImplementation, authorizationKind 
 		if !safeRelativeEntrypoint(managed.CLI.Entrypoint) {
 			return invalidManifest("managed CLI entrypoint is required", nil)
 		}
+		if !manifestIdentifierPattern.MatchString(ManagedCLICommandName(*managed.CLI)) {
+			return invalidManifest("managed CLI command must be a safe identifier", nil)
+		}
 		for _, argument := range managed.CLI.Arguments {
 			if strings.ContainsRune(argument, '\x00') {
 				return invalidManifest("managed CLI arguments must not contain NUL", nil)

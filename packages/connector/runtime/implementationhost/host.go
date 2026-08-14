@@ -15,7 +15,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
@@ -125,6 +124,9 @@ type connectorRoute struct {
 	userHome               string
 	cliLaunch              *managedCLILaunch
 	cliCommand             string
+	cliInvocationCommand   string
+	cliContractHash        string
+	cliCommands            []market.CLICommand
 	cliShimPath            string
 	cliShimContent         []byte
 	credentialBrokerLaunch *managedCredentialBrokerLaunch
@@ -476,7 +478,7 @@ func (host *Host) attachMCP(ctx context.Context, route *connectorRoute, managed 
 	if err != nil {
 		return fmt.Errorf("start connector MCP process: %w", err)
 	}
-	release := func() { route.releaseProcess(processID, connection) }
+	release := func() { _ = route.releaseProcess(processID, connection) }
 	client, err := mcp.NewStdioClient(mcp.StdioClientConfig{Connection: connection, ProcessName: route.connectorKey + " MCP"})
 	if err != nil {
 		release()
@@ -565,6 +567,10 @@ func (*Host) attachCLI(route *connectorRoute, managed *market.ManagedStdioImplem
 	if err != nil {
 		return err
 	}
+	contractHash, err := market.ManagedCLIContractHash(*managed.CLI)
+	if err != nil {
+		return fmt.Errorf("hash connector CLI contract: %w", err)
+	}
 	launchArguments := []string{entrypoint}
 	launchExecutable := executable
 	if installed != nil && installed.LaunchKind == "native" {
@@ -574,7 +580,11 @@ func (*Host) attachCLI(route *connectorRoute, managed *market.ManagedStdioImplem
 	}
 	route.cliLaunch = &managedCLILaunch{arguments: append(append([]string{}, launchArguments...), managed.CLI.Arguments...),
 		artifactTrees: append([]agentruntime.ArtifactTreeIdentity(nil), artifactTrees...), cwd: prepared.PreparedPath,
-		executable: launchExecutable, language: managed.Runtime.Language, stateDir: stateDir}
+		executable: launchExecutable, language: managed.Runtime.Language, stateDir: stateDir,
+		timeout: time.Duration(managed.CLI.TimeoutMS) * time.Millisecond}
+	route.cliContractHash = contractHash
+	route.cliInvocationCommand = market.ManagedCLICommandName(*managed.CLI)
+	route.cliCommands = cloneCLICommands(managed.CLI.Commands)
 	return nil
 }
 
@@ -632,10 +642,11 @@ func (route *connectorRoute) RouteGeneration() market.HostGeneration { return ro
 func (route *connectorRoute) RouteReleaseDigest() string             { return route.releaseDigest }
 func (route *connectorRoute) Fence()                                 { route.processes.Fence() }
 func (route *connectorRoute) close(deadline time.Time) error         { return route.Close(deadline) }
-func (route *connectorRoute) releaseProcess(id uint64, connection agentruntime.ProcessConnection) {
+func (route *connectorRoute) releaseProcess(id uint64, connection agentruntime.ProcessConnection) error {
 	if route != nil && route.processes != nil {
-		route.processes.Release(id, connection)
+		return route.processes.ReleaseWithError(id, connection)
 	}
+	return nil
 }
 
 func (route *connectorRoute) Close(deadline time.Time) error {
@@ -756,89 +767,6 @@ func connectorCLIShimContent(route *connectorRoute) ([]byte, error) {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-type RouteRegistry struct {
-	mu       sync.RWMutex
-	routes   *connectorruntime.RouteTable
-	revision atomic.Uint64
-}
-
-type RouteDescriptor struct {
-	ConnectorKey   string
-	DisplayName    string
-	Description    string
-	RoutingAliases []string
-	SkillRoot      string
-	Skills         []connectorartifact.SkillSummary
-	HasMCP         bool
-	CLICommand     string
-	Readiness      market.RuntimeReadiness
-}
-
-func (descriptor RouteDescriptor) InterfaceState(kind string) market.RuntimeReadinessState {
-	for _, readiness := range descriptor.Readiness.Interfaces {
-		if readiness.Kind == kind {
-			return readiness.State
-		}
-	}
-	return market.RuntimeReadinessFailed
-}
-
-func NewRouteRegistry() *RouteRegistry { return &RouteRegistry{} }
-
-func (registry *RouteRegistry) Revision() uint64 {
-	if registry == nil {
-		return 0
-	}
-	return registry.revision.Load()
-}
-
-func (registry *RouteRegistry) notifyChanged() {
-	if registry != nil {
-		registry.revision.Add(1)
-	}
-}
-
-func (registry *RouteRegistry) attach(routes *connectorruntime.RouteTable) {
-	registry.mu.Lock()
-	registry.routes = routes
-	registry.mu.Unlock()
-}
-
-func (registry *RouteRegistry) activeRoutes() []*connectorRoute {
-	registry.mu.RLock()
-	table := registry.routes
-	registry.mu.RUnlock()
-	if table == nil {
-		return nil
-	}
-	portable := table.PublishedRoutes()
-	routes := make([]*connectorRoute, 0, len(portable))
-	for _, candidate := range portable {
-		if route, ok := candidate.(*connectorRoute); ok {
-			routes = append(routes, route)
-		}
-	}
-	return routes
-}
-
-func (registry *RouteRegistry) Routes() []RouteDescriptor {
-	routes := registry.activeRoutes()
-	result := make([]RouteDescriptor, 0, len(routes))
-	for _, route := range routes {
-		result = append(result, routeDescriptor(route))
-	}
-	sort.Slice(result, func(left, right int) bool { return result[left].ConnectorKey < result[right].ConnectorKey })
-	return result
-}
-
-func routeDescriptor(route *connectorRoute) RouteDescriptor {
-	return RouteDescriptor{ConnectorKey: route.connectorKey, DisplayName: route.displayName,
-		Description: route.description, RoutingAliases: append([]string(nil), route.routingAliases...),
-		SkillRoot: route.skillRoot, Skills: append([]connectorartifact.SkillSummary(nil), route.skills...),
-		HasMCP: len(route.mcpTools) > 0, CLICommand: route.cliCommand,
-		Readiness: cloneRuntimeReadiness(route.readiness)}
 }
 
 var _ connectorruntime.ManagedRoute = (*connectorRoute)(nil)
