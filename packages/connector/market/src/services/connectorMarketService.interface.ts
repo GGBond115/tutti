@@ -49,6 +49,8 @@ export interface ConnectorMarketServiceDependencies {
   createRequestId?: () => string;
   openAuthorizationUrl?: (url: string) => Promise<void>;
   reportDiagnostic?: (error: unknown) => void;
+  /** Test/host hook for authorization continuation waits. */
+  waitForAuthorizationContinuation?: () => Promise<void>;
   /** Test/host hook for operation polling; the default is abortable setTimeout. */
   waitForOperationPoll?: (
     delayMs: number,

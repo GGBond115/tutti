@@ -891,6 +891,121 @@ test("forwards a user-provided secret only to the authorization mutation", async
   service.dispose();
 });
 
+test("shares one authorization command across concurrent callers", async () => {
+  const authorization =
+    deferred<
+      Awaited<ReturnType<ConnectorMarketBackend["beginAuthorization"]>>
+    >();
+  let authorizationAttempts = 0;
+  let requestIds = 0;
+  const initial = connector("notion", 1);
+  initial.authorization = { state: "disconnected" };
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, [initial]),
+      beginAuthorization: async () => {
+        authorizationAttempts += 1;
+        return authorization.promise;
+      }
+    }),
+    createRequestId: () => `authorization-${++requestIds}`
+  });
+  await service.ensureLoaded();
+
+  const first = service.beginAuthorization("notion");
+  const second = service.beginAuthorization("notion");
+  const connected = connector("notion", 2);
+  connected.authorization = { state: "connected" };
+  authorization.resolve({
+    connector: connected,
+    operation: {
+      ...operation("start_authorization", 2),
+      connectorKey: "notion",
+      state: "completed"
+    },
+    revision: 2
+  });
+  await Promise.all([first, second]);
+
+  assert.equal(authorizationAttempts, 1);
+  assert.equal(requestIds, 1);
+  assert.deepEqual(service.dataStore.authorizingConnectorKeys, {});
+  service.dispose();
+});
+
+test("converges a busy authorization continuation from a connected snapshot", async () => {
+  const requests: Array<{
+    clientRequestId: string;
+    expectedRevision: number;
+  }> = [];
+  const openedUrls: string[] = [];
+  let snapshotReads = 0;
+  const disconnected = connector("notion", 1);
+  disconnected.authorization = { state: "disconnected" };
+  const connected = connector("notion", 4);
+  connected.authorization = { state: "connected" };
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        snapshotReads += 1;
+        return snapshotReads === 1
+          ? snapshot(1, [disconnected])
+          : snapshot(4, [connected]);
+      },
+      beginAuthorization: async (request) => {
+        requests.push(request);
+        if (requests.length > 1) {
+          throw Object.assign(new Error("runtime reconcile in progress"), {
+            code: "connector_operation_in_progress",
+            retryable: true
+          });
+        }
+        const pending = connector("notion", 2);
+        pending.authorization = { state: "pending" };
+        return {
+          connector: pending,
+          operation: {
+            ...operation("start_authorization", 2),
+            connectorKey: "notion",
+            state: "completed" as const
+          },
+          authorizationUrl: "https://authorization.example/notion",
+          revision: 2
+        };
+      }
+    }),
+    createRequestId: () => "one-notion-authorization",
+    openAuthorizationUrl: async (url) => {
+      openedUrls.push(url);
+    },
+    waitForAuthorizationContinuation: async () => undefined
+  });
+  await service.ensureLoaded();
+
+  await service.beginAuthorization("notion");
+
+  assert.equal(snapshotReads, 2);
+  assert.deepEqual(requests, [
+    {
+      connectorKey: "notion",
+      clientRequestId: "one-notion-authorization",
+      expectedRevision: 1
+    },
+    {
+      connectorKey: "notion",
+      clientRequestId: "one-notion-authorization",
+      expectedRevision: 1
+    }
+  ]);
+  assert.deepEqual(openedUrls, ["https://authorization.example/notion"]);
+  assert.equal(
+    service.dataStore.connectorsByKey.notion?.authorization.state,
+    "connected"
+  );
+  assert.equal(service.dataStore.lastError, null);
+  service.dispose();
+});
+
 test("recovers one stale authorization revision without dropping the secret", async () => {
   const requests: Array<{
     clientRequestId: string;

@@ -313,6 +313,18 @@ func (application *Application) beginAuthorizationSession(
 	if err != nil {
 		return AuthorizationSession{}, err
 	}
+	if operation.State == OperationStateCompleted && operation.Execution.AuthorizationSession != nil &&
+		operation.Execution.AuthorizationSession.IsResolved() {
+		session := *operation.Execution.AuthorizationSession
+		session.AuthorizationURL = ""
+		switch session.Resolution {
+		case AuthorizationSessionResolutionProviderConnected, AuthorizationSessionResolutionAccountStateConverged:
+			session.State = AuthorizationStateConnected
+		default:
+			session.State = AuthorizationStateFailed
+		}
+		return session, nil
+	}
 	if operation.State == OperationStateAccepted {
 		operation, err = application.markOperationRunning(ctx, operation.OperationID)
 		if err != nil {

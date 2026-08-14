@@ -421,7 +421,7 @@ func (application *Application) BeginAuthorization(
 		// first changed projection. Preserve that in-flight state in this command
 		// result so callers keep following the same idempotent session instead of
 		// treating the initial disconnected projection as terminal.
-		if session.State == AuthorizationStatePending && connector.Authorization.State != AuthorizationStateConnected {
+		if !session.IsResolved() && session.State == AuthorizationStatePending && connector.Authorization.State != AuthorizationStateConnected {
 			connector.Authorization = Authorization{State: AuthorizationStatePending}
 		}
 	}
