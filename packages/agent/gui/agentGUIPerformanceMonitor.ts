@@ -524,22 +524,24 @@ export async function trackAgentGUIComposerOptionsLoad(
     options = await input.load();
   } catch (error) {
     const observedAtUnixMs = safeNowUnixMs(nowUnixMs);
-    emitPerformanceEvent(input.onEvent, {
-      agentTargetId,
-      ...agentGUIPerformanceDuration(observedAtUnixMs - startedAtUnixMs),
-      ...performanceErrorFieldsFromError(error),
-      failureStage: "options_load",
-      force,
-      hasDirectory,
-      observedAtUnixMs,
-      operationId,
-      outcome: "failed",
-      provider,
-      source: input.source,
-      startedAtUnixMs,
-      type: "composer_options_load_settled",
-      workspaceId: input.workspaceId
-    });
+    if (!isExpectedComposerOptionsCancellation(error)) {
+      emitPerformanceEvent(input.onEvent, {
+        agentTargetId,
+        ...agentGUIPerformanceDuration(observedAtUnixMs - startedAtUnixMs),
+        ...performanceErrorFieldsFromError(error),
+        failureStage: "options_load",
+        force,
+        hasDirectory,
+        observedAtUnixMs,
+        operationId,
+        outcome: "failed",
+        provider,
+        source: input.source,
+        startedAtUnixMs,
+        type: "composer_options_load_settled",
+        workspaceId: input.workspaceId
+      });
+    }
     throw error;
   }
 
@@ -698,6 +700,24 @@ function normalizePerformanceErrorCode(value: unknown): string {
     .replace(/^_+|_+$/g, "")
     .slice(0, 120);
   return normalized || "unknown";
+}
+
+function isExpectedComposerOptionsCancellation(error: unknown): boolean {
+  const record = asRecord(error);
+  const candidates = [
+    stringField(record, "code"),
+    error instanceof Error ? error.name : undefined,
+    error instanceof Error ? error.message : undefined
+  ]
+    .map((value) => value?.trim().toLowerCase())
+    .filter((value): value is string => Boolean(value));
+  return candidates.some((value) =>
+    [
+      "composer_options_load_aborted",
+      "composer_options_load_superseded",
+      "agent_session_engine_disposed"
+    ].includes(value)
+  );
 }
 
 function composerOptionsOperationId(

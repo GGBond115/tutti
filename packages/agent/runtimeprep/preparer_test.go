@@ -1115,6 +1115,28 @@ func TestDefaultPreparerCodexReconcilesNativeSkillsAcrossRepeatedPrepare(t *test
 	}
 }
 
+func TestDefaultPreparerCodexSkipsSkillsForModelProbe(t *testing.T) {
+	preparer := newTestPreparer(t.TempDir())
+	prepared, err := preparer.Prepare(t.Context(), PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "model-probe-1",
+		AgentTargetID:  "local:codex",
+		Provider:       "codex",
+		Cwd:            t.TempDir(),
+		SkipSkills:     true,
+	})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	codexHome := envValue(prepared.Env, "CODEX_HOME")
+	if codexHome == "" {
+		t.Fatalf("prepared env = %#v, want CODEX_HOME", prepared.Env)
+	}
+	if _, err := os.Stat(filepath.Join(codexHome, "skills")); !os.IsNotExist(err) {
+		t.Fatalf("model-only Prepare() created a Skill root, err = %v", err)
+	}
+}
+
 func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)

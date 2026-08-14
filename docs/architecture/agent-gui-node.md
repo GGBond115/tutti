@@ -1785,6 +1785,13 @@ requests only `skills/list` and retains the ordinary Skill projection through
 the shared app-server transport, capability contract, cache, and structured
 prompt-item submission path.
 
+Model-only app-server catalog probes are a separate read path: they request
+`model/list` without `skills/list` and pass the runtime launch preparation
+contract's `SkipSkills` flag. These probes do not create a live Session and
+must not resolve or materialize provider Skill directories. A Composer-options
+read that returns both models and Skills keeps the normal Skill preparation
+path.
+
 Tutti Desktop's slash connector section is a local catalog projection,
 not a Provider connector catalog. `services/tuttid/service/agent` reads the
 daemon-owned connector-market application through its read-only snapshot port;

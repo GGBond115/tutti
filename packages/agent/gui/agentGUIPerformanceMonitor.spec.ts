@@ -171,6 +171,35 @@ describe("createAgentGUIPerformanceMonitor", () => {
     }
   });
 
+  it("does not report expected Composer options cancellation as a failure", async () => {
+    const harness = createEngineHarness(engineState({}));
+    const onEvent = vi.fn();
+    const monitor = createAgentGUIPerformanceMonitor({
+      engine: harness.engine,
+      onEvent,
+      subscribeSessionEvents: harness.subscribeSessionEvents
+    });
+
+    const pending = monitor.trackComposerOptionsLoad({
+      agentTargetId: "codex-target",
+      load: () => Promise.reject(new Error("composer_options_load_superseded")),
+      provider: "codex",
+      source: "session-engine"
+    });
+
+    await expect(pending).rejects.toThrow("composer_options_load_superseded");
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "composer_options_load_started" })
+    );
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "failed",
+        type: "composer_options_load_settled"
+      })
+    );
+    monitor.dispose();
+  });
+
   it("does not let a Composer options event sink change the load result", async () => {
     const eventSinkFailure = new Error("event sink failed");
     const consoleError = vi
