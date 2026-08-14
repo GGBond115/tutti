@@ -515,7 +515,7 @@ export function WorkspaceSettingsPanel({
                   />
                 ) : settingsState.agentTab === "connectors" &&
                   connectorsVisible ? (
-                  <ConnectorMarketPanel 
+                  <ConnectorMarketPanel
                     i18n={connectorMarketI18n}
                     locale={desktopPreferencesState.locale}
                     onError={handleConnectorMarketError}
