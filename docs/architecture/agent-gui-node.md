@@ -1514,6 +1514,17 @@ non-blocking error through the host toast capability, falling back to the UI
 System toast when that optional capability is absent. An unresolved empty Rail
 scope retains the centered error state and its retry action.
 
+AgentGUI owns one bounded retry for first-page and targeted membership reads so
+every host receives the same recovery behavior across daemon restarts, transient
+upstream failures, and transport loss. A fast transient failure retries once
+after a short deterministic jitter while publication remains pending. A request
+that already reached its timeout publishes the retained or empty failure state,
+releases the interaction lock, and performs its one retry after a longer
+background delay. Cancellation and permanent authorization, parameter, or other
+non-retryable client failures never retry. Scope replacement and surface detach
+abort both the active read and any scheduled retry; hosts must propagate the
+controller-owned `AbortSignal` while retaining their own request timeout.
+
 Presentation-invisible Sessions remain canonical engine entities and stay
 available through exact Session selectors for trusted open, reconcile, and
 command flows. Plural consumer selectors exclude them before Rail and Message
