@@ -10145,6 +10145,9 @@ type WorkspaceFileSearchWithin = string
 // WorkspaceID defines model for WorkspaceID.
 type WorkspaceID = string
 
+// AgentInteractiveConflictError defines model for AgentInteractiveConflictError.
+type AgentInteractiveConflictError = ApiErrorResponse
+
 // AgentQuickPromptConflictError defines model for AgentQuickPromptConflictError.
 type AgentQuickPromptConflictError = ApiErrorResponse
 

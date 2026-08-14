@@ -13340,6 +13340,10 @@ export type SubmitWorkspaceAgentInteractiveErrors = {
    */
   405: ApiErrorResponse;
   /**
+   * Interactive response no longer matches a pending canonical request
+   */
+  409: ApiErrorResponse;
+  /**
    * Workspace operation failed in an upstream adapter or command
    */
   502: ApiErrorResponse;

@@ -54,6 +54,25 @@ func TestClassifyRuntimeOperationReconciliationIsRetryable(t *testing.T) {
 	}
 }
 
+func TestClassifyAgentInteractiveResponseStaleErrorsAsConflict(t *testing.T) {
+	for _, err := range []error{
+		agentservice.ErrInteractionRequestNotFound,
+		agentservice.ErrInteractiveRequestNotLive,
+		agentservice.ErrInteractiveAlreadyAnswered,
+		agentservice.ErrRuntimeOperationIdentityMismatch,
+	} {
+		classified := ClassifyAgentInteractiveResponse(err)
+		if classified.StatusCode != StatusConflict ||
+			classified.Code != tuttigenerated.WorkspaceOperationFailed ||
+			classified.Reason != ReasonAgentInteractiveRequestStale {
+			t.Fatalf("ClassifyAgentInteractiveResponse(%v) = %#v, want stale interactive conflict", err, classified)
+		}
+		if !errors.Is(classified, err) {
+			t.Fatalf("ClassifyAgentInteractiveResponse(%v) did not preserve cause", err)
+		}
+	}
+}
+
 func TestClassifyGuidanceTargetErrorsAsInvalidRequest(t *testing.T) {
 	for _, test := range []struct {
 		err    error
