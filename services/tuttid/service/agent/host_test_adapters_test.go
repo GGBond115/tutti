@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,23 @@ import (
 // agenthost.SQLiteWorkspaceStore; package tests retain this adapter for their
 // narrow in-memory service fakes.
 type serviceHostStore struct{ service *Service }
+
+func (p *ActivityProjection) ResolveRuntimeSessionRailPlacement(
+	ctx context.Context,
+	input agenthost.ResolveRuntimeSessionRailPlacementInput,
+) (*agenthost.RailPlacement, error) {
+	provider, ok := p.repo.(interface {
+		AgentCanonicalStore() *storesqlite.Store
+	})
+	if !ok || provider.AgentCanonicalStore() == nil {
+		return nil, fmt.Errorf("agent activity canonical store is unavailable")
+	}
+	canonical := provider.AgentCanonicalStore()
+	store := &agenthost.SQLiteWorkspaceStore{
+		StoreForWorkspace: func(string) *storesqlite.Store { return canonical },
+	}
+	return store.ResolveRuntimeSessionRailPlacement(ctx, input)
+}
 
 func (serviceHostStore) GetSessionForkLineage(
 	context.Context,
@@ -51,6 +69,40 @@ func (a serviceHostStore) GetSession(ctx context.Context, workspaceID, sessionID
 		}
 	}
 	return storesqlite.Session{}, false, nil
+}
+
+func (a serviceHostStore) ResolveRuntimeSessionRailPlacement(
+	ctx context.Context,
+	input agenthost.ResolveRuntimeSessionRailPlacementInput,
+) (*agenthost.RailPlacement, error) {
+	if a.service != nil && a.service.SessionInitializer != nil {
+		if resolver, ok := a.service.SessionInitializer.(interface {
+			ResolveRuntimeSessionRailPlacement(context.Context, agenthost.ResolveRuntimeSessionRailPlacementInput) (*agenthost.RailPlacement, error)
+		}); ok {
+			return resolver.ResolveRuntimeSessionRailPlacement(ctx, input)
+		}
+	}
+	if input.RailPlacement != nil {
+		placement := *input.RailPlacement
+		return &placement, nil
+	}
+	if session, found, err := a.GetSession(ctx, input.WorkspaceID, input.AgentSessionID); err != nil {
+		return nil, err
+	} else if found && strings.TrimSpace(session.RailSectionKey) != "" {
+		return &agenthost.RailPlacement{
+			Version:     agenthost.RailPlacementVersion,
+			Kind:        agenthost.RailPlacementKind(session.RailSectionKind),
+			ProjectPath: session.RailProjectPath,
+			SectionKey:  session.RailSectionKey,
+		}, nil
+	}
+	section := storesqlite.ClassifyRailSection(input.Cwd, input.RuntimeContext, nil)
+	return &agenthost.RailPlacement{
+		Version:     agenthost.RailPlacementVersion,
+		Kind:        agenthost.RailPlacementKind(section.Kind),
+		ProjectPath: section.ProjectPath,
+		SectionKey:  section.Key,
+	}, nil
 }
 
 func (a serviceHostStore) SessionDeleted(ctx context.Context, workspaceID, sessionID string) (bool, error) {

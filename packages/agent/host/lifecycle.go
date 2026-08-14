@@ -145,6 +145,9 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 	if canonicalExisted && !railPlacementMatchesSession(input.RailPlacement, canonicalBeforeStart) {
 		return createSessionFailureResult(input, cleanup(ErrRailPlacementConflict, false, false))
 	}
+	if input.RailPlacement, prepared.Env, err = h.resolveCreateRuntimeRailEnvironment(ctx, workspaceID, input, prepared); err != nil {
+		return createSessionFailureResult(input, cleanup(err, false, false))
+	}
 	startedAt := h.now()
 	release, err := h.acquireStartup(ctx, input.Provider)
 	if err != nil {
@@ -447,6 +450,9 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 	}
 	if prepared.Settings != nil {
 		settings = *prepared.Settings
+	}
+	if prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.Cwd, canonicalSession); err != nil {
+		return ProviderRuntimeSession{}, err
 	}
 	release, err := h.acquireStartup(ctx, canonicalSession.Provider)
 	if err != nil {

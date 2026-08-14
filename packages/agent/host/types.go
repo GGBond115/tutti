@@ -627,6 +627,17 @@ type RailPlacement struct {
 	SectionKey  string            `json:"sectionKey"`
 }
 
+// ResolveRuntimeSessionRailPlacementInput identifies the final prepared
+// runtime context whose canonical rail placement must be known before a
+// provider process starts.
+type ResolveRuntimeSessionRailPlacementInput struct {
+	WorkspaceID    string
+	AgentSessionID string
+	Cwd            string
+	RuntimeContext map[string]any
+	RailPlacement  *RailPlacement
+}
+
 // CreateSessionInput is the provider-neutral create contract. Adapter-only
 // import paths, workspace resolution, identity, and transport state are not
 // part of this type.

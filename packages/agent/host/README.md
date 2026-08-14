@@ -153,6 +153,15 @@ and persists its opaque `SectionKey` exactly on first creation. An idempotent
 retry that supplies a placement must use the same placement; project deletion
 or another adapter-side view change never reassigns an existing session to
 `conversations`.
+Before provider startup, Host resolves the final placement from the immutable
+existing session, an explicit caller placement, or the prepared cwd through the
+canonical store. It then installs the prepared cwd in `TUTTI_AGENT_CWD` and the
+normalized versioned `RailPlacement` JSON in
+`TUTTI_AGENT_RAIL_PLACEMENT`. Create, resume, runtime reprepare, and historical
+Session Fork sources all receive that same pair. Nested callers inherit it when
+they omit an explicit cwd; an explicit cwd is a new placement-selection request,
+not a request to reinterpret the caller's environment. Adapters must not derive
+placement from a session id, binding id, PeerCommand, or another view lookup.
 Cancellation exposes durable intent acceptance, provider confirmation, and
 canonical settlement as separate facts. `GoalControl`, `GetGoalState`, and
 `ReconcileGoal` are provider-neutral Host APIs; typed `/goal` commands enter the

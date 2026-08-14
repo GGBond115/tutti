@@ -16,6 +16,15 @@ type CanonicalSessionStore interface {
 	ListChildSessions(context.Context, string, string) ([]storesqlite.Session, error)
 }
 
+// RuntimeSessionRailPlacementResolver is the optional create-time capability
+// that resolves a prepared runtime's final canonical rail placement before a
+// provider process starts. Keeping it separate preserves source compatibility
+// for external CanonicalStore implementations; CreateSession fails closed
+// when the capability is unavailable.
+type RuntimeSessionRailPlacementResolver interface {
+	ResolveRuntimeSessionRailPlacement(context.Context, ResolveRuntimeSessionRailPlacementInput) (*RailPlacement, error)
+}
+
 type RuntimeSessionInitialization struct {
 	Session       ProviderRuntimeSession
 	RailPlacement *RailPlacement

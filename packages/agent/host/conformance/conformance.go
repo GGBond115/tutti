@@ -77,6 +77,7 @@ type Fixture struct {
 	DisconnectGoalFenceDelivery bool
 	FailCommitObserver          bool
 	RejectInitialExec           bool
+	RailProjectPaths            []string
 	// GuidanceTargetMismatch makes the test runtime reject guidance whose
 	// explicit TurnID is not the Session.ActiveTurnID. It models the runtime
 	// target race without exposing a runtime/provider API to scenarios.
@@ -139,9 +140,11 @@ type InteractiveObservation struct {
 }
 
 type Metrics struct {
-	StartCalls  int
-	ResumeCalls int
-	ExecCalls   int
+	StartCalls    int
+	ResumeCalls   int
+	ExecCalls     int
+	LastStartEnv  []string
+	LastResumeEnv []string
 	// GuidanceProviderCalls counts guidance dispatches that passed the
 	// runtime's exact-target gate. ExecCalls includes the rejected gate check.
 	GuidanceProviderCalls              int

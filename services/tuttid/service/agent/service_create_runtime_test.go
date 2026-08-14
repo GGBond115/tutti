@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 )
@@ -112,8 +113,17 @@ func TestServiceCreateUsesRuntimePreparerResult(t *testing.T) {
 	if start.Cwd != "/prepared/workdir" {
 		t.Fatalf("runtime cwd = %q, want prepared cwd", start.Cwd)
 	}
-	if len(start.Env) != 1 || start.Env[0] != "CODEX_HOME=/prepared/codex-home" {
-		t.Fatalf("runtime env = %#v, want prepared env", start.Env)
+	if got := envValue(start.Env, "CODEX_HOME"); got != "/prepared/codex-home" {
+		t.Fatalf("runtime CODEX_HOME = %q, env=%#v", got, start.Env)
+	}
+	if got := envValue(start.Env, agenthost.AgentCWDEnvironmentVariable); got != "/prepared/workdir" {
+		t.Fatalf("runtime caller cwd = %q, env=%#v", got, start.Env)
+	}
+	placement, parseErr := agenthost.ParseAgentRailPlacementEnvironment(
+		envValue(start.Env, agenthost.AgentRailPlacementEnvironmentVariable),
+	)
+	if parseErr != nil || placement.Kind != agenthost.RailPlacementKindConversations {
+		t.Fatalf("runtime rail placement = %#v error=%v, env=%#v", placement, parseErr, start.Env)
 	}
 	if len(start.MCPServers) != 1 || start.MCPServers[0].Name != "connector" || start.MCPServers[0].Headers["Authorization"] != "Bearer session-token" {
 		t.Fatalf("runtime MCP servers = %#v", start.MCPServers)

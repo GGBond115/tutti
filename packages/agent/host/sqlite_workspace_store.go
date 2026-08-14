@@ -410,6 +410,70 @@ func (s *SQLiteWorkspaceStore) InitializeRuntimeSession(ctx context.Context, inp
 	return persisted, nil
 }
 
+func (s *SQLiteWorkspaceStore) ResolveRuntimeSessionRailPlacement(
+	ctx context.Context,
+	input ResolveRuntimeSessionRailPlacementInput,
+) (*RailPlacement, error) {
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	agentSessionID := strings.TrimSpace(input.AgentSessionID)
+	if workspaceID == "" || agentSessionID == "" {
+		return nil, ErrInvalidArgument
+	}
+	requested, err := normalizeRailPlacement(input.RailPlacement)
+	if err != nil {
+		return nil, err
+	}
+	input.RailPlacement = requested
+	store, err := s.store(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	var explicit *storesqlite.RailSection
+	if input.RailPlacement != nil {
+		explicit = &storesqlite.RailSection{
+			Kind:        string(input.RailPlacement.Kind),
+			ProjectPath: input.RailPlacement.ProjectPath,
+			Key:         input.RailPlacement.SectionKey,
+		}
+	}
+	section, err := store.ResolveAgentSessionRailSection(ctx, storesqlite.ResolveAgentSessionRailSectionInput{
+		WorkspaceID:       workspaceID,
+		AgentSessionID:    agentSessionID,
+		Cwd:               input.Cwd,
+		RuntimeContext:    cloneStringAnyMap(input.RuntimeContext),
+		ExplicitPlacement: explicit,
+	})
+	if err != nil {
+		if errors.Is(err, storesqlite.ErrRailSectionConflict) {
+			return nil, fmt.Errorf("%w: %v", ErrRailPlacementConflict, err)
+		}
+		return nil, err
+	}
+	resolved, err := normalizeRailPlacement(&RailPlacement{
+		Version:     RailPlacementVersion,
+		Kind:        RailPlacementKind(section.Kind),
+		ProjectPath: section.ProjectPath,
+		SectionKey:  section.Key,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if input.RailPlacement != nil && !railPlacementsEqual(input.RailPlacement, resolved) {
+		return nil, ErrRailPlacementConflict
+	}
+	return resolved, nil
+}
+
+func railPlacementsEqual(left, right *RailPlacement) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Version == right.Version && left.Kind == right.Kind &&
+		storesqlite.AreProjectPathsEqual(left.ProjectPath, right.ProjectPath) &&
+		storesqlite.NormalizeRailSectionKey(left.SectionKey) ==
+			storesqlite.NormalizeRailSectionKey(right.SectionKey)
+}
+
 func (s *SQLiteWorkspaceStore) UpdateSessionTitle(ctx context.Context, workspaceID, sessionID, title string) (storesqlite.Session, bool, error) {
 	store, err := s.store(workspaceID)
 	if err != nil {

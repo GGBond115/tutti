@@ -18,6 +18,7 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
+	userprojectbiz "github.com/tutti-os/tutti/services/tuttid/biz/userproject"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 )
@@ -396,6 +397,14 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	d.service.SessionReader = d.sessions
 	d.service.SessionPurgeStore = d.sessions
 	canonicalStore := openAgentServiceSQLiteStore(d.t)
+	for index, projectPath := range fixture.RailProjectPaths {
+		if _, err := canonicalStore.PutUserProject(context.Background(), userprojectbiz.Project{
+			ID: fmt.Sprintf("host-conformance-project-%d", index), Path: projectPath,
+			Label: projectPath, SectionKey: userprojectbiz.SectionKeyFromPath(projectPath),
+		}); err != nil {
+			return fmt.Errorf("register host conformance rail project %q: %w", projectPath, err)
+		}
+	}
 	d.service.SessionInitializer = legacyHostConformanceSessionInitializer{
 		canonicalStore: canonicalStore,
 		sessions:       d.sessions,
@@ -1365,6 +1374,12 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 		RuntimeStartReportWrites:   d.runtimeStartReportWrites,
 		RecoverySteps:              append([]string(nil), (*d.recoverySteps)...),
 	}
+	if len(d.runtime.startCalls) > 0 {
+		metrics.LastStartEnv = append([]string(nil), d.runtime.startCalls[len(d.runtime.startCalls)-1].Env...)
+	}
+	if len(d.runtime.resumeCalls) > 0 {
+		metrics.LastResumeEnv = append([]string(nil), d.runtime.resumeCalls[len(d.runtime.resumeCalls)-1].Env...)
+	}
 	if closeCallCount := len(d.runtime.closeCalls); closeCallCount > 0 {
 		metrics.LastClosePreservedCanonicalState = d.runtime.closeCalls[closeCallCount-1].PreserveCanonicalState
 	}
@@ -1595,6 +1610,20 @@ type legacyHostConformanceSessionInitializer struct {
 	canonicalStore *workspacedata.SQLiteStore
 	sessions       *fakeSessionReader
 	fail           bool
+}
+
+func (i legacyHostConformanceSessionInitializer) ResolveRuntimeSessionRailPlacement(
+	ctx context.Context,
+	input agenthost.ResolveRuntimeSessionRailPlacementInput,
+) (*agenthost.RailPlacement, error) {
+	if i.canonicalStore != nil && i.canonicalStore.AgentCanonicalStore() != nil {
+		canonical := i.canonicalStore.AgentCanonicalStore()
+		store := &agenthost.SQLiteWorkspaceStore{
+			StoreForWorkspace: func(string) *agentactivitybiz.Store { return canonical },
+		}
+		return store.ResolveRuntimeSessionRailPlacement(ctx, input)
+	}
+	return (fakeSessionInitializer{reader: i.sessions}).ResolveRuntimeSessionRailPlacement(ctx, input)
 }
 
 func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(

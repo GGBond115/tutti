@@ -254,6 +254,8 @@ func TestReprepareRuntimeSessionUsesRequestScopedPreparationContextAndPreservesI
 		session: storesqlite.Session{
 			ID: "session-1", WorkspaceID: "workspace-1", Kind: storesqlite.SessionKindRoot,
 			Provider: "codex", ProviderSessionID: "provider-session-1", Cwd: "/workspace",
+			RailSectionKind: storesqlite.RailSectionKindProject,
+			RailProjectPath: "/workspace", RailSectionKey: storesqlite.RailSectionKeyForProject("/workspace"),
 			InternalRuntimeContext: map[string]any{"canonical": true, "authority": "owner", "sharedAgent": map[string]any{
 				"bindingId": "binding-1", "taskKind": "chat", "executionRoute": "caller_peer_command_v1", "invocationId": "old",
 			}},
@@ -292,6 +294,16 @@ func TestReprepareRuntimeSessionUsesRequestScopedPreparationContextAndPreservesI
 	if runtime.reprepareInput.ProviderLaunchRuntimeContext["invocationId"] != "invocation-1" ||
 		runtime.reprepareInput.ProviderLaunchRuntimeContext["authority"] != "caller" {
 		t.Fatalf("provider launch runtime context = %#v", runtime.reprepareInput.ProviderLaunchRuntimeContext)
+	}
+	encodedPlacement, found := testEnvironmentValue(runtime.reprepareInput.Env, AgentRailPlacementEnvironmentVariable)
+	if !found {
+		t.Fatalf("reprepare env=%#v, want rail placement", runtime.reprepareInput.Env)
+	}
+	placement, parseErr := ParseAgentRailPlacementEnvironment(encodedPlacement)
+	if parseErr != nil || placement.Kind != RailPlacementKindProject ||
+		placement.ProjectPath != storesqlite.NormalizeProjectPath("/workspace") ||
+		placement.SectionKey != storesqlite.RailSectionKeyForProject("/workspace") {
+		t.Fatalf("reprepare rail placement=%#v error=%v", placement, parseErr)
 	}
 	shared, _ := runtime.reprepareInput.ProviderLaunchRuntimeContext["sharedAgent"].(map[string]any)
 	if shared["bindingId"] != "binding-1" || shared["taskKind"] != "chat" || shared["executionRoute"] != "caller_peer_command_v1" || shared["invocationId"] != "invocation-1" {

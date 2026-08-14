@@ -31,6 +31,52 @@ type RailSection struct {
 	Key         string
 }
 
+// ResolveAgentSessionRailSectionInput identifies the final runtime context
+// used to resolve a session's immutable rail section before process startup.
+type ResolveAgentSessionRailSectionInput struct {
+	WorkspaceID       string
+	AgentSessionID    string
+	Cwd               string
+	RuntimeContext    map[string]any
+	ExplicitPlacement *RailSection
+}
+
+// ResolveAgentSessionRailSection resolves the same existing, explicit, import,
+// and cwd-based rail decision used by canonical session persistence without
+// mutating the store.
+func (s *Store) ResolveAgentSessionRailSection(
+	ctx context.Context,
+	input ResolveAgentSessionRailSectionInput,
+) (RailSection, error) {
+	if s == nil || s.db == nil {
+		return RailSection{}, fmt.Errorf("resolve workspace agent session rail section: store is unavailable")
+	}
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	agentSessionID := strings.TrimSpace(input.AgentSessionID)
+	if workspaceID == "" || agentSessionID == "" {
+		return RailSection{}, fmt.Errorf("resolve workspace agent session rail section: workspace and session are required")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return RailSection{}, fmt.Errorf("resolve workspace agent session rail section: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	section, err := s.resolveAgentSessionRailSectionTx(
+		ctx,
+		tx,
+		workspaceID,
+		agentSessionID,
+		strings.TrimSpace(input.Cwd),
+		input.RuntimeContext,
+		"",
+		input.ExplicitPlacement,
+	)
+	if err != nil {
+		return RailSection{}, err
+	}
+	return section, nil
+}
+
 type existingAgentSessionRailSection struct {
 	Section RailSection
 	Found   bool

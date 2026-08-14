@@ -227,6 +227,15 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 			t.Fatalf("tutti skill missing recovery rule %q: %q", expected, tuttiSkill.Content)
 		}
 	}
+	handoffSkill := skillBundleRecord(bundle.Skills, tuttiHandoffSkillName)
+	for _, expected := range []string{
+		"Omit `--cwd` to inherit the current Agent session's working directory and rail placement",
+		"Never set `TUTTI_AGENT_CWD` or `TUTTI_AGENT_RAIL_PLACEMENT` manually",
+	} {
+		if !strings.Contains(handoffSkill.Content, expected) {
+			t.Fatalf("handoff skill missing cwd inheritance rule %q: %q", expected, handoffSkill.Content)
+		}
+	}
 	guide, ok := skillBundleFileContent(tuttiSkill, commandGuideReferencePath)
 	if !ok || !strings.Contains(guide, "tutti-dev issue get --issue-id <issue-id> --json") {
 		t.Fatalf("command guide = %q", guide)
