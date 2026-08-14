@@ -11,10 +11,8 @@ func TestWithAgentRailPlacementEnvironmentReplacesCallerContextExactlyOnce(t *te
 	env, err := WithAgentRailPlacementEnvironment([]string{
 		"KEEP=value",
 		AgentCWDEnvironmentVariable + "=/stale",
-		"tutti_agent_cwd=/windows-stale",
 		AgentRailPlacementEnvironmentVariable + "={\"version\":1,\"kind\":\"conversations\",\"sectionKey\":\"conversations\"}",
 		AgentRailPlacementEnvironmentVariable + "=duplicate",
-		"tutti_agent_rail_placement=windows-duplicate",
 	}, "/workspace/app/pkg", &RailPlacement{
 		Version: 1, Kind: RailPlacementKindProject, ProjectPath: "/workspace/app",
 		SectionKey: "project:/ignored",
@@ -47,6 +45,45 @@ func TestWithAgentRailPlacementEnvironmentReplacesCallerContextExactlyOnce(t *te
 	}
 }
 
+func TestReplaceEnvironmentValueUsesTargetOSKeySemantics(t *testing.T) {
+	input := []string{
+		AgentCWDEnvironmentVariable + "=/stale",
+		"tutti_agent_cwd=/case-distinct",
+		AgentCWDEnvironmentVariable + "=/duplicate",
+		"KEEP=value",
+	}
+	for _, tt := range []struct {
+		goos             string
+		wantCaseDistinct bool
+	}{
+		{goos: "linux", wantCaseDistinct: true},
+		{goos: "darwin", wantCaseDistinct: true},
+		{goos: "windows", wantCaseDistinct: false},
+	} {
+		t.Run(tt.goos, func(t *testing.T) {
+			env := replaceEnvironmentValueForOS(
+				input,
+				AgentCWDEnvironmentVariable,
+				"/canonical",
+				tt.goos,
+			)
+			if got := countEnvironmentKey(env, AgentCWDEnvironmentVariable); got != 1 {
+				t.Fatalf("canonical environment count = %d, env=%#v", got, env)
+			}
+			if value, _ := testEnvironmentValue(env, AgentCWDEnvironmentVariable); value != "/canonical" {
+				t.Fatalf("canonical environment value = %q, env=%#v", value, env)
+			}
+			_, foundCaseDistinct := testEnvironmentValue(env, "tutti_agent_cwd")
+			if foundCaseDistinct != tt.wantCaseDistinct {
+				t.Fatalf("case-distinct environment found=%v, want %v, env=%#v", foundCaseDistinct, tt.wantCaseDistinct, env)
+			}
+			if keep, _ := testEnvironmentValue(env, "KEEP"); keep != "value" {
+				t.Fatalf("unrelated environment was not preserved: %#v", env)
+			}
+		})
+	}
+}
+
 func TestParseAgentRailPlacementEnvironmentRejectsUntrustedShapes(t *testing.T) {
 	for _, value := range []string{
 		"",
@@ -63,7 +100,7 @@ func TestParseAgentRailPlacementEnvironmentRejectsUntrustedShapes(t *testing.T) 
 func countEnvironmentKey(env []string, key string) int {
 	count := 0
 	for _, entry := range env {
-		if environmentEntryMatchesKey(entry, key) {
+		if strings.HasPrefix(entry, key+"=") {
 			count++
 		}
 	}

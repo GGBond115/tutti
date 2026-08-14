@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 )
 
@@ -70,11 +71,15 @@ func ensureJSONDocumentEnded(decoder *json.Decoder) error {
 }
 
 func replaceEnvironmentValue(env []string, key, value string) []string {
+	return replaceEnvironmentValueForOS(env, key, value, runtime.GOOS)
+}
+
+func replaceEnvironmentValueForOS(env []string, key, value, goos string) []string {
 	prefix := key + "="
 	result := make([]string, 0, len(env)+1)
 	replaced := false
 	for _, entry := range env {
-		if environmentEntryMatchesKey(entry, key) {
+		if environmentEntryMatchesKeyForOS(entry, key, goos) {
 			if !replaced {
 				result = append(result, prefix+value)
 				replaced = true
@@ -89,7 +94,14 @@ func replaceEnvironmentValue(env []string, key, value string) []string {
 	return result
 }
 
-func environmentEntryMatchesKey(entry, key string) bool {
+func environmentEntryMatchesKeyForOS(entry, key, goos string) bool {
 	separator := strings.IndexByte(entry, '=')
-	return separator >= 0 && strings.EqualFold(entry[:separator], key)
+	if separator < 0 {
+		return false
+	}
+	entryKey := entry[:separator]
+	if goos == "windows" {
+		return strings.EqualFold(entryKey, key)
+	}
+	return entryKey == key
 }
