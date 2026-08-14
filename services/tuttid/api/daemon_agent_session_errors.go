@@ -498,12 +498,12 @@ func writeSubmitWorkspaceAgentInteractiveError(err error) tuttigenerated.SubmitW
 				AgentInteractiveConflictErrorJSONResponse: agentInteractiveConflictError(protocolErr),
 			}
 		}
+		return tuttigenerated.SubmitWorkspaceAgentInteractive502JSONResponse{
+			WorkspaceOperationErrorJSONResponse: workspaceOperationError(protocolErr),
+		}
 	default:
 		return tuttigenerated.SubmitWorkspaceAgentInteractive502JSONResponse{
 			WorkspaceOperationErrorJSONResponse: workspaceOperationError(protocolErr),
 		}
-	}
-	return tuttigenerated.SubmitWorkspaceAgentInteractive502JSONResponse{
-		WorkspaceOperationErrorJSONResponse: workspaceOperationError(protocolErr),
 	}
 }
