@@ -162,6 +162,11 @@ Session Fork sources all receive that same pair. Nested callers inherit it when
 they omit an explicit cwd; an explicit cwd is a new placement-selection request,
 not a request to reinterpret the caller's environment. Adapters must not derive
 placement from a session id, binding id, PeerCommand, or another view lookup.
+
+Host supplies the exact canonical assignments last; the runtime process adapter
+owns target-platform environment-key semantics when it materializes the child
+process environment.
+
 Cancellation exposes durable intent acceptance, provider confirmation, and
 canonical settlement as separate facts. `GoalControl`, `GetGoalState`, and
 `ReconcileGoal` are provider-neutral Host APIs; typed `/goal` commands enter the

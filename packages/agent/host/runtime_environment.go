@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"runtime"
 	"strings"
 )
 
@@ -18,11 +17,11 @@ const (
 	AgentRailPlacementEnvironmentVariable = "TUTTI_AGENT_RAIL_PLACEMENT"
 )
 
-// WithAgentRailPlacementEnvironment returns a copy of env with the canonical
+// withAgentRailPlacementEnvironment returns a copy of env with the canonical
 // caller cwd and rail placement installed exactly once. Callers use this only
 // after Host or a trusted binding has resolved the placement; it never
 // classifies a cwd itself.
-func WithAgentRailPlacementEnvironment(
+func withAgentRailPlacementEnvironment(
 	env []string,
 	cwd string,
 	placement *RailPlacement,
@@ -71,37 +70,16 @@ func ensureJSONDocumentEnded(decoder *json.Decoder) error {
 }
 
 func replaceEnvironmentValue(env []string, key, value string) []string {
-	return replaceEnvironmentValueForOS(env, key, value, runtime.GOOS)
-}
-
-func replaceEnvironmentValueForOS(env []string, key, value, goos string) []string {
 	prefix := key + "="
 	result := make([]string, 0, len(env)+1)
-	replaced := false
 	for _, entry := range env {
-		if environmentEntryMatchesKeyForOS(entry, key, goos) {
-			if !replaced {
-				result = append(result, prefix+value)
-				replaced = true
-			}
+		if strings.HasPrefix(entry, prefix) {
 			continue
 		}
 		result = append(result, entry)
 	}
-	if !replaced {
-		result = append(result, prefix+value)
-	}
-	return result
-}
-
-func environmentEntryMatchesKeyForOS(entry, key, goos string) bool {
-	separator := strings.IndexByte(entry, '=')
-	if separator < 0 {
-		return false
-	}
-	entryKey := entry[:separator]
-	if goos == "windows" {
-		return strings.EqualFold(entryKey, key)
-	}
-	return entryKey == key
+	// Host owns only the exact canonical assignment and leaves target-specific
+	// key semantics to the runtime adapter. Appending the trusted value makes it
+	// win at process boundaries such as os/exec that resolve duplicates last.
+	return append(result, prefix+value)
 }

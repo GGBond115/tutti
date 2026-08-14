@@ -1,24 +1,28 @@
 package agenthost
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
-func TestWithAgentRailPlacementEnvironmentReplacesCallerContextExactlyOnce(t *testing.T) {
-	env, err := WithAgentRailPlacementEnvironment([]string{
+func TestAgentRailPlacementEnvironmentSuppliesCanonicalValuesLast(t *testing.T) {
+	env, err := withAgentRailPlacementEnvironment([]string{
 		"KEEP=value",
 		AgentCWDEnvironmentVariable + "=/stale",
+		"tutti_agent_cwd=/case-distinct-cwd",
 		AgentRailPlacementEnvironmentVariable + "={\"version\":1,\"kind\":\"conversations\",\"sectionKey\":\"conversations\"}",
+		"tutti_agent_rail_placement=case-distinct-placement",
 		AgentRailPlacementEnvironmentVariable + "=duplicate",
+		"TAIL=value",
 	}, "/workspace/app/pkg", &RailPlacement{
 		Version: 1, Kind: RailPlacementKindProject, ProjectPath: "/workspace/app",
 		SectionKey: "project:/ignored",
 	})
 	if err != nil {
-		t.Fatalf("WithAgentRailPlacementEnvironment() error = %v", err)
+		t.Fatalf("withAgentRailPlacementEnvironment() error = %v", err)
 	}
 	if got := countEnvironmentKey(env, AgentCWDEnvironmentVariable); got != 1 {
 		t.Fatalf("cwd environment count = %d, env=%#v", got, env)
@@ -43,44 +47,16 @@ func TestWithAgentRailPlacementEnvironmentReplacesCallerContextExactlyOnce(t *te
 	if keep, _ := testEnvironmentValue(env, "KEEP"); keep != "value" {
 		t.Fatalf("unrelated environment was not preserved: %#v", env)
 	}
-}
-
-func TestReplaceEnvironmentValueUsesTargetOSKeySemantics(t *testing.T) {
-	input := []string{
-		AgentCWDEnvironmentVariable + "=/stale",
-		"tutti_agent_cwd=/case-distinct",
-		AgentCWDEnvironmentVariable + "=/duplicate",
+	want := []string{
 		"KEEP=value",
+		"tutti_agent_cwd=/case-distinct-cwd",
+		"tutti_agent_rail_placement=case-distinct-placement",
+		"TAIL=value",
+		AgentCWDEnvironmentVariable + "=/workspace/app/pkg",
+		AgentRailPlacementEnvironmentVariable + "=" + encoded,
 	}
-	for _, tt := range []struct {
-		goos             string
-		wantCaseDistinct bool
-	}{
-		{goos: "linux", wantCaseDistinct: true},
-		{goos: "darwin", wantCaseDistinct: true},
-		{goos: "windows", wantCaseDistinct: false},
-	} {
-		t.Run(tt.goos, func(t *testing.T) {
-			env := replaceEnvironmentValueForOS(
-				input,
-				AgentCWDEnvironmentVariable,
-				"/canonical",
-				tt.goos,
-			)
-			if got := countEnvironmentKey(env, AgentCWDEnvironmentVariable); got != 1 {
-				t.Fatalf("canonical environment count = %d, env=%#v", got, env)
-			}
-			if value, _ := testEnvironmentValue(env, AgentCWDEnvironmentVariable); value != "/canonical" {
-				t.Fatalf("canonical environment value = %q, env=%#v", value, env)
-			}
-			_, foundCaseDistinct := testEnvironmentValue(env, "tutti_agent_cwd")
-			if foundCaseDistinct != tt.wantCaseDistinct {
-				t.Fatalf("case-distinct environment found=%v, want %v, env=%#v", foundCaseDistinct, tt.wantCaseDistinct, env)
-			}
-			if keep, _ := testEnvironmentValue(env, "KEEP"); keep != "value" {
-				t.Fatalf("unrelated environment was not preserved: %#v", env)
-			}
-		})
+	if !reflect.DeepEqual(env, want) {
+		t.Fatalf("environment = %#v, want canonical values last after %#v", env, want)
 	}
 }
 

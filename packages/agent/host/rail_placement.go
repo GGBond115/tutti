@@ -100,7 +100,7 @@ func runtimeEnvironmentForCanonicalSession(
 	if err != nil {
 		return nil, err
 	}
-	return WithAgentRailPlacementEnvironment(env, cwd, placement)
+	return withAgentRailPlacementEnvironment(env, cwd, placement)
 }
 
 // GetSessionWithRailPlacement reads one canonical Session only when its
