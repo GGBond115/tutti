@@ -6,6 +6,10 @@ import type {
 
 const claudeSystemPromptFileEnv = "TUTTI_CLAUDE_SYSTEM_PROMPT_FILE";
 const claudePluginDirEnv = "TUTTI_CLAUDE_PLUGIN_DIR";
+// Leave headroom below the provider's context/quota ceiling so Claude can
+// finish a delegated task instead of spending the last tokens on another
+// background-agent round trip. The host can override this per start payload.
+export const defaultClaudeTaskBudgetTokens = 800_000;
 
 export type ClaudeToolsOption = NonNullable<ClaudeQueryOptions["tools"]>;
 
@@ -18,6 +22,7 @@ export type SidecarClaudeOptions = {
   extraArgs: Record<string, string | null>;
   tools: ClaudeToolsOption;
   mcpServers: NonNullable<ClaudeQueryOptions["mcpServers"]>;
+  taskBudget: NonNullable<ClaudeQueryOptions["taskBudget"]>;
 };
 
 export function sidecarClaudeOptionsFromPayload(
@@ -62,7 +67,10 @@ export function sidecarClaudeOptionsFromPayload(
       type: "preset",
       preset: "claude_code"
     },
-    mcpServers: mcpServersValue(payload.mcpServers)
+    mcpServers: mcpServersValue(payload.mcpServers),
+    taskBudget: taskBudgetValue(payload.taskBudget) ?? {
+      total: defaultClaudeTaskBudgetTokens
+    }
   };
 }
 
@@ -93,6 +101,7 @@ export function claudeQueryOptionOverrides(
   | "plugins"
   | "extraArgs"
   | "mcpServers"
+  | "taskBudget"
 > {
   return {
     systemPrompt: {
@@ -118,7 +127,8 @@ export function claudeQueryOptionOverrides(
       : {}),
     ...(Object.keys(options.mcpServers).length > 0
       ? { mcpServers: options.mcpServers }
-      : {})
+      : {}),
+    taskBudget: options.taskBudget
   };
 }
 
@@ -205,4 +215,15 @@ function toolsValue(value: unknown): ClaudeToolsOption | undefined {
     return { type: "preset", preset: "claude_code" };
   }
   return undefined;
+}
+
+function taskBudgetValue(
+  value: unknown
+): NonNullable<ClaudeQueryOptions["taskBudget"]> | undefined {
+  const total = numberValue(recordValue(value)?.total);
+  return Number.isSafeInteger(total) && total > 0 ? { total } : undefined;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

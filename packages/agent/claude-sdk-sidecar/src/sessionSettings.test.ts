@@ -15,6 +15,7 @@ test("plansDirectory can be configured by the host environment", () => {
 
   assert.equal(settings.plansDirectory, ".");
   assert.deepEqual(querySettingsFromSessionSettings(settings), {
+    autoCompactEnabled: true,
     plansDirectory: "."
   });
 });
@@ -27,7 +28,9 @@ test("blank host plansDirectory keeps the Claude SDK default", () => {
   });
 
   assert.equal(settings.plansDirectory, "");
-  assert.deepEqual(querySettingsFromSessionSettings(settings), {});
+  assert.deepEqual(querySettingsFromSessionSettings(settings), {
+    autoCompactEnabled: true
+  });
 });
 
 test("query create settings include effortLevel for the next resumed query", () => {
@@ -40,6 +43,7 @@ test("query create settings include effortLevel for the next resumed query", () 
       speed: "standard"
     }),
     {
+      autoCompactEnabled: true,
       effortLevel: "high",
       fastMode: false
     }
@@ -52,6 +56,6 @@ test("query create settings include effortLevel for the next resumed query", () 
       effort: "",
       speed: ""
     }),
-    {}
+    { autoCompactEnabled: true }
   );
 });

@@ -1237,7 +1237,14 @@ function ComputerUseSetupRow({
         );
         return;
       }
-      if (currentStatus.installed) {
+      // A Windows binary can be present while `cua-driver doctor` is failing
+      // (for example after a partial/UAC-blocked installation). Do not treat
+      // that state as a successful install; the repaired non-interactive
+      // installer must get a chance to reconcile it.
+      const windowsDriverReady =
+        currentStatus.platform !== "win32" ||
+        currentStatus.authorization === "authorized";
+      if (currentStatus.installed && windowsDriverReady) {
         setOperationProgress(100);
         await delay(computerUseOperationSettleMs);
         setMessage(null);

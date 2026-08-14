@@ -166,7 +166,12 @@ export function flagSettingsFromSessionSettings(
 export function querySettingsFromSessionSettings(
   settings: SidecarSessionSettings
 ): Partial<Settings> {
-  const result: Partial<Settings> = {};
+  // Claude Code enables automatic compaction in its interactive CLI. The SDK
+  // does not inherit that CLI behavior when Tutti creates a query, so a long
+  // resumed session can carry its entire transcript into every delegated
+  // round trip until the provider rejects it. Keep the same safety behavior
+  // for fresh and resumed queries.
+  const result: Partial<Settings> = { autoCompactEnabled: true };
   if (settings.plansDirectory) {
     result.plansDirectory = settings.plansDirectory;
   }

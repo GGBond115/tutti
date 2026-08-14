@@ -2397,10 +2397,12 @@ test("settings effort after idle-retire bakes into resumed query settings withou
 
     assert.equal(queryCount, 2);
     assert.equal(resumedOptions?.resume, "provider-session-1");
+    assert.deepEqual(resumedOptions?.taskBudget, { total: 800_000 });
     assert.deepEqual(
       (resumedOptions as { settings?: Record<string, unknown> } | undefined)
         ?.settings,
       {
+        autoCompactEnabled: true,
         effortLevel: "high",
         fastMode: false
       }

@@ -21,6 +21,10 @@ import {
   parseCuaDriverDoctorStatus,
   parseCuaDriverPermissionsStatusDetail
 } from "./computerUsePermissions.ts";
+import {
+  buildWindowsCuaDriverCommand,
+  CUA_DRIVER_WINDOWS_VERSION
+} from "./computerUseWindows.ts";
 import { getDesktopLogger } from "../logging.ts";
 
 const CUA_DRIVER_INSTALL_SCRIPT_URL =
@@ -31,9 +35,6 @@ const CUA_DRIVER_WINDOWS_INSTALL_SCRIPT_URL =
   "https://cua.ai/driver/install.ps1";
 const CUA_DRIVER_WINDOWS_UNINSTALL_SCRIPT_URL =
   "https://cua.ai/driver/uninstall.ps1";
-// Keep the interactive desktop path aligned with the release validated by the
-// daemon contract. Bumping this value is an explicit compatibility decision.
-const CUA_DRIVER_WINDOWS_VERSION = "0.18.0";
 const CUA_DRIVER_APP_BINARY_PATH =
   "/Applications/CuaDriver.app/Contents/MacOS/cua-driver";
 const COMPUTER_USE_GRANT_TIMEOUT_MS = 75_000;
@@ -828,23 +829,15 @@ function runWindowsCuaDriverScript(
   action: CuaDriverAction,
   url: string
 ): Promise<DesktopComputerUseActionResult> {
-  const script =
-    "$ErrorActionPreference = 'Stop'; " +
-    `$env:CUA_DRIVER_RS_VERSION = '${CUA_DRIVER_WINDOWS_VERSION}'; ` +
-    `Invoke-RestMethod -Uri '${url}' | Invoke-Expression`;
-  return runLoggedCuaDriverCommand(
-    action,
-    "powershell.exe",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-    {
-      timeoutMs: 120_000,
-      timeoutOutput: "Windows driver script timed out.",
-      logFields: {
-        scriptUrl: url,
-        driverVersion: CUA_DRIVER_WINDOWS_VERSION
-      }
+  const command = buildWindowsCuaDriverCommand(action, url);
+  return runLoggedCuaDriverCommand(action, command.command, command.args, {
+    timeoutMs: 120_000,
+    timeoutOutput: "Windows driver script timed out.",
+    logFields: {
+      scriptUrl: url,
+      driverVersion: CUA_DRIVER_WINDOWS_VERSION
     }
-  );
+  });
 }
 
 function installCuaDriver(): Promise<DesktopComputerUseActionResult> {
