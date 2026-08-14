@@ -189,10 +189,16 @@ test("desktop Store packaging reuses the Windows payload and emits AppX only", a
   const storeManifest = await readFile(desktopStoreManifestPath, "utf8");
 
   assert.equal(
+    packageJson.description,
+    "Where people and agents build in tune."
+  );
+  assert.equal(
     packageJson.scripts["build:win:store"],
     "bash ../../tools/scripts/build-desktop-package.sh win-store"
   );
   assert.equal(packageJson.build.appx.electronUpdaterAware, false);
+  assert.equal(packageJson.build.appx.minVersion, "10.0.17763.0");
+  assert.equal(packageJson.build.appx.maxVersionTested, "10.0.26100.0");
   assert.equal(
     packageJson.build.appx.customManifestPath,
     "build/appxmanifest.xml"
