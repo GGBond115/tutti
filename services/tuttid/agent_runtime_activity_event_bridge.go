@@ -19,6 +19,7 @@ type agentRuntimeActivityEventBridge struct {
 	publisher eventstreamservice.AgentActivityPublisher
 }
 
+//nolint:revive // RuntimeStreamEventFilter requires a bridge method; filtering is stateless.
 func (b agentRuntimeActivityEventBridge) FilterRuntimeStreamEvents(
 	workspaceID string,
 	agentSessionID string,
