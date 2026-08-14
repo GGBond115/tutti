@@ -19,6 +19,7 @@ export type {
   AgentGUIComposerOptionsLoadSource,
   AgentGUIComposerOptionsPerformanceEvent,
   AgentGUIFirstTokenKind,
+  AgentGUIPerformanceFailureStage,
   AgentGUIPerformanceDurationBucket,
   AgentGUIPerformanceEvent
 } from "./agentGUIPerformanceEvents.ts";
@@ -274,7 +275,10 @@ export function createAgentGUIPerformanceMonitor(input: {
           ...(commandDurationMs === null ? {} : { commandDurationMs }),
           commandOutcome: activation.commandOutcome,
           ...(activation.status === "failed"
-            ? { errorCategory: activation.errorCode ?? "runtime" }
+            ? {
+                ...performanceErrorFieldsFromCode(activation.errorCode),
+                failureStage: "session_activation"
+              }
             : {}),
           hasInitialPrompt,
           lastObservedStage: activation.lastObservedStage,
@@ -296,7 +300,10 @@ export function createAgentGUIPerformanceMonitor(input: {
           agentSessionId: activation.agentSessionId,
           ...duration,
           ...(activation.status === "failed"
-            ? { errorCategory: activation.errorCode ?? "runtime" }
+            ? {
+                ...performanceErrorFieldsFromCode(activation.errorCode),
+                failureStage: "prompt_admission"
+              }
             : {}),
           observedAtUnixMs,
           operationId,
@@ -350,7 +357,10 @@ export function createAgentGUIPerformanceMonitor(input: {
           agentSessionId: submit.agentSessionId,
           ...duration,
           ...(submit.status === "failed"
-            ? { errorCategory: submit.errorCode ?? "runtime" }
+            ? {
+                ...performanceErrorFieldsFromCode(submit.errorCode),
+                failureStage: "prompt_admission"
+              }
             : {}),
           observedAtUnixMs,
           operationId: submit.clientSubmitId,
@@ -393,7 +403,10 @@ export function createAgentGUIPerformanceMonitor(input: {
         agentSessionId: turn.agentSessionId,
         ...duration,
         ...(turn.outcome === "failed"
-          ? { errorCategory: turn.error?.code ?? "runtime" }
+          ? {
+              ...performanceErrorFieldsFromCode(turn.error?.code),
+              failureStage: "turn_settlement"
+            }
           : {}),
         observedAtUnixMs,
         operationId: context.operationId,
@@ -514,7 +527,8 @@ export async function trackAgentGUIComposerOptionsLoad(
     emitPerformanceEvent(input.onEvent, {
       agentTargetId,
       ...agentGUIPerformanceDuration(observedAtUnixMs - startedAtUnixMs),
-      errorCategory: performanceErrorCategory(error),
+      ...performanceErrorFieldsFromError(error),
+      failureStage: "options_load",
       force,
       hasDirectory,
       observedAtUnixMs,
@@ -661,13 +675,23 @@ function performanceTurnKey(agentSessionId: string, turnId: string): string {
   return `${agentSessionId}\u0000${turnId}`;
 }
 
-function performanceErrorCategory(error: unknown): string {
-  const record = asRecord(error);
-  const candidate =
-    stringField(record, "code") ??
-    (error instanceof Error ? error.name : undefined) ??
-    "unknown";
-  const normalized = candidate
+function performanceErrorFieldsFromError(error: unknown): {
+  errorCategory: string;
+  errorCode: string;
+} {
+  return performanceErrorFieldsFromCode(stringField(asRecord(error), "code"));
+}
+
+function performanceErrorFieldsFromCode(value: unknown): {
+  errorCategory: string;
+  errorCode: string;
+} {
+  const errorCode = normalizePerformanceErrorCode(value);
+  return { errorCategory: errorCode, errorCode };
+}
+
+function normalizePerformanceErrorCode(value: unknown): string {
+  const normalized = (typeof value === "string" ? value : "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_.:-]+/g, "_")

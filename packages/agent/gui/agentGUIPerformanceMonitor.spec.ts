@@ -8,7 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   agentGUIPerformanceDuration,
   createAgentGUIPerformanceMonitor,
-  trackAgentGUIComposerOptionsLoad
+  trackAgentGUIComposerOptionsLoad,
+  type AgentGUIComposerOptionsPerformanceEvent
 } from "./agentGUIPerformanceMonitor";
 
 describe("createAgentGUIPerformanceMonitor", () => {
@@ -116,6 +117,8 @@ describe("createAgentGUIPerformanceMonitor", () => {
         durationBucket: "3s_to_10s",
         durationMs: 4_000,
         errorCategory: "composer_options_timeout",
+        errorCode: "composer_options_timeout",
+        failureStage: "options_load",
         outcome: "failed",
         source: "session-engine",
         type: "composer_options_load_settled"
@@ -125,6 +128,47 @@ describe("createAgentGUIPerformanceMonitor", () => {
       "private provider response"
     );
     monitor.dispose();
+  });
+
+  it("uses bounded unknown for a missing Composer error code and rethrows it", async () => {
+    const sinkFailure = new Error("event sink failed");
+    const failure = new Error("private provider response");
+    const onEvent = vi.fn<
+      (event: AgentGUIComposerOptionsPerformanceEvent) => void
+    >(() => {
+      throw sinkFailure;
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      const pending = trackAgentGUIComposerOptionsLoad({
+        agentTargetId: "codex-target",
+        load: () => Promise.reject(failure),
+        onEvent,
+        provider: "codex",
+        source: "runtime",
+        workspaceId: "workspace-1"
+      });
+
+      await expect(pending).rejects.toBe(failure);
+      expect(onEvent).toHaveBeenCalledTimes(2);
+      expect(onEvent.mock.calls[1]?.[0]).toEqual(
+        expect.objectContaining({
+          errorCategory: "unknown",
+          errorCode: "unknown",
+          failureStage: "options_load",
+          outcome: "failed",
+          type: "composer_options_load_settled"
+        })
+      );
+      expect(JSON.stringify(onEvent.mock.calls)).not.toContain(
+        "private provider response"
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("does not let a Composer options event sink change the load result", async () => {
