@@ -2894,22 +2894,23 @@ Rail state writer because it has no Workbench node-state source. The callback
 contract contains no Tutti Desktop preference or product policy, so other hosts
 such as TSH may persist their own Rail state without adopting Desktop behavior.
 
-Attention state preserves explicit user intent: marking the currently selected
-Session unread keeps its unread indicator while that selection remains open.
-Selecting the Session again marks it read. Selection is node-local while
-attention state is shared, so an active Session may mark its completion read
-only while that AgentGUI surface is both host-focused and host-visible. A
-retained hidden, occluded, or unfocused node must preserve unread attention even
-when its local `activeConversationId` still names the Session. A new live
-completion or a durable unread completion discovered by hydration is marked
-read immediately only when its selected surface satisfies those exposure
-conditions. The read-decision diagnostic records the exact node, completion,
-focus, visibility, and decision reason without logging on stream updates.
-An older historical completion must not replace a newer completion observed
-live. Authoritative history reconciliation may remove a completion that is
-absent from its effective Turn set, but it must retain the durable marker for a
-completion observed live in this run. Otherwise a later historical snapshot can
-recreate that same completion as read and discard its live unread provenance.
+Attention state is unread-only: a live completion or explicit user unread
+request creates a durable unread completion, and real user exposure removes it.
+Absence of an unread completion means read; no separate durable read marker is
+authoritative. Historical list/detail reads own canonical content but never
+create, remove, or reconcile attention. Hydration restores only
+`completed.unreadIds` and `failed.unreadIds`; legacy `readIds` are ignored on
+read and every write payload explicitly empties both read buckets so stale read
+markers cannot survive migration.
+
+Selection is node-local while attention state is shared. An active Session may
+remove unread attention only while its AgentGUI surface is host-focused,
+host-visible, and the renderer document is visible and focused. A retained
+hidden, occluded, unfocused, or backgrounded node must preserve unread
+attention even when its local `activeConversationId` still names the Session.
+The read-decision diagnostic records the exact node, completion, host focus,
+document exposure, visibility, and decision reason without logging on stream
+updates.
 
 Read-only host surfaces reuse the complete workbench header and declare the
 session actions they support. Omitting that capability list preserves the full

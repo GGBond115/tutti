@@ -21,6 +21,7 @@ import {
   rememberAgentGUIActiveConversation
 } from "../model/agentGuiSessionNavigationMemory";
 import { AGENT_SESSION_NOT_FOUND_ERROR } from "./agentGuiController.errors";
+import { readAgentGUISurfaceDocumentExposure } from "./readAgentGUISurfaceDocumentExposure";
 import {
   reportAgentGUIAttentionReadDecision,
   reportAgentGUIActiveConversationCleared,
@@ -109,6 +110,7 @@ export function clearRolledBackAgentGUISelection(
 export function shouldMarkActiveConversationRead(input: {
   activeConversationId: string;
   isSurfaceActive: boolean;
+  isSurfaceDocumentExposed: boolean;
   isSurfaceVisible: boolean;
   previousActiveConversationId: string | null;
   record: AttentionReadRecord | undefined;
@@ -116,12 +118,15 @@ export function shouldMarkActiveConversationRead(input: {
   const {
     activeConversationId,
     isSurfaceActive,
+    isSurfaceDocumentExposed,
     isSurfaceVisible,
     previousActiveConversationId,
     record
   } = input;
   if (!record?.isUnread) return false;
-  if (!isSurfaceActive || !isSurfaceVisible) return false;
+  if (!isSurfaceActive || !isSurfaceVisible || !isSurfaceDocumentExposed) {
+    return false;
+  }
   return (
     !record.markedUnreadByUser ||
     previousActiveConversationId !== activeConversationId
@@ -131,6 +136,7 @@ export function shouldMarkActiveConversationRead(input: {
 export function activeConversationReadDecisionReason(input: {
   activeConversationId: string;
   isSurfaceActive: boolean;
+  isSurfaceDocumentExposed: boolean;
   isSurfaceVisible: boolean;
   previousActiveConversationId: string | null;
   record: AttentionReadRecord;
@@ -139,9 +145,11 @@ export function activeConversationReadDecisionReason(input: {
   | "manual_unread_current_selection"
   | "reselected"
   | "surface_hidden"
-  | "surface_inactive" {
+  | "surface_inactive"
+  | "document_not_exposed" {
   if (!input.isSurfaceVisible) return "surface_hidden";
   if (!input.isSurfaceActive) return "surface_inactive";
+  if (!input.isSurfaceDocumentExposed) return "document_not_exposed";
   if (
     input.record.markedUnreadByUser &&
     input.previousActiveConversationId === input.activeConversationId
@@ -318,60 +326,77 @@ export function useAgentGUIConversationSelectionController(
       previousAttentionActiveConversationIdRef.current = null;
       return;
     }
-    const previousActiveConversationId =
-      previousAttentionActiveConversationIdRef.current;
-    previousAttentionActiveConversationIdRef.current = activeConversationId;
-    const attentionRecord =
-      attentionReadRecordsBySessionId[activeConversationId];
-    const shouldMarkRead = shouldMarkActiveConversationRead({
-      activeConversationId,
-      isSurfaceActive,
-      isSurfaceVisible,
-      previousActiveConversationId,
-      record: attentionRecord
-    });
-    if (attentionRecord?.isUnread) {
-      const reason = activeConversationReadDecisionReason({
+    const evaluateAttentionRead = () => {
+      const previousActiveConversationId =
+        previousAttentionActiveConversationIdRef.current;
+      previousAttentionActiveConversationIdRef.current = activeConversationId;
+      const attentionRecord =
+        attentionReadRecordsBySessionId[activeConversationId];
+      const isSurfaceDocumentExposed = readAgentGUISurfaceDocumentExposure();
+      const shouldMarkRead = shouldMarkActiveConversationRead({
         activeConversationId,
         isSurfaceActive,
+        isSurfaceDocumentExposed,
         isSurfaceVisible,
         previousActiveConversationId,
         record: attentionRecord
       });
-      const diagnosticKey = [
-        attentionRecord.completionKey,
-        isSurfaceActive,
-        isSurfaceVisible,
-        previousActiveConversationId,
-        attentionRecord.markedUnreadByUser,
-        shouldMarkRead
-      ].join(":");
-      if (attentionReadDiagnosticKeyRef.current !== diagnosticKey) {
-        attentionReadDiagnosticKeyRef.current = diagnosticKey;
-        reportAgentGUIAttentionReadDecision({
-          agentSessionId: activeConversationId,
-          completionKey: attentionRecord.completionKey,
-          decision: shouldMarkRead ? "read" : "preserve_unread",
+      if (attentionRecord?.isUnread) {
+        const reason = activeConversationReadDecisionReason({
+          activeConversationId,
           isSurfaceActive,
+          isSurfaceDocumentExposed,
           isSurfaceVisible,
-          markedUnreadByUser: attentionRecord.markedUnreadByUser,
-          nodeId,
           previousActiveConversationId,
-          reason,
-          runtime: agentActivityRuntime,
-          workspaceId
+          record: attentionRecord
+        });
+        const diagnosticKey = [
+          attentionRecord.completionKey,
+          isSurfaceActive,
+          isSurfaceDocumentExposed,
+          isSurfaceVisible,
+          previousActiveConversationId,
+          attentionRecord.markedUnreadByUser,
+          shouldMarkRead
+        ].join(":");
+        if (attentionReadDiagnosticKeyRef.current !== diagnosticKey) {
+          attentionReadDiagnosticKeyRef.current = diagnosticKey;
+          reportAgentGUIAttentionReadDecision({
+            agentSessionId: activeConversationId,
+            completionKey: attentionRecord.completionKey,
+            decision: shouldMarkRead ? "read" : "preserve_unread",
+            isSurfaceActive,
+            isSurfaceDocumentExposed,
+            isSurfaceVisible,
+            markedUnreadByUser: attentionRecord.markedUnreadByUser,
+            nodeId,
+            previousActiveConversationId,
+            reason,
+            runtime: agentActivityRuntime,
+            workspaceId
+          });
+        }
+      } else {
+        attentionReadDiagnosticKeyRef.current = null;
+      }
+      if (shouldMarkRead) {
+        sessionEngine.dispatch({
+          type: "attention/read",
+          agentSessionId: activeConversationId,
+          userId: currentUserId?.trim() ?? ""
         });
       }
-    } else {
-      attentionReadDiagnosticKeyRef.current = null;
-    }
-    if (shouldMarkRead) {
-      sessionEngine.dispatch({
-        type: "attention/read",
-        agentSessionId: activeConversationId,
-        userId: currentUserId?.trim() ?? ""
-      });
-    }
+    };
+    const handleExposureChange = () => evaluateAttentionRead();
+    document.addEventListener("visibilitychange", handleExposureChange);
+    window.addEventListener("blur", handleExposureChange);
+    window.addEventListener("focus", handleExposureChange);
+    evaluateAttentionRead();
+    return () => {
+      document.removeEventListener("visibilitychange", handleExposureChange);
+      window.removeEventListener("blur", handleExposureChange);
+      window.removeEventListener("focus", handleExposureChange);
+    };
   }, [
     activeConversationId,
     activePendingActivation,

@@ -386,6 +386,7 @@ export function reportAgentGUIAttentionReadDecision(input: {
   completionKey: string;
   decision: "preserve_unread" | "read";
   isSurfaceActive: boolean;
+  isSurfaceDocumentExposed: boolean;
   isSurfaceVisible: boolean;
   markedUnreadByUser: boolean;
   nodeId?: string;
@@ -395,7 +396,8 @@ export function reportAgentGUIAttentionReadDecision(input: {
     | "manual_unread_current_selection"
     | "reselected"
     | "surface_hidden"
-    | "surface_inactive";
+    | "surface_inactive"
+    | "document_not_exposed";
   runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
@@ -411,6 +413,7 @@ export function reportAgentGUIAttentionReadDecision(input: {
           completionKey: input.completionKey,
           decision: input.decision,
           isSurfaceActive: input.isSurfaceActive,
+          isSurfaceDocumentExposed: input.isSurfaceDocumentExposed,
           isSurfaceVisible: input.isSurfaceVisible,
           markedUnreadByUser: input.markedUnreadByUser,
           nodeId: input.nodeId ?? null,
