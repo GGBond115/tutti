@@ -58,6 +58,8 @@ type ProviderError struct {
 	Cause        error
 }
 
+const ProviderErrorCodeStartTimeout = "provider_start_timeout"
+
 // NewProviderError converts an adapter's structured provider observation into
 // the Host contract. Cancellation and deadline errors remain unclassified
 // because their delivery result is unknown and consumers must keep them
@@ -71,6 +73,23 @@ func NewProviderError(code, message, debugMessage string, cause error) error {
 	}
 	return &ProviderError{
 		Code:         code,
+		Message:      message,
+		DebugMessage: debugMessage,
+		Cause:        cause,
+	}
+}
+
+// NewProviderStartTimeoutError preserves the narrow runtime verdict that a
+// provider adapter timed out while starting, before a runtime Session was
+// established. Unlike an arbitrary deadline, this verdict is safe to expose as
+// a ProviderError because the runtime owner has already identified the failed
+// lifecycle stage.
+func NewProviderStartTimeoutError(message, debugMessage string, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &ProviderError{
+		Code:         ProviderErrorCodeStartTimeout,
 		Message:      message,
 		DebugMessage: debugMessage,
 		Cause:        cause,

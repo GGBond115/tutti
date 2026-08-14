@@ -233,6 +233,26 @@ func TestMapRuntimeErrorKeepsTransportOutcomeUnknown(t *testing.T) {
 	}
 }
 
+func TestMapRuntimeErrorPreservesProviderStartTimeoutVerdict(t *testing.T) {
+	runtimeErr := &agentruntime.AppError{
+		Code:         agentruntime.AppErrorProviderStartTimeout,
+		Message:      "Agent provider took too long to start",
+		DebugMessage: "provider startup exceeded its deadline",
+		Cause:        fmt.Errorf("provider start: %w", context.DeadlineExceeded),
+	}
+	mapped := mapRuntimeError(fmt.Errorf("daemon runtime: %w", runtimeErr))
+	var providerErr *host.ProviderError
+	if !errors.As(mapped, &providerErr) {
+		t.Fatalf("mapped error = %v, want ProviderError", mapped)
+	}
+	if providerErr.Code != host.ProviderErrorCodeStartTimeout {
+		t.Fatalf("ProviderError code = %q, want %q", providerErr.Code, host.ProviderErrorCodeStartTimeout)
+	}
+	if !errors.Is(mapped, context.DeadlineExceeded) || !errors.Is(mapped, runtimeErr) {
+		t.Fatalf("mapped error did not preserve runtime deadline chain: %v", mapped)
+	}
+}
+
 func TestMapRuntimeErrorMapsDisconnectedSessionAcrossHostBoundary(t *testing.T) {
 	runtimeErr := fmt.Errorf("fence requires live provider: %w", agentruntime.ErrSessionDisconnected)
 	mapped := mapRuntimeError(runtimeErr)

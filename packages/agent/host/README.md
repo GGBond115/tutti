@@ -366,7 +366,12 @@ provider code and diagnostic text remain local observations rather than a
 stable cross-service taxonomy; coordination layers persist only their own
 coarse product reason when needed. `NewProviderError` deliberately leaves
 cancellation and deadline failures unclassified because their delivery result
-is unknown and must remain recoverable.
+is unknown and must remain recoverable. The narrow
+`NewProviderStartTimeoutError` exception is used only after the runtime owner
+has observed the provider adapter's Start stage time out before establishing a
+runtime Session. It preserves the deadline cause while exposing
+`provider_start_timeout` as a typed Provider failure; callers must not infer
+that verdict from an arbitrary context deadline.
 `UpdateSettings` serializes with runtime resume:
 historical sessions persist settings only, while live sessions update the
 runtime first and persist the resulting settings only after the runtime

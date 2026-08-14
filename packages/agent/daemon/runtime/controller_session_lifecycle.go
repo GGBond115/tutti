@@ -83,6 +83,9 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 		if AppErrorCode(err) == "" {
 			detail := cleanVisibleErrorText(err.Error())
 			code := visibleFailureCode(detail)
+			if errors.Is(err, context.DeadlineExceeded) {
+				code = AppErrorProviderStartTimeout
+			}
 			startError = &AppError{
 				Code:         code,
 				Message:      visibleFailureContent(provider, "start", code),

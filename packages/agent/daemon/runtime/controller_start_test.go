@@ -52,6 +52,27 @@ func TestControllerStartFailureDoesNotCreateCanonicalSessionOrTurnlessMessage(t 
 	}
 }
 
+func TestControllerStartClassifiesAdapterDeadlineBeforeSessionRegistration(t *testing.T) {
+	t.Parallel()
+
+	controller := NewController([]Adapter{providerStartTimeoutAdapter{}}, nil)
+	_, err := controller.Start(context.Background(), StartInput{
+		RoomID:         "room-timeout",
+		AgentSessionID: "agent-timeout",
+		Provider:       hermesExtensionTestProvider,
+		CWD:            "/workspace",
+	})
+	if code := AppErrorCode(err); code != AppErrorProviderStartTimeout {
+		t.Fatalf("Start error code = %q (err=%v), want %q", code, err, AppErrorProviderStartTimeout)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Start error = %v, want deadline cause preserved", err)
+	}
+	if stored, ok := controller.get("room-timeout", "agent-timeout"); ok {
+		t.Fatalf("stored session = %#v, want no runtime session after start timeout", stored)
+	}
+}
+
 func TestControllerStartPreservesStructuredCleanupBackpressureError(t *testing.T) {
 	t.Parallel()
 
@@ -734,6 +755,12 @@ func (a *recordingPromptAdapter) ValidatePromptContent(_ Session, content []Prom
 }
 
 type failingStartAdapter struct{}
+
+type providerStartTimeoutAdapter struct{ failingStartAdapter }
+
+func (providerStartTimeoutAdapter) Start(context.Context, Session) ([]activityshared.Event, error) {
+	return nil, fmt.Errorf("provider start: %w", context.DeadlineExceeded)
+}
 
 type cleanupPendingStartAdapter struct{ failingStartAdapter }
 

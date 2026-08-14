@@ -674,6 +674,9 @@ func mapRuntimeError(err error) error {
 	}
 	var appErr *agentruntime.AppError
 	if errors.As(err, &appErr) && appErr != nil {
+		if appErr.Code == agentruntime.AppErrorProviderStartTimeout {
+			return host.NewProviderStartTimeoutError(appErr.Message, appErr.DebugMessage, appErr)
+		}
 		if errors.Is(appErr, context.Canceled) || errors.Is(appErr, context.DeadlineExceeded) {
 			return err
 		}
