@@ -4,7 +4,7 @@ import "errors"
 
 const (
 	AppErrorProviderSessionNotFound = "agent.provider_session_not_found"
-	AppErrorProviderStartTimeout    = "provider_start_timeout"
+	AppErrorProviderStartTimeout    = "agent.provider_start_timeout"
 	AppErrorProcessCleanupPending   = "agent.process_cleanup_pending"
 	AppErrorResumeSessionNotLocal   = "agent.resume_session_not_local"
 )

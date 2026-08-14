@@ -62,8 +62,8 @@ func TestControllerStartClassifiesAdapterDeadlineBeforeSessionRegistration(t *te
 		Provider:       hermesExtensionTestProvider,
 		CWD:            "/workspace",
 	})
-	if code := AppErrorCode(err); code != AppErrorProviderStartTimeout {
-		t.Fatalf("Start error code = %q (err=%v), want %q", code, err, AppErrorProviderStartTimeout)
+	if code := AppErrorCode(err); code != "agent.provider_start_timeout" {
+		t.Fatalf("Start error code = %q (err=%v), want agent.provider_start_timeout", code, err)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Start error = %v, want deadline cause preserved", err)
