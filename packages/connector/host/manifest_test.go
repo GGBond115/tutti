@@ -216,6 +216,19 @@ func TestManagedCLIAllowsTypedNodePackageWithoutActionMappings(t *testing.T) {
 	}
 }
 
+func TestManagedCLIRejectsUnsafePublicCommand(t *testing.T) {
+	manifest := Manifest{SchemaVersion: "1", DisplayName: "Lark CLI", IconURL: testConnectorIconURL,
+		AuthorizationKind: "none", Implementation: Implementation{Kind: ImplementationKindManagedStdio,
+			ManagedStdio: &ManagedStdioImplementation{
+				Runtime: RuntimeRequirement{Language: "node", Profile: "connector-node-static", ABI: "node20-linux-arm64", VersionRange: ">=20.0.0 <21.0.0"},
+				CLI:     &ManagedCLIInterface{Entrypoint: "bin/lark-cli", Command: "../../lark-cli", TimeoutMS: 30_000},
+			}},
+	}
+	if err := ValidateManifestShape(manifest); err == nil || !strings.Contains(err.Error(), "managed CLI command") {
+		t.Fatalf("ValidateManifestShape() error = %v", err)
+	}
+}
+
 func TestManagedCLIValidatesBoundedReadinessProbe(t *testing.T) {
 	manifest := Manifest{SchemaVersion: "1", DisplayName: "Probe", IconURL: testConnectorIconURL, AuthorizationKind: "none",
 		Implementation: Implementation{Kind: ImplementationKindManagedStdio, ManagedStdio: &ManagedStdioImplementation{

@@ -25,6 +25,7 @@ type managedCLILaunch struct {
 	executable    connectorruntime.ConnectorExecutable
 	language      string
 	stateDir      string
+	timeout       time.Duration
 }
 
 type credentialBrokerCLILaunch struct {
