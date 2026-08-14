@@ -208,6 +208,7 @@ SELECT EXISTS(
 		session.RuntimeContext,
 		input.ImportProjectPath,
 		input.RailPlacement,
+		input.RailPlacementAuthoritative,
 	)
 	if err != nil {
 		return false, false, 0, Session{}, err

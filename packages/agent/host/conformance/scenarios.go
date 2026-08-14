@@ -13,11 +13,15 @@ var (
 		Name: "failed canonical initialization aborts unpublished runtime",
 		run:  runFailedCanonicalInitializationAbortsUnpublishedRuntime,
 	}
-	createWithRailPlacementScenario = Scenario{Name: "create with explicit rail placement", run: runCreateWithRailPlacement}
-	resumePersistedSessionScenario  = Scenario{Name: "resume persisted session", run: runResumePersistedSession}
-	sendInputScenario               = Scenario{Name: "send input", run: runSendInput}
-	sendConnectorOnlyInputScenario  = Scenario{Name: "send connector-only input", run: runSendConnectorOnlyInput}
-	providerAcceptanceScenario      = Scenario{
+	createWithRailPlacementScenario              = Scenario{Name: "create with explicit rail placement", run: runCreateWithRailPlacement}
+	createWithAuthoritativeRailPlacementScenario = Scenario{
+		Name: "create with authoritative rail placement outside local project registry",
+		run:  runCreateWithAuthoritativeRailPlacement,
+	}
+	resumePersistedSessionScenario = Scenario{Name: "resume persisted session", run: runResumePersistedSession}
+	sendInputScenario              = Scenario{Name: "send input", run: runSendInput}
+	sendConnectorOnlyInputScenario = Scenario{Name: "send connector-only input", run: runSendConnectorOnlyInput}
+	providerAcceptanceScenario     = Scenario{
 		Name: "new turns require durable provider acceptance",
 		run:  runNewTurnsRequireDurableProviderAcceptance,
 	}
@@ -73,6 +77,7 @@ func Scenarios() []Scenario {
 		typedInitialGoalRailBarrierScenario,
 		failedCanonicalInitializationScenario,
 		createWithRailPlacementScenario,
+		createWithAuthoritativeRailPlacementScenario,
 		resumePersistedSessionScenario,
 		sendInputScenario,
 		sendConnectorOnlyInputScenario,
@@ -224,6 +229,7 @@ func ApplicationCoreScenarios() []Scenario {
 		typedInitialGoalRailBarrierScenario,
 		failedCanonicalInitializationScenario,
 		createWithRailPlacementScenario,
+		createWithAuthoritativeRailPlacementScenario,
 		resumePersistedSessionScenario,
 		sendInputScenario,
 		sendConnectorOnlyInputScenario,

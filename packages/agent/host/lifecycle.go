@@ -178,10 +178,7 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 	runtimeCreated := startResult.Created
 	h.observeStep(ctx, "session_create", "runtime_started", workspaceID, session.ID, session.Provider, startedAt, nil)
 	startedAt = h.now()
-	canonicalSession, err := h.store.InitializeRuntimeSession(ctx, RuntimeSessionInitialization{
-		Session:       session,
-		RailPlacement: input.RailPlacement,
-	})
+	canonicalSession, err := h.store.InitializeRuntimeSession(ctx, runtimeSessionInitializationForCreate(session, input))
 	if err != nil {
 		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, runtimeCreated, false))

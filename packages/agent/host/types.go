@@ -631,11 +631,12 @@ type RailPlacement struct {
 // runtime context whose canonical rail placement must be known before a
 // provider process starts.
 type ResolveRuntimeSessionRailPlacementInput struct {
-	WorkspaceID    string
-	AgentSessionID string
-	Cwd            string
-	RuntimeContext map[string]any
-	RailPlacement  *RailPlacement
+	WorkspaceID                string
+	AgentSessionID             string
+	Cwd                        string
+	RuntimeContext             map[string]any
+	RailPlacement              *RailPlacement
+	RailPlacementAuthoritative bool
 }
 
 // CreateSessionInput is the provider-neutral create contract. Adapter-only
@@ -676,6 +677,11 @@ type CreateSessionInput struct {
 	ConversationDetailMode string
 	Visible                *bool
 	RailPlacement          *RailPlacement
+	// RailPlacementAuthoritative declares that RailPlacement was selected by
+	// an external canonical authority and may name a project absent from this
+	// Host's local project registry. It applies only to first initialization
+	// and never permits replacing an existing canonical placement.
+	RailPlacementAuthoritative bool
 }
 
 type SendInput struct {

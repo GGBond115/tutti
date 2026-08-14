@@ -214,6 +214,26 @@ func TestSQLiteWorkspaceStoreResolvesRuntimeRailPlacementFromPreparedCWD(t *test
 	if !errors.Is(err, agenthost.ErrRailPlacementConflict) {
 		t.Fatalf("stale explicit project error = %v, want %v", err, agenthost.ErrRailPlacementConflict)
 	}
+
+	authoritative, err := store.ResolveRuntimeSessionRailPlacement(t.Context(), agenthost.ResolveRuntimeSessionRailPlacementInput{
+		WorkspaceID:                "workspace-1",
+		AgentSessionID:             "session-authoritative-project",
+		Cwd:                        "/workspace/caller-project",
+		RailPlacementAuthoritative: true,
+		RailPlacement: &agenthost.RailPlacement{
+			Version: 1, Kind: agenthost.RailPlacementKindProject,
+			ProjectPath: "/workspace/caller-project",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveRuntimeSessionRailPlacement(authoritative) error = %v", err)
+	}
+	wantAuthoritativeKey := storesqlite.RailSectionKeyForProject("/workspace/caller-project")
+	if authoritative.Kind != agenthost.RailPlacementKindProject ||
+		authoritative.ProjectPath != storesqlite.NormalizeProjectPath("/workspace/caller-project") ||
+		authoritative.SectionKey != wantAuthoritativeKey {
+		t.Fatalf("authoritative placement = %#v, want project %q", authoritative, wantAuthoritativeKey)
+	}
 }
 
 func TestSQLiteWorkspaceStoreProjectsForkTurnIdentitiesThroughProductionPort(t *testing.T) {

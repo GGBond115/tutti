@@ -2,6 +2,17 @@ package agenthost
 
 import "context"
 
+func runtimeSessionInitializationForCreate(
+	session ProviderRuntimeSession,
+	input CreateSessionInput,
+) RuntimeSessionInitialization {
+	return RuntimeSessionInitialization{
+		Session:                    session,
+		RailPlacement:              input.RailPlacement,
+		RailPlacementAuthoritative: input.RailPlacementAuthoritative,
+	}
+}
+
 func (h *Host) resolveCreateRuntimeRailEnvironment(
 	ctx context.Context,
 	workspaceID string,
@@ -12,11 +23,12 @@ func (h *Host) resolveCreateRuntimeRailEnvironment(
 		return nil, nil, ErrRuntimeRailPlacementUnavailable
 	}
 	placement, err := h.runtimeRailPlacement.ResolveRuntimeSessionRailPlacement(ctx, ResolveRuntimeSessionRailPlacementInput{
-		WorkspaceID:    workspaceID,
-		AgentSessionID: input.AgentSessionID,
-		Cwd:            prepared.Cwd,
-		RuntimeContext: cloneMap(input.RuntimeContext),
-		RailPlacement:  input.RailPlacement,
+		WorkspaceID:                workspaceID,
+		AgentSessionID:             input.AgentSessionID,
+		Cwd:                        prepared.Cwd,
+		RuntimeContext:             cloneMap(input.RuntimeContext),
+		RailPlacement:              input.RailPlacement,
+		RailPlacementAuthoritative: input.RailPlacementAuthoritative,
 	})
 	if err != nil {
 		return nil, nil, err

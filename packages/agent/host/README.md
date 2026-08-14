@@ -153,6 +153,13 @@ and persists its opaque `SectionKey` exactly on first creation. An idempotent
 retry that supplies a placement must use the same placement; project deletion
 or another adapter-side view change never reassigns an existing session to
 `conversations`.
+By default, a new explicit project placement must still exist in the Host's
+local project registry, which fences a stale local selection after project
+deletion. A trusted adapter may set
+`CreateSessionInput.RailPlacementAuthoritative` when an external canonical
+authority already fixed the placement. That opt-in accepts a project absent
+from the local registry, but it applies only to first initialization and never
+allows an existing session's immutable placement to change.
 Before provider startup, Host resolves the final placement from the immutable
 existing session, an explicit caller placement, or the prepared cwd through the
 canonical store. It then installs the prepared cwd in `TUTTI_AGENT_CWD` and the

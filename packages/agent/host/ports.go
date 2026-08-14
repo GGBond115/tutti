@@ -26,8 +26,9 @@ type RuntimeSessionRailPlacementResolver interface {
 }
 
 type RuntimeSessionInitialization struct {
-	Session       ProviderRuntimeSession
-	RailPlacement *RailPlacement
+	Session                    ProviderRuntimeSession
+	RailPlacement              *RailPlacement
+	RailPlacementAuthoritative bool
 }
 
 type CanonicalTurnStore interface {

@@ -363,27 +363,28 @@ func (s *SQLiteWorkspaceStore) InitializeRuntimeSession(ctx context.Context, inp
 	}
 	result, err := store.ReportActivityState(ctx, storesqlite.ActivityStateReport{
 		Session: storesqlite.SessionStateReport{
-			WorkspaceID:       workspaceID,
-			AgentSessionID:    sessionID,
-			Kind:              storesqlite.SessionKindRoot,
-			Origin:            canonicalRuntimeSessionOrigin,
-			UserID:            userID,
-			AgentTargetID:     strings.TrimSpace(session.AgentTargetID),
-			Provider:          strings.TrimSpace(session.Provider),
-			ProviderSessionID: strings.TrimSpace(session.ProviderSessionID),
-			Model:             composerSettingsModel(session.Settings),
-			Settings:          composerSettingsPayload(session.Settings),
-			Capabilities:      canonical.CloneCapabilitySnapshot(session.Capabilities),
-			RuntimeContext:    runtimeContext,
-			Cwd:               strings.TrimSpace(session.Cwd),
-			RailPlacement:     railPlacement,
-			Title:             strings.TrimSpace(session.Title),
-			Status:            runtimeLifecycleStatus(session.Status),
-			CurrentPhase:      runtimeLifecyclePhase(session.Status),
-			LastError:         strings.TrimSpace(session.LastError),
-			OccurredAtUnixMS:  occurredAt,
-			StartedAtUnixMS:   session.CreatedAtUnixMS,
-			CreatedAtUnixMS:   session.CreatedAtUnixMS,
+			WorkspaceID:                workspaceID,
+			AgentSessionID:             sessionID,
+			Kind:                       storesqlite.SessionKindRoot,
+			Origin:                     canonicalRuntimeSessionOrigin,
+			UserID:                     userID,
+			AgentTargetID:              strings.TrimSpace(session.AgentTargetID),
+			Provider:                   strings.TrimSpace(session.Provider),
+			ProviderSessionID:          strings.TrimSpace(session.ProviderSessionID),
+			Model:                      composerSettingsModel(session.Settings),
+			Settings:                   composerSettingsPayload(session.Settings),
+			Capabilities:               canonical.CloneCapabilitySnapshot(session.Capabilities),
+			RuntimeContext:             runtimeContext,
+			Cwd:                        strings.TrimSpace(session.Cwd),
+			RailPlacement:              railPlacement,
+			RailPlacementAuthoritative: input.RailPlacementAuthoritative,
+			Title:                      strings.TrimSpace(session.Title),
+			Status:                     runtimeLifecycleStatus(session.Status),
+			CurrentPhase:               runtimeLifecyclePhase(session.Status),
+			LastError:                  strings.TrimSpace(session.LastError),
+			OccurredAtUnixMS:           occurredAt,
+			StartedAtUnixMS:            session.CreatedAtUnixMS,
+			CreatedAtUnixMS:            session.CreatedAtUnixMS,
 		},
 	})
 	if err != nil {
@@ -437,11 +438,12 @@ func (s *SQLiteWorkspaceStore) ResolveRuntimeSessionRailPlacement(
 		}
 	}
 	section, err := store.ResolveAgentSessionRailSection(ctx, storesqlite.ResolveAgentSessionRailSectionInput{
-		WorkspaceID:       workspaceID,
-		AgentSessionID:    agentSessionID,
-		Cwd:               input.Cwd,
-		RuntimeContext:    cloneStringAnyMap(input.RuntimeContext),
-		ExplicitPlacement: explicit,
+		WorkspaceID:                    workspaceID,
+		AgentSessionID:                 agentSessionID,
+		Cwd:                            input.Cwd,
+		RuntimeContext:                 cloneStringAnyMap(input.RuntimeContext),
+		ExplicitPlacement:              explicit,
+		ExplicitPlacementAuthoritative: input.RailPlacementAuthoritative,
 	})
 	if err != nil {
 		if errors.Is(err, storesqlite.ErrRailSectionConflict) {

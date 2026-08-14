@@ -39,6 +39,9 @@ type ResolveAgentSessionRailSectionInput struct {
 	Cwd               string
 	RuntimeContext    map[string]any
 	ExplicitPlacement *RailSection
+	// ExplicitPlacementAuthoritative accepts a new project placement without
+	// requiring it to appear in this store's local project registry.
+	ExplicitPlacementAuthoritative bool
 }
 
 // ResolveAgentSessionRailSection resolves the same existing, explicit, import,
@@ -70,6 +73,7 @@ func (s *Store) ResolveAgentSessionRailSection(
 		input.RuntimeContext,
 		"",
 		input.ExplicitPlacement,
+		input.ExplicitPlacementAuthoritative,
 	)
 	if err != nil {
 		return RailSection{}, err
@@ -105,6 +109,7 @@ func (s *Store) resolveAgentSessionRailSectionTx(
 	runtimeContext map[string]any,
 	importProjectPath string,
 	explicitPlacement *RailSection,
+	explicitPlacementAuthoritative bool,
 ) (RailSection, error) {
 	existingRail, err := getExistingAgentSessionRailSectionTx(ctx, tx, workspaceID, agentSessionID)
 	if err != nil {
@@ -114,7 +119,7 @@ func (s *Store) resolveAgentSessionRailSectionTx(
 	if err != nil {
 		return RailSection{}, err
 	}
-	if !existingRail.Found && hasExplicitRail && explicitRail.Kind == RailSectionKindProject {
+	if !existingRail.Found && hasExplicitRail && explicitRail.Kind == RailSectionKindProject && !explicitPlacementAuthoritative {
 		projectPaths, err := s.listRailProjectPaths(ctx, tx)
 		if err != nil {
 			return RailSection{}, err
