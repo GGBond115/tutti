@@ -325,6 +325,12 @@ Submission acknowledgment and execution are separate presentation signals:
 This keeps feedback optimistic for responsiveness while keeping claims about
 Agent work grounded in the canonical Turn/runtime projection.
 
+The Composer also hands the exact draft used to build a submission to the
+AgentGUI controller. The controller snapshots that handoff for conditional
+post-submit clearing; it must clear only when the current draft still matches
+the submitted snapshot, so a queue admission or accepted send cannot erase a
+newer edit made while the request is in flight.
+
 ### 2.6 On-demand status
 
 AgentGUI owns one provider-neutral `AgentStatusController` for `/status`, Agent

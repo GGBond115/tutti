@@ -104,6 +104,7 @@ export function useAgentGUIControllerRefs(
         immediate?: boolean;
         requiredSettingsPatch?: AgentComposerSubmitOptions["requiredSettingsPatch"];
         sendNow?: boolean;
+        submittedDraft?: AgentComposerSubmitOptions["submittedDraft"];
         sourceScopeKey?: string;
         trackDraft?: boolean;
       }

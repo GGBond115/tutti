@@ -54,6 +54,8 @@ export interface AgentComposerReferenceProvenanceFilters {
 }
 
 export interface AgentComposerSubmitOptions {
+  /** Exact draft captured by the Composer for conditional post-submit clearing. */
+  submittedDraft?: AgentComposerDraft;
   isolation?: "worktree";
   requiredSettingsPatch?: AgentActivitySubmitSettingsPatch;
   capabilityRefs?: readonly AgentComposerCapabilityReference[];
