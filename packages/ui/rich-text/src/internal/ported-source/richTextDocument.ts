@@ -74,7 +74,7 @@ function renderLegacyNodeToMarkdown(
     const href = normalizeWorkspaceFileLinkHref(hrefValue, kind);
     const label =
       (typeof attrs.name === "string" ? attrs.name : undefined)?.trim() ||
-      href.split("/").filter(Boolean).at(-1) ||
+      workspacePathBasename(href) ||
       href;
     return href && label ? `[${label}](${href})` : label;
   }
@@ -103,10 +103,29 @@ function normalizeWorkspacePath(
   if (!trimmed) {
     return "";
   }
-  if (kind === "folder" && !trimmed.endsWith("/")) {
+  if (kind === "folder" && !/[\\/]$/.test(trimmed)) {
     return `${trimmed}/`;
   }
   return trimmed;
+}
+
+function isWorkspaceFolderHref(href: string): boolean {
+  const trimmed = href.trim();
+  const isWindowsAbsolutePath = /^[A-Za-z]:[\\/]/.test(trimmed);
+  const hasScheme = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed);
+  return /[\\/]$/.test(trimmed) && (!hasScheme || isWindowsAbsolutePath);
+}
+
+function workspacePathBasename(path: string): string {
+  return (
+    path
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "")
+      .split("/")
+      .filter(Boolean)
+      .at(-1) ?? ""
+  );
 }
 
 function isWorkspaceReferenceHref(href: string): boolean {
@@ -135,7 +154,7 @@ export function createWorkspaceFileLinkMarkdown(
   const href = normalizeWorkspaceFileLinkHref(input.path, kind);
   const displayName =
     input.name?.trim() ||
-    href.split("/").filter(Boolean).at(-1) ||
+    workspacePathBasename(href) ||
     href ||
     input.path.trim();
   if (!href || !displayName) {
@@ -181,7 +200,7 @@ export function extractWorkspaceFileLinksFromContent(
     if (!name || !isWorkspaceReferenceHref(href)) {
       continue;
     }
-    const kind = href.endsWith("/") ? "folder" : "file";
+    const kind = isWorkspaceFolderHref(href) ? "folder" : "file";
     const path = normalizeWorkspaceFileLinkHref(href, kind);
     if (!path || refs.has(path)) {
       continue;

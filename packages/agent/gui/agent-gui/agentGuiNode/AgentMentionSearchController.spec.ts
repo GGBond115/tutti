@@ -3069,7 +3069,9 @@ describe("AgentMentionSearchController", () => {
         .at(-1)
         ?.groups.find((group) => group.id === "agent_generated_files")
         ?.items.find(
-          (item) => item.mentionNavigation === "agent-generated-folder"
+          (item) =>
+            item.kind === "file" &&
+            item.mentionNavigation === "agent-generated-folder"
         );
       expect(folder).toEqual(
         expect.objectContaining({
@@ -3083,7 +3085,9 @@ describe("AgentMentionSearchController", () => {
       .at(-1)
       ?.groups.find((group) => group.id === "agent_generated_files")
       ?.items.find(
-        (item) => item.mentionNavigation === "agent-generated-folder"
+        (item) =>
+          item.kind === "file" &&
+          item.mentionNavigation === "agent-generated-folder"
       );
     expect(folder).toBeDefined();
     expect(controller.selectFileMentionNavigationItem(folder!)).toBe(true);

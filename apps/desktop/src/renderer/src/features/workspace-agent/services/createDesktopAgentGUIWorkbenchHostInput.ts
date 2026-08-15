@@ -238,7 +238,7 @@ export function createDesktopAgentGUIWorkbenchHostInput({
             return [
               {
                 displayName: insert.label,
-                kind: insert.href.endsWith("/") ? "folder" : "file",
+                kind: /[\\/]$/.test(insert.href) ? "folder" : "file",
                 path: insert.href
               }
             ];

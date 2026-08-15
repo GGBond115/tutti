@@ -43,11 +43,32 @@ export function createAgentComposerFileMentionMarkdown(input: {
 }
 
 export function dirnameFromPath(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  if (parts.length <= 1) {
-    return path.startsWith("/") ? "/" : "";
+  const normalized = path.trim().replace(/\\/g, "/");
+  const withoutTrailingSeparators = normalized.replace(/\/+$/, "");
+  if (!withoutTrailingSeparators) {
+    return normalized.startsWith("/") ? "/" : "";
   }
-  return `/${parts.slice(0, -1).join("/")}`;
+  if (
+    /^[A-Za-z]:$/.test(withoutTrailingSeparators) &&
+    /^[A-Za-z]:\/+/.test(normalized)
+  ) {
+    return `${withoutTrailingSeparators}/`;
+  }
+  const index = withoutTrailingSeparators.lastIndexOf("/");
+  if (index < 0) {
+    return "";
+  }
+  if (index === 0) {
+    return "/";
+  }
+  const directory = withoutTrailingSeparators.slice(0, index);
+  if (/^[A-Za-z]:$/.test(directory)) {
+    return `${directory}/`;
+  }
+  if (/^[A-Za-z]:\//.test(directory)) {
+    return directory;
+  }
+  return directory.startsWith("/") ? directory : `/${directory}`;
 }
 
 export function normalizeAgentSessionMentionTitle(value: string): string {
@@ -548,5 +569,7 @@ function normalizeAgentComposerFileMentionStatus(
 }
 
 function isLocalDirectoryMentionHref(href: string): boolean {
-  return href.endsWith("/") && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href);
+  const isWindowsAbsolutePath = /^[A-Za-z]:[\\/]/.test(href);
+  const hasScheme = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href);
+  return /[\\/]$/.test(href) && (!hasScheme || isWindowsAbsolutePath);
 }

@@ -68,7 +68,7 @@ export function createDesktopAgentGeneratedFileMentionProvider(input: {
     getItemLabel: (item) => item.displayName,
     getItemSubtitle: (item) => item.path,
     getItemIconUrl: (item) =>
-      item.path.endsWith("/")
+      /[\\/]$/.test(item.path)
         ? tuttiFolderAssetUrls.default
         : tuttiFileAssetUrls.default,
     toInsertResult(item) {

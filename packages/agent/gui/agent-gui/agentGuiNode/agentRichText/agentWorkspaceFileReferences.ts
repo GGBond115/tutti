@@ -4,10 +4,11 @@ import {
   mentionItemToAttrs,
   type AgentContextMentionItem
 } from "./agentFileMentionExtension";
+import { dirnameFromPath } from "./agentMentionMarkdown";
 import { AGENT_RICH_TEXT_CARET_ANCHOR } from "./agentRichTextCaretAnchor";
 
 function basename(path: string): string {
-  const normalized = path.trim().replace(/\/+$/, "");
+  const normalized = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
   if (!normalized) {
     return "";
   }
@@ -15,18 +16,9 @@ function basename(path: string): string {
   return segments.at(-1) ?? normalized;
 }
 
-function dirnameFromPath(path: string): string {
-  const normalized = path.trim().replace(/\/+$/, "");
-  const segments = normalized.split("/").filter(Boolean);
-  if (segments.length <= 1) {
-    return "/";
-  }
-  return `/${segments.slice(0, -1).join("/")}`;
-}
-
 function referenceMentionPath(item: WorkspaceFileReference): string {
   const path = item.path.trim();
-  if (item.kind === "folder" && path !== "/" && !path.endsWith("/")) {
+  if (item.kind === "folder" && path && path !== "/" && !/[\\/]$/.test(path)) {
     return `${path}/`;
   }
   return path;
@@ -74,7 +66,7 @@ export function createAgentFileMentionContent(
           path,
           name,
           entryKind: item.kind === "folder" ? "directory" : "file",
-          directoryPath: dirnameFromPath(path)
+          directoryPath: dirnameFromPath(path) || (path ? "/" : "")
         }
       },
       { type: "text", text: " " }
