@@ -1846,6 +1846,14 @@ capability-menu state. The primary footer capability slot is mutually
 exclusive: when `lab.connectors` is off it renders Tutti Mode, and when the
 flag is on it renders only the Connectors menu. The same footer serves both the
 home hero and existing-session dock, so the two AgentGUI contexts cannot drift.
+The menu implementation and its host-neutral connector item contract belong to
+`@tutti-os/connector-market/ui`. AgentGUI owns only the capability-option
+mapping, Composer placement, canonical option refresh request, and Tutti Mode
+fallback. Its existing `onCapabilitySettingsRequest` host port emits the exact
+connector key; the host delegates that intent to Connector Market's shared open
+use case and mounts one window-level Connector Market dialog host. AgentGUI
+does not load Connector Market state, construct its Root, or mount a dialog per
+Composer.
 
 ### 5.3 Agent Directory and setup
 

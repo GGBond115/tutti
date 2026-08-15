@@ -503,6 +503,22 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
   uses `@tutti-os/ui-system`, and owns no transport, startup, disposal, or
   business-state reconciliation
 
+Compact composer surfaces reuse `ConnectorComposerMenu` from the shared UI
+entrypoint. The menu consumes only a host-neutral projection of connector key,
+name, icon, and setup state; AgentGUI maps its provider-neutral capability
+options into that projection and retains only placement plus its Tutti Mode
+fallback. Selecting one item emits a semantic connector-open intent. The host
+executes `openConnectorMarketDialog(root, connectorKey)`, which waits for the
+authoritative market view, rejects invalid or unknown keys, and then advances
+the package-owned dialog state machine. Selecting “more” remains host
+navigation because settings/workbench location is product-owned.
+
+Every renderer window mounts exactly one `ConnectorMarketDialogHost` alongside
+its other window-level panel hosts. Composer entries and catalog cards never
+mount their own dialog host. This keeps dialog identity and mutual exclusion in
+one shared Root while allowing several AgentGUI surfaces in the same window to
+open it.
+
 Connector details are represented by one modal state machine, never by a fixed
 right-hand pane. An uninstalled connector opens an installation confirmation.
 An unconnected installed connector opens the authorization dialog; an

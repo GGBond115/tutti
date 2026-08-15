@@ -13,8 +13,8 @@ The package owns the TypeScript and renderer side of the shared boundary:
 - `core`: the renderer module lifecycle and stable Root boundary
 - `services`: a module-scoped Root, Runtime, lifecycle, StartupJobs, Valtio
   domain services, and host adapter contracts
-- `ui`: the reusable catalog, authorization dialog, and connected-state
-  management dialog built only from `@tutti-os/ui-system`
+- `ui`: the reusable catalog, authorization dialog, connected-state management
+  dialog, and compact composer entry built only from `@tutti-os/ui-system`
 - `renderer`: a compatibility alias for `ui`
 - `i18n`: the connector-market resource bundle and scoped runtime factory
 
@@ -112,6 +112,21 @@ the render-ready View store at leaf components and sends intent to UiState or
 Market services. React never constructs services, starts transports, loads
 data, or owns disposal. Disposing the module disposes the child container and
 all services in dependency-safe order.
+
+### Composer entry
+
+Hosts render `ConnectorComposerMenu` from `@tutti-os/connector-market/ui` with
+a host-neutral list of connector keys, display metadata, and setup status.
+AgentGUI is one adapter from its capability-option contract into that list; the
+shared component does not import AgentGUI or host settings code. Item selection
+must be routed through `openConnectorMarketDialog` from
+`@tutti-os/connector-market/services`, which loads the authoritative View before
+opening the package-owned installation, authorization, management, or blocked
+dialog. “More connectors” is a separate host navigation callback.
+
+Mount one `ConnectorMarketDialogHost` per renderer window/application
+container, not per composer entry or settings page. Multiple entries share the
+same Root and therefore the same modal state machine.
 
 ## OpenAPI composition
 
