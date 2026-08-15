@@ -256,6 +256,16 @@ concurrent catalog loads, reuses a warm app-server session, and publishes the
 existing catalog invalidation hint after a successful refresh so open composers
 can converge without owning provider or cache policy.
 
+Connector capability catalogs follow the same projection boundary. Each host
+reads its authoritative local Connector Market snapshot, then uses
+`packages/agent/daemon/composercatalog` to map manifest identity, icon,
+installation, compatibility, and authorization state into the closed Composer
+capability contract. Host transports only serialize that projection and route
+semantic open intents; they must not duplicate Connector readiness rules or
+derive Composer entries from renderer-local market state. Connector Market
+change events invalidate retained Composer options, while a menu open may still
+force an authoritative reread as a recovery path.
+
 Settings that affect provider preparation are immutable after launch. The
 daemon validates them against current product policy and resolved provider
 capability before runtime preparation; an active Session cannot reinterpret
