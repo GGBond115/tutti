@@ -499,6 +499,16 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
   account authentication, activates the module without network access while
   signed out, reloads after login, and keeps reconnect/resume paths silent
   after logout
+- install intent that arrives while Tutti is signed out invokes the host-owned
+  account login flow through `requestInstallAdmission`; the service rechecks
+  admission and returns `not_admitted` without calling the backend or showing
+  installation success when login is still pending
+- Tutti enables renderer-owned automatic updates for installed, compatible
+  Connectors. After an authoritative snapshot, catalog page, or connector event
+  publishes a different active release digest, Market starts the existing
+  install/update command in the background. It never opens login from a
+  background update and attempts one release digest only once per renderer
+  lifetime, leaving explicit update available after failure
 - the shared renderer subscribes at leaf components through a stable context,
   uses `@tutti-os/ui-system`, and owns no transport, startup, disposal, or
   business-state reconciliation

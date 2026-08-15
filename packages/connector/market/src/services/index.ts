@@ -8,6 +8,7 @@ export {
 } from "./openConnectorMarketDialog.ts";
 export {
   IConnectorMarketService,
+  type ConnectorInstallOutcome,
   type ConnectorMarketLoadState,
   type ConnectorMarketServiceDependencies,
   type ConnectorMarketStoreState

@@ -50,8 +50,10 @@ import {
 const connectorMarketModule = new ConnectorMarketModule({
   market: {
     backend: hostConnectorMarketBackend,
+    autoUpdateInstalledConnectors: true,
     canRequest: () => hostAccountState.authenticated,
-    events: hostConnectorMarketEvents
+    events: hostConnectorMarketEvents,
+    requestInstallAdmission: () => hostAccountLogin.open()
   },
   scope: {}
 });
@@ -75,6 +77,17 @@ Hosts whose market requires authentication must provide `canRequest`. A false
 result keeps startup, reconnect, resume, and command paths transport-silent
 while still allowing the module lifecycle to reach `ready`; after the host
 observes an authenticated transition it calls `root.market.reload()`.
+When an install intent arrives while requests are not admitted, the Market
+service invokes the optional `requestInstallAdmission` host hook and rechecks
+admission. A host may use this hook to open its account login flow. The install
+returns `not_admitted` without calling the backend when authentication remains
+unavailable, so UI callers do not report a false installation success.
+Hosts may enable `autoUpdateInstalledConnectors` to install a newly observed
+compatible release in the background. Tutti enables this policy by default.
+Automatic updates never invoke `requestInstallAdmission`, and one running
+renderer attempts each release digest at most once; failed updates remain
+available for explicit retry and may be retried after restart or after a newer
+release appears.
 Starting an event subscription and every observed `connected` state trigger an
 authoritative reconciliation, including the first connection. Snapshot reads
 are coalesced per service generation and a connection/event arriving during

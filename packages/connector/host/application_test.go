@@ -659,6 +659,31 @@ func TestApplicationStartupReconcileAdvancesPastFence(t *testing.T) {
 	}
 }
 
+func TestApplicationStartupFenceFallsBackToConnectorIdentityWhenReleaseEvidenceIsMissing(t *testing.T) {
+	connector := testConnector("lark-cli")
+	installedRelease := connector.Release
+	connector.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: installedRelease.Version,
+		InstalledReleaseID: installedRelease.ReleaseID, InstalledReleaseDigest: installedRelease.ReleaseDigest,
+	}
+	connector.Release.Version = "2.0.0"
+	connector.Release.ReleaseID = connector.Key + "@2.0.0"
+	connector.Release.ReleaseDigest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	connector.Release.ManifestDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	repository := newMemoryRepository(connector)
+	host := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+
+	if err := application.FenceInstalledRuntimes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if host.deactivations != 1 || !host.lastDeactivation.AllConnections ||
+		host.lastDeactivation.ConnectorKey != connector.Key ||
+		host.lastDeactivation.ReleaseDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("fallback deactivation = %#v", host.lastDeactivation)
+	}
+}
+
 func TestApplicationCrossDeviceRemoteReconcileUsesAccountProjectionAuthorization(t *testing.T) {
 	connector := testConnector("tencent-docs")
 	connector.Release.Manifest.AuthorizationKind = "api_key"
