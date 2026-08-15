@@ -193,7 +193,7 @@ function isWindowsLikePath(path: string): boolean {
     !path.startsWith("/") ||
     /^[A-Za-z]:[\\/]/.test(path) ||
     /^\/[A-Za-z]:[\\/]/.test(path) ||
-    /^\\\\/.test(path)
+    path.startsWith("\\\\")
   );
 }
 
