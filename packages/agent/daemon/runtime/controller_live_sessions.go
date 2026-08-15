@@ -278,7 +278,7 @@ func (c *Controller) disconnectRuntimeSessionLocked(
 		)
 	}
 	wasLive := probe.HasLiveSession(session)
-	if wasLive {
+	if wasLive && !preserveActiveTurnOnWorkspaceDisconnect(session) {
 		c.cancelActiveTurn(roomID, agentSessionID)
 	}
 	// Always invoke the idempotent adapter cleanup, even when its liveness probe
@@ -289,6 +289,14 @@ func (c *Controller) disconnectRuntimeSessionLocked(
 	}
 	c.invalidateAppliedGoalGenerationFences(session)
 	return DisconnectRuntimeSessionResult{Disconnected: wasLive}, nil
+}
+
+// Personal Agent sessions execute in the cloud sandbox. Losing the local
+// workspace attachment must release only the desktop-side transport; the
+// cloud-owned turn remains authoritative and may continue until it settles or
+// the user explicitly cancels it.
+func preserveActiveTurnOnWorkspaceDisconnect(session Session) bool {
+	return strings.HasPrefix(strings.TrimSpace(session.AgentTargetID), "personal-agent:")
 }
 
 func (c *Controller) cleanupDetachedLiveSessionResources(ctx context.Context, failedProviders map[string]bool) LiveSessionResourceCleanupResult {

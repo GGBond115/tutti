@@ -625,6 +625,43 @@ func TestControllerDisconnectRuntimeSessionSettlesActiveTurnAndIsWorkspaceScoped
 	}
 }
 
+func TestControllerDisconnectRuntimeSessionPreservesPersonalAgentTurn(t *testing.T) {
+	t.Parallel()
+
+	adapter := newReleasableAdapter()
+	controller := NewController([]Adapter{adapter}, nil)
+	started, err := controller.Start(context.Background(), StartInput{
+		RoomID: "room-1", AgentSessionID: "personal-cloud-session",
+		AgentTargetID: "personal-agent:codex", Provider: ProviderCodex, CWD: "/workspace",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := controller.Exec(context.Background(), ExecInput{
+		RoomID: started.Session.RoomID, AgentSessionID: started.Session.AgentSessionID,
+		Content: textPrompt("cloud turn survives detach"),
+	}); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	adapter.waitForExec(t, "cloud turn survives detach")
+
+	result, err := controller.DisconnectRuntimeSession(
+		context.Background(), started.Session.RoomID, started.Session.AgentSessionID,
+	)
+	if err != nil || !result.Disconnected {
+		t.Fatalf("DisconnectRuntimeSession result=%#v err=%v", result, err)
+	}
+	if session, ok := controller.Session(started.Session.RoomID, started.Session.AgentSessionID); !ok || session.Status == SessionStatusCanceled {
+		t.Fatalf("session after personal detach=%#v found=%v, want active turn preserved", session, ok)
+	}
+	if adapter.closeCallCount(started.Session.AgentSessionID) != 0 {
+		t.Fatal("personal detach invoked destructive provider Close")
+	}
+
+	adapter.releaseNext()
+	waitForSessionStatus(t, controller, started.Session.RoomID, started.Session.AgentSessionID, SessionStatusReady)
+}
+
 func TestControllerRuntimeSessionsIncludesCanonicalPublicationPendingSession(t *testing.T) {
 	t.Parallel()
 
