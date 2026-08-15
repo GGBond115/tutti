@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -241,6 +242,25 @@ userMessagePublished:
 	}
 	if !hasSessionStartedPatch {
 		t.Fatalf("report calls = %#v, want session started state patch", reportCalls)
+	}
+	var userMessageIDs []string
+	for _, call := range reportCalls {
+		for _, update := range call.report.MessageUpdates {
+			if update.Role == string(activityshared.MessageRoleUser) && update.TurnID == execResult.TurnID {
+				userMessageIDs = append(userMessageIDs, update.MessageID)
+			}
+		}
+	}
+	if len(userMessageIDs) == 0 {
+		t.Fatalf("report calls = %#v, want user message update for turn", reportCalls)
+	}
+	if userMessageIDs[0] == "" || !strings.HasPrefix(userMessageIDs[0], turnUserMessageIDPrefix) {
+		t.Fatalf("user message IDs = %#v, want a generated turn-user message ID", userMessageIDs)
+	}
+	for _, messageID := range userMessageIDs[1:] {
+		if messageID != userMessageIDs[0] {
+			t.Fatalf("user message IDs = %#v, want every update keyed by %q", userMessageIDs, userMessageIDs[0])
+		}
 	}
 	turnReport, ok := reportWithTimelineItem(reportInputs(reportCalls), "message.user")
 	if !ok || !hasTimelineItem(turnReport, "message.user", "completed", "hello") {

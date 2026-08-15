@@ -139,6 +139,10 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		runCtx = context.WithValue(runCtx, execMetadataContextKey{}, metadata)
 	}
 	runCtx = withCanonicalSubmitFact(runCtx, canonicalSubmit)
+	runCtx = withCanonicalPromptContent(runCtx, content)
+	if canonicalSubmit.clientSubmitID == "" {
+		runCtx = withPromptActivityMessageID(runCtx, newTurnUserPromptActivityMessageID())
+	}
 	tuttiModeSnapshot := normalizeTuttiModeTurnSnapshot(input.TuttiModeSnapshot)
 	runCtx = withTuttiModeTurnSnapshot(runCtx, tuttiModeSnapshot)
 	var dispatchObserver *providerDispatchObserver
@@ -157,7 +161,14 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	c.mu.Lock()
 	provisional := c.provisionalSessions[key]
 	c.mu.Unlock()
-	submitEvents := submittedTurnActivityEvents(session, turnID, input.CapabilityRefs)
+	submitEvents := submittedTurnActivityEvents(
+		runCtx,
+		session,
+		content,
+		displayPrompt,
+		turnID,
+		input.CapabilityRefs,
+	)
 	if titleUpdated {
 		submitEvents = append([]activityshared.Event{newSessionTitleActivityEvent(session, session.Title)}, submitEvents...)
 	}
