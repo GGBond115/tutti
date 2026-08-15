@@ -189,9 +189,10 @@ test("validated settings success refreshes provider-declared target options", ()
   assert.deepEqual(refreshed.commands, [
     {
       commandId: "composer-options:after-settings:settings-1",
-      correlationId: "target-1",
+      correlationId: "target-1::core",
       cwd: "/workspace",
       provider: "codex",
+      section: "core",
       settings: {
         model: "model-2",
         permissionModeId: "acceptEdits",

@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -45,6 +46,10 @@ type AgentModelCatalogResult struct {
 type AgentModelCatalogInput struct {
 	Provider string
 	Cwd      string
+	// WaitForFresh makes a stale cached result synchronous. Normal composer
+	// loads leave this false so the stale result can render immediately while a
+	// refresh runs in the background; the explicit model picker request sets it.
+	WaitForFresh bool
 }
 
 type AgentModelCatalog interface {
@@ -186,15 +191,23 @@ type CachedAgentModelCatalog struct {
 	ModelCapabilities ModelCapabilitiesResolver
 	ProviderCommands  ProviderCommandResolver
 	Now               func() time.Time
+	// PersistentPath is configured by the daemon composition root. Keeping the
+	// path injectable leaves unit tests in-memory and avoids coupling them to a
+	// developer's real provider cache.
+	PersistentPath string
+	// AuthFingerprint is injectable for tests; production uses the watched
+	// provider auth/config files.
+	AuthFingerprint func(provider string) string
 	// OnRefresh is called after a stale catalog has been refreshed successfully.
 	// It is an invalidation hint; the next consumer read remains authoritative.
 	OnRefresh func(provider string)
 
-	mu            sync.Mutex
-	cache         map[string]*agentModelCatalogCacheEntry
-	generation    map[string]uint64
-	codexSessions map[string]*codexAppServerSession
-	loads         singleflight.Group
+	mu             sync.Mutex
+	cache          map[string]*agentModelCatalogCacheEntry
+	generation     map[string]uint64
+	codexSessions  map[string]*codexAppServerSession
+	loads          singleflight.Group
+	persistentOnce sync.Once
 }
 
 type agentModelCatalogCacheEntry struct {
@@ -204,6 +217,20 @@ type agentModelCatalogCacheEntry struct {
 	refreshRetryAtMS int64
 	stale            bool
 	generation       uint64
+	authFingerprint  string
+}
+
+type persistedAgentModelCatalog struct {
+	Version int                                        `json:"version"`
+	Entries map[string]persistedAgentModelCatalogEntry `json:"entries"`
+}
+
+type persistedAgentModelCatalogEntry struct {
+	Provider        string             `json:"provider"`
+	Source          string             `json:"source"`
+	FetchedAt       time.Time          `json:"fetchedAt"`
+	Models          []AgentModelOption `json:"models"`
+	AuthFingerprint string             `json:"authFingerprint,omitempty"`
 }
 
 type agentModelCatalogFetchOutcome struct {
@@ -217,10 +244,97 @@ func NewAgentModelCatalog() *CachedAgentModelCatalog {
 	return &CachedAgentModelCatalog{}
 }
 
+func (c *CachedAgentModelCatalog) ensurePersistentCacheLoaded() {
+	if c == nil || strings.TrimSpace(c.PersistentPath) == "" {
+		return
+	}
+	c.persistentOnce.Do(func() {
+		path := strings.TrimSpace(c.PersistentPath)
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			return
+		}
+		if err != nil {
+			slog.Warn("agent model catalog persistent cache read failed",
+				"event", "agent.model_catalog.persistent_load_failed",
+				"path", path,
+				"error", err,
+			)
+			return
+		}
+		var persisted persistedAgentModelCatalog
+		if err := json.Unmarshal(data, &persisted); err != nil || persisted.Version != 1 {
+			if err == nil {
+				err = fmt.Errorf("unsupported cache version %d", persisted.Version)
+			}
+			slog.Warn("agent model catalog persistent cache ignored",
+				"event", "agent.model_catalog.persistent_load_ignored",
+				"path", path,
+				"error", err,
+			)
+			return
+		}
+		now := c.now()
+		loaded := 0
+		c.mu.Lock()
+		if c.cache == nil {
+			c.cache = make(map[string]*agentModelCatalogCacheEntry)
+		}
+		if c.generation == nil {
+			c.generation = make(map[string]uint64)
+		}
+		for provider, entry := range persisted.Entries {
+			provider = agentprovider.Normalize(provider)
+			if provider == "" || len(entry.Models) == 0 {
+				continue
+			}
+			if strings.TrimSpace(entry.Provider) == "" {
+				entry.Provider = provider
+			}
+			c.cache[provider] = &agentModelCatalogCacheEntry{
+				result: AgentModelCatalogResult{
+					Provider:  entry.Provider,
+					Source:    entry.Source,
+					FetchedAt: entry.FetchedAt,
+					Models:    cloneAgentModelOptions(entry.Models),
+					Stale:     true,
+				},
+				expiresAtMS:     now.UnixMilli(),
+				stale:           true,
+				authFingerprint: entry.AuthFingerprint,
+			}
+			loaded++
+		}
+		c.mu.Unlock()
+		if loaded > 0 {
+			slog.Info("agent model catalog persistent cache loaded",
+				"event", "agent.model_catalog.persistent_loaded",
+				"path", path,
+				"providerCount", loaded,
+			)
+		}
+	})
+}
+
+func (c *CachedAgentModelCatalog) authFingerprint(provider string) string {
+	if c.AuthFingerprint != nil {
+		return strings.TrimSpace(c.AuthFingerprint(provider))
+	}
+	return providerAuthFingerprint(provider)
+}
+
+func (c *CachedAgentModelCatalog) cacheAuthMatches(provider, cachedFingerprint string) bool {
+	if strings.TrimSpace(cachedFingerprint) == "" {
+		return true
+	}
+	return cachedFingerprint == c.authFingerprint(provider)
+}
+
 func (c *CachedAgentModelCatalog) ListModels(ctx context.Context, input AgentModelCatalogInput) (AgentModelCatalogResult, error) {
 	provider := agentprovider.Normalize(input.Provider)
 	input.Provider = provider
 	input.Cwd = strings.TrimSpace(input.Cwd)
+	c.ensurePersistentCacheLoaded()
 	spec, ok := agentModelCatalogSpecs[provider]
 	if !ok {
 		return AgentModelCatalogResult{}, ErrInvalidArgument
@@ -228,7 +342,19 @@ func (c *CachedAgentModelCatalog) ListModels(ctx context.Context, input AgentMod
 	now := c.now()
 	if specCachesModelCatalog(spec) {
 		if cached := c.readCache(provider, now); cached != nil {
+			if !c.cacheAuthMatches(provider, cached.authFingerprint) {
+				slog.Info("agent model catalog cache rejected for auth generation",
+					"event", "agent.model_catalog.cache_rejected",
+					"provider", provider,
+					"reason", "auth_fingerprint_mismatch",
+				)
+				c.Invalidate(provider)
+				return c.loadModels(ctx, input, spec, false, c.currentGeneration(provider))
+			}
 			if cached.err == nil && cached.stale {
+				if input.WaitForFresh {
+					return c.loadModels(ctx, input, spec, false, cached.generation)
+				}
 				if now.UnixMilli() >= cached.refreshRetryAtMS {
 					c.startBackgroundRefresh(input, spec, cached.generation)
 				}
@@ -338,11 +464,45 @@ func (c *CachedAgentModelCatalog) fetchModels(
 		"provider", provider,
 		"durationMs", time.Since(startedAt).Milliseconds(),
 		"modelCount", len(models),
+		"modelNames", diagnosticModelNames(models),
 		"stale_refresh", staleRefresh,
 		"accepted", accepted,
 		"error", err,
 	)
 	return agentModelCatalogFetchOutcome{result: result, err: err, staleRefresh: staleRefresh, accepted: accepted}
+}
+
+func diagnosticModelNames(models []AgentModelOption) []string {
+	const (
+		maxNames       = 32
+		maxNameLength  = 120
+		maxTotalLength = 1024
+	)
+	names := make([]string, 0, min(len(models), maxNames))
+	seen := make(map[string]struct{}, maxNames)
+	totalLength := 0
+	for _, model := range models {
+		name := strings.TrimSpace(model.ID)
+		if name == "" {
+			continue
+		}
+		name = strings.Map(func(r rune) rune {
+			if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+				return -1
+			}
+			return r
+		}, name)
+		if len(name) > maxNameLength {
+			name = name[:maxNameLength]
+		}
+		if _, ok := seen[name]; ok || name == "" || len(names) >= maxNames || totalLength+len(name) > maxTotalLength {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+		totalLength += len(name)
+	}
+	return names
 }
 
 func specCachesModelCatalog(spec agentModelCatalogSpec) bool {
@@ -484,6 +644,7 @@ func (c *CachedAgentModelCatalog) readCache(provider string, now time.Time) *age
 		refreshRetryAtMS: entry.refreshRetryAtMS,
 		stale:            entry.stale,
 		generation:       entry.generation,
+		authFingerprint:  entry.authFingerprint,
 	}
 }
 
@@ -507,10 +668,11 @@ func (c *CachedAgentModelCatalog) writeCache(
 	if ttl <= 0 {
 		return true
 	}
+	authFingerprint := c.authFingerprint(provider)
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	currentGeneration := c.generation[provider]
 	if currentGeneration != expectedGeneration {
+		c.mu.Unlock()
 		return false
 	}
 	if c.cache == nil {
@@ -523,15 +685,110 @@ func (c *CachedAgentModelCatalog) writeCache(
 		if entry := c.cache[provider]; entry != nil && entry.generation == expectedGeneration {
 			entry.refreshRetryAtMS = now.Add(ttl).UnixMilli()
 		}
+		c.mu.Unlock()
 		return false
 	}
 	c.cache[provider] = &agentModelCatalogCacheEntry{
-		result:      cloneAgentModelCatalogResult(result),
-		err:         err,
-		expiresAtMS: now.Add(ttl).UnixMilli(),
-		generation:  expectedGeneration,
+		result:          cloneAgentModelCatalogResult(result),
+		err:             err,
+		expiresAtMS:     now.Add(ttl).UnixMilli(),
+		generation:      expectedGeneration,
+		authFingerprint: authFingerprint,
+	}
+	c.mu.Unlock()
+	if err == nil && !isFallback && len(result.Models) > 0 {
+		c.persistCache()
 	}
 	return true
+}
+
+func (c *CachedAgentModelCatalog) persistCache() {
+	path := strings.TrimSpace(c.PersistentPath)
+	if path == "" {
+		return
+	}
+	persisted := persistedAgentModelCatalog{Version: 1, Entries: make(map[string]persistedAgentModelCatalogEntry)}
+	c.mu.Lock()
+	for provider, entry := range c.cache {
+		if entry == nil || entry.err != nil || len(entry.result.Models) == 0 {
+			continue
+		}
+		persisted.Entries[provider] = persistedAgentModelCatalogEntry{
+			Provider:        entry.result.Provider,
+			Source:          entry.result.Source,
+			FetchedAt:       entry.result.FetchedAt,
+			Models:          cloneAgentModelOptions(entry.result.Models),
+			AuthFingerprint: entry.authFingerprint,
+		}
+	}
+	c.mu.Unlock()
+	if len(persisted.Entries) == 0 {
+		return
+	}
+	data, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		slog.Warn("agent model catalog persistent cache encode failed",
+			"event", "agent.model_catalog.persistent_write_failed",
+			"path", path,
+			"error", err,
+		)
+		return
+	}
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		slog.Warn("agent model catalog persistent cache directory failed",
+			"event", "agent.model_catalog.persistent_write_failed",
+			"path", path,
+			"error", err,
+		)
+		return
+	}
+	temporary, err := os.CreateTemp(directory, ".model-catalog-*.tmp")
+	if err != nil {
+		slog.Warn("agent model catalog persistent cache temp file failed",
+			"event", "agent.model_catalog.persistent_write_failed",
+			"path", path,
+			"error", err,
+		)
+		return
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	writeOK := false
+	if chmodErr := temporary.Chmod(0o600); chmodErr != nil {
+		err = chmodErr
+	} else if _, writeErr := temporary.Write(data); writeErr != nil {
+		err = writeErr
+	} else if syncErr := temporary.Sync(); syncErr != nil {
+		err = syncErr
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(temporaryPath, path)
+		if err != nil {
+			// Windows does not replace an existing destination with Rename. The
+			// file is only a recoverable cache, so remove that old copy and retry.
+			if removeErr := os.Remove(path); removeErr == nil || os.IsNotExist(removeErr) {
+				err = os.Rename(temporaryPath, path)
+			}
+		}
+		writeOK = err == nil
+	}
+	if !writeOK {
+		slog.Warn("agent model catalog persistent cache write failed",
+			"event", "agent.model_catalog.persistent_write_failed",
+			"path", path,
+			"error", err,
+		)
+		return
+	}
+	slog.Info("agent model catalog persistent cache written",
+		"event", "agent.model_catalog.persistent_written",
+		"path", path,
+		"providerCount", len(persisted.Entries),
+	)
 }
 
 func (c *CachedAgentModelCatalog) currentGeneration(provider string) uint64 {

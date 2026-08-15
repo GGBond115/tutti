@@ -2477,8 +2477,10 @@ before calling either the runtime `getComposerOptions` or exposed Engine
 with exact duration. An unmatched start therefore remains observable when a
 Provider options request never settles. The facts distinguish runtime from
 session-Engine entry, force refresh, directory presence, bounded error
-category, and model count without carrying paths, settings, model names, or
-error messages.
+category, section/stage, and model count. Settled Composer events may include
+a bounded, deduplicated, control-character-cleaned allowlist of model
+identifiers; paths, settings, prompts, credentials, and error messages remain
+excluded.
 Hosts map those facts to their own analytics catalogs; they must not copy the
 Turn-binding, early-event buffering, duration-bucket, or token-classification
 logic.

@@ -71,7 +71,13 @@ export function useAgentGUIControllerRefs(
   const onShowMessageRef = useRef(input.onShowMessage);
   const handledPrefillPromptSequenceRef = useRef<number | null>(null);
   const handledComposerAppendSequenceRef = useRef<number | null>(null);
-  const loadDraftComposerOptionsRef = useRef<() => void>(() => {});
+  const loadDraftComposerOptionsRef = useRef<
+    (options?: {
+      force?: boolean;
+      section?: "core" | "capabilities";
+      waitForFreshModelCatalog?: boolean;
+    }) => void
+  >(() => {});
   const onComposerDefaultsAuthorityReloadedRef =
     useRef<AgentGUIComposerDefaultsAuthorityReconciler>({
       prepareRead: (_target, settings) => ({

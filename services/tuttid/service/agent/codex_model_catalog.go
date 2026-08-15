@@ -96,11 +96,27 @@ func (l CodexCLIModelLister) listModelsOnce(ctx context.Context) (AgentModelList
 		return AgentModelListResult{}, err
 	}
 	requestStartedAt := time.Now()
-	models, err := requestCodexModelList(process.stdin, process.stdout, l.clientName())
+	models, err := requestCodexModelListWithStages(
+		process.stdin,
+		process.stdout,
+		l.clientName(),
+		func(stage string, stageStartedAt time.Time, stageErr error) {
+			slog.Info("agent model catalog request stage settled",
+				"event", "agent.model_catalog.stage_settled",
+				"provider", l.Provider,
+				"operation", "model_list",
+				"stage", stage,
+				"durationMs", time.Since(stageStartedAt).Milliseconds(),
+				"persistent", false,
+				"error", stageErr,
+			)
+		},
+	)
 	slog.Info("agent model catalog request stage settled",
 		"event", "agent.model_catalog.stage_settled",
 		"provider", l.Provider,
-		"stage", "initialize_and_model_list",
+		"operation", "model_list",
+		"stage", "request_total",
 		"durationMs", time.Since(requestStartedAt).Milliseconds(),
 		"persistent", false,
 		"error", err,
@@ -170,6 +186,41 @@ func requestCodexModelList(stdin io.Writer, stdout io.Reader, clientName string)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), codexModelListMaxLineBytes)
 	return requestCodexModelListWithScanner(stdin, scanner, clientName, "1", "2")
+}
+
+func requestCodexModelListWithStages(
+	stdin io.Writer,
+	stdout io.Reader,
+	clientName string,
+	stageSettled func(stage string, startedAt time.Time, err error),
+) ([]AgentModelOption, error) {
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), codexModelListMaxLineBytes)
+	encoder := json.NewEncoder(stdin)
+
+	initializeStartedAt := time.Now()
+	if err := writeCodexInitializeRequest(encoder, "1", clientName); err != nil {
+		stageSettled("initialize", initializeStartedAt, err)
+		return nil, err
+	}
+	if err := readCodexInitializeResponseForID(scanner, "1"); err != nil {
+		stageSettled("initialize", initializeStartedAt, err)
+		return nil, err
+	}
+	stageSettled("initialize", initializeStartedAt, nil)
+
+	modelListStartedAt := time.Now()
+	if err := writeCodexInitializedNotification(encoder); err != nil {
+		stageSettled("model_list", modelListStartedAt, err)
+		return nil, err
+	}
+	if err := writeCodexModelListRequest(encoder, "2"); err != nil {
+		stageSettled("model_list", modelListStartedAt, err)
+		return nil, err
+	}
+	models, err := readCodexModelListResponseForID(scanner, "2")
+	stageSettled("model_list", modelListStartedAt, err)
+	return models, err
 }
 
 func requestCodexModelListWithScanner(

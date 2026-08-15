@@ -33,7 +33,7 @@ func startAgentModelInvalidationAuthWatcher(
 	// catalogs become stale, provider sessions are closed, and the GUI hears
 	// about it immediately.
 	publisher := eventstreamservice.AgentModelCatalogPublisher{Service: events}
-	publish := func(providers []string, event string) {
+	publish := func(providers []string, event string, changes []agentservice.ProviderAuthChange) {
 		if len(providers) == 0 {
 			return
 		}
@@ -43,29 +43,65 @@ func startAgentModelInvalidationAuthWatcher(
 				"providers", providers,
 				"error", err,
 			)
-			return
 		}
 		slog.Info("agent model catalog invalidation published",
 			"event", event,
 			"providers", providers,
+			"changed_files", providerAuthChangeDiagnostics(changes),
 		)
 	}
-	watcher := startProviderAuthWatcher(replayComposition, func(providers []string) {
-		modelCatalog.Invalidate(providers...)
-		for _, provider := range providers {
-			sessions.InvalidateLiveComposerModels(provider)
-		}
-		publish(providers, "agent.model_catalog.invalidated")
-	})
+	watcher := startProviderAuthWatcher(
+		replayComposition,
+		nil,
+		func(changes []agentservice.ProviderAuthChange) {
+			providers := providerAuthChangeProviders(changes)
+			modelCatalog.Invalidate(providers...)
+			for _, provider := range providers {
+				sessions.InvalidateLiveComposerModels(provider)
+			}
+			publish(providers, "agent.model_catalog.invalidated", changes)
+		},
+	)
 	if watcher != nil {
 		modelCatalog.OnRefresh = func(provider string) {
-			publish([]string{provider}, "agent.model_catalog.refreshed")
+			publish([]string{provider}, "agent.model_catalog.refreshed", nil)
 		}
 		watcher.OnClose = func() {
 			_ = modelCatalog.Close()
 		}
 	}
 	return watcher
+}
+
+func providerAuthChangeProviders(changes []agentservice.ProviderAuthChange) []string {
+	providers := make([]string, 0, len(changes))
+	seen := make(map[string]struct{}, len(changes))
+	for _, change := range changes {
+		if change.Provider == "" {
+			continue
+		}
+		if _, ok := seen[change.Provider]; ok {
+			continue
+		}
+		seen[change.Provider] = struct{}{}
+		providers = append(providers, change.Provider)
+	}
+	return providers
+}
+
+func providerAuthChangeDiagnostics(changes []agentservice.ProviderAuthChange) []map[string]string {
+	if len(changes) == 0 {
+		return nil
+	}
+	result := make([]map[string]string, 0, len(changes))
+	for _, change := range changes {
+		result = append(result, map[string]string{
+			"provider": change.Provider,
+			"path":     change.Path,
+			"kind":     change.Kind,
+		})
+	}
+	return result
 }
 
 func agentWorkspaceIDs(

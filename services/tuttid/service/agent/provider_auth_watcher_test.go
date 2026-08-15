@@ -54,6 +54,35 @@ func TestChangedProvidersTreatsCreateAndDeleteAsChanges(t *testing.T) {
 	}
 }
 
+func TestChangedProviderAuthFilesReportsExactPathAndKind(t *testing.T) {
+	path := "/tmp/codex/config.toml"
+	secondPath := "/tmp/codex/auth.json"
+	entries := []ProviderAuthWatchEntry{{
+		Provider: agentprovider.Codex,
+		Paths:    []string{secondPath, path},
+	}}
+	previous := map[string]providerAuthFileFingerprint{
+		path:       {exists: true, size: 10},
+		secondPath: {exists: true, size: 10},
+	}
+	next := map[string]providerAuthFileFingerprint{
+		path:       {exists: true, size: 20},
+		secondPath: {exists: true, size: 20},
+	}
+	changes := changedProviderAuthFiles(entries, previous, next)
+	if len(changes) != 2 {
+		t.Fatalf("changes = %#v, want both changed files", changes)
+	}
+	for _, change := range changes {
+		if change.Provider != agentprovider.Codex || change.Kind != "metadata_changed" {
+			t.Fatalf("change = %#v, want codex metadata_changed", change)
+		}
+	}
+	if changes[0].Path != secondPath || changes[1].Path != path {
+		t.Fatalf("changes = %#v, want sorted auth then config paths", changes)
+	}
+}
+
 func TestProviderAuthWatcherReportsFileRewrites(t *testing.T) {
 	dir := t.TempDir()
 	authPath := filepath.Join(dir, "auth.json")

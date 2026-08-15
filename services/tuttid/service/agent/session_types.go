@@ -86,6 +86,7 @@ type Service struct {
 	skillOptionsCache              *composerSkillOptionsCache
 	providerAvailabilityCache      *providerAvailabilityCache
 	capabilityCatalogCache         *composerCapabilityCatalogCache
+	capabilityCatalogGroup         singleflight.Group
 	liveModelCache                 *composerLiveModelCache
 	claudeStartupLock              *claudecodeservice.StartupGate
 	liveModelDiscoveryMu           sync.Mutex

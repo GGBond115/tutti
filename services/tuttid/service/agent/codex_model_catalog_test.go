@@ -90,6 +90,31 @@ func TestRequestCodexModelListReadsInitializeResponseBeforeFollowingRequests(t *
 	}
 }
 
+func TestRequestCodexModelListWithStagesReportsProviderStages(t *testing.T) {
+	transport := &strictCodexHandshakeTransport{}
+	var stages []string
+	models, err := requestCodexModelListWithStages(
+		transport,
+		transport,
+		"tuttid-test",
+		func(stage string, _ time.Time, stageErr error) {
+			if stageErr != nil {
+				t.Fatalf("stage %q returned error: %v", stage, stageErr)
+			}
+			stages = append(stages, stage)
+		},
+	)
+	if err != nil {
+		t.Fatalf("requestCodexModelListWithStages returned error: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "gpt-5" {
+		t.Fatalf("models = %#v, want gpt-5", models)
+	}
+	if !reflect.DeepEqual(stages, []string{"initialize", "model_list"}) {
+		t.Fatalf("stages = %#v, want initialize then model_list", stages)
+	}
+}
+
 type strictCodexHandshakeTransport struct {
 	methods                []string
 	initializeRequested    bool
@@ -365,6 +390,144 @@ func TestCachedAgentModelCatalogRefreshesStaleModelsInBackground(t *testing.T) {
 	}
 	if fresh.Stale || len(fresh.Models) == 0 || fresh.Models[0].ID != "new-model" {
 		t.Fatalf("fresh result = %#v, want new model", fresh)
+	}
+}
+
+func TestCachedAgentModelCatalogLoadsPersistentCatalogBeforeBackgroundRefresh(t *testing.T) {
+	persistentPath := filepath.Join(t.TempDir(), "model-catalog.json")
+	first := &CachedAgentModelCatalog{
+		Codex: &fakeAgentModelLister{
+			models: []AgentModelOption{{ID: "old-model", DisplayName: "Old"}},
+		},
+		PersistentPath: persistentPath,
+		AuthFingerprint: func(string) string {
+			return "account-a"
+		},
+	}
+	if _, err := first.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"}); err != nil {
+		t.Fatalf("initial ListModels returned error: %v", err)
+	}
+
+	refreshLister := &blockingAgentModelLister{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		models:  []AgentModelOption{{ID: "new-model", DisplayName: "New"}},
+	}
+	refreshed := make(chan string, 1)
+	second := &CachedAgentModelCatalog{
+		Codex:          refreshLister,
+		PersistentPath: persistentPath,
+		AuthFingerprint: func(string) string {
+			return "account-a"
+		},
+		OnRefresh: func(provider string) {
+			refreshed <- provider
+		},
+	}
+	result, err := second.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("persistent ListModels returned error: %v", err)
+	}
+	if !result.Stale || len(result.Models) == 0 || result.Models[0].ID != "old-model" {
+		t.Fatalf("persistent result = %#v, want stale old model", result)
+	}
+	select {
+	case <-refreshLister.started:
+	case <-time.After(time.Second):
+		t.Fatal("persistent catalog did not start background refresh")
+	}
+	close(refreshLister.release)
+	select {
+	case provider := <-refreshed:
+		if provider != "codex" {
+			t.Fatalf("refresh provider = %q, want codex", provider)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("persistent catalog refresh did not settle")
+	}
+}
+
+func TestCachedAgentModelCatalogWaitForFreshBlocksUntilRefreshSettles(t *testing.T) {
+	lister := &sequencedAgentModelLister{
+		models: []AgentModelListResult{
+			{Models: []AgentModelOption{{ID: "old-model"}}},
+			{Models: []AgentModelOption{{ID: "new-model"}}},
+		},
+		secondStarted: make(chan struct{}),
+		secondRelease: make(chan struct{}),
+	}
+	catalog := &CachedAgentModelCatalog{Codex: lister}
+	if _, err := catalog.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"}); err != nil {
+		t.Fatalf("initial ListModels returned error: %v", err)
+	}
+	catalog.Invalidate("codex")
+	resultCh := make(chan struct {
+		result AgentModelCatalogResult
+		err    error
+	}, 1)
+	go func() {
+		result, err := catalog.ListModels(context.Background(), AgentModelCatalogInput{
+			Provider:     "codex",
+			WaitForFresh: true,
+		})
+		resultCh <- struct {
+			result AgentModelCatalogResult
+			err    error
+		}{result: result, err: err}
+	}()
+	select {
+	case <-lister.secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("fresh catalog refresh did not start")
+	}
+	select {
+	case result := <-resultCh:
+		t.Fatalf("fresh request returned before refresh settled: %#v", result)
+	default:
+	}
+	close(lister.secondRelease)
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("fresh ListModels returned error: %v", result.err)
+		}
+		if result.result.Stale || result.result.Models[0].ID != "new-model" {
+			t.Fatalf("fresh result = %#v, want new model", result.result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fresh request did not settle")
+	}
+}
+
+func TestCachedAgentModelCatalogRejectsPersistentCatalogFromAnotherAuthGeneration(t *testing.T) {
+	persistentPath := filepath.Join(t.TempDir(), "model-catalog.json")
+	first := &CachedAgentModelCatalog{
+		Codex:          &fakeAgentModelLister{models: []AgentModelOption{{ID: "old-model"}}},
+		PersistentPath: persistentPath,
+		AuthFingerprint: func(string) string {
+			return "account-a"
+		},
+	}
+	if _, err := first.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"}); err != nil {
+		t.Fatalf("initial ListModels returned error: %v", err)
+	}
+	secondLister := &fakeAgentModelLister{models: []AgentModelOption{{ID: "new-model"}}}
+	second := &CachedAgentModelCatalog{
+		Codex:          secondLister,
+		PersistentPath: persistentPath,
+		AuthFingerprint: func(string) string {
+			return "account-b"
+		},
+	}
+	result, err := second.ListModels(context.Background(), AgentModelCatalogInput{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("auth-generation ListModels returned error: %v", err)
+	}
+	if result.Stale || len(result.Models) == 0 || result.Models[0].ID != "new-model" {
+		t.Fatalf("auth-generation result = %#v, want fresh new model", result)
+	}
+	if secondLister.calls != 1 {
+		t.Fatalf("new-account lister calls = %d, want one", secondLister.calls)
 	}
 }
 
