@@ -15,11 +15,15 @@ import (
 )
 
 const (
-	runtimeOperationLeaseDuration  = 30 * time.Second
-	runtimeOperationWorkerInterval = time.Second
-	runtimeOperationBatchSize      = 64
-	runtimeOperationLogPrefix      = "[agent-runtime-operation]"
+	runtimeOperationLeaseDuration   = 30 * time.Second
+	runtimeOperationWorkerInterval  = time.Second
+	runtimeOperationBatchSize       = 64
+	runtimeOperationLogPrefix       = "[agent-runtime-operation]"
+	interactiveFollowUpStartTimeout = 30 * time.Second
+	interactiveFollowUpPollInterval = 25 * time.Millisecond
 )
+
+const interactiveFollowUpClientSubmitIDPrefix = "interactive-deny:"
 
 // runtimeOperationID is stable across retries and process restarts.
 func runtimeOperationID(workspaceID, agentSessionID, kind, subjectID string) string {
@@ -229,6 +233,8 @@ func (h *Host) executeInteractiveRuntimeOperation(ctx context.Context, operation
 	_, runtimeSessionFound := h.runtime.Session(operation.WorkspaceID, operation.AgentSessionID)
 	runtimeDisposition := RuntimeInteractiveDispositionUnknown
 	var submissionErr error
+	followUpPrompt := runtimeOperationPayloadText(operation.Payload, "followUpPrompt")
+	followUpClientSubmitID := runtimeOperationPayloadText(operation.Payload, "followUpClientSubmitId")
 	if recovering {
 		runtimeDisposition = h.runtime.InteractiveDisposition(operation.WorkspaceID, runtimeOperationPayloadText(operation.Payload, "rootAgentSessionId"), operation.AgentSessionID, operation.TurnID, operation.RequestID)
 		if runtimeDisposition == RuntimeInteractiveDispositionUnknown && !runtimeSessionFound {
@@ -244,6 +250,30 @@ func (h *Host) executeInteractiveRuntimeOperation(ctx context.Context, operation
 		})
 		submissionErr = err
 		runtimeDisposition = result.Disposition
+		if prompt := strings.TrimSpace(result.FollowUpPrompt); prompt != "" {
+			checkpointFollowUp := false
+			if followUpPrompt == "" {
+				followUpPrompt = prompt
+				checkpointFollowUp = true
+			}
+			if followUpClientSubmitID == "" {
+				followUpClientSubmitID = interactiveFollowUpClientSubmitIDPrefix + operation.OperationID
+				checkpointFollowUp = true
+			}
+			if checkpointFollowUp {
+				payload := cloneMap(operation.Payload)
+				payload["followUpPrompt"] = followUpPrompt
+				payload["followUpClientSubmitId"] = followUpClientSubmitID
+				checkpointed, _, checkpointErr := h.operations.CheckpointRuntimeOperation(ctx, storesqlite.CheckpointRuntimeOperationInput{
+					WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID, LeaseOwner: owner,
+					Payload: payload, NowUnixMS: h.now().UnixMilli(),
+				})
+				if checkpointErr != nil {
+					return operation, checkpointErr
+				}
+				operation = checkpointed
+			}
+		}
 		if runtimeDisposition == "" {
 			runtimeDisposition = h.runtime.InteractiveDisposition(operation.WorkspaceID, runtimeOperationPayloadText(operation.Payload, "rootAgentSessionId"), operation.AgentSessionID, operation.TurnID, operation.RequestID)
 		}
@@ -268,6 +298,21 @@ func (h *Host) executeInteractiveRuntimeOperation(ctx context.Context, operation
 	default:
 		return h.releaseRuntimeOperation(ctx, operation, owner, fmt.Errorf("interactive request %q returned unsupported runtime disposition %q: %w", operation.RequestID, runtimeDisposition, dispositionErr), true)
 	}
+	if followUpPrompt != "" {
+		if followUpClientSubmitID == "" {
+			followUpClientSubmitID = interactiveFollowUpClientSubmitIDPrefix + operation.OperationID
+		}
+		if err := h.waitForInteractiveFollowUp(ctx, operation.WorkspaceID, operation.AgentSessionID); err != nil {
+			return h.releaseRuntimeOperation(ctx, operation, owner, err, false)
+		}
+		_, err := h.SendInput(ctx, SessionRef{WorkspaceID: operation.WorkspaceID, AgentSessionID: operation.AgentSessionID}, SendInput{
+			Content:        []PromptContentBlock{{Type: "text", Text: followUpPrompt}},
+			ClientSubmitID: followUpClientSubmitID,
+		})
+		if err != nil {
+			return h.releaseRuntimeOperation(ctx, operation, owner, err, !isRetryableInteractiveFollowUpError(err))
+		}
+	}
 	completion, _, err := h.operations.CompleteInteractiveRuntimeOperation(ctx, storesqlite.CompleteInteractiveRuntimeOperationInput{
 		WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID, LeaseOwner: owner,
 		Disposition: disposition, Output: map[string]any{"action": runtimeOperationPayloadText(operation.Payload, "action"), "optionId": runtimeOperationPayloadText(operation.Payload, "optionId")},
@@ -280,6 +325,36 @@ func (h *Host) executeInteractiveRuntimeOperation(ctx context.Context, operation
 		logRuntimeOperationFailure(completion.Operation, fmt.Errorf("publish completed interactive runtime operation: %w", err))
 	}
 	return completion.Operation, nil
+}
+
+func (h *Host) waitForInteractiveFollowUp(ctx context.Context, workspaceID, agentSessionID string) error {
+	deadline := time.NewTimer(interactiveFollowUpStartTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(interactiveFollowUpPollInterval)
+	defer ticker.Stop()
+	for {
+		session, found := h.runtime.Session(workspaceID, agentSessionID)
+		if !found {
+			return ErrSessionNotFound
+		}
+		if session.TurnLifecycle == nil || session.TurnLifecycle.ActiveTurnID == nil || strings.TrimSpace(*session.TurnLifecycle.ActiveTurnID) == "" {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return ErrRuntimeSessionActive
+		case <-ticker.C:
+		}
+	}
+}
+
+func isRetryableInteractiveFollowUpError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, ErrSubmitDeliveryUnknown) || errors.Is(err, ErrSessionNotFound) ||
+		errors.Is(err, ErrRuntimeSessionActive) || errors.Is(err, ErrRuntimeSessionDisconnected) ||
+		errors.Is(err, ErrRuntimeOperationInProgress)
 }
 
 func (h *Host) executeCancelRuntimeOperation(
