@@ -53,10 +53,14 @@ func TestInteractiveRuntimeOperationCheckpointOnlyAddsFollowUpIntent(t *testing.
 			"action": "", "optionId": "deny", "payload": map[string]any(nil),
 			"followUpPrompt":         "Please split the work into smaller steps.",
 			"followUpClientSubmitId": "interactive-deny:operation-follow-up",
+			"followUpDisposition":    InteractionStatusAnswered,
 		},
 	})
 	if err != nil || !changed || checkpointed.Payload["followUpPrompt"] == nil {
 		t.Fatalf("checkpoint = %#v changed=%v error=%v", checkpointed, changed, err)
+	}
+	if got := checkpointed.Payload["followUpDisposition"]; got != InteractionStatusAnswered {
+		t.Fatalf("checkpointed follow-up disposition = %#v, want answered", got)
 	}
 	if _, _, err := store.CheckpointRuntimeOperation(context.Background(), CheckpointRuntimeOperationInput{
 		WorkspaceID: "ws-1", OperationID: op.OperationID, LeaseOwner: "worker-follow-up", NowUnixMS: 31,

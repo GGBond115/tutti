@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	_ "modernc.org/sqlite"
@@ -15,9 +16,11 @@ type interactiveFollowUpRuntime struct {
 	RuntimeController
 	store        *storesqlite.Store
 	activeTurnID string
+	sessionFound bool
 
-	mu         sync.Mutex
-	execInputs []RuntimeExecInput
+	mu                     sync.Mutex
+	execInputs             []RuntimeExecInput
+	submitInteractiveCalls int
 }
 
 type interactiveFollowUpCanonicalStore struct {
@@ -31,6 +34,7 @@ func (interactiveFollowUpCanonicalStore) InitializeRuntimeSession(context.Contex
 func (r *interactiveFollowUpRuntime) Session(workspaceID, agentSessionID string) (ProviderRuntimeSession, bool) {
 	r.mu.Lock()
 	activeTurnID := r.activeTurnID
+	sessionFound := r.sessionFound
 	r.mu.Unlock()
 	var lifecycle *TurnLifecycle
 	if activeTurnID != "" {
@@ -40,12 +44,13 @@ func (r *interactiveFollowUpRuntime) Session(workspaceID, agentSessionID string)
 		WorkspaceID: workspaceID, ID: agentSessionID, Provider: "codex",
 		ProviderSessionID: "provider-session-1",
 		TurnLifecycle:     lifecycle,
-	}, workspaceID == "workspace-1" && agentSessionID == "session-1"
+	}, sessionFound && workspaceID == "workspace-1" && agentSessionID == "session-1"
 }
 
 func (r *interactiveFollowUpRuntime) SubmitInteractive(_ context.Context, input RuntimeSubmitInteractiveInput) (RuntimeSubmitInteractiveResult, error) {
 	r.mu.Lock()
 	r.activeTurnID = ""
+	r.submitInteractiveCalls++
 	r.mu.Unlock()
 	if _, _, err := r.store.RecordTurnTransition(context.Background(), storesqlite.TurnTransition{
 		WorkspaceID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
@@ -89,7 +94,14 @@ func (r *interactiveFollowUpRuntime) recordedExecInputs() []RuntimeExecInput {
 	return append([]RuntimeExecInput(nil), r.execInputs...)
 }
 
-func TestSubmitInteractiveRoutesRuntimeFollowUpThroughHostSendInput(t *testing.T) {
+func (r *interactiveFollowUpRuntime) recordedSubmitInteractiveCalls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.submitInteractiveCalls
+}
+
+func newInteractiveFollowUpStore(t *testing.T) *storesqlite.Store {
+	t.Helper()
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "interactive-follow-up.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -126,8 +138,13 @@ SET root_provider_turn_id = 'provider-turn-1', root_provider_turn_phase = 'runni
 WHERE workspace_id = 'workspace-1' AND agent_session_id = 'session-1' AND turn_id = 'turn-1'`); err != nil {
 		t.Fatal(err)
 	}
+	return store
+}
 
-	runtime := &interactiveFollowUpRuntime{store: store, activeTurnID: "turn-1"}
+func TestSubmitInteractiveRoutesRuntimeFollowUpThroughHostSendInput(t *testing.T) {
+	store := newInteractiveFollowUpStore(t)
+
+	runtime := &interactiveFollowUpRuntime{store: store, activeTurnID: "turn-1", sessionFound: true}
 	host := New(Config{
 		CanonicalStore: interactiveFollowUpCanonicalStore{Store: store}, Runtime: runtime, RuntimeOperations: store,
 		OperationOwner: "worker-1",
@@ -169,5 +186,53 @@ WHERE workspace_id = 'workspace-1' AND agent_session_id = 'session-1' AND turn_i
 	}
 	if got := len(runtime.recordedExecInputs()); got != 1 {
 		t.Fatalf("replayed follow-up Exec calls = %d, want 1", got)
+	}
+}
+
+func TestRecoverInteractiveFollowUpUsesCheckpointedDispositionWithoutRuntimeSession(t *testing.T) {
+	store := newInteractiveFollowUpStore(t)
+	operation, _, _, err := store.PrepareInteractiveRuntimeOperation(t.Context(), storesqlite.RuntimeOperationPrepare{
+		OperationID: "operation-recover-follow-up", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		Kind: storesqlite.RuntimeOperationKindInteractiveResponse, TurnID: "turn-1", RequestID: "request-1",
+		Payload: map[string]any{"action": "", "optionId": "deny", "payload": map[string]any(nil)}, OccurredAtMS: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, claimed, err := store.ClaimRuntimeOperationLease(t.Context(), storesqlite.ClaimRuntimeOperationLeaseInput{
+		WorkspaceID: "workspace-1", OperationID: operation.OperationID, LeaseOwner: "dead-worker",
+		NowUnixMS: 20, LeaseExpiresAtMS: 100,
+	}); err != nil || !claimed {
+		t.Fatalf("claim operation = claimed=%v error=%v", claimed, err)
+	}
+	if _, changed, err := store.CheckpointRuntimeOperation(t.Context(), storesqlite.CheckpointRuntimeOperationInput{
+		WorkspaceID: "workspace-1", OperationID: operation.OperationID, LeaseOwner: "dead-worker", NowUnixMS: 30,
+		Payload: map[string]any{
+			"action": "", "optionId": "deny", "payload": map[string]any(nil),
+			"followUpPrompt":         "Please split the work into smaller steps.",
+			"followUpClientSubmitId": "interactive-deny:operation-recover-follow-up",
+			"followUpDisposition":    storesqlite.InteractionStatusAnswered,
+		},
+	}); err != nil || !changed {
+		t.Fatalf("checkpoint operation = changed=%v error=%v", changed, err)
+	}
+
+	runtime := &interactiveFollowUpRuntime{store: store, sessionFound: false}
+	host := New(Config{
+		CanonicalStore: interactiveFollowUpCanonicalStore{Store: store}, Runtime: runtime, RuntimeOperations: store,
+		OperationOwner: "recovery-worker", Clock: fixedClock{at: time.UnixMilli(1_000)},
+	})
+	if err := host.RecoverRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("RecoverRuntimeOperations() error = %v", err)
+	}
+	recovered, found, err := store.GetRuntimeOperation(t.Context(), "workspace-1", operation.OperationID)
+	if err != nil || !found {
+		t.Fatalf("recovered operation = %#v found=%v error=%v", recovered, found, err)
+	}
+	if recovered.Status != storesqlite.RuntimeOperationStatusPrepared || recovered.NextAttemptAtMS <= 1_000 {
+		t.Fatalf("recovered operation = %#v, want retryable prepared state", recovered)
+	}
+	if got := runtime.recordedSubmitInteractiveCalls(); got != 0 {
+		t.Fatalf("recovery SubmitInteractive calls = %d, want 0", got)
 	}
 }

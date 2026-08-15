@@ -786,7 +786,7 @@ func jsonMapsEqual(left map[string]any, right map[string]any) bool {
 func interactiveResponseCheckpointIdentityEqual(previous, next map[string]any) bool {
 	previousIdentity := cloneJSONMap(previous)
 	nextIdentity := cloneJSONMap(next)
-	for _, key := range []string{"followUpPrompt", "followUpClientSubmitId"} {
+	for _, key := range []string{"followUpPrompt", "followUpClientSubmitId", "followUpDisposition"} {
 		delete(previousIdentity, key)
 		delete(nextIdentity, key)
 	}

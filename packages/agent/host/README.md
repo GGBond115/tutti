@@ -357,9 +357,12 @@ provider-neutral follow-up intent after an interactive denial, but it does not
 dispatch that prompt itself. Host checkpoints the intent on the leased
 interactive operation, waits for the answered Turn to become idle, and submits
 the prompt through `SendInput` with the stable id
-`interactive-deny:<operation-id>`. Recovery reuses that id, so a crash between
-provider submission and interactive-operation completion can replay the
-ordinary Host admission without creating a duplicate Turn.
+`interactive-deny:<operation-id>`. The checkpoint also persists the terminal
+interactive disposition, so recovery does not depend on Controller memory or
+an existing Runtime Session. Recovery reuses that disposition and id; if the
+provider connection is temporarily absent, the operation remains retryable
+until ordinary Host admission can replay the prompt without creating a
+duplicate Turn.
 
 Accepted runtime Session reports reconcile their Goal snapshot through the
 canonical bottom-up observation path without overwriting a newer desired
