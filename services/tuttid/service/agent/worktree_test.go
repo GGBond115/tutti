@@ -28,7 +28,7 @@ func (a *recordingSessionDirectoryAllocator) CreateSessionDirectory(context.Cont
 	return a.path, nil
 }
 
-func (a *recordingSessionDirectoryAllocator) ReleaseSessionDirectory(_ context.Context, path string) error {
+func (_ *recordingSessionDirectoryAllocator) ReleaseSessionDirectory(_ context.Context, path string) error {
 	return os.RemoveAll(path)
 }
 
