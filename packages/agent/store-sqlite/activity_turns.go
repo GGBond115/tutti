@@ -425,12 +425,11 @@ ORDER BY started_at_unix_ms ASC, turn_id ASC
 	return turns, nil
 }
 
-// SettleStaleTurns force-settles every turn that is not settled with outcome
-// interrupted, clears session active turn pointers, and supersedes pending
-// interactions. It runs at daemon startup (protocol v2 rule nine): after a
-// daemon restart no provider process survives, so any live turn on disk is a
-// lie that must be settled by reconciliation, not guessed lazily at read
-// time.
+// SettleStaleTurns force-settles every local turn that is not settled with
+// outcome interrupted, clears session active turn pointers, and supersedes
+// pending interactions. Personal Agent turns execute in a remote cloud
+// sandbox, so they are excluded: a desktop restart must not overwrite the
+// cloud-owned outcome before the remote session can be observed again.
 func (s *Store) SettleStaleTurns(ctx context.Context) ([]StaleTurnSettlement, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("workspace database is not initialized")
@@ -455,6 +454,7 @@ JOIN workspace_agent_sessions AS s
   ON s.workspace_id = t.workspace_id
  AND s.agent_session_id = t.agent_session_id
 WHERE t.phase != ?
+  AND COALESCE(s.agent_target_id, '') NOT LIKE 'personal-agent:%'
   AND NOT EXISTS (
     SELECT 1 FROM workspace_agent_runtime_operations AS op
     WHERE op.workspace_id = t.workspace_id
@@ -516,6 +516,9 @@ ORDER BY t.workspace_id ASC, t.agent_session_id ASC, t.turn_id ASC
 UPDATE workspace_agent_turns AS t
 SET phase = ?, outcome = ?, settled_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE phase != ?
+  AND COALESCE((SELECT agent_target_id FROM workspace_agent_sessions AS s
+                WHERE s.workspace_id = t.workspace_id
+                  AND s.agent_session_id = t.agent_session_id), '') NOT LIKE 'personal-agent:%'
   AND NOT EXISTS (
     SELECT 1 FROM workspace_agent_runtime_operations AS op
     WHERE op.workspace_id = t.workspace_id
@@ -538,6 +541,7 @@ WHERE phase != ?
 UPDATE workspace_agent_sessions AS s
 SET active_turn_id = NULL, updated_at_unix_ms = ?
 WHERE active_turn_id IS NOT NULL
+  AND COALESCE(s.agent_target_id, '') NOT LIKE 'personal-agent:%'
   AND NOT EXISTS (
     SELECT 1 FROM workspace_agent_runtime_operations AS op
     WHERE op.workspace_id = s.workspace_id

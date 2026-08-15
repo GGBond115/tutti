@@ -234,6 +234,40 @@ func TestSettleStaleTurnsClosesSplitRuntimeSuccessStateOnRestart(t *testing.T) {
 	}
 }
 
+func TestSettleStaleTurnsPreservesPersonalAgentCloudTurn(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-cloud", AgentSessionID: "session-cloud", AgentTargetID: "personal-agent:codex",
+		Origin: "runtime", Provider: "codex", Status: "working", CurrentPhase: "working", OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatalf("ReportSessionState() error = %v", err)
+	}
+	if _, accepted, err := store.RecordTurnTransition(ctx, TurnTransition{
+		WorkspaceID: "ws-cloud", AgentSessionID: "session-cloud", TurnID: "turn-cloud",
+		Phase: TurnPhaseRunning, OccurredAtUnixMS: 2,
+	}); err != nil || !accepted {
+		t.Fatalf("RecordTurnTransition() accepted=%v error=%v", accepted, err)
+	}
+
+	settlements, err := store.SettleStaleTurns(ctx)
+	if err != nil {
+		t.Fatalf("SettleStaleTurns() error = %v", err)
+	}
+	if len(settlements) != 0 {
+		t.Fatalf("settlements = %#v, want cloud turn preserved", settlements)
+	}
+	turn, ok, err := store.GetTurn(ctx, "ws-cloud", "session-cloud", "turn-cloud")
+	if err != nil || !ok || turn.Phase != TurnPhaseRunning {
+		t.Fatalf("cloud turn after restart ok=%v error=%v turn=%#v, want running", ok, err, turn)
+	}
+	session, ok, err := store.GetSession(ctx, "ws-cloud", "session-cloud")
+	if err != nil || !ok || session.ActiveTurnID != "turn-cloud" {
+		t.Fatalf("cloud session after restart ok=%v error=%v session=%#v, want active turn retained", ok, err, session)
+	}
+}
+
 func TestSettleStaleTurnsCarriesChildSessionIdentity(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
