@@ -46,7 +46,6 @@ import type {
 } from "../../../workspaceWorkflow";
 import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
-import type { AgentGUISessionLaunchMode } from "../model/agentSessionLaunchMode";
 import type { AgentProjectDropdownOptions } from "../AgentComposerProjectMenu";
 import type { AgentGUISessionLaunchPreferenceMode } from "../model/agentSessionLaunchMode";
 export type AgentMentionReferenceTargetResolver = (
