@@ -48,9 +48,9 @@ func TestRetrySQLiteBusyReplaysOperationAfterTransientBusy(t *testing.T) {
 
 	attempts := 0
 	released := false
-	err = retrySQLiteBusy(context.Background(), func() error {
+	err = retrySQLiteBusy(context.Background(), func(attemptCtx context.Context) error {
 		attempts++
-		_, err := writer.ExecContext(context.Background(), "INSERT INTO items(id, value) VALUES (?, ?)", attempts, "ok")
+		_, err := writer.ExecContext(attemptCtx, "INSERT INTO items(id, value) VALUES (?, ?)", attempts, "ok")
 		if err == nil {
 			return nil
 		}
@@ -193,6 +193,74 @@ func TestReportActivityStateRetriesSQLiteBusyTransaction(t *testing.T) {
 	}
 }
 
+func TestReportSessionMessagesRetriesSQLiteBusyTransaction(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "agent-message-store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("store sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA busy_timeout = 0"); err != nil {
+		t.Fatalf("store busy timeout: %v", err)
+	}
+	store := New(db, Options{})
+	if err := store.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	if _, err := store.ReportSessionState(context.Background(), SessionStateReport{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", Provider: "codex",
+		OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	if _, accepted, err := store.RecordTurnTransition(context.Background(), TurnTransition{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", TurnID: "turn-1",
+		Phase: TurnPhaseRunning, OccurredAtUnixMS: 2,
+	}); err != nil || !accepted {
+		t.Fatalf("seed turn accepted=%v error=%v", accepted, err)
+	}
+
+	holderDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("holder sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = holderDB.Close() })
+	holderDB.SetMaxOpenConns(1)
+	holder, err := holderDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("holder Conn() error = %v", err)
+	}
+	t.Cleanup(func() { _, _ = holder.ExecContext(context.Background(), "ROLLBACK"); _ = holder.Close() })
+	if _, err := holder.ExecContext(context.Background(), "PRAGMA busy_timeout = 0"); err != nil {
+		t.Fatalf("holder busy timeout: %v", err)
+	}
+	if _, err := holder.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("holder transaction: %v", err)
+	}
+
+	release := time.AfterFunc(25*time.Millisecond, func() {
+		_, _ = holder.ExecContext(context.Background(), "ROLLBACK")
+	})
+	t.Cleanup(func() { release.Stop() })
+
+	result, err := store.ReportSessionMessages(context.Background(), SessionMessageReport{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", Provider: "codex",
+		Messages: []MessageUpdate{{
+			MessageID: "message-1", TurnID: "turn-1", Role: "assistant", Kind: "text",
+			Status: "completed", ContentDelta: "done", OccurredAtUnixMS: 3,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ReportSessionMessages() error = %v", err)
+	}
+	if result.AcceptedCount != 1 {
+		t.Fatalf("ReportSessionMessages() result = %#v, want one accepted message", result)
+	}
+}
+
 func TestRetrySQLiteBusyRespectsContextCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -200,9 +268,9 @@ func TestRetrySQLiteBusyRespectsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	attempts := 0
-	err := retrySQLiteBusy(ctx, func() error {
+	err := retrySQLiteBusy(ctx, func(attemptCtx context.Context) error {
 		attempts++
-		_, err := writer.ExecContext(context.Background(), "INSERT INTO items(id, value) VALUES (?, ?)", attempts, "blocked")
+		_, err := writer.ExecContext(attemptCtx, "INSERT INTO items(id, value) VALUES (?, ?)", attempts, "blocked")
 		cancel()
 		return err
 	})
@@ -219,9 +287,9 @@ func TestRetrySQLiteBusyReturnsErrorAfterFinalAttempt(t *testing.T) {
 
 	_, _, writer := openSQLiteBusyRetryFixture(t)
 	attempts := 0
-	err := retrySQLiteBusy(context.Background(), func() error {
+	err := retrySQLiteBusy(context.Background(), func(attemptCtx context.Context) error {
 		attempts++
-		_, err := writer.ExecContext(context.Background(), "INSERT INTO items(id, value) VALUES (?, ?)", attempts, "blocked")
+		_, err := writer.ExecContext(attemptCtx, "INSERT INTO items(id, value) VALUES (?, ?)", attempts, "blocked")
 		return err
 	})
 	if !isSQLiteBusyError(err) {
@@ -273,7 +341,7 @@ func TestRetrySQLiteBusyPreservesNonBusyErrors(t *testing.T) {
 
 	want := errors.New("not retryable")
 	attempts := 0
-	if err := retrySQLiteBusy(context.Background(), func() error {
+	if err := retrySQLiteBusy(context.Background(), func(_ context.Context) error {
 		attempts++
 		return want
 	}); !errors.Is(err, want) {

@@ -59,7 +59,6 @@ func TestClassifyAgentInteractiveResponseStaleErrorsAsConflict(t *testing.T) {
 		agentservice.ErrInteractionRequestNotFound,
 		agentservice.ErrInteractiveRequestNotLive,
 		agentservice.ErrInteractiveAlreadyAnswered,
-		agentservice.ErrRuntimeOperationIdentityMismatch,
 	} {
 		classified := ClassifyAgentInteractiveResponse(err)
 		if classified.StatusCode != StatusConflict ||
@@ -70,6 +69,18 @@ func TestClassifyAgentInteractiveResponseStaleErrorsAsConflict(t *testing.T) {
 		if !errors.Is(classified, err) {
 			t.Fatalf("ClassifyAgentInteractiveResponse(%v) did not preserve cause", err)
 		}
+	}
+}
+
+func TestClassifyAgentInteractiveResponseIdentityMismatchAsRuntimeFailure(t *testing.T) {
+	classified := ClassifyAgentInteractiveResponse(agentservice.ErrRuntimeOperationIdentityMismatch)
+	if classified.StatusCode != StatusWorkspaceOperationFailed ||
+		classified.Code != tuttigenerated.WorkspaceOperationFailed ||
+		classified.Reason != ReasonWorkspaceOperationFailed {
+		t.Fatalf("ClassifyAgentInteractiveResponse(identity mismatch) = %#v, want runtime failure", classified)
+	}
+	if !errors.Is(classified, agentservice.ErrRuntimeOperationIdentityMismatch) {
+		t.Fatal("ClassifyAgentInteractiveResponse(identity mismatch) did not preserve cause")
 	}
 }
 

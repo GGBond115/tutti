@@ -20,9 +20,9 @@ func (s *Store) upsertAgentSession(
 		lastEventUnixMS int64
 		session         Session
 	)
-	err := retrySQLiteBusy(ctx, func() error {
+	err := retrySQLiteBusy(ctx, func(attemptCtx context.Context) error {
 		var err error
-		accepted, stateApplied, lastEventUnixMS, session, err = s.upsertAgentSessionOnce(ctx, input, now)
+		accepted, stateApplied, lastEventUnixMS, session, err = s.upsertAgentSessionOnce(attemptCtx, input, now)
 		return err
 	})
 	return accepted, stateApplied, lastEventUnixMS, session, err

@@ -306,9 +306,9 @@ func AgentInteractiveRequestStale(options ...Option) *ProtocolError {
 }
 
 // ClassifyAgentInteractiveResponse preserves the distinction between a stale
-// renderer response and an upstream/runtime failure. The identity mismatch is
-// intentionally scoped to this endpoint because the same host error is also
-// used by other durable runtime operations.
+// renderer response and an upstream/runtime failure. Identity mismatches are
+// durable runtime-operation failures, not proof that the interactive request
+// itself became stale, so they remain on the normal failure classification path.
 func ClassifyAgentInteractiveResponse(err error) *ProtocolError {
 	if err == nil {
 		return nil
@@ -316,8 +316,7 @@ func ClassifyAgentInteractiveResponse(err error) *ProtocolError {
 	switch {
 	case errors.Is(err, agentservice.ErrInteractionRequestNotFound),
 		errors.Is(err, agentservice.ErrInteractiveRequestNotLive),
-		errors.Is(err, agentservice.ErrInteractiveAlreadyAnswered),
-		errors.Is(err, agentservice.ErrRuntimeOperationIdentityMismatch):
+		errors.Is(err, agentservice.ErrInteractiveAlreadyAnswered):
 		return AgentInteractiveRequestStale(WithCause(err))
 	default:
 		return Classify(err)

@@ -69,9 +69,9 @@ func (s *Store) ReportActivityState(
 		input.Session.OccurredAtUnixMS = now
 	}
 	var result ActivityStateReportResult
-	err := retrySQLiteBusy(ctx, func() error {
+	err := retrySQLiteBusy(ctx, func(attemptCtx context.Context) error {
 		var err error
-		result, err = s.reportActivityStateOnce(ctx, input, now)
+		result, err = s.reportActivityStateOnce(attemptCtx, input, now)
 		return err
 	})
 	return result, err
@@ -322,6 +322,24 @@ func (s *Store) ReportSessionMessages(
 		return MessageReportResult{}, err
 	}
 
+	now := unixMs(time.Now().UTC())
+	var result MessageReportResult
+	err := retrySQLiteBusy(ctx, func(attemptCtx context.Context) error {
+		var err error
+		result, err = s.reportSessionMessagesOnce(attemptCtx, input, now)
+		return err
+	})
+	return result, err
+}
+
+func (s *Store) reportSessionMessagesOnce(
+	ctx context.Context,
+	input SessionMessageReport,
+	now int64,
+) (MessageReportResult, error) {
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	agentSessionID := strings.TrimSpace(input.AgentSessionID)
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MessageReportResult{}, fmt.Errorf("begin workspace agent message report: %w", err)
@@ -333,7 +351,6 @@ func (s *Store) ReportSessionMessages(
 		}
 	}()
 
-	now := unixMs(time.Now().UTC())
 	agentSessionID, err = resolveAgentMessageReportSessionIDTx(ctx, tx, workspaceID, agentSessionID, input.Provider, input.Origin)
 	if err != nil {
 		return MessageReportResult{}, err
