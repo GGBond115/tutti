@@ -101,6 +101,7 @@ export class AgentMentionSearchController extends AgentMentionSearchControllerBa
       return;
     }
     const next = resolveAgentMentionQueryUpdate(input, {
+      agentGeneratedBrowsePath: this.agentGeneratedBrowsePath,
       workspaceId: this.activeWorkspaceId,
       currentUserId: this.currentUserId,
       sectionKey: this.currentSectionKey,
