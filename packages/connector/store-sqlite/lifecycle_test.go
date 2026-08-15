@@ -247,7 +247,7 @@ func TestStoreCleanupPreservesRecoverableWorkAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending) != 1 || pending[0].Event.OperationID != operation.OperationID {
+	if len(pending) != 1 || pending[0].Event.OperationID != "" || pending[0].Event.ConnectorKey != operation.ConnectorKey {
 		t.Fatalf("pending events = %#v", pending)
 	}
 }

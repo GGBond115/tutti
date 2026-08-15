@@ -305,6 +305,16 @@ which stage to resume. Install and uninstall return verifiable results to the
 application; artifact helpers do not write the business repository or publish
 events directly.
 
+Every operation row also stores canonical `owner_account_id` and visibility.
+User commands are `account` visible and public reads always use
+`GetOperationForScope`; an ownership mismatch is indistinguishable from a
+missing row. Runtime reconcile and operations whose legacy owner cannot be
+proven are `system_private`: workers may still recover them, but snapshots and
+operation endpoints never publish them. Legacy rows derive ownership from
+`operation_json.scope.accountId`. The idempotency key is
+`(owner_account_id, client_request_id)`, while the active physical lifecycle
+constraint remains device-global per Connector.
+
 `accepted` and `running` rows have no age-based expiry. The SQLite repository
 protects them with one-active-operation constraints plus renewable,
 token-fenced leases, and daemon startup reschedules every recoverable row. The
@@ -431,6 +441,13 @@ Account authorization overlays are read in the same SQLite Snapshot as market
 state. A public projection change atomically advances the Connector revision and
 appends its invalidation event; account state can no longer change invisibly
 between market Snapshot reads.
+
+Operation-bearing events carry an internal account audience and are delivered
+only while that owner is the host's active account. Every state change also
+produces a machine-level Connector invalidation without an operation id, so a
+different account still observes device installation truth without learning
+another account's command identity. Legacy or private events are fail-closed by
+stripping operation and owner identifiers before publication.
 
 Concurrent catalog requests use a process-local monotonically increasing fetch
 fence: an older page or refresh response that returns after a newer response is
