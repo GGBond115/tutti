@@ -16,6 +16,7 @@ func submittedTurnActivityEvents(
 	displayPrompt string,
 	turnID string,
 	capabilityRefs []activityshared.CapabilityReference,
+	submittedTitle string,
 ) []activityshared.Event {
 	eventContext, ok := activityEventContext(session, "turn-submitted:"+turnID, turnID)
 	if !ok {
@@ -32,6 +33,7 @@ func submittedTurnActivityEvents(
 		nil,
 	)
 	event := activityshared.NewTurnUpdated(eventContext, turnID, activityshared.TurnPhaseSubmitted)
+	event.Payload.Title = strings.TrimSpace(submittedTitle)
 	event.Payload.Metadata = map[string]any{"turnOrigin": "user_prompt"}
 	// The controller owns the submit moment; it publishes the submitted
 	// lifecycle snapshot so downstream layers copy instead of recomputing

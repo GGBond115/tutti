@@ -118,14 +118,16 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		return c.guideActiveTurn(ctx, session, adapter, providerContent, displayPrompt, metadata, input.CapabilityRefs, input.TurnID)
 	}
 	previousSession := session
-	titleUpdated := false
+	// Keep the initial title on the submitted Turn patch so owner admission
+	// persists the title, turn, and prompt as one state/message transaction.
+	submittedTitle := ""
 	if initialTitle := strings.TrimSpace(input.InitialTitle); initialTitle != "" &&
 		!session.InitialTitleEstablished &&
 		strings.TrimSpace(session.Title) == strings.TrimSpace(input.InitialTitleBase) {
 		session.Title = initialTitle
 		session = markInitialTitleEstablished(session)
 		session.UpdatedAtUnixMS = unixMS(now())
-		titleUpdated = true
+		submittedTitle = session.Title
 	}
 	turnID := strings.TrimSpace(input.TurnID)
 	if turnID == "" {
@@ -168,10 +170,8 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		displayPrompt,
 		turnID,
 		input.CapabilityRefs,
+		submittedTitle,
 	)
-	if titleUpdated {
-		submitEvents = append([]activityshared.Event{newSessionTitleActivityEvent(session, session.Title)}, submitEvents...)
-	}
 	// The submitted Turn is a durable user intent, not provider output. Keep
 	// the Session visible while the provider-identity acceptance barrier is
 	// pending so an explicit provider rejection cannot erase the prompt.

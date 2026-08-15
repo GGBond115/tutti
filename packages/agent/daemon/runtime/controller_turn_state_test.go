@@ -15,7 +15,7 @@ func TestSubmittedTurnActivityEventProjectsCapabilityReferences(t *testing.T) {
 	events := submittedTurnActivityEvents(context.Background(), session, textPrompt("hello"), "", "turn-1", []CapabilityReference{
 		{Capability: " tutti ", Source: "slash_command"},
 		{Capability: "tutti", Source: "slash_command"},
-	})
+	}, "")
 	if len(events) != 2 {
 		t.Fatalf("submitted events = %#v", events)
 	}

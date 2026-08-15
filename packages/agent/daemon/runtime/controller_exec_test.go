@@ -194,6 +194,20 @@ func TestControllerStartExecPublishesAndReports(t *testing.T) {
 	if execResult.SessionStatus != SessionStatusWorking {
 		t.Fatalf("exec session status = %q, want %q", execResult.SessionStatus, SessionStatusWorking)
 	}
+	submitReports := reporter.waitForReports(t, "initial user submission report", func(calls []reportCall) bool {
+		_, found := reportWithTimelineItem(reportInputs(calls), "message.user")
+		return found
+	})
+	submitReport, ok := reportWithTimelineItem(reportInputs(submitReports), "message.user")
+	if !ok {
+		t.Fatalf("submit reports = %#v, want user message report", submitReports)
+	}
+	if len(submitReport.StatePatches) != 1 {
+		t.Fatalf("initial submit state patches = %#v, want one combined patch", submitReport.StatePatches)
+	}
+	if submitReport.StatePatches[0].Title != "hello" {
+		t.Fatalf("initial submit title = %q, want %q", submitReport.StatePatches[0].Title, "hello")
+	}
 	waitForStatePatchTitle(t, events, "hello")
 	deadline := time.After(2 * time.Second)
 	for {
