@@ -28,6 +28,7 @@ import { useAgentGUIDetailScroll } from "./useAgentGUIDetailScroll";
 import { useAgentGUIDetailModel } from "./useAgentGUIDetailModel";
 import { useAgentGUIComposerInputHistoryProps } from "./useAgentGUIComposerInputHistoryProps";
 import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
+import { AgentGUITuttiPlanReviewAction } from "./AgentGUITuttiPlanReviewAction";
 import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import type { AgentGUIDetailPaneProps } from "./AgentGUIDetailPane.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
@@ -498,14 +499,18 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
           : undefined,
       onPlanIssueBudgetPresetChange: updatePlanIssueBudgetPreset,
       onSubmit: tuttiWorkflowComposer.submitPromptOrDecidePlan,
+      composerActionAccessory:
+        tuttiWorkflowComposer.planReviewSendActive &&
+        tuttiWorkflowComposer.planReviewPreferencesDiverged &&
+        !tuttiWorkflowComposer.planReviewDraftHasContent ? (
+          <AgentGUITuttiPlanReviewAction
+            label={labels.tuttiModePlanSendRequestChanges}
+            onRequestChanges={tuttiWorkflowComposer.requestPendingPlanChanges}
+          />
+        ) : undefined,
       onSubmitEmpty: tuttiWorkflowComposer.planReviewSendActive
         ? tuttiWorkflowComposer.acceptPendingPlan
         : undefined,
-      emptySubmitLabel:
-        tuttiWorkflowComposer.planReviewSendActive &&
-        tuttiWorkflowComposer.planReviewPreferencesDiverged
-          ? labels.tuttiModePlanSendRequestChanges
-          : undefined,
       onSubmitGuidance: submitGuidancePromptAndScrollToBottom,
       onPromptImagesUnsupported: showPromptImagesUnsupported,
       onSendQueuedPromptNext: sendQueuedPromptNext,
@@ -575,10 +580,12 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       tuttiWorkflowComposer.planReviewSendActive,
       tuttiWorkflowComposer.tuttiExecutionActive,
       tuttiWorkflowComposer.tuttiExecutionStopping,
+      tuttiWorkflowComposer.planReviewDraftHasContent,
       tuttiWorkflowComposer.planReviewPreferencesDiverged,
       tuttiWorkflowDock.phase?.kind,
       labels.tuttiModePlanSendRequestChanges,
       tuttiWorkflowComposer.acceptPendingPlan,
+      tuttiWorkflowComposer.requestPendingPlanChanges,
       submitGuidancePromptAndScrollToBottom,
       uiLanguage,
       stableLinkAction,

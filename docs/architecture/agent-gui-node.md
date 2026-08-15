@@ -2139,6 +2139,18 @@ plan panel starts with the plan title and body; it does not repeat mode,
 review-kind, or pending-state badges already communicated by the workflow
 banner.
 
+The reviewed document's effect and speed are immutable plan inputs, while the
+Composer preferences remain mutable for the next Turn. A change is proven only
+when the document carries both explicit frozen values and either differs from
+the current Composer value; legacy documents with a missing pair never infer a
+change from reasoning or orchestration fields. With a proven change, the empty
+Composer shows `Request changes` beside `Accept`; without one, it shows only
+`Accept`. Accept always targets the checkpoint bound to the currently projected
+revision and therefore executes exactly the visible plan. The daemon rejects a
+checkpoint that is no longer bound to the workflow's current revision, so a
+stale render cannot execute replacement content. Typed feedback continues to
+request changes and includes the current preferences when they diverge.
+
 Task-assignment directories and target option catalogs are workspace query
 projections, not Plan, Session, or Turn state. The Desktop assignment source
 retains them in the shared bounded workspace query cache: directories are keyed
