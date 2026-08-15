@@ -73,12 +73,37 @@ func (router *ImplementationAuthorizationRouter) Observe(
 	observer, ok := provider.(AuthorizationObserver)
 	if !ok {
 		if request.Release.Manifest.Implementation.Kind == ImplementationKindManagedStdio {
-			return AuthorizationObservation{State: AuthorizationObservationPending}, nil
+			inspector, inspectOK := provider.(AuthorizationInspector)
+			if !inspectOK {
+				return AuthorizationObservation{}, errors.New("connector authorization inspector is unavailable")
+			}
+			connector := request.Connector
+			connector.Release = request.Release
+			return inspector.InspectAuthorization(ctx, AuthorizationInspectRequest{
+				Scope: request.Scope, Connector: connector,
+				AuthorizationSessionID: request.Session.SessionID,
+			})
 		}
 		return AuthorizationObservation{}, errors.New("connector authorization observer is unavailable")
 	}
 	return observer.Observe(ctx, request)
 }
 
+func (router *ImplementationAuthorizationRouter) InspectAuthorization(
+	ctx context.Context,
+	request AuthorizationInspectRequest,
+) (AuthorizationObservation, error) {
+	provider, err := router.provider(request.Connector.Release)
+	if err != nil {
+		return AuthorizationObservation{}, err
+	}
+	inspector, ok := provider.(AuthorizationInspector)
+	if !ok {
+		return AuthorizationObservation{}, errors.New("connector authorization inspector is unavailable")
+	}
+	return inspector.InspectAuthorization(ctx, request)
+}
+
 var _ AuthorizationProvider = (*ImplementationAuthorizationRouter)(nil)
 var _ AuthorizationObserver = (*ImplementationAuthorizationRouter)(nil)
+var _ AuthorizationInspector = (*ImplementationAuthorizationRouter)(nil)

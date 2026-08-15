@@ -12,8 +12,8 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 		scenarios []Scenario
 		wantCount int
 	}{
-		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 33},
-		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 28},
+		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 34},
+		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 29},
 		{name: "guidance", scenarios: GuidanceScenarios(), wantCount: 3},
 		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 5},
 		{name: "submission fence", scenarios: SubmissionFenceScenarios(), wantCount: 1},
@@ -110,6 +110,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"typed initial goal waits for canonical rail initialization",
 		"failed canonical initialization aborts unpublished runtime",
 		"create with explicit rail placement",
+		"create with authoritative rail placement outside local project registry",
 		"resume persisted session",
 		"send input",
 		"send connector-only input",
@@ -145,6 +146,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"typed initial goal waits for canonical rail initialization",
 		"failed canonical initialization aborts unpublished runtime",
 		"create with explicit rail placement",
+		"create with authoritative rail placement outside local project registry",
 		"resume persisted session",
 		"send input",
 		"send connector-only input",

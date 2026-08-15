@@ -47,6 +47,7 @@ import type {
 import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
 import type { AgentGUISessionLaunchMode } from "../model/agentSessionLaunchMode";
+import type { AgentProjectDropdownOptions } from "../AgentComposerProjectMenu";
 export type AgentMentionReferenceTargetResolver = (
   item: AgentContextMentionItem
 ) => ReferenceLocateTarget | null;
@@ -584,6 +585,12 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   /** Host-owned presentation for exact Agent targets; tooltip behavior stays AgentGUI-owned. */
   renderAgentTargetInfo?: AgentGUIAgentTargetInfoRenderer;
   renderProjectDirectoryPickerHeaderActions?: ReferenceSourcePickerProps["renderHeaderActions"];
+  projectSelectOptions?: AgentProjectDropdownOptions;
+  renderReferencePickerSidebarActions?: (
+    context: Parameters<
+      NonNullable<ReferenceSourcePickerProps["renderSidebarActions"]>
+    >[0] & { purpose: "directory" | "reference" }
+  ) => ReactNode;
   renderSidebarFooter?: AgentGUISidebarFooterRenderer;
   /** Renders the provider rail empty state in "exact" mode. See the type doc. */
   renderProviderRailEmpty?: AgentGUIAgentsEmptyRenderer;
@@ -678,7 +685,9 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
       permissionMode?: string;
     }) => void;
     /** Re-issues the composer-options load after a terminal error state. */
-    retryComposerOptions: () => void;
+    retryComposerOptions: NonNullable<
+      AgentComposerProps["onRetryComposerOptions"]
+    >;
     setTuttiModeActive: (active: boolean) => void;
     setTuttiModeEffect: (value: number) => void;
     setTuttiModeSpeed: (value: number) => void;

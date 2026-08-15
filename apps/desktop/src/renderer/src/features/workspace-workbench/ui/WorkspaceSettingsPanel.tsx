@@ -95,7 +95,6 @@ import {
   LAB_CONNECTORS_FLAG,
   LAB_WORKBENCH_SHORTCUTS_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
-  MOBILE_REMOTE_ACCESS_SETTINGS_FLAG,
   resolveDesktopWorkspaceUiMode
 } from "../../../../../shared/featureFlags/catalog.ts";
 import { resolveWorkspaceAgentGuiLabel } from "../services/workspaceAgentProviderCatalog";
@@ -216,11 +215,6 @@ export function WorkspaceSettingsPanel({
     pendingFeatureFlags,
     LAB_AUTOMATION_RULES_FLAG
   );
-  const mobileRemoteAccessSettingsEnabled = isFeatureEnabled(
-    pendingFeatureFlags,
-    MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
-  );
-
   useEffect(() => {
     if (settingsState.open) {
       settingsService.syncWorkspace({ id: workspace.id });
@@ -232,19 +226,6 @@ export function WorkspaceSettingsPanel({
       settingsService.selectSection("general");
     }
   }, [labSectionVisible, settingsService, settingsState.activeSection]);
-
-  useEffect(() => {
-    if (
-      !mobileRemoteAccessSettingsEnabled &&
-      settingsState.activeSection === "connection"
-    ) {
-      settingsService.selectSection("general");
-    }
-  }, [
-    mobileRemoteAccessSettingsEnabled,
-    settingsService,
-    settingsState.activeSection
-  ]);
 
   useEffect(() => {
     if (!automationRulesEnabled && settingsState.agentTab === "automation") {
@@ -334,14 +315,10 @@ export function WorkspaceSettingsPanel({
               id: "appearance" as const,
               label: t("workspace.settings.nav.appearance")
             },
-            ...(mobileRemoteAccessSettingsEnabled
-              ? [
-                  {
-                    id: "connection" as const,
-                    label: t("workspace.settings.nav.connection")
-                  }
-                ]
-              : []),
+            {
+              id: "connection" as const,
+              label: t("workspace.settings.nav.connection")
+            },
             {
               id: "deletedConversations" as const,
               label: t("workspace.settings.nav.deletedConversations")
@@ -425,43 +402,46 @@ export function WorkspaceSettingsPanel({
                 workbenchShortcuts={desktopPreferencesState.workbenchShortcuts}
               />
             ) : settingsState.activeSection === "agent" ? (
-              <div className="flex min-h-0 flex-col gap-5 pt-5">
-                <SectionTabs
-                  ariaLabel={t("workspace.settings.nav.agent")}
-                  className="h-8 shrink-0"
-                  tabs={[
-                    {
-                      value: "general" as const,
-                      label: t("workspace.settings.agent.tabs.general")
-                    },
-                    {
-                      value: "agents" as const,
-                      label: t("workspace.settings.agent.tabs.agents")
-                    },
-                    ...(connectorsVisible
-                      ? [
-                          {
-                            value: "connectors" as const,
-                            label: translateConnectorMarket("title")
-                          }
-                        ]
-                      : []),
-                    {
-                      value: "customAgents" as const,
-                      label: t("workspace.settings.agent.tabs.customAgents")
-                    },
-                    ...(automationRulesEnabled
-                      ? [
-                          {
-                            value: "automation" as const,
-                            label: t("workspace.settings.agent.tabs.automation")
-                          }
-                        ]
-                      : [])
-                  ]}
-                  value={settingsState.agentTab}
-                  onValueChange={(tab) => settingsService.selectAgentTab(tab)}
-                />
+              <div className="flex min-h-0 flex-col gap-5">
+              <div className="pb-[20px]">
+                <div className="sticky top-0 z-10 -mx-[22px] px-[22px] py-3 bg-[var(--background-fronted)]">
+                  <SectionTabs
+                    ariaLabel={t("workspace.settings.nav.agent")}
+                    className="h-8 shrink-0"
+                    tabs={[
+                      {
+                        value: "general" as const,
+                        label: t("workspace.settings.agent.tabs.general")
+                      },
+                      {
+                        value: "agents" as const,
+                        label: t("workspace.settings.agent.tabs.agents")
+                      },
+                      ...(connectorsVisible
+                        ? [
+                            {
+                              value: "connectors" as const,
+                              label: translateConnectorMarket("title")
+                            }
+                          ]
+                        : []),
+                      {
+                        value: "customAgents" as const,
+                        label: t("workspace.settings.agent.tabs.customAgents")
+                      },
+                      ...(automationRulesEnabled
+                        ? [
+                            {
+                              value: "automation" as const,
+                              label: t("workspace.settings.agent.tabs.automation")
+                            }
+                          ]
+                        : [])
+                    ]}
+                    value={settingsState.agentTab}
+                    onValueChange={(tab) => settingsService.selectAgentTab(tab)}
+                  />
+                </div>
                 {settingsState.agentTab === "agents" ? (
                   <WorkspaceAgentsSettingsTab
                     autoCheckEnabled={
@@ -566,6 +546,7 @@ export function WorkspaceSettingsPanel({
                   />
                 )}
               </div>
+              </div>
             ) : settingsState.activeSection === "appearance" ? (
               <WorkspaceAppearanceSettingsSection
                 changingDockPlacement={
@@ -621,12 +602,7 @@ export function WorkspaceSettingsPanel({
                 }}
               />
             ) : settingsState.activeSection === "connection" ? (
-              <WorkspaceConnectionSettingsSection
-                featureFlags={
-                  desktopPreferencesState.changingFeatureFlags ??
-                  desktopPreferencesState.featureFlags
-                }
-              />
+              <WorkspaceConnectionSettingsSection />
             ) : settingsState.activeSection === "deletedConversations" ? (
               <WorkspaceDeletedConversationsSection
                 changingRetentionDays={

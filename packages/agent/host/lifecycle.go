@@ -145,6 +145,9 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 	if canonicalExisted && !railPlacementMatchesSession(input.RailPlacement, canonicalBeforeStart) {
 		return createSessionFailureResult(input, cleanup(ErrRailPlacementConflict, false, false))
 	}
+	if input.RailPlacement, prepared.Env, err = h.resolveCreateRuntimeRailEnvironment(ctx, workspaceID, input, prepared); err != nil {
+		return createSessionFailureResult(input, cleanup(err, false, false))
+	}
 	startedAt := h.now()
 	release, err := h.acquireStartup(ctx, input.Provider)
 	if err != nil {
@@ -175,10 +178,7 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 	runtimeCreated := startResult.Created
 	h.observeStep(ctx, "session_create", "runtime_started", workspaceID, session.ID, session.Provider, startedAt, nil)
 	startedAt = h.now()
-	canonicalSession, err := h.store.InitializeRuntimeSession(ctx, RuntimeSessionInitialization{
-		Session:       session,
-		RailPlacement: input.RailPlacement,
-	})
+	canonicalSession, err := h.store.InitializeRuntimeSession(ctx, runtimeSessionInitializationForCreate(session, input))
 	if err != nil {
 		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, err)
 		return createSessionFailureResult(input, cleanup(err, runtimeCreated, false))
@@ -275,6 +275,7 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 		Metadata: cloneMap(metadata), TuttiModeSnapshot: input.TuttiModeSnapshot,
 		RequireProviderAcceptance: true,
 	})
+	recordProviderAcceptanceDiagnostics(ctx, execResult.ProviderDispatch)
 	if err != nil {
 		h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, err)
 		disposition := execResult.ProviderDispatch.Disposition
@@ -446,6 +447,9 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 	}
 	if prepared.Settings != nil {
 		settings = *prepared.Settings
+	}
+	if prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.Cwd, canonicalSession); err != nil {
+		return ProviderRuntimeSession{}, err
 	}
 	release, err := h.acquireStartup(ctx, canonicalSession.Provider)
 	if err != nil {
@@ -630,6 +634,7 @@ func (h *Host) sendInputSerialized(
 			RequireProviderAcceptance: !input.Guidance,
 		})
 	}()
+	recordProviderAcceptanceDiagnostics(ctx, execResult.ProviderDispatch)
 	if err != nil {
 		// Only an explicit target verdict is a guidance-target failure. Any
 		// other undispatched guidance is an ordinary runtime_exec failure that

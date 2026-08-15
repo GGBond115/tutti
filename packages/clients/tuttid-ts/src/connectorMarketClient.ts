@@ -1,4 +1,5 @@
 import {
+  cancelConnectorMarketAuthorization,
   disconnectConnectorMarketAuthorization,
   getConnectorMarket,
   getConnectorMarketConnector,
@@ -84,6 +85,7 @@ export interface ConnectorMarketClient {
     connectorKey: string,
     request: ConnectorMarketAuthorizationRequestWritable
   ): Promise<ConnectorMarketAuthorizationResponse>;
+  cancelConnectorMarketAuthorization(connectorKey: string): Promise<void>;
   disconnectConnectorMarketAuthorization(
     connectorKey: string,
     request: ConnectorMarketMutationRequest
@@ -165,6 +167,19 @@ export function createConnectorMarketClient(
         }),
         "Start connector authorization request failed."
       );
+    },
+    async cancelConnectorMarketAuthorization(connectorKey) {
+      const response = await cancelConnectorMarketAuthorization({
+        client,
+        path: { connectorKey }
+      });
+      const details = connectorMarketErrorDetails(response.error);
+      if (details) {
+        throw new ConnectorMarketClientError(
+          details,
+          response.response?.status ?? 0
+        );
+      }
     },
     async disconnectConnectorMarketAuthorization(connectorKey, request) {
       return unwrapConnectorMarketData(

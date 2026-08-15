@@ -33,6 +33,7 @@ export interface ConnectorMarketBackend {
   beginAuthorization(
     input: ConnectorAuthorizationInput
   ): Promise<ConnectorAuthorizationResult>;
+  cancelAuthorization(input: { connectorKey: string }): Promise<void>;
   disconnectAuthorization(
     input: ConnectorMutationInput
   ): Promise<ConnectorMutationResult>;

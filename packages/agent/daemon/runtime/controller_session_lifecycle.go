@@ -83,6 +83,11 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 		if AppErrorCode(err) == "" {
 			detail := cleanVisibleErrorText(err.Error())
 			code := visibleFailureCode(detail)
+			if errors.Is(err, ErrProviderStartTimeout) {
+				// Provider-start ownership is carried separately in the error
+				// chain. Keep the established presentation/API vocabulary here.
+				code = "request_timed_out"
+			}
 			startError = &AppError{
 				Code:         code,
 				Message:      visibleFailureContent(provider, "start", code),

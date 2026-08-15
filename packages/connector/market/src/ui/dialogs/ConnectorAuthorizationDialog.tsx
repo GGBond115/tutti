@@ -33,6 +33,7 @@ export interface ConnectorAuthorizationDialogProps {
   i18n: ConnectorMarketI18nRuntime;
   locale: string;
   onAuthorize: (secret?: string) => Promise<void>;
+  onCancel: () => void;
   onClose: () => void;
   pending: boolean;
 }
@@ -48,6 +49,7 @@ export function ConnectorAuthorizationDialog({
   i18n,
   locale,
   onAuthorize,
+  onCancel,
   onClose,
   pending
 }: ConnectorAuthorizationDialogProps) {
@@ -64,7 +66,7 @@ export function ConnectorAuthorizationDialog({
 
   const handleInteractionEvent = (event: AuthorizationEventEnvelopeV1) => {
     if (event.event.type === "cancel") {
-      onClose();
+      onCancel();
       return;
     }
     if (resolved.kind !== "form") return;
@@ -81,7 +83,7 @@ export function ConnectorAuthorizationDialog({
     <DialogContent className="max-h-[min(720px,calc(100vh-32px))] overflow-y-auto sm:max-w-[520px]">
       <DialogHeader className="items-center px-5 pt-4 text-center">
         <div className="mb-1 flex items-center gap-3">
-          <span className="flex size-12 items-center justify-center rounded-xl bg-[var(--accent-bg)] text-[var(--accent)]">
+          <span className="flex size-12 items-center justify-center rounded-xl bg-[var(--transparency-block)] text-[var(--accent)]">
             <TuttiMarkNew size={32} />
           </span>
           <ChangeLined className="size-4 text-[var(--text-tertiary)]" />
@@ -146,7 +148,7 @@ export function ConnectorAuthorizationDialog({
             size="dialog"
             type="button"
             variant="secondary"
-            onClick={onClose}
+            onClick={onCancel}
           >
             {i18n.t("cancel")}
           </Button>

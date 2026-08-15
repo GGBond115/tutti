@@ -301,6 +301,34 @@ type fakeSessionInitializer struct {
 	reader *fakeSessionReader
 }
 
+func (f fakeSessionInitializer) ResolveRuntimeSessionRailPlacement(
+	_ context.Context,
+	input agenthost.ResolveRuntimeSessionRailPlacementInput,
+) (*agenthost.RailPlacement, error) {
+	if input.RailPlacement != nil {
+		placement := *input.RailPlacement
+		return &placement, nil
+	}
+	if f.reader != nil {
+		if existing, found := f.reader.sessions[strings.TrimSpace(input.WorkspaceID)+":"+strings.TrimSpace(input.AgentSessionID)]; found &&
+			strings.TrimSpace(existing.RailSectionKey) != "" {
+			kind := agenthost.RailPlacementKind(strings.TrimSpace(existing.RailSectionKind))
+			if kind == "" && strings.TrimSpace(existing.RailSectionKey) == agentactivitybiz.RailSectionKeyConversations {
+				kind = agenthost.RailPlacementKindConversations
+			}
+			return &agenthost.RailPlacement{
+				Version: agenthost.RailPlacementVersion, Kind: kind,
+				ProjectPath: existing.RailProjectPath, SectionKey: existing.RailSectionKey,
+			}, nil
+		}
+	}
+	section := agentactivitybiz.ClassifyRailSection(input.Cwd, input.RuntimeContext, nil)
+	return &agenthost.RailPlacement{
+		Version: agenthost.RailPlacementVersion, Kind: agenthost.RailPlacementKind(section.Kind),
+		ProjectPath: section.ProjectPath, SectionKey: section.Key,
+	}, nil
+}
+
 func (f fakeSessionInitializer) InitializeRuntimeSession(
 	_ context.Context,
 	session ProviderRuntimeSession,

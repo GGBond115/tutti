@@ -17,7 +17,17 @@ type stubConnectorMarketService struct {
 	pageFn       func(context.Context, market.CatalogPageQuery) (market.CatalogPage, error)
 	installFn    func(context.Context, market.ConnectorMutation) (market.MutationResult, error)
 	uninstallFn  func(context.Context, market.ConnectorMutation) (market.MutationResult, error)
+	refreshFn    func(context.Context, market.Mutation) (market.MutationResult, error)
+	operationFn  func(context.Context, market.OperationScope, string) (market.Operation, error)
+	cancelFn     func(context.Context, market.OperationScope, string) error
 	projectionFn func(context.Context, string, string) (market.AuthorizationProjection, error)
+}
+
+func (service stubConnectorMarketService) CancelAuthorization(ctx context.Context, scope market.OperationScope, connectorKey string) error {
+	if service.cancelFn == nil {
+		return nil
+	}
+	return service.cancelFn(ctx, scope, connectorKey)
 }
 
 func (service stubConnectorMarketService) GetAuthorizationProjection(ctx context.Context, accountID, connectorKey string) (market.AuthorizationProjection, error) {
@@ -37,6 +47,18 @@ func (service stubConnectorMarketService) Install(ctx context.Context, mutation 
 
 func (service stubConnectorMarketService) Uninstall(ctx context.Context, mutation market.ConnectorMutation) (market.MutationResult, error) {
 	return service.uninstallFn(ctx, mutation)
+}
+
+func (service stubConnectorMarketService) RefreshCatalog(ctx context.Context, mutation market.Mutation) (market.MutationResult, error) {
+	return service.refreshFn(ctx, mutation)
+}
+
+func (service stubConnectorMarketService) GetOperationForScope(
+	ctx context.Context,
+	scope market.OperationScope,
+	operationID string,
+) (market.Operation, error) {
+	return service.operationFn(ctx, scope, operationID)
 }
 
 func (service stubConnectorMarketService) ListCatalogCategories(ctx context.Context) ([]market.CatalogCategory, error) {
@@ -84,6 +106,29 @@ func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T)
 	aliases := routing["aliases"].([]any)
 	if len(aliases) != 2 || aliases[0] != "Notion" || aliases[1] != "Notion AI" {
 		t.Fatalf("public agent routing aliases = %#v", aliases)
+	}
+}
+
+func TestDaemonAPICancelsConnectorAuthorizationForActiveAccount(t *testing.T) {
+	var gotScope market.OperationScope
+	var gotConnectorKey string
+	service := stubConnectorMarketService{cancelFn: func(_ context.Context, scope market.OperationScope, connectorKey string) error {
+		gotScope, gotConnectorKey = scope, connectorKey
+		return nil
+	}}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		ConnectorMarketService: service,
+		ConnectorMarketScope:   func() market.OperationScope { return market.OperationScope{AccountID: "account-1"} },
+	}))
+
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost,
+		"/v1/connector-market/connectors/supabase/authorization:cancel", nil)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusNoContent, recorder.Body.String())
+	}
+	if gotScope.AccountID != "account-1" || gotConnectorKey != "supabase" {
+		t.Fatalf("cancel scope=%#v connector=%q", gotScope, gotConnectorKey)
 	}
 }
 
@@ -222,6 +267,47 @@ func TestDaemonAPIConnectorMarketRefreshRejectsNegativeRevision(t *testing.T) {
 	})
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+}
+
+func TestDaemonAPIConnectorMarketRefreshBindsActiveAccount(t *testing.T) {
+	service := stubConnectorMarketService{refreshFn: func(_ context.Context, mutation market.Mutation) (market.MutationResult, error) {
+		if mutation.Scope.AccountID != "account-a" || mutation.ClientRequestID != "request-refresh" {
+			t.Fatalf("refresh mutation = %#v", mutation)
+		}
+		return market.MutationResult{Operation: market.Operation{
+			OperationID: "refresh-1", ClientRequestID: mutation.ClientRequestID, Kind: market.OperationKindRefreshCatalog,
+			Scope: mutation.Scope, State: market.OperationStateAccepted, CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
+		}}, nil
+	}}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		ConnectorMarketService: service,
+		ConnectorMarketScope:   func() market.OperationScope { return market.OperationScope{AccountID: "account-a"} },
+	}))
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost, "/v1/connector-market:refresh", map[string]any{
+		"clientRequestId": "request-refresh", "expectedRevision": 0,
+	})
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d; body: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestDaemonAPIConnectorMarketOperationUsesScopedRead(t *testing.T) {
+	service := stubConnectorMarketService{operationFn: func(_ context.Context, scope market.OperationScope, operationID string) (market.Operation, error) {
+		if scope.AccountID != "account-b" || operationID != "operation-a" {
+			t.Fatalf("operation scope=%#v id=%q", scope, operationID)
+		}
+		return market.Operation{}, market.ErrNotFound
+	}}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		ConnectorMarketService: service,
+		ConnectorMarketScope:   func() market.OperationScope { return market.OperationScope{AccountID: "account-b"} },
+	}))
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodGet, "/v1/connector-market/operations/operation-a", nil)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", recorder.Code, recorder.Body.String())
 	}
 }
 

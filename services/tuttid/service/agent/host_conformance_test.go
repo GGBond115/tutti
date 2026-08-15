@@ -18,6 +18,7 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
+	userprojectbiz "github.com/tutti-os/tutti/services/tuttid/biz/userproject"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 )
@@ -396,6 +397,14 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	d.service.SessionReader = d.sessions
 	d.service.SessionPurgeStore = d.sessions
 	canonicalStore := openAgentServiceSQLiteStore(d.t)
+	for index, projectPath := range fixture.RailProjectPaths {
+		if _, err := canonicalStore.PutUserProject(context.Background(), userprojectbiz.Project{
+			ID: fmt.Sprintf("host-conformance-project-%d", index), Path: projectPath,
+			Label: projectPath, SectionKey: userprojectbiz.SectionKeyFromPath(projectPath),
+		}); err != nil {
+			return fmt.Errorf("register host conformance rail project %q: %w", projectPath, err)
+		}
+	}
 	d.service.SessionInitializer = legacyHostConformanceSessionInitializer{
 		canonicalStore: canonicalStore,
 		sessions:       d.sessions,
@@ -791,7 +800,8 @@ func (d *legacyHostConformanceDriver) Create(
 		ProviderTargetRef: input.ProviderTargetRef, ReasoningEffort: input.ReasoningEffort,
 		RuntimeContext: input.RuntimeContext, Speed: input.Speed,
 		ConversationDetailMode: input.ConversationDetailMode, Visible: input.Visible,
-		RailPlacement: input.RailPlacement,
+		RailPlacement:              input.RailPlacement,
+		RailPlacementAuthoritative: input.RailPlacementAuthoritative,
 	})
 	if err != nil {
 		return hostconformance.SessionObservation{}, "", err
@@ -1365,6 +1375,12 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 		RuntimeStartReportWrites:   d.runtimeStartReportWrites,
 		RecoverySteps:              append([]string(nil), (*d.recoverySteps)...),
 	}
+	if len(d.runtime.startCalls) > 0 {
+		metrics.LastStartEnv = append([]string(nil), d.runtime.startCalls[len(d.runtime.startCalls)-1].Env...)
+	}
+	if len(d.runtime.resumeCalls) > 0 {
+		metrics.LastResumeEnv = append([]string(nil), d.runtime.resumeCalls[len(d.runtime.resumeCalls)-1].Env...)
+	}
 	if closeCallCount := len(d.runtime.closeCalls); closeCallCount > 0 {
 		metrics.LastClosePreservedCanonicalState = d.runtime.closeCalls[closeCallCount-1].PreserveCanonicalState
 	}
@@ -1597,10 +1613,33 @@ type legacyHostConformanceSessionInitializer struct {
 	fail           bool
 }
 
+func (i legacyHostConformanceSessionInitializer) ResolveRuntimeSessionRailPlacement(
+	ctx context.Context,
+	input agenthost.ResolveRuntimeSessionRailPlacementInput,
+) (*agenthost.RailPlacement, error) {
+	if i.canonicalStore != nil && i.canonicalStore.AgentCanonicalStore() != nil {
+		canonical := i.canonicalStore.AgentCanonicalStore()
+		store := &agenthost.SQLiteWorkspaceStore{
+			StoreForWorkspace: func(string) *agentactivitybiz.Store { return canonical },
+		}
+		return store.ResolveRuntimeSessionRailPlacement(ctx, input)
+	}
+	return (fakeSessionInitializer{reader: i.sessions}).ResolveRuntimeSessionRailPlacement(ctx, input)
+}
+
 func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(
 	ctx context.Context,
 	session ProviderRuntimeSession,
 	railPlacement *agenthost.RailPlacement,
+) (PersistedSession, error) {
+	return i.InitializeRuntimeSessionWithRailAuthority(ctx, session, railPlacement, false)
+}
+
+func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSessionWithRailAuthority(
+	ctx context.Context,
+	session ProviderRuntimeSession,
+	railPlacement *agenthost.RailPlacement,
+	railPlacementAuthoritative bool,
 ) (PersistedSession, error) {
 	if i.fail {
 		return PersistedSession{}, errors.New("injected canonical session initialization failure")
@@ -1629,12 +1668,22 @@ func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(
 		} else if err != nil {
 			return PersistedSession{}, err
 		}
+		var canonicalRail *agentactivitybiz.RailSection
+		if railPlacement != nil {
+			canonicalRail = &agentactivitybiz.RailSection{
+				Kind:        string(railPlacement.Kind),
+				ProjectPath: railPlacement.ProjectPath,
+				Key:         railPlacement.SectionKey,
+			}
+		}
 		if _, err := i.canonicalStore.ReportSessionState(ctx, agentactivitybiz.SessionStateReport{
-			WorkspaceID:       persisted.WorkspaceID,
-			AgentSessionID:    persisted.ID,
-			Provider:          persisted.Provider,
-			ProviderSessionID: persisted.ProviderSessionID,
-			OccurredAtUnixMS:  persisted.UpdatedAtUnixMS,
+			WorkspaceID:                persisted.WorkspaceID,
+			AgentSessionID:             persisted.ID,
+			Provider:                   persisted.Provider,
+			ProviderSessionID:          persisted.ProviderSessionID,
+			RailPlacement:              canonicalRail,
+			RailPlacementAuthoritative: railPlacementAuthoritative,
+			OccurredAtUnixMS:           persisted.UpdatedAtUnixMS,
 		}); err != nil {
 			return PersistedSession{}, err
 		}

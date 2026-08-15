@@ -90,6 +90,11 @@ export function buildConnectorMarketView(
         ? Boolean(market.authorizingConnectorKeys[uiState.dialog.connectorKey])
         : false,
       uiState.dialog
+        ? market.pendingAuthorizationsByConnectorKey[
+            uiState.dialog.connectorKey
+          ] === true
+        : false,
+      uiState.dialog
         ? market.pendingInstallationsByConnectorKey[
             uiState.dialog.connectorKey
           ] === true
@@ -208,6 +213,7 @@ function buildConnectorDialogView(
   connector: Connector | undefined,
   requestKind: NonNullable<ConnectorMarketUiState["dialog"]>["kind"] | null,
   authorizing: boolean,
+  pendingAuthorization: boolean,
   pendingInstallation: boolean,
   operationStage: ConnectorCardView["operationStage"]
 ): ConnectorDialogView | null {
@@ -261,7 +267,8 @@ function buildConnectorDialogView(
       authorizationKind: connector.release.manifest.authorizationKind,
       authorizing,
       kind: "authorization",
-      pending: connector.authorization.state === "pending"
+      pending:
+        pendingAuthorization || connector.authorization.state === "pending"
     };
   }
   return {

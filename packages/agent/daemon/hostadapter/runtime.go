@@ -672,6 +672,13 @@ func mapRuntimeError(err error) error {
 	if errors.Is(err, agentruntime.ErrEffectiveHistoryUnsupported) {
 		return host.ErrRuntimeHistoryUnsupported
 	}
+	if errors.Is(err, agentruntime.ErrProviderStartTimeout) {
+		var appErr *agentruntime.AppError
+		if errors.As(err, &appErr) && appErr != nil {
+			return host.NewProviderStartTimeoutError(appErr.Message, appErr.DebugMessage, err)
+		}
+		return host.NewProviderStartTimeoutError("", "", err)
+	}
 	var appErr *agentruntime.AppError
 	if errors.As(err, &appErr) && appErr != nil {
 		if errors.Is(appErr, context.Canceled) || errors.Is(appErr, context.DeadlineExceeded) {

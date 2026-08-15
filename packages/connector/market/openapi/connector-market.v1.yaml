@@ -206,6 +206,22 @@ paths:
           $ref: "#/components/responses/ConnectorMarketConflictError"
         "503":
           $ref: "#/components/responses/ConnectorMarketUnavailableError"
+  /v1/connector-market/connectors/{connectorKey}/authorization:cancel:
+    parameters:
+      - $ref: "#/components/parameters/ConnectorMarketConnectorKey"
+    post:
+      operationId: cancelConnectorMarketAuthorization
+      tags: [connector-market]
+      summary: Cancel a pending connector authorization attempt
+      responses:
+        "204":
+          description: Pending authorization attempt canceled
+        "401":
+          $ref: "#/components/responses/ConnectorMarketUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/ConnectorMarketNotFoundError"
+        "503":
+          $ref: "#/components/responses/ConnectorMarketUnavailableError"
   /v1/connector-market/connectors/{connectorKey}/authorization:disconnect:
     parameters:
       - $ref: "#/components/parameters/ConnectorMarketConnectorKey"
@@ -395,7 +411,7 @@ components:
     ConnectorMarketSnapshot:
       type: object
       additionalProperties: false
-      required: [catalogState, connectors, operations, revision]
+      required: [catalogState, connectors, operations, revision, eventCursor]
       properties:
         catalogState:
           $ref: "#/components/schemas/ConnectorMarketCatalogState"
@@ -408,6 +424,10 @@ components:
           items:
             $ref: "#/components/schemas/ConnectorMarketOperation"
         revision:
+          type: integer
+          format: int64
+          minimum: 0
+        eventCursor:
           type: integer
           format: int64
           minimum: 0
@@ -676,6 +696,10 @@ components:
           type: integer
           format: int64
           minimum: 0
+        expectedConnectorRevision:
+          type: integer
+          format: int64
+          minimum: 0
     ConnectorMarketAuthorizationRequest:
       type: object
       additionalProperties: false
@@ -685,6 +709,10 @@ components:
           type: string
           minLength: 1
         expectedRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        expectedConnectorRevision:
           type: integer
           format: int64
           minimum: 0
@@ -709,7 +737,7 @@ components:
     ConnectorMarketAuthorizationResponse:
       type: object
       additionalProperties: false
-      required: [connector, operation, revision]
+      required: [connector, operation, authorizationExpiresAt, revision]
       properties:
         connector:
           $ref: "#/components/schemas/ConnectorMarketConnector"
@@ -718,6 +746,9 @@ components:
         authorizationUrl:
           type: string
           format: uri
+        authorizationExpiresAt:
+          type: string
+          format: date-time
         revision:
           type: integer
           format: int64
@@ -788,7 +819,9 @@ components:
         - refreshing
         - installing
         - installed
+        - runtime_pending
         - deactivating
+        - removing
         - authorizing
         - disconnecting
         - completed

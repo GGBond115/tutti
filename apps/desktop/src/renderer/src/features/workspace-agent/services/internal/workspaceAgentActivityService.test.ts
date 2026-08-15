@@ -2058,8 +2058,8 @@ test("WorkspaceAgentActivityService preserves realtime turn provenance for atten
       historical.getSessionEngine("ws-2").getSnapshot(),
       "local",
       "session-1"
-    )?.isUnread,
-    false
+    ),
+    null
   );
 });
 

@@ -136,6 +136,15 @@ test("keeps connector details open through installation and advances to authoriz
     authorizing?.kind === "authorization" && authorizing.pending,
     true
   );
+
+  connector.authorization = { state: "disconnected" };
+  market.connectorsByKey[connector.key] = connector;
+  market.pendingAuthorizationsByConnectorKey[connector.key] = true;
+  const pendingSession = buildConnectorMarketView(market, dialogState).dialog;
+  assert.equal(
+    pendingSession?.kind === "authorization" && pendingSession.pending,
+    true
+  );
 });
 
 test("preserves the connector authorization interaction for the dialog", () => {

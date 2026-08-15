@@ -41,7 +41,9 @@ export type ConnectorOperationStage =
   | "refreshing"
   | "installing"
   | "installed"
+  | "runtime_pending"
   | "deactivating"
+  | "removing"
   | "authorizing"
   | "disconnecting"
   | "completed"
@@ -205,6 +207,7 @@ export interface ConnectorMarketSnapshot {
   connectors: Connector[];
   operations: ConnectorOperation[];
   revision: number;
+  eventCursor?: number;
   sourceRevision?: string;
 }
 
@@ -237,6 +240,7 @@ export interface ConnectorMarketMutationInput {
 
 export interface ConnectorMutationInput extends ConnectorMarketMutationInput {
   connectorKey: string;
+  expectedConnectorRevision?: number;
 }
 
 export interface ConnectorAuthorizationInput extends ConnectorMutationInput {
@@ -253,12 +257,14 @@ export interface ConnectorAuthorizationResult {
   connector: Connector;
   operation: ConnectorOperation;
   authorizationUrl?: string;
+  authorizationExpiresAt?: string;
   revision: number;
 }
 
 export interface ConnectorMarketChangedEvent {
   type: "connector.market.changed";
   revision: number;
+  cursor?: number;
   connectorKey?: string;
   operationId?: string;
 }

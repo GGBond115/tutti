@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	CanonicalStore          CanonicalStore
+	RuntimeRailPlacement    RuntimeSessionRailPlacementResolver
 	InteractionTrees        CanonicalInteractionTreeStore
 	TurnSubmissions         TurnSubmissionStore
 	EffectiveHistory        EffectiveHistoryStore
@@ -64,6 +65,7 @@ type Config struct {
 
 type Host struct {
 	store                     CanonicalStore
+	runtimeRailPlacement      RuntimeSessionRailPlacementResolver
 	interactionTrees          CanonicalInteractionTreeStore
 	turnSubmissions           TurnSubmissionStore
 	effectiveHistory          EffectiveHistoryStore
@@ -122,8 +124,9 @@ func New(config Config) *Host {
 		sessionMutationActor = NewSessionActor()
 	}
 	host := &Host{
-		store: config.CanonicalStore, interactionTrees: config.InteractionTrees,
-		turnSubmissions: config.TurnSubmissions, effectiveHistory: config.EffectiveHistory,
+		store: config.CanonicalStore, runtimeRailPlacement: config.RuntimeRailPlacement,
+		interactionTrees: config.InteractionTrees,
+		turnSubmissions:  config.TurnSubmissions, effectiveHistory: config.EffectiveHistory,
 		sessionManagement: config.SessionManagement, sessionBatchManagement: config.SessionBatchManagement, sessionDeletionGuard: config.SessionDeletionGuard, sessionPurge: config.SessionPurge,
 		deletedSessions: config.DeletedSessions,
 		sessionForks:    config.SessionForks, sessionForkRuntime: config.SessionForkRuntime,
@@ -146,6 +149,9 @@ func New(config Config) *Host {
 		goalActor: goalActor, sessionMutationActor: sessionMutationActor,
 		workspaceRuntimeAdmission: newWorkspaceRuntimeAdmission(),
 		editRetryDisabled:         config.EditRetryDisabled,
+	}
+	if host.runtimeRailPlacement == nil {
+		host.runtimeRailPlacement, _ = host.store.(RuntimeSessionRailPlacementResolver)
 	}
 	if host.interactionTrees == nil {
 		host.interactionTrees, _ = host.store.(CanonicalInteractionTreeStore)

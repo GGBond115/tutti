@@ -83,7 +83,9 @@ type Config struct {
 }
 
 type Host struct {
-	lifecycleMu            sync.Mutex
+	admission              sync.RWMutex
+	laneMu                 sync.Mutex
+	connectorLanes         map[string]*sync.Mutex
 	artifacts              PreparedArtifactResolver
 	planner                *connectorruntime.ManagedRoutePlanner
 	processes              agentruntime.ProcessTransport
@@ -178,6 +180,7 @@ func New(config Config) (*Host, error) {
 		routes:                 routes,
 		snapshots:              snapshots,
 		authorizationRoutes:    make(map[string]*connectorRoute),
+		connectorLanes:         make(map[string]*sync.Mutex),
 		remoteMCPClientFactory: config.RemoteMCPClientFactory,
 		mcpRegistry:            config.MCP,
 		registry:               config.Registry,
@@ -193,25 +196,33 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		!hostIdentityPattern.MatchString(runtimeRequest.Connector.Key) || runtimeRequest.Generation.BootEpoch == "" || runtimeRequest.Generation.Generation == 0 {
 		return market.RuntimeReceipt{}, errors.New("connector runtime reconcile identity is invalid")
 	}
-	if err := market.ValidateRuntimeReleaseShape(runtimeRequest.Connector.Release); err != nil {
-		return market.RuntimeReceipt{}, err
-	}
-	host.lifecycleMu.Lock()
-	defer host.lifecycleMu.Unlock()
-	key := connectorRouteKey(runtimeRequest.ConnectionID, runtimeRequest.Connector.Key)
+	releaseLane := host.enterConnectorLane(runtimeRequest.Connector.Key)
+	defer releaseLane()
 	if !runtimeRequest.Enabled {
-		if err := host.routes.Remove(key, runtimeRequest.Generation, "", time.Time{}); err != nil {
+		// A connection id can rotate while an older account route is still
+		// present. Disabled is connector-level desired state, so convergence must
+		// fence every route and authorization session for the connector instead
+		// of removing only the latest route key.
+		if err := host.deactivateConnector(market.RuntimeDeactivationRequest{
+			ConnectionID:   runtimeRequest.ConnectionID,
+			ConnectorKey:   runtimeRequest.Connector.Key,
+			AllConnections: true,
+			Generation:     runtimeRequest.Generation,
+			Deadline:       time.Now().Add(3 * time.Second),
+		}); err != nil {
 			return market.RuntimeReceipt{}, err
 		}
-		host.notifyRouteChanged()
 		return market.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
-			ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: runtimeRequest.Connector.Installation.InstalledReleaseDigest,
+			ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: runtimeRequest.Connector.Release.ReleaseDigest,
 			Generation: runtimeRequest.Generation,
 			Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessBlocked,
 				ReasonCode: market.RuntimeReadinessReasonRuntimeDisabled}}, nil
 	}
-	if runtimeRequest.Connector.Installation.State != market.InstallationStateInstalled ||
-		runtimeRequest.Connector.Installation.InstalledReleaseDigest != runtimeRequest.Connector.Release.ReleaseDigest {
+	if err := market.ValidateRuntimeReleaseShape(runtimeRequest.Connector.Release); err != nil {
+		return market.RuntimeReceipt{}, err
+	}
+	key := connectorRouteKey(runtimeRequest.ConnectionID, runtimeRequest.Connector.Key)
+	if !installationTargetsRelease(runtimeRequest.Connector.Installation, runtimeRequest.Connector.Release.ReleaseDigest) {
 		return market.RuntimeReceipt{}, errors.New("connector installed release is not active")
 	}
 	if err := host.validateAuthorization(runtimeRequest); err != nil {
@@ -291,6 +302,17 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		Generation: runtimeRequest.Generation, Readiness: cloneRuntimeReadiness(route.readiness), Summary: &summary}, nil
 }
 
+func installationTargetsRelease(installation market.Installation, releaseDigest string) bool {
+	switch installation.State {
+	case market.InstallationStateInstalled:
+		return installation.InstalledReleaseDigest == releaseDigest
+	case market.InstallationStateInstalling, market.InstallationStateUpdating:
+		return installation.CandidateReleaseDigest == releaseDigest
+	default:
+		return false
+	}
+}
+
 func (*Host) validateAuthorization(request market.RuntimeReconcileRequest) error {
 	authKind := request.Connector.Release.Manifest.AuthorizationKind
 	if request.Connector.Release.Manifest.Implementation.Kind == market.ImplementationKindRemoteStreamableHTTP {
@@ -334,6 +356,8 @@ func (host *Host) Close() error {
 		return nil
 	}
 	deadline := time.Now().Add(3 * time.Second)
+	host.admission.Lock()
+	defer host.admission.Unlock()
 	host.authorizationMu.Lock()
 	authorizationRoutes := make([]*connectorRoute, 0, len(host.authorizationRoutes))
 	for key, route := range host.authorizationRoutes {
@@ -360,6 +384,8 @@ func (host *Host) FenceAll(_ context.Context, deadline time.Time) error {
 	if host == nil {
 		return nil
 	}
+	host.admission.Lock()
+	defer host.admission.Unlock()
 	err := host.routes.FenceAll(deadline)
 	host.notifyRouteChanged()
 	return err
@@ -383,14 +409,33 @@ func (host *Host) DeactivateRuntime(ctx context.Context, request market.RuntimeD
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	host.lifecycleMu.Lock()
-	defer host.lifecycleMu.Unlock()
+	releaseLane := host.enterConnectorLane(request.ConnectorKey)
+	defer releaseLane()
 	if request.AllConnections {
 		return host.deactivateConnector(request)
 	}
 	err := host.routes.Remove(connectorRouteKey(request.ConnectionID, request.ConnectorKey), request.Generation, request.ReleaseDigest, request.Deadline)
 	host.notifyRouteChanged()
 	return err
+}
+
+func (host *Host) enterConnectorLane(connectorKey string) func() {
+	host.admission.RLock()
+	host.laneMu.Lock()
+	if host.connectorLanes == nil {
+		host.connectorLanes = make(map[string]*sync.Mutex)
+	}
+	lane := host.connectorLanes[connectorKey]
+	if lane == nil {
+		lane = &sync.Mutex{}
+		host.connectorLanes[connectorKey] = lane
+	}
+	host.laneMu.Unlock()
+	lane.Lock()
+	return func() {
+		lane.Unlock()
+		host.admission.RUnlock()
+	}
 }
 
 func (host *Host) buildManagedRoute(ctx context.Context, request market.RuntimeReconcileRequest,

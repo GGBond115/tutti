@@ -217,8 +217,12 @@ func TestMapRuntimeErrorPreservesProviderDiagnostics(t *testing.T) {
 func TestMapRuntimeErrorKeepsTransportOutcomeUnknown(t *testing.T) {
 	for _, target := range []error{context.Canceled, context.DeadlineExceeded} {
 		t.Run(target.Error(), func(t *testing.T) {
+			code := "request_failed"
+			if errors.Is(target, context.DeadlineExceeded) {
+				code = "request_timed_out"
+			}
 			runtimeErr := &agentruntime.AppError{
-				Code:  "request_failed",
+				Code:  code,
 				Cause: fmt.Errorf("provider response: %w", target),
 			}
 			mapped := mapRuntimeError(runtimeErr)
@@ -230,6 +234,32 @@ func TestMapRuntimeErrorKeepsTransportOutcomeUnknown(t *testing.T) {
 				t.Fatalf("mapped error = %v, want %v in chain", mapped, target)
 			}
 		})
+	}
+}
+
+func TestMapRuntimeErrorPreservesProviderStartTimeoutVerdict(t *testing.T) {
+	runtimeErr := &agentruntime.AppError{
+		Code:         "request_timed_out",
+		Message:      "Agent could not start before the request timed out.",
+		DebugMessage: "provider startup exceeded its deadline",
+		Cause: errors.Join(
+			agentruntime.ErrProviderStartTimeout,
+			fmt.Errorf("provider start: %w", context.DeadlineExceeded),
+		),
+	}
+	mapped := mapRuntimeError(fmt.Errorf("daemon runtime: %w", runtimeErr))
+	var providerErr *host.ProviderError
+	if !errors.As(mapped, &providerErr) {
+		t.Fatalf("mapped error = %v, want ProviderError", mapped)
+	}
+	if providerErr.Code != host.ProviderErrorCodeStartTimeout {
+		t.Fatalf("ProviderError code = %q, want %q", providerErr.Code, host.ProviderErrorCodeStartTimeout)
+	}
+	if providerErr.Message != runtimeErr.Message || providerErr.DebugMessage != runtimeErr.DebugMessage {
+		t.Fatalf("ProviderError = %#v, want presentation diagnostics from %#v", providerErr, runtimeErr)
+	}
+	if !errors.Is(mapped, context.DeadlineExceeded) || !errors.Is(mapped, runtimeErr) {
+		t.Fatalf("mapped error did not preserve runtime deadline chain: %v", mapped)
 	}
 }
 

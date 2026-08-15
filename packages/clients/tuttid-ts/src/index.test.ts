@@ -2523,6 +2523,22 @@ test("shared tuttid client preserves connector market read and install routes", 
   });
 });
 
+test("shared tuttid connector client cancels a pending authorization without a request body", async () => {
+  const { client, requests } = captureClient(
+    () => new Response(null, { status: 204 })
+  );
+
+  await client.cancelConnectorMarketAuthorization("supabase");
+
+  assertRequest(requests[0]!, {
+    authorization: null,
+    body: null,
+    method: "POST",
+    path: "/v1/connector-market/connectors/supabase/authorization:cancel",
+    query: {}
+  });
+});
+
 test("shared tuttid connector client preserves structured market errors", async () => {
   const details = {
     code: "connector_market_revision_conflict" as const,

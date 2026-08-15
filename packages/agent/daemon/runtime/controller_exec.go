@@ -204,8 +204,9 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	} else if acceptanceAdapter != nil {
 		acceptProviderTurn := func(receipt ProviderAcceptanceReceipt) error {
 			dispatch := ProviderDispatchResult{
-				Disposition: DispatchDispositionApplied,
-				Acceptance:  &receipt,
+				Disposition:           DispatchDispositionApplied,
+				Acceptance:            &receipt,
+				AcceptanceDiagnostics: codexProviderAcceptanceDiagnostics(receipt.ProviderSessionID, receipt.ProviderTurnID, ""),
 			}
 			confirmed, confirmErr := c.confirmProviderDispatchDurable(
 				// Provider acceptance persistence must finish even when the
@@ -291,7 +292,10 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 				// pre-acceptance interrupt races where adapter cancel settles
 				// before runCtx is canceled, caller disconnect) must not become
 				// delivery-unknown — that locks the Session for the next submit.
+				// An explicit acceptance diagnostic is different: it identifies a
+				// deterministic provider-boundary failure and must remain visible.
 				if dispatch.Acceptance == nil &&
+					dispatch.AcceptanceDiagnostics == nil &&
 					dispatch.Disposition != DispatchDispositionRejected &&
 					dispatch.Disposition != DispatchDispositionNotDispatched {
 					result.ProviderDispatch = &ProviderDispatchResult{
@@ -301,6 +305,14 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 				}
 				if dispatch.Failure != nil {
 					return result, dispatch.Failure
+				}
+				if diagnostics := dispatch.AcceptanceDiagnostics; diagnostics != nil &&
+					strings.TrimSpace(diagnostics.FailureReason) != "" {
+					return result, &AppError{
+						Code:    AppErrorProviderAcceptanceMissingIdentity,
+						Message: "provider turn was not durably accepted",
+						Cause:   errors.New(diagnostics.FailureReason),
+					}
 				}
 				return result, errors.New("provider turn was not durably accepted")
 			}
@@ -338,8 +350,22 @@ func (c *Controller) guideActiveTurn(
 	if !ok {
 		return ExecResult{}, ErrActiveTurnGuidanceUnsupported
 	}
+	expectedTurnID = strings.TrimSpace(expectedTurnID)
 	turnID, ok := c.activeTurnID(session.RoomID, session.AgentSessionID)
 	if !ok {
+		if expectedTurnID != "" {
+			return ExecResult{
+					AgentSessionID: session.AgentSessionID,
+					Status:         ExecStatusStarted,
+					TurnID:         expectedTurnID,
+					ProviderDispatch: &ProviderDispatchResult{
+						Disposition: DispatchDispositionNotDispatched,
+					},
+				}, errors.Join(
+					fmt.Errorf("%w: expected %q, current turn is inactive", ErrActiveTurnTargetMismatch, expectedTurnID),
+					ErrSessionNoActiveTurn,
+				)
+		}
 		return ExecResult{}, ErrSessionNoActiveTurn
 	}
 	// The lifecycle lock held by Exec makes this comparison and the provider
@@ -348,7 +374,7 @@ func (c *Controller) guideActiveTurn(
 	// Host consumers must provide the target and are checked before reaching
 	// this method. When a target is present, never retarget to whichever turn is
 	// current when the request happens to arrive.
-	if expectedTurnID = strings.TrimSpace(expectedTurnID); expectedTurnID != "" && expectedTurnID != turnID {
+	if expectedTurnID != "" && expectedTurnID != turnID {
 		return ExecResult{
 			AgentSessionID: session.AgentSessionID,
 			Status:         ExecStatusStarted,
@@ -380,12 +406,56 @@ func (c *Controller) guideActiveTurn(
 	emitCommands := func(snapshot AgentSessionCommandSnapshot) {
 		c.applyCommandSnapshotByAgentSessionID(snapshot)
 	}
-	events, err := guidanceAdapter.GuideActiveTurn(runCtx, session, content, displayPrompt, turnID, emit, emitCommands)
+	var providerDispatch *ProviderDispatchResult
+	var providerDispatchOnce sync.Once
+	reportProviderDispatch := func(result ProviderDispatchResult) {
+		providerDispatchOnce.Do(func() {
+			copy := result
+			providerDispatch = &copy
+		})
+	}
+	var events []activityshared.Event
+	var err error
+	if dispatchAdapter, ok := adapter.(ActiveTurnGuidanceProviderDispatchAdapter); ok {
+		events, err = dispatchAdapter.GuideActiveTurnWithProviderDispatch(
+			runCtx,
+			session,
+			content,
+			displayPrompt,
+			turnID,
+			emit,
+			emitCommands,
+			reportProviderDispatch,
+		)
+	} else {
+		events, err = guidanceAdapter.GuideActiveTurn(
+			runCtx,
+			session,
+			content,
+			displayPrompt,
+			turnID,
+			emit,
+			emitCommands,
+		)
+	}
 	if err != nil {
 		logAgentSubmitTrace("runtime.exec.guidance_failed", session, turnID, metadata, map[string]any{
 			"error": err.Error(),
 		})
-		return ExecResult{}, err
+		// Untyped adapters retain the conservative legacy boundary. Typed
+		// adapters can prove a local preflight rejection, while any error after
+		// provider I/O remains outcome-unknown.
+		if providerDispatch == nil {
+			providerDispatch = &ProviderDispatchResult{
+				Disposition: DispatchDispositionOutcomeUnknown,
+			}
+		}
+		return ExecResult{
+			AgentSessionID:   session.AgentSessionID,
+			Status:           ExecStatusStarted,
+			TurnID:           turnID,
+			ProviderDispatch: providerDispatch,
+		}, err
 	}
 	emittedMu.Lock()
 	remaining := unemittedActivityEvents(events, emitted)
@@ -404,11 +474,12 @@ func (c *Controller) guideActiveTurn(
 		"activity_event_count": len(events),
 	})
 	result := ExecResult{
-		AgentSessionID: session.AgentSessionID,
-		Status:         ExecStatusStarted,
-		TurnID:         turnID,
-		Accepted:       true,
-		SessionStatus:  session.Status,
+		AgentSessionID:   session.AgentSessionID,
+		Status:           ExecStatusStarted,
+		TurnID:           turnID,
+		Accepted:         true,
+		SessionStatus:    session.Status,
+		ProviderDispatch: providerDispatch,
 	}
 	if session.TurnLifecycle != nil {
 		result.TurnLifecycle = *session.TurnLifecycle
