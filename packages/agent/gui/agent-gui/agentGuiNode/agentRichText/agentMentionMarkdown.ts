@@ -43,7 +43,7 @@ export function createAgentComposerFileMentionMarkdown(input: {
 }
 
 export function dirnameFromPath(path: string): string {
-  const normalized = path.trim().replace(/\\/g, "/");
+  const normalized = normalizePathSeparators(path);
   const withoutTrailingSeparators = normalized.replace(/\/+$/, "");
   if (!withoutTrailingSeparators) {
     return normalized.startsWith("/") ? "/" : "";
@@ -69,6 +69,33 @@ export function dirnameFromPath(path: string): string {
     return directory;
   }
   return directory.startsWith("/") ? directory : `/${directory}`;
+}
+
+export function basenameFromPath(path: string): string {
+  const normalized = normalizePathSeparators(path).replace(/\/+$/, "");
+  return normalized.split("/").filter(Boolean).at(-1) ?? "";
+}
+
+export function hasPathTrailingSeparator(path: string): boolean {
+  const trimmed = path.trim();
+  return (
+    trimmed.endsWith("/") ||
+    (isWindowsLikePath(trimmed) && trimmed.endsWith("\\"))
+  );
+}
+
+function normalizePathSeparators(path: string): string {
+  const trimmed = path.trim();
+  return isWindowsLikePath(trimmed) ? trimmed.replace(/\\/g, "/") : trimmed;
+}
+
+function isWindowsLikePath(path: string): boolean {
+  return (
+    !path.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    /^\/[A-Za-z]:[\\/]/.test(path) ||
+    /^\\\\/.test(path)
+  );
 }
 
 export function normalizeAgentSessionMentionTitle(value: string): string {
@@ -571,5 +598,7 @@ function normalizeAgentComposerFileMentionStatus(
 function isLocalDirectoryMentionHref(href: string): boolean {
   const isWindowsAbsolutePath = /^[A-Za-z]:[\\/]/.test(href);
   const hasScheme = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href);
-  return /[\\/]$/.test(href) && (!hasScheme || isWindowsAbsolutePath);
+  return (
+    hasPathTrailingSeparator(href) && (!hasScheme || isWindowsAbsolutePath)
+  );
 }

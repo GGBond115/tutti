@@ -150,7 +150,7 @@ function normalizeWorkspacePath(
   if (!trimmed) {
     return "";
   }
-  if (kind === "folder" && !/[\\/]$/.test(trimmed)) {
+  if (kind === "folder" && !hasPathTrailingSeparator(trimmed)) {
     return `${trimmed}/`;
   }
   return trimmed;
@@ -160,18 +160,40 @@ export function isRichTextFolderHref(href: string): boolean {
   const trimmed = href.trim();
   const isWindowsAbsolutePath = /^[A-Za-z]:[\\/]/.test(trimmed);
   const hasScheme = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed);
-  return /[\\/]$/.test(trimmed) && (!hasScheme || isWindowsAbsolutePath);
+  return (
+    hasPathTrailingSeparator(trimmed) && (!hasScheme || isWindowsAbsolutePath)
+  );
 }
 
 function workspacePathBasename(path: string): string {
   return (
-    path
-      .trim()
-      .replace(/\\/g, "/")
+    normalizePathSeparators(path)
       .replace(/\/+$/, "")
       .split("/")
       .filter(Boolean)
       .at(-1) ?? ""
+  );
+}
+
+function hasPathTrailingSeparator(path: string): boolean {
+  const trimmed = path.trim();
+  return (
+    trimmed.endsWith("/") ||
+    (isWindowsLikePath(trimmed) && trimmed.endsWith("\\"))
+  );
+}
+
+function normalizePathSeparators(path: string): string {
+  const trimmed = path.trim();
+  return isWindowsLikePath(trimmed) ? trimmed.replace(/\\/g, "/") : trimmed;
+}
+
+function isWindowsLikePath(path: string): boolean {
+  return (
+    !path.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    /^\/[A-Za-z]:[\\/]/.test(path) ||
+    /^\\\\/.test(path)
   );
 }
 

@@ -12,6 +12,7 @@ import {
   createRichTextMarkdownLinkInsertResult,
   createRichTextTriggerProvider
 } from "@tutti-os/ui-rich-text/plugins";
+import { isRichTextFolderHref } from "@tutti-os/ui-rich-text/core";
 import type { RichTextTriggerProvider } from "@tutti-os/ui-rich-text/types";
 import {
   tuttiFileAssetUrls,
@@ -718,7 +719,7 @@ function createWorkspaceFileAtContributor(
 
 function workspaceFileReferenceHref(item: WorkspaceFileAtItem): string {
   const path = item.path.trim();
-  if (item.kind === "directory" && path && !/[\\/]$/.test(path)) {
+  if (item.kind === "directory" && path && !isRichTextFolderHref(path)) {
     return `${path}/`;
   }
   return path;

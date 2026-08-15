@@ -4,21 +4,21 @@ import {
   mentionItemToAttrs,
   type AgentContextMentionItem
 } from "./agentFileMentionExtension";
-import { dirnameFromPath } from "./agentMentionMarkdown";
+import {
+  basenameFromPath,
+  dirnameFromPath,
+  hasPathTrailingSeparator
+} from "./agentMentionMarkdown";
 import { AGENT_RICH_TEXT_CARET_ANCHOR } from "./agentRichTextCaretAnchor";
-
-function basename(path: string): string {
-  const normalized = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!normalized) {
-    return "";
-  }
-  const segments = normalized.split("/").filter(Boolean);
-  return segments.at(-1) ?? normalized;
-}
 
 function referenceMentionPath(item: WorkspaceFileReference): string {
   const path = item.path.trim();
-  if (item.kind === "folder" && path && path !== "/" && !/[\\/]$/.test(path)) {
+  if (
+    item.kind === "folder" &&
+    path &&
+    path !== "/" &&
+    !hasPathTrailingSeparator(path)
+  ) {
     return `${path}/`;
   }
   return path;
@@ -51,7 +51,7 @@ export function createAgentFileMentionContent(
 ): JSONContent[] {
   return items.flatMap((item, index) => {
     const path = referenceMentionPath(item);
-    const name = item.displayName?.trim() || basename(path);
+    const name = item.displayName?.trim() || basenameFromPath(path);
     return [
       ...(index === 0 && options.prefixCaretAnchor
         ? ([

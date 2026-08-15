@@ -1,4 +1,7 @@
-import { createRichTextMentionHref } from "@tutti-os/ui-rich-text/core";
+import {
+  createRichTextMentionHref,
+  isRichTextFolderHref
+} from "@tutti-os/ui-rich-text/core";
 import { getOptionalAgentHostApi } from "../../agentActivityHost";
 import type { AgentContextMentionItem } from "./agentRichText/agentFileMentionExtension";
 import type { AgentContextMentionDirectoryDescriptor } from "./agentContextMentionProvider";
@@ -574,7 +577,8 @@ export function providerItemToAgentMentionItem(input: {
       href,
       path: directoryPath || href,
       name: label,
-      entryKind: directoryPath || /[\\/]$/.test(href) ? "directory" : "unknown",
+      entryKind:
+        directoryPath || isRichTextFolderHref(href) ? "directory" : "unknown",
       directoryPath: dirnameFromProviderWorkspaceFileHref(
         directoryPath || href
       ),
@@ -616,7 +620,9 @@ export function providerItemToAgentMentionItem(input: {
       path: directoryPath || targetId,
       name: label,
       entryKind:
-        directoryPath || /[\\/]$/.test(targetId) ? "directory" : "unknown",
+        directoryPath || isRichTextFolderHref(targetId)
+          ? "directory"
+          : "unknown",
       directoryPath: dirnameFromProviderWorkspaceFileHref(
         directoryPath || targetId
       ),
