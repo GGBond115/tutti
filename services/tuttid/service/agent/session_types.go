@@ -745,7 +745,10 @@ type CreateSessionInput struct {
 	ConversationDetailMode string
 	Visible                *bool
 	RailPlacement          *agenthost.RailPlacement
-	ExtraSkills            []SessionSkillBundle
+	// RailPlacementAuthoritative carries an externally canonical project
+	// placement through the legacy service adapter used by conformance tests.
+	RailPlacementAuthoritative bool
+	ExtraSkills                []SessionSkillBundle
 	// ExternalRolloutSourcePath is the absolute path to the original provider
 	// CLI rollout/transcript file this session was imported from, when known.
 	// Populated from the persisted session's RuntimeContext when resuming an
