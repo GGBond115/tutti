@@ -531,6 +531,15 @@ type SessionInitializer interface {
 	InitializeRuntimeSession(context.Context, ProviderRuntimeSession, *agenthost.RailPlacement) (PersistedSession, error)
 }
 
+// sessionInitializerWithRailAuthority is an optional adapter capability for
+// callers whose explicit rail placement comes from an external canonical
+// authority. The legacy initializer remains valid for ordinary service paths;
+// Host adapters must use this capability when they carry the authoritative
+// placement bit across the service boundary.
+type sessionInitializerWithRailAuthority interface {
+	InitializeRuntimeSessionWithRailAuthority(context.Context, ProviderRuntimeSession, *agenthost.RailPlacement, bool) (PersistedSession, error)
+}
+
 type ChildSessionReader interface {
 	ListChildSessions(context.Context, string, string) ([]PersistedSession, error)
 }
