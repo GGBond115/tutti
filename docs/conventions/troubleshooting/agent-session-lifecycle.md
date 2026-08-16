@@ -769,26 +769,33 @@ be resent`). The app never opens.
   `renderer_adapter.create.resolved` and `api.create.completed`. Confirm the
   missing reconcile occurs while the engine still has a requested or uncertain
   new-session activation.
-- **Root cause:** Initial Tutti activation can publish
-  `workspace.tuttimode.updated` before the create transaction is query-visible
-  or its HTTP response returns. The renderer treats the event as a reconcile
-  hint and exposes its transient 404 as a detail failure even though the
-  independent create command is still in flight.
-- **Fix:** Ignore only this Tutti update hint when the exact Session has no
-  canonical record and its latest new-session activation is still requested or
-  uncertain. Let the authoritative create result confirm the Session. Do not
-  broadly swallow reconcile 404s: existing Sessions and other reconcile
-  sources still report their real failures. Tombstone only from explicit
-  deletion evidence such as `session_deleted` or a successful delete command.
-- **Validation:** Hold create in flight, publish
-  `workspace.tuttimode.updated`, and verify the Session read is not called and
-  no reconcile error is recorded. Then resolve create and verify the canonical
-  Session and active activation are present. Also prove the same event still
-  reconciles an existing Session and preserves its not-found diagnostic, while
-  an explicit `session_deleted` event tombstones it.
+- **Root cause:** Initial activation can publish activity or mode updates before
+  the create transaction is query-visible or its HTTP response returns. The
+  renderer treated those independent signals as permission to reconcile an
+  exact Session, so a normal not-yet-visible window became a transient 404 even
+  though the create command was still in flight. A topic-specific guard covered
+  only one of those signals and left the admission boundary fragmented.
+- **Fix:** Keep the new Session in a requested/uncertain admission state until
+  an authoritative `session/upserted` result arrives. The activity-core
+  reconcile reducer records demand but defers transport reads whenever the
+  exact Session has no canonical record and a new activation is pending. It
+  releases the merged demand after the Session is committed, regardless of
+  whether the trigger was an activity event, a mode update, or direct Session
+  synchronization. Do not broadly swallow reconcile 404s: existing Sessions
+  and settled activations still report real failures. Tombstone only from
+  explicit deletion evidence such as `session_deleted` or a successful delete
+  command.
+- **Validation:** Hold create in flight, publish both
+  `agent.activity.updated` and `workspace.tuttimode.updated`, and request direct
+  Session synchronization. Verify no Session read is called and no reconcile
+  error is recorded. Then resolve create and verify the canonical Session,
+  active activation, and one released reconcile are present. Also prove an
+  existing Session still reconciles and preserves its not-found diagnostic,
+  while an explicit `session_deleted` event tombstones it.
 - **References:**
+  [sessionReconcile.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionReconcile.reducer.ts)
+  [rootReducer.ts](../../../packages/agent/activity-core/src/engine/rootReducer.ts)
   [workspaceAgentActivityReconcileBridge.ts](../../../apps/desktop/src/renderer/src/features/workspace-agent/services/internal/workspaceAgentActivityReconcileBridge.ts)
-  [workspaceEventCoordinator.ts](../../../packages/agent/activity-core/src/workspaceEventCoordinator.ts)
 
 ### A Tutti submission remains `delivery is still being confirmed`
 

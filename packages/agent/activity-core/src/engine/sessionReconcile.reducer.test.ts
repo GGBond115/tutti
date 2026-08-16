@@ -155,6 +155,59 @@ test("activity observation derives reconcile scope inside the engine", () => {
   ]);
 });
 
+test("pending new sessions defer reconcile until their canonical session is committed", () => {
+  const pendingNewSessionIds = new Set(["session-1"]);
+  const pending = sessionReconcileReducer(
+    createInitialSessionReconcileState(),
+    {
+      type: "session/activityObserved",
+      agentSessionId: "session-1",
+      eventType: "session_reconcile_required",
+      hasCachedSession: false,
+      hasInlineMessages: false,
+      inlineApplied: false,
+      workspaceId: "workspace-1"
+    },
+    {
+      deletedSessionIds: {},
+      pendingNewSessionIds,
+      sessionsById: {},
+      workspaceReconcileCommandId: null
+    }
+  );
+
+  assert.deepEqual(pending.commands, []);
+  assert.equal(
+    pending.state.recordsBySessionId["session-1"]?.pendingState,
+    true
+  );
+
+  const committed = sessionReconcileReducer(
+    pending.state,
+    {
+      session: {
+        agentSessionId: "session-1",
+        workspaceId: "workspace-1"
+      } as never,
+      type: "session/upserted"
+    },
+    {
+      deletedSessionIds: {},
+      pendingNewSessionIds: new Set(),
+      sessionsById: { "session-1": {} as never },
+      workspaceReconcileCommandId: null
+    }
+  );
+
+  assert.equal(committed.commands[0]?.type, "session/reconcile");
+  assert.equal(
+    committed.commands[0]?.type === "session/reconcile"
+      ? committed.commands[0].agentSessionId
+      : null,
+    "session-1"
+  );
+});
+
 test("streaming message gaps coalesce into one delayed reconcile and one trailing read", () => {
   const observation = {
     agentSessionId: "session-1",

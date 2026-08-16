@@ -420,6 +420,16 @@ export function rootEngineReducer(
     intent,
     {
       deletedSessionIds: state.sessionLifecycle.deletedSessionIds,
+      pendingNewSessionIds: new Set(
+        Object.values(pendingIntents.state.activationsByRequestId)
+          .filter(
+            (activation) =>
+              activation.mode === "new" &&
+              (activation.status === "requested" ||
+                activation.status === "uncertain")
+          )
+          .map((activation) => activation.agentSessionId)
+      ),
       sessionsById: sessionLifecycle.state.sessionsById,
       workspaceReconcileCommandId:
         state.engineRuntime.workspaceReconcile.commandId

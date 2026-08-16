@@ -9,9 +9,7 @@ import {
 import {
   createAgentActivitySnapshotProjector,
   createAgentActivitySessionReconcileExecutor,
-  createAgentActivityWorkspaceEventCoordinator,
-  selectEngineSession,
-  selectLatestActivationForSession
+  createAgentActivityWorkspaceEventCoordinator
 } from "@tutti-os/agent-activity-core";
 import type { WorkspaceAgentActivityEnsureSessionSynchronizedInput } from "../workspaceAgentActivityService.interface.ts";
 import type { WorkspaceAgentSessionEngineHost } from "./workspaceAgentSessionEngineHost.ts";
@@ -490,19 +488,6 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
           if (!agentSessionId) return;
           const entry = this.entries.get(workspaceId);
           if (!entry) return;
-          const snapshot = entry.engine.getSnapshot();
-          const pendingActivation = selectLatestActivationForSession(
-            snapshot,
-            agentSessionId
-          );
-          if (
-            !selectEngineSession(snapshot, agentSessionId) &&
-            pendingActivation?.mode === "new" &&
-            (pendingActivation.status === "requested" ||
-              pendingActivation.status === "uncertain")
-          ) {
-            return;
-          }
           entry.engine.dispatch({
             agentSessionId,
             needsMessages: false,
