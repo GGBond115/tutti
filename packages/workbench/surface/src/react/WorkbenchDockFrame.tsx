@@ -1,4 +1,14 @@
-import { useMemo, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode
+} from "react";
 import {
   selectFocusedWorkbenchNode,
   selectFullscreenNodeToExitBeforeDockLaunch
@@ -11,6 +21,7 @@ import { useWorkbenchSelector } from "./hooks/useWorkbenchSelector.ts";
 import type { WorkbenchGenieController } from "./useWorkbenchGenieAnimation.tsx";
 
 export interface WorkbenchDockFrameProps<TData = unknown> {
+  dockAutoHide?: boolean;
   dockPlacement?: WorkbenchDockPlacement;
   genie: WorkbenchGenieController<TData>;
   interactive?: boolean;
@@ -18,6 +29,7 @@ export interface WorkbenchDockFrameProps<TData = unknown> {
 }
 
 export function WorkbenchDockFrame<TData>({
+  dockAutoHide = false,
   dockPlacement = "bottom",
   genie,
   interactive = true,
@@ -28,10 +40,9 @@ export function WorkbenchDockFrame<TData>({
     () => createWorkbenchDockNodesSelector<TData>(),
     []
   );
-  const hasFullscreenNode = useWorkbenchSelector((state) =>
-    state.nodes.some(
-      (node) => node.displayMode === "fullscreen" && !node.isMinimized
-    )
+  const workbenchInteractionActive = useWorkbenchSelector(
+    (state) =>
+      state.activeDragNodeId !== null || state.activeResizeNodeId !== null
   );
   const nodes = useWorkbenchSelector<TData, readonly WorkbenchNode<TData>[]>(
     selectDockNodes
@@ -51,6 +62,123 @@ export function WorkbenchDockFrame<TData>({
   const focusedNodeId = useWorkbenchSelector(
     (state) => selectFocusedWorkbenchNode(state)?.id ?? null
   );
+  const [dockVisible, setDockVisible] = useState(() => !dockAutoHide);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelReveal = useCallback(() => {
+    if (revealTimerRef.current !== null) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+  }, []);
+  const cancelHide = useCallback(() => {
+    if (hideTimerRef.current !== null) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  }, []);
+  const cancelTimers = useCallback(() => {
+    cancelReveal();
+    cancelHide();
+  }, [cancelHide, cancelReveal]);
+  const showDock = useCallback(() => {
+    cancelTimers();
+    if (dockAutoHide && !workbenchInteractionActive) {
+      setDockVisible(true);
+    }
+  }, [cancelTimers, dockAutoHide, workbenchInteractionActive]);
+  const scheduleReveal = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      cancelTimers();
+      if (
+        !dockAutoHide ||
+        workbenchInteractionActive ||
+        event.buttons !== 0 ||
+        event.pointerType !== "mouse"
+      ) {
+        return;
+      }
+      revealTimerRef.current = setTimeout(() => {
+        revealTimerRef.current = null;
+        setDockVisible(true);
+      }, 220);
+    },
+    [cancelTimers, dockAutoHide, workbenchInteractionActive]
+  );
+  const scheduleHide = useCallback(() => {
+    cancelHide();
+    if (!dockAutoHide) {
+      return;
+    }
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      setDockVisible(false);
+    }, 500);
+  }, [cancelHide, dockAutoHide]);
+  const handleHotZoneLeave = useCallback(() => {
+    cancelReveal();
+    scheduleHide();
+  }, [cancelReveal, scheduleHide]);
+  const handleDockBlur = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      if (
+        event.relatedTarget instanceof Element &&
+        isDockAutoHideHoldTarget(event.relatedTarget)
+      ) {
+        return;
+      }
+      scheduleHide();
+    },
+    [scheduleHide]
+  );
+
+  useLayoutEffect(() => {
+    cancelTimers();
+    setDockVisible(!dockAutoHide);
+  }, [cancelTimers, dockAutoHide, workbenchInteractionActive]);
+
+  useEffect(() => {
+    if (!dockAutoHide) {
+      return;
+    }
+
+    const handleWindowBlur = () => {
+      cancelTimers();
+      setDockVisible(false);
+    };
+    const handleDocumentPointerOver = (event: PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        isDockAutoHideHoldTarget(event.target)
+      ) {
+        showDock();
+      }
+    };
+    const handleDocumentPointerOut = (event: PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        isDockAutoHideHoldTarget(event.target) &&
+        !(
+          event.relatedTarget instanceof Element &&
+          isDockAutoHideHoldTarget(event.relatedTarget)
+        )
+      ) {
+        scheduleHide();
+      }
+    };
+
+    window.addEventListener("blur", handleWindowBlur);
+    document.addEventListener("pointerover", handleDocumentPointerOver);
+    document.addEventListener("pointerout", handleDocumentPointerOut);
+    return () => {
+      window.removeEventListener("blur", handleWindowBlur);
+      document.removeEventListener("pointerover", handleDocumentPointerOver);
+      document.removeEventListener("pointerout", handleDocumentPointerOut);
+    };
+  }, [cancelTimers, dockAutoHide, scheduleHide, showDock]);
+
+  useEffect(() => () => cancelTimers(), [cancelTimers]);
 
   if (!renderDock && minimizedNodes.length === 0) {
     return null;
@@ -58,17 +186,25 @@ export function WorkbenchDockFrame<TData>({
 
   return (
     <>
-      {hasFullscreenNode ? (
+      {dockAutoHide ? (
         <div
-          className="workbench-dock-frame__immersive-hover-zone"
+          className="workbench-dock-frame__auto-hide-hover-zone"
           data-dock-placement={dockPlacement}
+          onPointerEnter={scheduleReveal}
+          onPointerLeave={handleHotZoneLeave}
           aria-hidden
         />
       ) : null}
       <div
         className="workbench-dock-frame"
         data-dock-placement={dockPlacement}
-        data-immersive-state={hasFullscreenNode ? "hidden" : "disabled"}
+        data-auto-hide-state={
+          dockAutoHide ? (dockVisible ? "visible" : "hidden") : "disabled"
+        }
+        onBlurCapture={handleDockBlur}
+        onFocusCapture={showDock}
+        onPointerEnter={showDock}
+        onPointerLeave={scheduleHide}
       >
         {renderDock
           ? renderDock({
@@ -103,6 +239,13 @@ export function WorkbenchDockFrame<TData>({
           : null}
       </div>
     </>
+  );
+}
+
+function isDockAutoHideHoldTarget(target: Element): boolean {
+  return (
+    target.closest(".workbench-dock-frame") !== null ||
+    target.closest(".desktop-dock-popup-root") !== null
   );
 }
 

@@ -56,6 +56,7 @@ export interface WorkbenchSurfaceProps<TData = unknown> {
   className?: string;
   controller: WorkbenchController<TData>;
   debugDiagnostics?: WorkbenchDebugDiagnostics;
+  dockAutoHide?: boolean;
   dockPreviewCache?: WorkbenchDockPreviewCache;
   dockPlacement?: WorkbenchDockPlacement;
   interactive?: boolean;
@@ -113,6 +114,7 @@ export function WorkbenchSurface<TData>({
   className,
   controller,
   debugDiagnostics,
+  dockAutoHide,
   dockPreviewCache,
   dockPlacement,
   interactive,
@@ -150,6 +152,7 @@ export function WorkbenchSurface<TData>({
         captureNodePreviewImages={captureNodePreviewImages}
         className={className}
         debugDiagnostics={debugDiagnostics}
+        dockAutoHide={dockAutoHide}
         dockPreviewCache={dockPreviewCache}
         dockPlacement={dockPlacement}
         interactive={interactive}
@@ -189,6 +192,7 @@ function WorkbenchSurfaceInner<TData>({
   captureNodePreviewImages,
   className,
   debugDiagnostics,
+  dockAutoHide,
   dockPreviewCache,
   dockPlacement,
   interactive = true,
@@ -308,6 +312,7 @@ function WorkbenchSurfaceInner<TData>({
         windowChromeI18n={windowChromeI18n}
       />
       <WorkbenchDockFrame
+        dockAutoHide={dockAutoHide}
         dockPlacement={dockPlacement}
         genie={genie}
         interactive={interactive}
