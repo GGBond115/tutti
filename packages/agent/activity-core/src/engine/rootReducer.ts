@@ -420,13 +420,14 @@ export function rootEngineReducer(
     intent,
     {
       deletedSessionIds: state.sessionLifecycle.deletedSessionIds,
+      // Once activation is uncertain, the command is no longer the owner of
+      // Session visibility. Its recovery follow-up must be allowed to issue
+      // the authoritative read that can discover a committed Session.
       pendingNewSessionIds: new Set(
         Object.values(pendingIntents.state.activationsByRequestId)
           .filter(
             (activation) =>
-              activation.mode === "new" &&
-              (activation.status === "requested" ||
-                activation.status === "uncertain")
+              activation.mode === "new" && activation.status === "requested"
           )
           .map((activation) => activation.agentSessionId)
       ),

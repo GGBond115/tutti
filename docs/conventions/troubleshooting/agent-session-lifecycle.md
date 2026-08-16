@@ -775,23 +775,27 @@ be resent`). The app never opens.
   exact Session, so a normal not-yet-visible window became a transient 404 even
   though the create command was still in flight. A topic-specific guard covered
   only one of those signals and left the admission boundary fragmented.
-- **Fix:** Keep the new Session in a requested/uncertain admission state until
-  an authoritative `session/upserted` result arrives. The activity-core
-  reconcile reducer records demand but defers transport reads whenever the
-  exact Session has no canonical record and a new activation is pending. It
-  releases the merged demand after the Session is committed, regardless of
-  whether the trigger was an activity event, a mode update, or direct Session
+- **Fix:** Keep the new Session behind the admission fence while its activation
+  is still `requested`. The activity-core reconcile reducer records demand but
+  defers transport reads whenever the exact Session has no canonical record
+  and the create command still owns visibility. If the create result becomes
+  uncertain or its confirmation expires, enqueue one authoritative recovery
+  reconcile; that recovery is allowed to discover a Session that was committed
+  even though the create response was lost. A normal successful create still
+  releases the merged demand through `session/upserted`, regardless of whether
+  the trigger was an activity event, a mode update, or direct Session
   synchronization. Do not broadly swallow reconcile 404s: existing Sessions
   and settled activations still report real failures. Tombstone only from
   explicit deletion evidence such as `session_deleted` or a successful delete
   command.
 - **Validation:** Hold create in flight, publish both
   `agent.activity.updated` and `workspace.tuttimode.updated`, and request direct
-  Session synchronization. Verify no Session read is called and no reconcile
-  error is recorded. Then resolve create and verify the canonical Session,
-  active activation, and one released reconcile are present. Also prove an
-  existing Session still reconciles and preserves its not-found diagnostic,
-  while an explicit `session_deleted` event tombstones it.
+  Session synchronization. Verify no Session read is called while activation
+  is requested. Then simulate a lost create response and verify one recovery
+  reconcile is admitted, discovers the canonical Session, and confirms the
+  activation. Also prove an existing Session still reconciles and preserves
+  its not-found diagnostic, while an explicit `session_deleted` event
+  tombstones it.
 - **References:**
   [sessionReconcile.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionReconcile.reducer.ts)
   [rootReducer.ts](../../../packages/agent/activity-core/src/engine/rootReducer.ts)
