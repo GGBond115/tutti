@@ -1051,7 +1051,9 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   boundary and replay the answer again in `turn/completed`, sometimes with
   whitespace polish; treating each report as a new segment creates duplicate
   bubbles. The model-metadata warning is runtime diagnostic noise rather than
-  an actionable user error.
+  an actionable user error. Persisted skill-context warnings may omit their
+  optional `source` metadata, and Codex has emitted both percentage and
+  non-percentage variants of that wording.
 - Fix:
   Treat Codex app-server `model/list` as the authoritative catalog regardless
   of `model_provider`. Preserve the full returned list and reasoning metadata;
@@ -1060,7 +1062,10 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   for whitespace-equivalent item-finalization text and ignore turn-final text
   after an assistant segment has already completed. Filter the metadata
   fallback warning through the same AgentGUI diagnostic-notice projection used
-  for skills-context-budget warnings.
+  for skills-context-budget warnings. Match the optional percentage in the
+  skills warning as diagnostic context rather than as part of its identity;
+  accept a missing source only for that exact warning, preserve explicitly
+  non-runtime notices, and keep the metadata fallback warning runtime-only.
 - Validation:
   Run
   `go test ./packages/agent/daemon/runtime -run 'TestApplyAssistantFinalText|TestApplyAssistantTurnFinalText|TestCodexAppServerAdapterExecStreamsTurn'`,
