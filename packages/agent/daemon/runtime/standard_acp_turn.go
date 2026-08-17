@@ -20,7 +20,7 @@ func (a *standardACPAdapter) Exec(
 	emit EventSink,
 	emitCommands CommandSnapshotSink,
 ) ([]activityshared.Event, error) {
-	acpSession := a.getSession(session.AgentSessionID)
+	acpSession := a.getUsableSession(session.AgentSessionID)
 	if acpSession == nil || acpSession.client == nil {
 		return []activityshared.Event{standardACPRootProviderTurnCompletedEvent(
 			session,
@@ -84,6 +84,13 @@ func (a *standardACPAdapter) Exec(
 	acpPromptContent := promptContentForACP(providerContent)
 	if mentionRoutingApplied {
 		acpPromptContent = appendTuttiMentionRoutingPrompt(acpPromptContent, mentionRoutingSkills)
+	}
+	initialPromptContext := a.pendingInitialPromptContext(acpSession)
+	if initialPromptContext != "" {
+		acpPromptContent = append(acpPromptContent, map[string]any{
+			"type": "text",
+			"text": initialPromptContext,
+		})
 	}
 	// ACP v1 has no developer/system or synthetic-message channel. Keep the
 	// canonical Tutti-owned context in the provider-only prompt payload; the
@@ -217,6 +224,10 @@ execLoop:
 				emitEvents(terminalEvents)
 			}
 			return snapshotEvents(), nil
+		}
+		if initialPromptContext != "" {
+			a.consumeInitialPromptContext(acpSession)
+			initialPromptContext = ""
 		}
 
 		stopReason := acpStopReason(result)

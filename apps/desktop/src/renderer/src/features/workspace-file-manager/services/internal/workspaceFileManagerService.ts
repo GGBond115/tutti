@@ -207,6 +207,7 @@ export class WorkspaceFileManagerService implements IWorkspaceFileManagerService
     }
     const locationSections = getCurrentDesktopWorkspaceFileLocationSections({
       homeDirectory: this.dependencies.platformApi.homeDirectory,
+      os: this.dependencies.platformApi.os,
       workspaceUserProjectService: this.dependencies.workspaceUserProjectService
     });
     const defaultLocationId = resolveDesktopWorkspaceFileDefaultLocationId({
@@ -331,6 +332,7 @@ export class WorkspaceFileManagerService implements IWorkspaceFileManagerService
     const locationSections = [
       ...(await loadDesktopWorkspaceFileLocationSections({
         homeDirectory: this.dependencies.platformApi.homeDirectory,
+        os: this.dependencies.platformApi.os,
         workspaceUserProjectService
       })),
       ...(await this.loadReferenceLocationSections(workspaceID))
@@ -460,11 +462,16 @@ function dirnameForWorkspaceFilePath(path: string): string {
   if (index <= 0) {
     return path.startsWith("/") ? "/" : path;
   }
-  return path.slice(0, index);
+  const directory = path.slice(0, index);
+  return /^\/[A-Za-z]:$/.test(directory) ? `${directory}/` : directory;
 }
 
 function normalizeComparableWorkspaceFilePath(path: string): string {
-  const normalized = path.trim().replaceAll("\\", "/").replace(/\/+/g, "/");
+  const normalized = path
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/?([A-Za-z]:)(?=\/|$)/, "/$1");
   if (!normalized) {
     return "";
   }

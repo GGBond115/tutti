@@ -40,6 +40,7 @@ export function ApprovalPromptSurface({
   edgeGlow = false,
   keyboardShortcuts = true,
   isSubmitting,
+  isInteractionDisabled = false,
   onSubmit,
   labels
 }: AgentInteractivePromptSurfaceProps & {
@@ -61,6 +62,7 @@ export function ApprovalPromptSurface({
   const feedbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const agentHostApi = useOptionalAgentHostApi() ?? getOptionalAgentHostApi();
   const isDarwin = isDarwinPlatform(agentHostApi?.meta?.platform);
+  const controlsDisabled = isSubmitting || isInteractionDisabled;
   const feedbackOptionId = useMemo(
     () => approvalFeedbackOptionId(prompt.options),
     [prompt.options]
@@ -107,6 +109,9 @@ export function ApprovalPromptSurface({
 
   const submitOption = useCallback(
     (optionId: string) => {
+      if (controlsDisabled) {
+        return;
+      }
       const feedbackOption = feedbackOptionId === optionId;
       if (feedbackOption && pendingFeedbackOptionId !== optionId) {
         setFeedback("");
@@ -126,6 +131,7 @@ export function ApprovalPromptSurface({
     [
       feedbackOptionId,
       feedbackValue,
+      controlsDisabled,
       onSubmit,
       pendingFeedbackOptionId,
       prompt.requestId
@@ -135,7 +141,7 @@ export function ApprovalPromptSurface({
   useEffect(() => {
     if (
       !keyboardShortcuts ||
-      isSubmitting ||
+      controlsDisabled ||
       submittingOptionId !== null ||
       prompt.options.length === 0
     ) {
@@ -165,7 +171,7 @@ export function ApprovalPromptSurface({
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [
-    isSubmitting,
+    controlsDisabled,
     keyboardShortcuts,
     prompt.options,
     submitOption,
@@ -246,7 +252,7 @@ export function ApprovalPromptSurface({
                     ref={feedbackTextareaRef}
                     value={feedback}
                     placeholder={labels.feedbackPlaceholder}
-                    disabled={isSubmitting || submittingOptionId !== null}
+                    disabled={controlsDisabled || submittingOptionId !== null}
                     className={styles.interactivePromptTextarea}
                     aria-label={interactiveOptionLabel(
                       optionLabel,
@@ -274,7 +280,7 @@ export function ApprovalPromptSurface({
                     type="button"
                     className={styles.interactiveFeedbackSendButton}
                     disabled={
-                      isSubmitting ||
+                      controlsDisabled ||
                       submittingOptionId !== null ||
                       !feedbackValue
                     }
@@ -311,7 +317,7 @@ export function ApprovalPromptSurface({
                 data-agent-approval-action={action}
                 data-agent-approval-option-id={option.id}
                 data-testid={`agent-approval-${prompt.requestId}-${action}`}
-                disabled={isSubmitting || submittingOptionId !== null}
+                disabled={controlsDisabled || submittingOptionId !== null}
                 onClick={() => submitOption(option.id)}
               >
                 <span className={styles.interactiveOptionContent}>
@@ -367,6 +373,7 @@ export function ExitPlanPromptSurface({
   embedded = false,
   edgeGlow = false,
   isSubmitting,
+  isInteractionDisabled = false,
   onSubmit,
   labels
 }: AgentInteractivePromptSurfaceProps & {
@@ -384,6 +391,7 @@ export function ExitPlanPromptSurface({
   const trimmed = feedback.trim();
   const continueLabel =
     trimmed === "" ? labels.stayInPlan : labels.sendFeedback;
+  const controlsDisabled = isSubmitting || isInteractionDisabled;
   // Render the permission modes the runtime actually offered ("Yes, and ...")
   // so newly added modes (e.g. "auto") appear automatically. Localized
   // label/description are looked up by option id, falling back to the runtime's
@@ -412,7 +420,12 @@ export function ExitPlanPromptSurface({
   }, [isSubmitting]);
 
   return (
-    <section className={interactivePromptClassName(embedded)}>
+    <section
+      className={interactivePromptClassName(embedded)}
+      data-agent-interaction-id={prompt.requestId}
+      data-agent-interaction-kind="exit-plan"
+      data-testid={`agent-exit-plan-${prompt.requestId}`}
+    >
       <div className={interactivePromptCardClassName(edgeGlow)}>
         <div className={styles.interactivePromptLead}>
           {stripPromptTitlePunctuation(labels.planLead)}
@@ -429,7 +442,8 @@ export function ExitPlanPromptSurface({
                   mode.label,
                   mode.description
                 )}
-                disabled={isSubmitting || submittingOptionId !== null}
+                data-testid={`agent-exit-plan-confirm-${mode.id}`}
+                disabled={controlsDisabled || submittingOptionId !== null}
                 onClick={() => {
                   setSubmittingOptionId(mode.id);
                   onSubmit({
@@ -457,8 +471,9 @@ export function ExitPlanPromptSurface({
             <textarea
               value={feedback}
               placeholder={labels.feedbackPlaceholder}
-              disabled={isSubmitting}
+              disabled={controlsDisabled}
               className={styles.interactivePromptTextarea}
+              data-testid="agent-exit-plan-feedback"
               onChange={(event) => setFeedback(event.currentTarget.value)}
             />
             <div className={styles.interactivePromptActions}>
@@ -466,7 +481,8 @@ export function ExitPlanPromptSurface({
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={isSubmitting}
+                disabled={controlsDisabled}
+                data-testid="agent-exit-plan-keep-planning"
                 onClick={() =>
                   onSubmit({
                     requestId: prompt.requestId,
@@ -495,7 +511,8 @@ export function ExitPlanPromptSurface({
               type="button"
               variant="secondary"
               size="sm"
-              disabled={isSubmitting}
+              disabled={controlsDisabled}
+              data-testid="agent-exit-plan-keep-planning"
               onClick={() =>
                 onSubmit({
                   requestId: prompt.requestId,
@@ -524,6 +541,7 @@ export function PlanImplementationSurface({
   embedded = false,
   edgeGlow = false,
   isSubmitting,
+  isInteractionDisabled = false,
   onSubmit,
   labels
 }: AgentInteractivePromptSurfaceProps & {
@@ -541,6 +559,7 @@ export function PlanImplementationSurface({
   // Refining or staying in plan mode is deferred to the conversation, reachable
   // via the card's "open conversation" jump.
   const showFeedbackFooter = variant !== "compact";
+  const controlsDisabled = isSubmitting || isInteractionDisabled;
 
   return (
     <section className={interactivePromptClassName(embedded)}>
@@ -553,7 +572,7 @@ export function PlanImplementationSurface({
             type="button"
             className={styles.interactiveOptionButton}
             data-testid="agent-plan-implementation-implement"
-            disabled={isSubmitting}
+            disabled={controlsDisabled}
             onClick={() =>
               onSubmit({
                 requestId: prompt.requestId,
@@ -573,7 +592,7 @@ export function PlanImplementationSurface({
             <textarea
               value={feedback}
               placeholder={labels.planImplementationFeedbackPlaceholder}
-              disabled={isSubmitting}
+              disabled={controlsDisabled}
               className={styles.interactivePromptTextarea}
               data-testid="agent-plan-implementation-feedback"
               onChange={(event) => setFeedback(event.currentTarget.value)}
@@ -584,7 +603,7 @@ export function PlanImplementationSurface({
                 variant="secondary"
                 size="sm"
                 data-testid="agent-plan-implementation-continue"
-                disabled={isSubmitting}
+                disabled={controlsDisabled}
                 onClick={() =>
                   onSubmit({
                     requestId: prompt.requestId,

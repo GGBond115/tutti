@@ -34,11 +34,14 @@ import {
   type ReferencePickerSelectionMode,
   type ReferenceSourceNodeChildrenState
 } from "./referenceSourcePickerController.ts";
+import { createReferenceSearchResultIndex } from "./referenceSearchResultIndex.ts";
 import { buildReferenceSourcePickerFilteredTree } from "./referenceSourcePickerFilterTree.ts";
 
 export type { WorkspaceFileManagerArrangeMode };
 
 export { WORKSPACE_ROOT_GROUP_NODE_ID } from "../../../core/index.ts";
+
+const EMPTY_REFERENCE_SEARCH_RESULT_INDEX = createReferenceSearchResultIndex();
 
 function referenceNodeToOpenWithCacheEntry(
   node: ReferenceNode
@@ -415,12 +418,10 @@ export function useReferenceSourcePickerView({
     () => sortNodes(currentChildren?.entries ?? []),
     [currentChildren?.entries, sortNodes]
   );
-  const searchResults = useMemo(
-    // Browse arrangement is a presentation preference. Search results keep the
-    // source-owned relevance order regardless of that preference.
-    () => [...(activeTabState?.searchEntries ?? [])] as ReferenceNode[],
-    [activeTabState?.searchEntries]
-  );
+  const searchResultIndex =
+    activeTabState?.searchResultIndex ?? EMPTY_REFERENCE_SEARCH_RESULT_INDEX;
+  const searchResultCount = activeTabState?.searchResultCount ?? 0;
+  const searchResultIdentity = activeTabState?.searchResultIdentity ?? 0;
 
   // 每个源的左栏二级分组(左栏可多源同时展开,故按源全量计算):
   //  - 源自带分组(listSidebarGroups,如本地源的 最近访问/下载/文稿/桌面/个人)优先;
@@ -640,8 +641,13 @@ export function useReferenceSourcePickerView({
       setBreadcrumbBySource((current) => ({ ...current, [sid]: [] }));
       controller.ensureSourceRoot(sid);
       setFocusedNode(null);
+      // Directory/"save here" pickers treat the source root as the current folder.
+      // Drop a stale nested selection so confirm maps to the root, not the old child.
+      if (selectionMode === "single") {
+        controller.clearSelection();
+      }
     },
-    [activeSourceId, controller]
+    [activeSourceId, controller, selectionMode]
   );
 
   const selectSourceRoot = useCallback(
@@ -651,8 +657,11 @@ export function useReferenceSourcePickerView({
       setBreadcrumbBySource((current) => ({ ...current, [sourceId]: [] }));
       controller.ensureSourceRoot(sourceId);
       setFocusedNode(null);
+      if (selectionMode === "single") {
+        controller.clearSelection();
+      }
     },
-    [controller]
+    [controller, selectionMode]
   );
 
   // 选中左栏二级分组:先切到该分组所属源(右侧内容随之切换),
@@ -761,61 +770,75 @@ export function useReferenceSourcePickerView({
     },
     [isOpeningReference]
   );
-  const confirm = useCallback(async () => {
-    if (confirmingRef.current) {
-      return;
-    }
-    if (selectableSelection.length === 0) {
-      controller.clearSelection();
-      return;
-    }
-    const confirmationGeneration = ++confirmationGenerationRef.current;
-    confirmingRef.current = true;
-    setIsConfirming(true);
-    setConfirmError(null);
-    try {
-      if (onConfirmBundles) {
-        const grouped = await controller.confirmGrouped(selectableSelection);
-        if (confirmationGeneration !== confirmationGenerationRef.current) {
-          return;
-        }
-        onConfirmBundles({
-          files: grouped.files.map(selectedReferenceToWorkspaceFileReference),
-          bundles: grouped.bundles.map((bundle) => ({
-            sourceId: bundle.root.ref.sourceId,
-            nodeId: bundle.root.ref.nodeId,
-            displayName: bundle.root.displayName,
-            iconUrl: bundle.root.iconUrl ?? null,
-            handle: bundle.handle,
-            // 展示用文件数:取节点 childCount(不再展开文件);缺省回退 0。
-            fileCount: bundle.root.childCount ?? 0
-          }))
-        });
-      } else {
-        const selected: SelectedReference[] =
-          await controller.confirm(selectableSelection);
-        if (confirmationGeneration !== confirmationGenerationRef.current) {
-          return;
-        }
-        onConfirm(selected.map(selectedReferenceToWorkspaceFileReference));
-      }
-      onClose();
-    } catch (error) {
-      if (confirmationGeneration !== confirmationGenerationRef.current) {
+  const confirm = useCallback(
+    async (overrideSelection?: readonly ReferenceNode[]) => {
+      if (confirmingRef.current) {
         return;
       }
-      setConfirmError(
-        error instanceof Error
-          ? error
-          : new Error("reference confirmation failed")
-      );
-    } finally {
-      if (confirmationGeneration === confirmationGenerationRef.current) {
-        confirmingRef.current = false;
-        setIsConfirming(false);
+      const selection =
+        overrideSelection && overrideSelection.length > 0
+          ? overrideSelection.filter((node) => isNodeSelectable?.(node) ?? true)
+          : selectableSelection;
+      if (selection.length === 0) {
+        controller.clearSelection();
+        return;
       }
-    }
-  }, [controller, onClose, onConfirm, onConfirmBundles, selectableSelection]);
+      const confirmationGeneration = ++confirmationGenerationRef.current;
+      confirmingRef.current = true;
+      setIsConfirming(true);
+      setConfirmError(null);
+      try {
+        if (onConfirmBundles) {
+          const grouped = await controller.confirmGrouped(selection);
+          if (confirmationGeneration !== confirmationGenerationRef.current) {
+            return;
+          }
+          onConfirmBundles({
+            files: grouped.files.map(selectedReferenceToWorkspaceFileReference),
+            bundles: grouped.bundles.map((bundle) => ({
+              sourceId: bundle.root.ref.sourceId,
+              nodeId: bundle.root.ref.nodeId,
+              displayName: bundle.root.displayName,
+              iconUrl: bundle.root.iconUrl ?? null,
+              handle: bundle.handle,
+              // 展示用文件数:取节点 childCount(不再展开文件);缺省回退 0。
+              fileCount: bundle.root.childCount ?? 0
+            }))
+          });
+        } else {
+          const selected: SelectedReference[] =
+            await controller.confirm(selection);
+          if (confirmationGeneration !== confirmationGenerationRef.current) {
+            return;
+          }
+          onConfirm(selected.map(selectedReferenceToWorkspaceFileReference));
+        }
+        onClose();
+      } catch (error) {
+        if (confirmationGeneration !== confirmationGenerationRef.current) {
+          return;
+        }
+        setConfirmError(
+          error instanceof Error
+            ? error
+            : new Error("reference confirmation failed")
+        );
+      } finally {
+        if (confirmationGeneration === confirmationGenerationRef.current) {
+          confirmingRef.current = false;
+          setIsConfirming(false);
+        }
+      }
+    },
+    [
+      controller,
+      isNodeSelectable,
+      onClose,
+      onConfirm,
+      onConfirmBundles,
+      selectableSelection
+    ]
+  );
 
   const previewController = useMemo(
     () =>
@@ -881,7 +904,9 @@ export function useReferenceSourcePickerView({
     // 内容区递归就地树:当前选中二级节点的子条目(本地根时为源根子条目)。
     currentEntries,
     // 搜索态:扁平搜索结果。
-    searchResults,
+    searchResultIndex,
+    searchResultCount,
+    searchResultIdentity,
     contentError,
     expandedKeys: activeTabState?.expandedKeys ?? {},
     childrenByKey,
@@ -910,8 +935,7 @@ export function useReferenceSourcePickerView({
     // 搜索态:仅在「还没有任何结果」时显示 spinner;细化关键词(已有结果)时
     // 保留旧结果直到新结果就绪,避免内容区在 spinner/结果间反复切换造成闪烁。
     isLoading: isQuery
-      ? (activeTabState?.isSearchLoading ?? false) &&
-        (activeTabState?.searchEntries.length ?? 0) === 0
+      ? (activeTabState?.isSearchLoading ?? false) && searchResultCount === 0
       : recursiveFilterActive
         ? filteredTreeState.key !== recursiveFilterKey ||
           filteredTreeState.loading
@@ -966,10 +990,7 @@ export function useReferenceSourcePickerView({
       isQuery ? controller.loadMoreSearch() : controller.loadMore(currentNode),
     retryContent: () => {
       if (isQuery) {
-        controller.setSearchQuery(
-          activeTabState?.searchQuery ?? "",
-          searchScopeNodeId
-        );
+        controller.retrySearch();
         return;
       }
       if (recursiveFilterActive) {
@@ -1000,6 +1021,42 @@ export function useReferenceSourcePickerView({
       controller.ensureChildren(targetNode);
       setFocusedNode(null);
       return true;
+    },
+    selectTargets: async (
+      targets: readonly ReferenceLocateTarget[]
+    ): Promise<number> => {
+      const located = await Promise.all(
+        targets.map(async (target) => ({
+          path: await controller.locatePath(target),
+          target
+        }))
+      );
+      const selectable = located.flatMap(({ path, target }) => {
+        const node = path.at(-1);
+        return node && isSelectable(node) ? [{ node, path, target }] : [];
+      });
+      if (selectable.length === 0) {
+        return 0;
+      }
+      const visible = selectable.at(-1)!;
+      const rootGroupNode = visible.path[0] ?? null;
+      controller.setActiveSource(
+        visible.target.sourceId,
+        rootGroupNode?.ref.nodeId ?? null
+      );
+      controller.setSearchQuery("", rootGroupNode?.ref.nodeId ?? null);
+      controller.setSearchFilters([], rootGroupNode?.ref.nodeId ?? null);
+      controller.clearSelection();
+      for (const { node } of selectable) {
+        controller.toggleSelection(node);
+      }
+      setBreadcrumbBySource((current) => ({
+        ...current,
+        [visible.target.sourceId]: visible.path
+      }));
+      controller.ensureChildren(visible.node);
+      setFocusedNode(null);
+      return selectable.length;
     },
     isSelectable,
     isSelected,

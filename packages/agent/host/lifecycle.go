@@ -6,37 +6,56 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
+// CreateSession reports at most one aggregated TerminalFailure for a failed
+// command. Cleanup after a primary failure stays diagnostic.
 func (h *Host) CreateSession(ctx context.Context, workspaceID string, input CreateSessionInput) (CreateSessionResult, error) {
+	clientSubmitID := firstNonEmptyTrimmed(input.ClientSubmitID, legacyClientSubmitID(input.Metadata))
+	activationID := strings.TrimSpace(input.ActivationID)
+	operationID := firstNonEmptyTrimmed(activationID, clientSubmitID, input.AgentSessionID)
+	ctx, command := h.beginCommand(ctx, commandTerminalFailureInput{
+		flow: "session_create", workspaceID: workspaceID, agentSessionID: input.AgentSessionID,
+		operationID: operationID, requestID: activationID, clientSubmitID: clientSubmitID, turnID: input.TurnID,
+	})
+	var result CreateSessionResult
+	err := h.withWorkspaceRuntimeOperation(ctx, workspaceID, func(operationCtx context.Context) error {
+		var createErr error
+		result, createErr = h.createSession(operationCtx, workspaceID, input)
+		return createErr
+	})
+	command.finish(ctx, h, err)
+	return result, err
+}
+
+func (h *Host) createSession(ctx context.Context, workspaceID string, input CreateSessionInput) (CreateSessionResult, error) {
 	workspaceID, input.AgentSessionID = strings.TrimSpace(workspaceID), strings.TrimSpace(input.AgentSessionID)
 	input.Provider, input.AgentTargetID = strings.TrimSpace(input.Provider), strings.TrimSpace(input.AgentTargetID)
 	if h == nil || h.runtime == nil || h.store == nil || workspaceID == "" || input.AgentSessionID == "" || input.Provider == "" {
-		return CreateSessionResult{}, ErrInvalidArgument
+		return createSessionFailureResult(input, ErrInvalidArgument)
 	}
 	var err error
 	input.RailPlacement, err = normalizeRailPlacement(input.RailPlacement)
 	if err != nil {
-		return CreateSessionResult{}, err
+		return createSessionFailureResult(input, err)
 	}
 	ref := SessionRef{WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID}
 	normalized, promptText, err := normalizeOptionalPromptContent(input.InitialContent)
 	if err != nil {
-		return CreateSessionResult{}, err
+		return createSessionFailureResult(input, err)
 	}
 	typedGoal, isTypedGoal := ParseTypedGoalControl(normalized, false)
 	if input.InitialGoalControl != nil {
 		if len(normalized) != 0 {
-			return CreateSessionResult{}, ErrInvalidArgument
+			return createSessionFailureResult(input, ErrInvalidArgument)
 		}
 		typedGoal, err = normalizeTypedGoalControl(*input.InitialGoalControl)
 		if err != nil {
-			return CreateSessionResult{}, err
+			return createSessionFailureResult(input, err)
 		}
 		isTypedGoal = true
 	}
@@ -63,136 +82,181 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	claim, claimPending, err := h.prepareSubmitClaim(ctx, ref, claimMetadata, input.TurnID)
 	if err != nil {
 		if errors.Is(err, storesqlite.ErrSubmitClaimTurnConflict) {
-			return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
+			return createSessionFailureResult(input, errors.Join(ErrSubmitDeliveryUnknown, err))
 		}
-		return CreateSessionResult{}, err
+		return createSessionFailureResult(input, err)
 	}
 	if claim.ClientSubmitID != "" && !claimPending {
 		if claim.Status != "accepted" && claim.Status != "rejected" {
-			return CreateSessionResult{}, ErrSubmitDeliveryUnknown
+			return createSessionFailureResult(input, ErrSubmitDeliveryUnknown)
 		}
 		canonicalSession, _, readErr := h.store.GetSession(ctx, workspaceID, input.AgentSessionID)
 		if readErr != nil {
-			return CreateSessionResult{}, readErr
+			return createSessionFailureResult(input, readErr)
 		}
 		if !railPlacementMatchesSession(input.RailPlacement, canonicalSession) {
-			return CreateSessionResult{}, ErrRailPlacementConflict
+			return createSessionFailureResult(input, ErrRailPlacementConflict)
 		}
 		runtimeSession, _ := h.runtime.Session(workspaceID, input.AgentSessionID)
-		return CreateSessionResult{Session: runtimeSession, Canonical: canonicalSession, TurnID: claim.TurnID}, nil
+		return CreateSessionResult{Session: runtimeSession, Canonical: canonicalSession, TurnID: claim.TurnID, SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusNotRequested}, nil
 	}
 	defer func() {
 		if claimPending {
 			h.abandonSubmitClaim(ref, claim.ClientSubmitID)
 		}
 	}()
+	runtimePublisher, ok := h.runtime.(RuntimeSessionInitializationPublisher)
+	if !ok {
+		return createSessionFailureResult(input, ErrRuntimeSessionPublishUnavailable)
+	}
 
 	prepared := PreparedRuntime{Cwd: strings.TrimSpace(value(input.Cwd))}
 	if h.preparation != nil {
+		preparedAt := h.now()
 		prepared, err = h.preparation.Prepare(ctx, createPreparationInput(workspaceID, input))
+		// Only observe failures here. Service adapters already emit the success
+		// node_result for runtime_prepared before Host CreateSession; a success
+		// LifecycleStep would duplicate that analytics event.
 		if err != nil {
-			return CreateSessionResult{}, err
+			h.observeStep(ctx, "session_create", "runtime_prepared", workspaceID, input.AgentSessionID, input.Provider, preparedAt, err)
+			return createSessionFailureResult(input, err)
 		}
 	}
+	sessionLockHeld := false
 	cleanup := func(cause error, started bool, canonicalCreated bool) error {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		var cleanupErrs []error
-		cleanupErrs = append(cleanupErrs, cause)
-		if started {
-			cleanupErrs = append(cleanupErrs, h.runtime.Close(cleanupCtx, RuntimeCloseInput{WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID}))
+		return h.cleanupFailedCreate(ctx, ref, input.Provider, cause, failedCreateCleanupState{
+			RuntimeStarted: started, CanonicalCreated: canonicalCreated, SessionLockHeld: sessionLockHeld,
+		})
+	}
+	releaseSession, err := h.acquireSession(ctx, ref)
+	if err != nil {
+		return createSessionFailureResult(input, cleanup(err, false, false))
+	}
+	sessionLockHeld = true
+	defer func() {
+		if sessionLockHeld {
+			releaseSession()
 		}
-		if canonicalCreated {
-			_, deleteErr := h.store.RollbackRuntimeSessionInitialization(cleanupCtx, workspaceID, input.AgentSessionID)
-			cleanupErrs = append(cleanupErrs, deleteErr)
-		}
-		if h.preparation != nil {
-			cleanupErrs = append(cleanupErrs, h.preparation.Cleanup(cleanupCtx, RuntimeCleanupInput{
-				WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID, Provider: input.Provider,
-			}))
-		}
-		return errors.Join(cleanupErrs...)
+	}()
+	canonicalBeforeStart, canonicalExisted, err := h.store.GetSession(ctx, workspaceID, input.AgentSessionID)
+	if err != nil {
+		return createSessionFailureResult(input, cleanup(err, false, false))
+	}
+	if canonicalExisted && !railPlacementMatchesSession(input.RailPlacement, canonicalBeforeStart) {
+		return createSessionFailureResult(input, cleanup(ErrRailPlacementConflict, false, false))
+	}
+	if input.RailPlacement, prepared.Env, err = h.resolveCreateRuntimeRailEnvironment(ctx, workspaceID, input, prepared); err != nil {
+		return createSessionFailureResult(input, cleanup(err, false, false))
 	}
 	startedAt := h.now()
 	release, err := h.acquireStartup(ctx, input.Provider)
 	if err != nil {
-		h.observeStep(ctx, "session_create", "runtime_started", input.AgentSessionID, input.Provider, startedAt, err)
-		return CreateSessionResult{}, cleanup(err, false, false)
+		h.observeStep(ctx, "session_create", "runtime_started", workspaceID, input.AgentSessionID, input.Provider, startedAt, err)
+		return createSessionFailureResult(input, cleanup(err, false, false))
 	}
-	session, err := func() (ProviderRuntimeSession, error) {
+	startResult, err := func() (RuntimeStartResult, error) {
 		defer release()
 		runtimeTitle, initialTitleEstablished := initialGoalRuntimeTitle(value(input.Title), input.InitialDisplayPrompt, typedGoal, isTypedGoal)
 		return h.runtime.Start(ctx, RuntimeStartInput{
 			WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID,
 			Provider: input.Provider, Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...),
-			Title: runtimeTitle, InitialTitleEstablished: initialTitleEstablished,
+			MCPServers: cloneHostMCPServerBindings(prepared.MCPServers), Title: runtimeTitle, InitialTitleEstablished: initialTitleEstablished,
 			PermissionModeID: value(input.PermissionModeID), Model: value(input.Model), PlanMode: valueBool(input.PlanMode),
 			BrowserUse: input.BrowserUse, ComputerUse: input.ComputerUse, CodexSaverMode: valueBool(input.CodexSaverMode),
 			ProviderTargetRef: cloneMap(firstMap(prepared.ProviderTargetRef, input.ProviderTargetRef)),
 			RuntimeContext:    cloneMap(input.RuntimeContext), ReasoningEffort: value(input.ReasoningEffort),
 			Speed: value(input.Speed), ConversationDetailMode: strings.TrimSpace(input.ConversationDetailMode),
 			Visible: input.Visible, Provisional: len(normalized) > 0,
+			CanonicalInitPending: true,
 		})
 	}()
 	if err != nil {
-		h.observeStep(ctx, "session_create", "runtime_started", input.AgentSessionID, input.Provider, startedAt, err)
-		return CreateSessionResult{}, cleanup(err, false, false)
+		h.observeStep(ctx, "session_create", "runtime_started", workspaceID, input.AgentSessionID, input.Provider, startedAt, err)
+		return createSessionFailureResult(input, cleanup(err, false, false))
 	}
-	h.observeStep(ctx, "session_create", "runtime_started", session.ID, session.Provider, startedAt, nil)
+	session := startResult.Session
+	runtimeCreated := startResult.Created
+	h.observeStep(ctx, "session_create", "runtime_started", workspaceID, session.ID, session.Provider, startedAt, nil)
 	startedAt = h.now()
-	canonicalSession, err := h.store.InitializeRuntimeSession(ctx, RuntimeSessionInitialization{
-		Session:       session,
-		RailPlacement: input.RailPlacement,
-	})
+	canonicalSession, err := h.store.InitializeRuntimeSession(ctx, runtimeSessionInitializationForCreate(session, input))
 	if err != nil {
-		h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, err)
-		return CreateSessionResult{}, cleanup(err, true, false)
+		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, err)
+		return createSessionFailureResult(input, cleanup(err, runtimeCreated, false))
 	}
+	canonicalCreated := !canonicalExisted
 	if strings.TrimSpace(canonicalSession.ID) != strings.TrimSpace(session.ID) || strings.TrimSpace(canonicalSession.WorkspaceID) != workspaceID || strings.TrimSpace(canonicalSession.RailSectionKey) == "" {
 		identityErr := fmt.Errorf("initialize workspace agent session: persisted session identity mismatch")
-		h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, identityErr)
-		return CreateSessionResult{}, cleanup(identityErr, true, true)
+		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, identityErr)
+		return createSessionFailureResult(input, cleanup(identityErr, runtimeCreated, canonicalCreated))
 	}
 	if !railPlacementMatchesSession(input.RailPlacement, canonicalSession) {
 		placementErr := ErrRailPlacementConflict
-		h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, placementErr)
-		return CreateSessionResult{}, cleanup(placementErr, true, true)
+		h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, placementErr)
+		return createSessionFailureResult(input, cleanup(placementErr, runtimeCreated, canonicalCreated))
 	}
-	h.observeStep(ctx, "session_create", "session_persisted", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "session_persisted", workspaceID, session.ID, session.Provider, startedAt, nil)
+	startedAt = h.now()
+	published, err := publishRuntimeSessionInitialization(
+		ctx,
+		runtimePublisher,
+		RuntimeSessionInitializationPublishInput{
+			WorkspaceID: workspaceID, AgentSessionID: session.ID,
+		},
+	)
+	if err != nil {
+		h.observeStep(ctx, "session_create", "session_published", workspaceID, session.ID, session.Provider, startedAt, err)
+		return createSessionFailureResult(input, cleanup(err, runtimeCreated, canonicalCreated))
+	}
+	if strings.TrimSpace(published.ID) != strings.TrimSpace(session.ID) ||
+		strings.TrimSpace(published.WorkspaceID) != workspaceID {
+		publishErr := errors.New("publish workspace agent session: runtime session identity mismatch")
+		h.observeStep(ctx, "session_create", "session_published", workspaceID, session.ID, session.Provider, startedAt, publishErr)
+		return createSessionFailureResult(input, cleanup(publishErr, runtimeCreated, canonicalCreated))
+	}
+	session = published
+	h.observeStep(ctx, "session_create", "session_published", workspaceID, session.ID, session.Provider, startedAt, nil)
 	if len(normalized) == 0 && !isTypedGoal {
-		return CreateSessionResult{Session: session, Canonical: canonicalSession}, nil
+		return CreateSessionResult{Session: session, Canonical: canonicalSession, SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusNotRequested}, nil
 	}
 	if isTypedGoal {
+		releaseSession()
+		sessionLockHeld = false
 		goalInput.AgentSessionID = session.ID
 		goalResult, goalErr := h.goalControl(ctx, goalInput)
 		if goalErr != nil {
+			if goalControlResultPending(goalResult) {
+				if refreshed, ok := h.runtime.Session(workspaceID, session.ID); ok {
+					session = refreshed
+				}
+				return CreateSessionResult{
+					Session: session, Canonical: canonicalSession, Kind: "goalControl", GoalControl: &goalResult,
+					SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusUnknown,
+				}, goalErr
+			}
 			// A typed goal starts from a non-provisional, already published
 			// session. Preserve that canonical session on command failure just as
 			// the legacy Service did; rolling it back would leave subscribers with
 			// an unpaired session-created event.
-			return CreateSessionResult{}, cleanup(goalErr, true, false)
+			return CreateSessionResult{Session: session, Canonical: canonicalSession, Kind: "goalControl", SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusFailed}, cleanup(goalErr, runtimeCreated, false)
 		}
 		if refreshed, ok := h.runtime.Session(workspaceID, session.ID); ok {
 			session = refreshed
 		}
-		return CreateSessionResult{
-			Session: session, Canonical: goalResult.Canonical,
-			Kind: "goalControl", GoalControl: &goalResult,
-		}, nil
+		return CreateSessionResult{Session: session, Canonical: goalResult.Canonical, Kind: "goalControl", GoalControl: &goalResult, SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusSucceeded}, nil
 	}
 	startedAt = h.now()
 	if err := h.runtime.ValidatePromptContent(ctx, RuntimeExecInput{WorkspaceID: workspaceID, AgentSessionID: session.ID, Content: normalized}); err != nil {
-		h.observeStep(ctx, "session_create", "prompt_validated", session.ID, session.Provider, startedAt, err)
-		return CreateSessionResult{}, cleanup(err, true, true)
+		h.observeStep(ctx, "session_create", "prompt_validated", workspaceID, session.ID, session.Provider, startedAt, err)
+		return createSessionFailureResult(input, cleanup(err, runtimeCreated, canonicalCreated))
 	}
-	h.observeStep(ctx, "session_create", "prompt_validated", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "prompt_validated", workspaceID, session.ID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	preparedContent, err := h.prepareContent(workspaceID, session.ID, normalized)
 	if err != nil {
-		h.observeStep(ctx, "session_create", "prompt_prepared", session.ID, session.Provider, startedAt, err)
-		return CreateSessionResult{}, cleanup(err, true, true)
+		h.observeStep(ctx, "session_create", "prompt_prepared", workspaceID, session.ID, session.Provider, startedAt, err)
+		return createSessionFailureResult(input, cleanup(err, runtimeCreated, canonicalCreated))
 	}
-	h.observeStep(ctx, "session_create", "prompt_prepared", session.ID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "session_create", "prompt_prepared", workspaceID, session.ID, session.Provider, startedAt, nil)
 	displayPrompt := strings.TrimSpace(input.InitialDisplayPrompt)
 	initialTitle := ""
 	if !session.InitialTitleEstablished {
@@ -211,8 +275,9 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		Metadata: cloneMap(metadata), TuttiModeSnapshot: input.TuttiModeSnapshot,
 		RequireProviderAcceptance: true,
 	})
+	recordProviderAcceptanceDiagnostics(ctx, execResult.ProviderDispatch)
 	if err != nil {
-		h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, err)
 		disposition := execResult.ProviderDispatch.Disposition
 		if disposition == RuntimeDispatchDispositionRejected ||
 			disposition == RuntimeDispatchDispositionApplied ||
@@ -224,7 +289,7 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 				input.TuttiModeSnapshot,
 			); persistErr != nil {
 				claimPending = false
-				return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err, persistErr)
+				return createSessionCreatedErrorResult(input, session, canonicalSession, errors.Join(ErrSubmitDeliveryUnknown, err, persistErr))
 			}
 			if disposition == RuntimeDispatchDispositionRejected {
 				// A definitive rejection keeps the visible Session/failed Turn. The
@@ -235,24 +300,24 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 				if strings.TrimSpace(execResult.TurnID) != "" {
 					claimPending = false
 					if rejectErr := h.finalizeRejectedSubmitClaim(ref, firstNonEmpty(claim.ClientSubmitID, input.ClientSubmitID, legacyClientSubmitID(metadata)), execResult.TurnID); rejectErr != nil {
-						return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err, rejectErr)
+						return createSessionCreatedErrorResult(input, session, canonicalSession, errors.Join(ErrSubmitDeliveryUnknown, err, rejectErr))
 					}
 				}
-				return CreateSessionResult{}, h.discardRejectedPreparedRuntime(ctx, err, workspaceID, session.ID, session.Provider)
+				return createSessionCreatedErrorResult(input, session, canonicalSession, h.discardRejectedPreparedRuntime(ctx, err, workspaceID, session.ID, session.Provider))
 			}
 			claimPending = false
-			return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
+			return createSessionCreatedErrorResult(input, session, canonicalSession, errors.Join(ErrSubmitDeliveryUnknown, err))
 		}
-		return CreateSessionResult{}, cleanup(err, true, true)
+		return createSessionFailureResult(input, cleanup(err, runtimeCreated, canonicalCreated))
 	}
 	turnID = strings.TrimSpace(execResult.TurnID)
 	if turnID == "" {
-		h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
-		return CreateSessionResult{}, cleanup(ErrSubmitDeliveryUnknown, true, true)
+		h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
+		return createSessionFailureResult(input, cleanup(ErrSubmitDeliveryUnknown, runtimeCreated, canonicalCreated))
 	}
 	if expectedTurnID := strings.TrimSpace(input.TurnID); expectedTurnID != "" && turnID != expectedTurnID {
 		claimPending = false
-		return CreateSessionResult{}, ErrSubmitDeliveryUnknown
+		return createSessionCreatedErrorResult(input, session, canonicalSession, ErrSubmitDeliveryUnknown)
 	}
 	if reporter, ok := h.runtime.(RuntimeSubmitProvenanceReporter); ok {
 		if err := reporter.DurablyReportSubmitProvenance(ctx, RuntimeSubmitProvenanceInput{
@@ -263,7 +328,7 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 			// Provider acceptance is already possible. Keep the runtime, canonical
 			// session, and prepared claim intact so a retry cannot dispatch twice.
 			claimPending = false
-			return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
+			return createSessionCreatedErrorResult(input, session, canonicalSession, errors.Join(ErrSubmitDeliveryUnknown, err))
 		}
 	}
 	if err := h.recordTurnSubmission(
@@ -271,12 +336,12 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		displayPrompt, input.CapabilityRefs, input.TuttiModeSnapshot,
 	); err != nil {
 		claimPending = false
-		return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
+		return createSessionCreatedErrorResult(input, session, canonicalSession, errors.Join(ErrSubmitDeliveryUnknown, err))
 	}
 	if claim.ClientSubmitID != "" {
 		claimPending = false
 		if err := h.acceptSubmitClaim(ref, claim.ClientSubmitID, turnID); err != nil {
-			return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
+			return createSessionCreatedErrorResult(input, session, canonicalSession, errors.Join(ErrSubmitDeliveryUnknown, err))
 		}
 	}
 	if refreshed, ok := h.runtime.Session(workspaceID, session.ID); ok {
@@ -285,8 +350,8 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	if refreshed, ok, readErr := h.store.GetSession(ctx, workspaceID, session.ID); readErr == nil && ok {
 		canonicalSession = refreshed
 	}
-	h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, nil)
-	return CreateSessionResult{Session: session, Canonical: canonicalSession, TurnID: turnID}, nil
+	h.observeStep(ctx, "session_create", "runtime_exec", workspaceID, session.ID, session.Provider, startedAt, nil)
+	return CreateSessionResult{Session: session, Canonical: canonicalSession, TurnID: turnID, SessionStatus: CreateSessionStatusCreated, InitialGoalStatus: CreateSessionInitialGoalStatusNotRequested}, nil
 }
 
 func (h *Host) EnsureRuntimeSession(ctx context.Context, ref SessionRef) (ProviderRuntimeSession, error) {
@@ -294,6 +359,16 @@ func (h *Host) EnsureRuntimeSession(ctx context.Context, ref SessionRef) (Provid
 	if h == nil || h.runtime == nil || h.store == nil || ref.WorkspaceID == "" || ref.AgentSessionID == "" {
 		return ProviderRuntimeSession{}, ErrSessionNotFound
 	}
+	var result ProviderRuntimeSession
+	err := h.withWorkspaceRuntimeOperation(ctx, ref.WorkspaceID, func(operationCtx context.Context) error {
+		var ensureErr error
+		result, ensureErr = h.ensureRuntimeSession(operationCtx, ref)
+		return ensureErr
+	})
+	return result, err
+}
+
+func (h *Host) ensureRuntimeSession(ctx context.Context, ref SessionRef) (ProviderRuntimeSession, error) {
 	release, err := h.acquireSession(ctx, ref)
 	if err != nil {
 		return ProviderRuntimeSession{}, err
@@ -323,6 +398,12 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 		evidence, err = h.store.GetProviderSessionResumeEvidence(ctx, ref.WorkspaceID, ref.AgentSessionID)
 		if err != nil {
 			return ProviderRuntimeSession{}, err
+		}
+		if !evidence.Established {
+			evidence.Established, err = h.goalStateProvesProviderSessionEstablished(ctx, ref)
+			if err != nil {
+				return ProviderRuntimeSession{}, err
+			}
 		}
 	}
 	if live, ok := h.runtime.Session(ref.WorkspaceID, ref.AgentSessionID); ok {
@@ -367,42 +448,77 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 	if prepared.Settings != nil {
 		settings = *prepared.Settings
 	}
-	release, err := h.acquireStartup(ctx, canonicalSession.Provider)
-	if err != nil {
+	if prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.Cwd, canonicalSession); err != nil {
 		return ProviderRuntimeSession{}, err
 	}
+	release, err := h.acquireStartup(ctx, canonicalSession.Provider)
+	if err != nil {
+		return ProviderRuntimeSession{}, h.cleanupRejectedPreparedRuntime(ctx, ref, canonicalSession.Provider, err)
+	}
 	defer release()
+	goalGenerationFences, err := h.listRuntimeGoalGenerationFences(ctx, ref)
+	if err != nil {
+		return ProviderRuntimeSession{}, h.cleanupRejectedPreparedRuntime(ctx, ref, canonicalSession.Provider, err)
+	}
 	result, err := h.runtime.Resume(ctx, RuntimeResumeInput{
 		WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
 		AgentTargetID: strings.TrimSpace(canonicalSession.AgentTargetID), Provider: strings.TrimSpace(canonicalSession.Provider),
 		ProviderSessionID: strings.TrimSpace(canonicalSession.ProviderSessionID), Resumable: evidence.Established, Cwd: prepared.Cwd,
-		Env: append([]string(nil), prepared.Env...), Title: strings.TrimSpace(canonicalSession.Title),
+		Env: append([]string(nil), prepared.Env...), MCPServers: cloneHostMCPServerBindings(prepared.MCPServers), Title: strings.TrimSpace(canonicalSession.Title),
 		Status: persistedRuntimeStatus(canonicalSession.ActiveTurnID), Settings: settings,
 		CreatedAtUnixMS: canonicalSession.CreatedAtUnixMS, UpdatedAtUnixMS: canonicalSession.UpdatedAtUnixMS,
 		Visible: boolPointer(canonicalSession.Metadata.Visible), RuntimeContext: cloneMap(firstMap(prepared.RuntimeContext, canonicalSession.InternalRuntimeContext)),
 		ProviderTargetRef: cloneMap(prepared.ProviderTargetRef), Metadata: canonicalSession.Metadata,
-		InternalRuntimeContext: cloneMap(canonicalSession.InternalRuntimeContext), RecreateIfMissing: policy.Mode == ResumeModeRecreate,
+		InternalRuntimeContext: cloneMap(canonicalSession.InternalRuntimeContext),
+		GoalGenerationFences:   append([]RuntimeGoalGenerationFenceInput(nil), goalGenerationFences...),
+		RecreateIfMissing:      policy.Mode == ResumeModeRecreate,
 	})
 	if err != nil {
-		return ProviderRuntimeSession{}, err
+		return ProviderRuntimeSession{}, h.cleanupRejectedPreparedRuntime(ctx, ref, canonicalSession.Provider, err)
 	}
 	if err := h.restoreGoalGenerationFences(ctx, ref); err != nil {
-		return ProviderRuntimeSession{}, err
+		return ProviderRuntimeSession{}, h.cleanupRejectedPreparedRuntime(ctx, ref, canonicalSession.Provider, err)
 	}
 	h.goalFencesRestored.Store(ref.WorkspaceID+"\x00"+ref.AgentSessionID, struct{}{})
 	return result, nil
 }
 
-func runtimeSessionHasActiveTurn(session ProviderRuntimeSession) bool {
-	return session.TurnLifecycle != nil &&
-		session.TurnLifecycle.ActiveTurnID != nil &&
-		strings.TrimSpace(*session.TurnLifecycle.ActiveTurnID) != ""
+// SendInput reports at most one aggregated TerminalFailure for a failed
+// command. Guidance target binding and goal control own their own emissions.
+func (h *Host) SendInput(ctx context.Context, ref SessionRef, input SendInput) (SendInputResult, error) {
+	clientSubmitID := firstNonEmptyTrimmed(input.ClientSubmitID, legacyClientSubmitID(input.Metadata))
+	ctx, command := h.beginCommand(ctx, commandTerminalFailureInput{
+		flow: "message_send", workspaceID: ref.WorkspaceID, agentSessionID: ref.AgentSessionID,
+		operationID:    firstNonEmptyTrimmed(clientSubmitID, input.TurnID),
+		clientSubmitID: clientSubmitID, turnID: input.TurnID,
+	})
+	result, err := h.sendInput(ctx, ref, input)
+	command.finish(ctx, h, err)
+	return result, err
 }
 
-func (h *Host) SendInput(ctx context.Context, ref SessionRef, input SendInput) (SendInputResult, error) {
+func (h *Host) sendInput(ctx context.Context, ref SessionRef, input SendInput) (SendInputResult, error) {
 	ref.WorkspaceID, ref.AgentSessionID = strings.TrimSpace(ref.WorkspaceID), strings.TrimSpace(ref.AgentSessionID)
 	if h == nil || h.runtime == nil || h.store == nil || ref.WorkspaceID == "" || ref.AgentSessionID == "" {
 		return SendInputResult{}, ErrInvalidArgument
+	}
+	// Guidance is a mutation of an already-running canonical Turn. Host
+	// consumers must bind that mutation to the exact Turn observed at the
+	// interaction boundary; allowing the runtime to infer "current" would make
+	// an A->B transition during transport silently steer B.
+	if input.Guidance && strings.TrimSpace(input.TurnID) == "" {
+		err := ErrActiveTurnTargetRequired
+		h.observeTerminalFailure(ctx, TerminalFailure{
+			Flow:           "guidance",
+			FailureStage:   "guidance_target",
+			WorkspaceID:    ref.WorkspaceID,
+			AgentSessionID: ref.AgentSessionID,
+			ClientSubmitID: strings.TrimSpace(input.ClientSubmitID),
+			ErrorCode:      guidanceTargetFailureCode(err),
+			ErrorMessage:   err.Error(),
+			Retryable:      false,
+		})
+		return SendInputResult{}, err
 	}
 	normalized, promptText, err := normalizePromptContent(input.Content)
 	if err != nil {
@@ -475,23 +591,23 @@ func (h *Host) sendInputSerialized(
 	startedAt := h.now()
 	session, err := h.ensureRuntimeSessionLocked(ctx, ref)
 	if err != nil {
-		h.observeStep(ctx, "message_send", "runtime_session_ready", ref.AgentSessionID, "", startedAt, err)
+		h.observeStep(ctx, "message_send", "runtime_session_ready", ref.WorkspaceID, ref.AgentSessionID, "", startedAt, err)
 		return SendInputResult{}, err
 	}
-	h.observeStep(ctx, "message_send", "runtime_session_ready", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "runtime_session_ready", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	if err := h.runtime.ValidatePromptContent(ctx, RuntimeExecInput{WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID, Content: normalized}); err != nil {
-		h.observeStep(ctx, "message_send", "prompt_validated", ref.AgentSessionID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "message_send", "prompt_validated", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
 		return SendInputResult{}, err
 	}
-	h.observeStep(ctx, "message_send", "prompt_validated", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "prompt_validated", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	startedAt = h.now()
 	preparedContent, err := h.prepareContent(ref.WorkspaceID, ref.AgentSessionID, normalized)
 	if err != nil {
-		h.observeStep(ctx, "message_send", "prompt_prepared", ref.AgentSessionID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "message_send", "prompt_prepared", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
 		return SendInputResult{}, err
 	}
-	h.observeStep(ctx, "message_send", "prompt_prepared", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "prompt_prepared", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	displayPrompt, initialTitle := strings.TrimSpace(input.DisplayPrompt), ""
 	if !input.Guidance && !session.InitialTitleEstablished {
 		initialTitle = DeriveInitialTitle(session.Title, firstNonEmpty(displayPrompt, promptText, preparedContent.DisplayText))
@@ -499,7 +615,7 @@ func (h *Host) sendInputSerialized(
 	startedAt = h.now()
 	releaseStartup, err := h.acquireStartup(ctx, session.Provider)
 	if err != nil {
-		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, err)
+		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
 		return SendInputResult{}, err
 	}
 	execResult, err := func() (RuntimeExecResult, error) {
@@ -518,8 +634,17 @@ func (h *Host) sendInputSerialized(
 			RequireProviderAcceptance: !input.Guidance,
 		})
 	}()
+	recordProviderAcceptanceDiagnostics(ctx, execResult.ProviderDispatch)
 	if err != nil {
-		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, err)
+		// Only an explicit target verdict is a guidance-target failure. Any
+		// other undispatched guidance is an ordinary runtime_exec failure that
+		// the command boundary aggregates.
+		if input.Guidance &&
+			(errors.Is(err, ErrActiveTurnTargetMismatch) || errors.Is(err, ErrActiveTurnTargetRequired)) {
+			h.observeGuidanceTargetFailure(ctx, ref, session.Provider, input.TurnID, claim.ClientSubmitID, startedAt, err)
+		} else {
+			h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, err)
+		}
 		if !input.Guidance && strings.TrimSpace(execResult.TurnID) != "" {
 			if persistErr := h.persistRuntimeSubmitOutcome(
 				ctx, ref, execResult,
@@ -543,6 +668,12 @@ func (h *Host) sendInputSerialized(
 				return SendInputResult{}, err
 			}
 		}
+		if input.Guidance && execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionNotDispatched {
+			// The runtime rejected the exact target before provider admission. Keep
+			// claimPending true so the deferred cleanup removes the prepared claim;
+			// this is a known rejection, not an outcome-unknown delivery.
+			return SendInputResult{}, err
+		}
 		if input.Guidance ||
 			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied ||
 			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionOutcomeUnknown {
@@ -556,7 +687,7 @@ func (h *Host) sendInputSerialized(
 	}
 	turnID := strings.TrimSpace(execResult.TurnID)
 	if turnID == "" {
-		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
+		h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, ErrSubmitDeliveryUnknown)
 		return SendInputResult{}, ErrSubmitDeliveryUnknown
 	}
 	if expectedTurnID := strings.TrimSpace(input.TurnID); !input.Guidance && expectedTurnID != "" && turnID != expectedTurnID {
@@ -588,7 +719,7 @@ func (h *Host) sendInputSerialized(
 			return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
 		}
 	}
-	h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, nil)
+	h.observeStep(ctx, "message_send", "runtime_exec", ref.WorkspaceID, ref.AgentSessionID, session.Provider, startedAt, nil)
 	canonicalSession, ok, err := h.store.GetSession(ctx, ref.WorkspaceID, ref.AgentSessionID)
 	if err != nil {
 		return SendInputResult{}, err
@@ -722,112 +853,4 @@ func (h *Host) acquireStartup(ctx context.Context, provider string) (func(), err
 		return func() {}, nil
 	}
 	return h.startupGate.Acquire(ctx, provider)
-}
-
-func normalizeOptionalPromptContent(content []PromptContentBlock) ([]PromptContentBlock, string, error) {
-	if len(content) == 0 {
-		return nil, "", nil
-	}
-	return normalizePromptContent(content)
-}
-
-func createPreparationInput(workspaceID string, input CreateSessionInput) RuntimePreparationInput {
-	return RuntimePreparationInput{
-		WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID,
-		Provider: input.Provider, Cwd: value(input.Cwd), Title: value(input.Title), PermissionModeID: value(input.PermissionModeID),
-		PlanMode: valueBool(input.PlanMode), BrowserUse: valueBoolDefault(input.BrowserUse, true), ComputerUse: valueBoolDefault(input.ComputerUse, true), CodexSaverMode: valueBool(input.CodexSaverMode),
-		ProviderTargetRef: cloneMap(input.ProviderTargetRef), Model: value(input.Model), ReasoningEffort: value(input.ReasoningEffort),
-		ConversationDetailMode: input.ConversationDetailMode, Metadata: cloneMap(input.Metadata), RuntimeContext: cloneMap(input.RuntimeContext),
-	}
-}
-
-func resumePreparationInput(session storesqlite.Session, settings ComposerSettings) RuntimePreparationInput {
-	return RuntimePreparationInput{
-		WorkspaceID: session.WorkspaceID, AgentSessionID: session.ID, AgentTargetID: session.AgentTargetID,
-		Provider: session.Provider, Cwd: session.Cwd, Title: session.Title, PermissionModeID: settings.PermissionModeID,
-		PlanMode: settings.PlanMode, BrowserUse: valueBoolDefault(settings.BrowserUse, true), ComputerUse: valueBoolDefault(settings.ComputerUse, true), CodexSaverMode: settings.CodexSaverMode,
-		Model: settings.Model, ReasoningEffort: settings.ReasoningEffort, ConversationDetailMode: settings.ConversationDetailMode,
-		RuntimeContext: cloneMap(session.InternalRuntimeContext), SessionOrigin: session.Origin,
-		ProviderSessionID: session.ProviderSessionID, CreatedAtUnixMS: session.CreatedAtUnixMS,
-		UpdatedAtUnixMS: session.UpdatedAtUnixMS, Visible: session.Metadata.Visible, Settings: settings,
-		SessionMetadata: session.Metadata,
-	}
-}
-
-func composerSettingsFromMap(values map[string]any) ComposerSettings {
-	result := ComposerSettings{}
-	result.CodexSaverMode, _ = values["codexSaverMode"].(bool)
-	result.Model, _ = values["model"].(string)
-	result.PermissionModeID, _ = values["permissionModeId"].(string)
-	result.PlanMode, _ = values["planMode"].(bool)
-	if value, ok := values["browserUse"].(bool); ok {
-		result.BrowserUse = &value
-	}
-	if value, ok := values["computerUse"].(bool); ok {
-		result.ComputerUse = &value
-	}
-	result.ReasoningEffort, _ = values["reasoningEffort"].(string)
-	result.Speed, _ = values["speed"].(string)
-	result.ConversationDetailMode, _ = values["conversationDetailMode"].(string)
-	return result
-}
-
-func lifecycleFromTurn(turn storesqlite.Turn) TurnLifecycle {
-	result := TurnLifecycle{Phase: turn.Phase}
-	if turnID := strings.TrimSpace(turn.TurnID); turnID != "" && turn.Phase != "settled" {
-		result.ActiveTurnID = &turnID
-	}
-	if turn.Outcome != "" {
-		outcome := turn.Outcome
-		result.Outcome = &outcome
-	}
-	if turn.CompletedCommandKind != "" || turn.CompletedCommandStatus != "" {
-		result.CompletedCommand = &CompletedCommand{Kind: turn.CompletedCommandKind, Status: turn.CompletedCommandStatus}
-	}
-	return result
-}
-
-func imageOnlyDisplayText(content []PromptContentBlock) string {
-	count := 0
-	for _, block := range content {
-		if block.Type == "image" {
-			count++
-		}
-	}
-	if count == 1 {
-		return "[Image]"
-	}
-	if count > 1 {
-		return "[Images]"
-	}
-	return ""
-}
-
-func persistedRuntimeStatus(activeTurnID string) string {
-	if strings.TrimSpace(activeTurnID) != "" {
-		return "working"
-	}
-	return "ready"
-}
-func value(input *string) string {
-	if input == nil {
-		return ""
-	}
-	return strings.TrimSpace(*input)
-}
-func valueBool(input *bool) bool { return input != nil && *input }
-func valueBoolDefault(input *bool, fallback bool) bool {
-	if input == nil {
-		return fallback
-	}
-	return *input
-}
-func boolPointer(value bool) *bool { return &value }
-func firstMap(values ...map[string]any) map[string]any {
-	for _, value := range values {
-		if len(value) > 0 {
-			return value
-		}
-	}
-	return nil
 }

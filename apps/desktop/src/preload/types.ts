@@ -70,6 +70,7 @@ import type {
   DesktopBrowserAutomationResponse
 } from "../shared/contracts/ipc";
 import type { BrowserNodeHostApi } from "@tutti-os/browser-node";
+import type { DesktopDistribution } from "../shared/distribution/desktopDistribution.ts";
 
 export interface DesktopRuntimeApi {
   getAgentSessionReplayPlayback(
@@ -129,6 +130,9 @@ export interface DesktopDockPreviewCacheApi {
 }
 
 export interface DesktopPlatformApi {
+  distribution: DesktopDistribution;
+  /** The native Electron application name, including the development suffix. */
+  appName: string;
   homeDirectory: string;
   os: NodeJS.Platform;
   resolveDroppedEntries(files: File[]): DesktopDroppedEntry[];
@@ -155,7 +159,9 @@ export interface DesktopHostWorkspaceApi {
     version?: string | null;
   }): Promise<void>;
   replaceWorkspaceWindow(input: {
+    clientTs: number;
     mode: "agent" | "os";
+    previousMode: "agent" | "os";
     workspaceId: string;
   }): Promise<void>;
   showWorkspace(workspaceID: string): Promise<void>;
@@ -172,6 +178,7 @@ export interface DesktopHostNotificationsApi {
 
 export interface DesktopHostWindowApi {
   approveClose(): Promise<void>;
+  setCloseGuardEnabled(enabled: boolean): Promise<void>;
   capturePreview(
     input: DesktopHostWindowCapturePreviewInput
   ): Promise<string | null>;

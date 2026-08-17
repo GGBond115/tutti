@@ -4,6 +4,41 @@
 
 Provider discovery, installation, authentication, models, configuration, and runtime reachability.
 
+### Hermes is ready but a new Windows session reports Agent failed to start
+
+- Symptom:
+  Hermes passes setup detection, but the new-conversation model picker is empty
+  and sending the first message reports `Agent failed to start`.
+- Quick checks:
+  In the daemon log, compare setup-probe configuration with the session-scoped
+  `HERMES_HOME`. The failing session typically reports no `.env` in its
+  `.tutti*/agent/runs/<session>/hermes` directory, followed by ACP `session/new`
+  returning `No LLM provider configured`. Check whether the working user config
+  is under `%LOCALAPPDATA%\hermes` while `%USERPROFILE%\.hermes` is absent.
+- Root cause:
+  The signed extension profile uses the portable default `.hermes`, but the
+  shared runtime preparer previously resolved it only relative to the Windows
+  user profile. Hermes itself uses the native Windows user cache location, so
+  discovery could see credentials while the isolated session home copied none.
+- Fix:
+  Keep an explicit `HERMES_HOME` as the highest-priority source. Otherwise,
+  preserve an existing `%USERPROFILE%\.hermes`; when it is absent, resolve the
+  resolve the portable leading-dot directory through the Windows user cache
+  root first, then fall back to a migrated `%USERPROFILE%\.hermes` only when the
+  native directory is absent. Copy only the files declared by the signed
+  runtime-preparation profile. Keep this behavior in the platform adapter rather
+  than branching on `acp:hermes`.
+- Validation:
+  With no user-level `HERMES_HOME`, place credentials in
+  `%LOCALAPPDATA%\hermes`, create a new session, and verify the model picker is
+  populated and the first message starts successfully. Confirm an explicit
+  source environment variable still takes precedence, and that a migrated
+  `%USERPROFILE%\.hermes` is used only when the native directory is absent.
+- References:
+  [agent-runtime-preparation.md](../../architecture/agent-runtime-preparation.md)
+  [windows-platform-support.md](../../architecture/windows-platform-support.md)
+  [extension_runtime.go](../../../packages/agent/runtimeprep/extension_runtime.go)
+
 ### Focusing a workspace repeatedly starts provider CLIs and raises CPU usage
 
 - Symptom:
@@ -78,6 +113,29 @@ provider-status-focus-refresh --all-process-time-profile` on macOS when a
   [agent-extensions.md](../../architecture/agent-extensions.md)
   [manager.go](../../../services/tuttid/service/agentextension/manager.go)
   [runtime_version_cache.go](../../../services/tuttid/service/agentextension/runtime_version_cache.go)
+
+### Workspace Apps repeatedly probe extension authentication
+
+- Symptom:
+  Several Workspace Apps opening together repeatedly start the same Extension
+  ACP process. A logged-in target can intermittently become unavailable when
+  duplicate setup probes exhaust the caller timeout.
+- Root cause:
+  Older Apps consume only the broad Agent catalog, while newer Apps refine an
+  exact target. If the broad catalog exposes installation readiness without
+  authentication, old Apps can also show an unconfigured extension as usable.
+- Fix:
+  Resolve installed extension authentication for broad and exact
+  `agent list` requests, run broad probes concurrently, coalesce them by
+  workspace and target in the daemon, and retain the result for a short bounded
+  interval. Preserve `auth_required` as the canonical reason code even when the
+  runtime supplies a more specific diagnostic reason. Explicit refresh bypasses
+  the short cache.
+- Validation:
+  Broad and exact-target requests within the cache window should share one setup
+  probe per target. A ready Kimi target reports `available`; an unconfigured
+  Hermes target reports `unavailable` with `auth_required` in both response
+  shapes. A refreshed broad request probes each installed extension once.
 
 ### An extension Agent is installed in the terminal but Tutti cannot detect it
 
@@ -482,6 +540,43 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   [runtimeprep tutti_agent.go](../../../packages/agent/runtimeprep/tutti_agent.go)
   [tuttid tuttiagent service.go](../../../services/tuttid/service/tuttiagent/service.go)
 
+### Managed npm install fails before reaching every registry
+
+- Symptom:
+  A Codex or Tutti Agent managed npm install fails immediately with exit code
+  `126`. On macOS or another Unix host, stderr contains
+  `dirname: command not found` followed by a malformed `node` path. Switching
+  npm registries produces the same failure without meaningful network delay.
+- Quick checks:
+  Inspect the prepared npm path and the install process `PATH`. Run the managed
+  npm launcher once with that exact environment. If adding `/usr/bin:/bin`
+  makes it work, the failure is local process setup rather than registry or
+  package availability. On Windows, confirm the structured runner uses
+  `cmd.exe /D /S /C call` for `npm.cmd` and retains the inherited `System32`
+  path.
+- Root cause:
+  Managed runtime overrides put the bundled Node directory first, but an
+  already-installed runtime fast path can accidentally build the override from
+  an empty base environment. Direct structured execution then exposes the
+  truncated `PATH`: the Unix npm launcher cannot resolve tools such as
+  `dirname`, while Windows batch launchers can lose commands supplied by the
+  host environment. A login shell can hide this defect by rebuilding `PATH`.
+- Fix:
+  Keep structured argv execution and the platform process adapters. When no
+  environment provider is injected, inherit the daemon process environment
+  before prepending managed runtime directories. Do not switch back to shell
+  command strings or hardcode a Unix path into shared installer policy.
+- Validation:
+  Execute a real POSIX npm-style launcher that calls `dirname` with the
+  production managed-runtime composition, test Windows `.cmd` argument
+  preservation, build the daemon natively, and cross-compile the Windows
+  agentstatus tests.
+- References:
+  [installer_codex_cli.go](../../../services/tuttid/service/agentstatus/installer_codex_cli.go)
+  [provider_resolution.go](../../../services/tuttid/service/agentstatus/provider_resolution.go)
+  [service_helpers.go](../../../services/tuttid/service/agentstatus/service_helpers.go)
+  [install_command_windows.go](../../../services/tuttid/service/agentstatus/install_command_windows.go)
+
 ### Tutti Agent unexpectedly loses login after a host auth read failure
 
 - Symptom:
@@ -656,20 +751,30 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   `cwd/AGENTS.md`, which dirtied tracked repositories.
 - Fix:
   Materialize Tutti Cursor skills as a session-scoped Cursor plugin with
-  `.cursor-plugin/plugin.json` and `skills/*/SKILL.md`; expose it through
-  `TUTTI_CURSOR_PLUGIN_DIR`, and start Cursor ACP as
+  `.cursor-plugin/plugin.json` and `skills/*/SKILL.md`. Generate the canonical
+  runtime policy and its materialized Skill catalog from the same resolved
+  capability profile instead of maintaining a Cursor-specific Skill catalog.
+  Reconcile the session-owned root on every prepare so resume replaces current
+  managed Skills and removes stale managed entries without touching unmanaged
+  directories.
+  Expose the plugin through `TUTTI_CURSOR_PLUGIN_DIR`, start Cursor ACP as
   `cursor-agent --plugin-dir <plugin-dir> acp`. Keep user/project
   `.cursor/skills` discoverable for composer options, but never write Tutti
   injected skills or Tutti runtime instructions into the workspace cwd for
-  Cursor sessions. Cursor Agent `2026.07.01-41b2de7` does not load plugin hooks
-  in ACP mode, so do not advertise the dormant background-Task guard in the
-  plugin manifest and do not claim that background Task is blocked. Do not
-  install the hook into user or project Cursor configuration as a workaround.
+  Cursor sessions. Cursor ACP does not project plugin Skills or Rules into the
+  model context, so append the prepared policy and dynamic catalog to the first
+  provider-only ACP prompt; never project it as user-visible content. Cursor
+  Agent `2026.07.01-41b2de7` does not load plugin hooks in ACP mode, so do not
+  advertise the dormant background-Task guard in the plugin manifest and do not
+  claim that background Task is blocked. Do not install the hook into user or
+  project Cursor configuration as a workaround.
 - Validation:
-  Add `runtimeprep` coverage that Cursor prepare creates the runtime plugin
-  while leaving project `.cursor/skills` and `AGENTS.md` untouched, runtime
-  coverage that Cursor ACP includes `--plugin-dir`, and agent service coverage
-  that Cursor composer skill discovery includes plugin skills. Then run
+  Add `runtimeprep` coverage that Cursor prepare creates the runtime plugin and
+  dynamic prompt context while leaving project `.cursor/skills` and `AGENTS.md`
+  untouched; add runtime coverage that Cursor ACP includes `--plugin-dir` and
+  injects the prepared context only on its first provider prompt, and agent
+  service coverage that Cursor composer skill discovery includes plugin skills.
+  Then run
   `cd packages/agent/runtimeprep && go test ./...`,
   `cd services/tuttid && go test ./service/agent`, and
   `go test ./packages/agent/daemon/runtime`.
@@ -880,24 +985,42 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   after the request, the canceled handler did not finish cleaning up its
   discovery subprocess.
 - Root cause:
-  Codex Composer Options needs both `model/list` and the app-server capability
-  catalog. Running those independent, individually bounded probes in series
-  can exceed the Desktop's aggregate request deadline. A second failure mode
-  occurs when timeout kills only the JavaScript launcher: its native child
-  inherits stdout, the response scanner never receives EOF, and deferred
-  `Wait` cannot run because it sits behind that scanner.
+  Codex Composer Options has two independent waits: `model/list` feeds the
+  model, reasoning, and speed controls, while app-server capability discovery
+  feeds skills and capability entries. A legacy combined response can still
+  wait for both, and repeated capability failures can otherwise start another
+  eight-second probe for every refresh.
 - Fix:
-  Start model-catalog loading before capability discovery so the two independent
-  app-server exchanges overlap. Run every short-lived Codex app-server in its
-  own process group, begin process reaping immediately, and make timeout cancel
-  the entire group. Keep the Desktop deadline unchanged so a genuinely stuck
-  daemon request still fails closed.
+  Desktop requests `section=core` for model controls. It requests
+  `section=capabilities` only when the user opens or uses a capability surface,
+  so the capability response and its eight-second provider timeout never block
+  the model controls. The legacy `section=full` response still starts both
+  catalogs concurrently. Capability loads use single-flight sharing plus a
+  short negative cache so identical callers do not stampede a broken app-server.
+  Run every short-lived Codex
+  app-server in its own process group, begin process reaping immediately, and
+  make timeout cancel the entire group. The daemon keeps one initialized Codex
+  app-server session warm per provider for up to two minutes, and refreshes the
+  five-minute model catalog in the background after expiry or an auth/config
+  invalidation. Identical atomic rewrites of Codex auth/config do not
+  invalidate the catalog because the watcher compares file content. Keep the
+  Desktop deadline unchanged so a genuinely stuck daemon request still fails
+  closed.
 - Validation:
   Block both catalog fixtures and assert both start before either is released.
   Use a fake app-server whose child retains stdout and assert model and
-  capability timeouts return promptly with no surviving child. Finally, time a
-  cold Composer Options request and confirm it completes within the Desktop
-  deadline.
+  capability timeouts return promptly with no surviving child. Assert concurrent
+  cold catalog callers share one fetch, stale options remain visible while the
+  background refresh runs, and repeated requests reuse one app-server process.
+  Finally, time a cold Composer Options request and confirm it completes within
+  the Desktop deadline. Useful logs are
+  `agent.model_catalog.fetch_start`, `stage_settled`, `fetch_settled`,
+  `request_settled`, `agent.composer_options.load`, and `process_idle_close`.
+  Composer telemetry reports section/stage, outcome, duration, and bounded
+  model identifiers without paths or settings. When an auth/config watcher
+  causes invalidation, `agent.model_catalog.invalidated` also includes the
+  exact changed file and change kind; use that field to distinguish Codex
+  auth/config churn from a provider-side fetch failure.
 - References:
   [composer_options.go](../../../services/tuttid/service/agent/composer_options.go)
   [codex_appserver_process.go](../../../services/tuttid/service/agent/codex_appserver_process.go)
@@ -928,7 +1051,9 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   boundary and replay the answer again in `turn/completed`, sometimes with
   whitespace polish; treating each report as a new segment creates duplicate
   bubbles. The model-metadata warning is runtime diagnostic noise rather than
-  an actionable user error.
+  an actionable user error. Persisted skill-context warnings may omit their
+  optional `source` metadata, and Codex has emitted both percentage and
+  non-percentage variants of that wording.
 - Fix:
   Treat Codex app-server `model/list` as the authoritative catalog regardless
   of `model_provider`. Preserve the full returned list and reasoning metadata;
@@ -937,7 +1062,10 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   for whitespace-equivalent item-finalization text and ignore turn-final text
   after an assistant segment has already completed. Filter the metadata
   fallback warning through the same AgentGUI diagnostic-notice projection used
-  for skills-context-budget warnings.
+  for skills-context-budget warnings. Match the optional percentage in the
+  skills warning as diagnostic context rather than as part of its identity;
+  accept a missing source only for that exact warning, preserve explicitly
+  non-runtime notices, and keep the metadata fallback warning runtime-only.
 - Validation:
   Run
   `go test ./packages/agent/daemon/runtime -run 'TestApplyAssistantFinalText|TestApplyAssistantTurnFinalText|TestCodexAppServerAdapterExecStreamsTurn'`,
@@ -1552,7 +1680,9 @@ invalid_grant`. Search `tuttid.log` for
 - Symptom:
   `opencode models --verbose` lists more models in a local terminal than the
   OpenCode model picker in Agent GUI. Custom provider ids or recently published
-  model variants are commonly absent.
+  model variants are commonly absent. A related presentation symptom shows a
+  provider-qualified recent item such as `newapi/deepseek-v4-pro`, while the
+  searchable catalog shows only the ambiguous model name `DeepSeek V4 Pro`.
 - Quick checks:
   Run `opencode models --verbose` from the same workspace cwd passed to the
   composer. Count exact `provider/model` lines and compare them with the
@@ -1564,18 +1694,25 @@ invalid_grant`. Search `tuttid.log` for
   daemon previously ran model discovery in its own inherited cwd and stored the
   resulting provider-wide list for six hours. A smaller result from the wrong
   project context therefore remained visible even after the terminal catalog
-  changed.
+  changed. Separately, verbose catalog normalization previously used only the
+  model metadata `name` as the display label even though the exact launch
+  identity remained the provider-qualified `provider/model` id.
 - Fix:
   Pass the composer workspace cwd through the daemon model-catalog request and
   set it as the `opencode models --verbose` process directory. Do not cache
   OpenCode model-list successes or failures. Keep one request-scoped catalog
   projection so a composer-options request starts the CLI only once. Preserve
   the auth/config invalidation event so an already-open composer refreshes when
-  global OpenCode credentials or config files change.
+  global OpenCode credentials or config files change. Append a non-built-in
+  provider id to verbose model labels while preserving the exact
+  provider-qualified id as the selection value. Keep the built-in `opencode`
+  provider suffix hidden so ordinary catalog entries stay concise, and avoid
+  renderer-side provider branches.
 - Validation:
   Cover cwd propagation, repeated uncached OpenCode lookups, all provider/model
   prefixes from verbose output, one catalog lookup per composer-options request,
-  and unchanged cache policies for Codex and Tutti Agent. Run
+  duplicate model names under different provider ids, and unchanged cache
+  policies for Codex and Tutti Agent. Run
   `cd services/tuttid && go test ./service/agent` and `pnpm check:changed`.
 - References:
   [opencode_model_catalog.go](../../../services/tuttid/service/agent/opencode_model_catalog.go)
@@ -2085,13 +2222,19 @@ invalid_grant`. Search `tuttid.log` for
   A Codex session bound to an OpenAI-protocol Model Plan fails immediately,
   stays working without output, or loses tool-call messages. The Plan's
   connection check can still pass because detection calls
-  `/v1/chat/completions` directly.
+  `/v1/chat/completions` directly. Another immediate-failure shape is a
+  terminal provider error such as `metadata value too long: ... (578 > 512)`
+  after a short prompt that produced no assistant content.
 - Quick checks:
   Inspect the session-scoped Codex `config.toml`. The
   `tutti-model-plan` provider must use a loopback `base_url`, a temporary
   `TUTTI_MODEL_PLAN_API_KEY`, and `wire_api = "responses"`. Verify the upstream
   server receives `/v1/chat/completions`, not `/v1/responses`. A direct
-  Chat-only Base URL paired with `wire_api = "responses"` is incomplete.
+  Chat-only Base URL paired with `wire_api = "responses"` is incomplete. For
+  the metadata failure, inspect the exported Session's terminal Turn error and
+  compare the reported value length with 512. Codex workspace diagnostics can
+  grow with Git remotes and usage-attribution fields. Adjacent model-list 404s
+  are not the terminal cause when the thread and Turn both start successfully.
 - Root cause:
   Current Codex emits Responses-shaped requests and requires terminal
   Responses SSE events. A Chat-only provider neither owns `/v1/responses` nor
@@ -2102,7 +2245,11 @@ invalid_grant`. Search `tuttid.log` for
   tools that Chat Completions cannot execute. Codex also sends Responses
   `developer` messages; Chat-compatible providers that only recognize
   `system`/`user`/`assistant`/`tool` can reject the otherwise valid request
-  during tokenization.
+  during tokenization. The gateway also used to forward Responses
+  `metadata`/`client_metadata` unchanged. Codex can encode its workspace
+  diagnostics as one optional metadata value larger than the 512-byte limit
+  enforced by common Chat-compatible endpoints, so the upstream rejects the
+  request before model execution.
 - Fix:
   Keep Codex on `wire_api = "responses"` and route the session through
   tuttid's loopback Model Gateway. The gateway authenticates the temporary
@@ -2120,6 +2267,11 @@ invalid_grant`. Search `tuttid.log` for
   index zero. This preserves instruction precedence without requiring newer
   OpenAI-only roles or mid-conversation system roles from the upstream
   tokenizer. OpenCode continues to use the Plan endpoint directly.
+  Before sending the converted Chat request, omit only metadata values larger
+  than 512 bytes. Do not truncate them, because a truncated diagnostic JSON
+  value is misleading and may be invalid. Keep the original Responses
+  metadata for local response reconstruction; metadata at or below the limit
+  and Responses-over-client key precedence remain unchanged.
 - Validation:
   Cover request/tool conversion, interleaved parallel tool arguments, UTF-8
   and arbitrary SSE byte boundaries, large arguments, usage, upstream errors,
@@ -2129,10 +2281,13 @@ invalid_grant`. Search `tuttid.log` for
   internal-role normalization and system-message collapse. A real smoke test
   must complete two Codex turns and one tool call while the upstream records
   `/v1/chat/completions` without any upstream `developer` role or `system`
-  message after index zero.
+  message after index zero. Cover the metadata boundary explicitly: a 512-byte
+  value is forwarded, a 513-byte value is omitted, and an omitted Responses
+  value is not replaced by lower-priority client metadata with the same key.
 - References:
   [model-access-plans.md](../../architecture/model-access-plans.md)
   [gateway.go](../../../services/tuttid/service/modelgateway/gateway.go)
+  [responses_request.go](../../../services/tuttid/service/modelgateway/responses_request.go)
   [stream_converter.go](../../../services/tuttid/service/modelgateway/stream_converter.go)
   [model_endpoint.go](../../../packages/agent/runtimeprep/model_endpoint.go)
 
@@ -2173,6 +2328,40 @@ invalid_grant`. Search `tuttid.log` for
   [agent-extensions.md](../../architecture/agent-extensions.md)
   [manager.go](../../../services/tuttid/service/agentextension/manager.go)
   [wiring_daemon_api.go](../../../services/tuttid/wiring_daemon_api.go)
+
+### Kimi setup opens a browser before showing the platform selector
+
+- Symptom:
+  Clicking the Kimi setup action immediately opens the Kimi website instead of
+  showing the Kimi Code TUI selector for OAuth or a Platform API key.
+- Quick checks:
+  Inspect the exact terminal launch. `kimi login` and starting `kimi` followed
+  by `/login` are different interfaces: the former may start a device-code flow
+  and open a browser, while the latter opens the interactive platform selector
+  inside the running TUI. Confirm the installed runtime's `login --help` and
+  verify the welcome marker still appears before assuming the two paths are
+  equivalent.
+- Root cause:
+  A terminal authentication profile projected the TUI slash command as a CLI
+  subcommand. Provider-owned commands with the same spelling do not necessarily
+  share behavior across those two command surfaces.
+- Fix:
+  Declare the signed authentication method as `runtime-slash-command`, with one
+  safe command name and a bounded literal ready marker. Launch the bare runtime,
+  wait for that marker on the matching terminal session, then submit the
+  Desktop-generated slash command through the terminal transport. The daemon
+  and AgentGUI Host boundary must carry one typed startup action rather than
+  independent raw input and marker fields. Do not put raw terminal input or
+  shell source in the extension profile.
+- Validation:
+  Cover output split across terminal events, output received before the session
+  is armed, unrelated terminal sessions, timeout, and transport failure. In a
+  fresh isolated Kimi home, verify setup first shows the in-TUI platform
+  selector and opens a browser only after the user chooses OAuth.
+- References:
+  [agent-extensions.md](../../architecture/agent-extensions.md)
+  [runtime_probe.go](../../../services/tuttid/service/agentextension/runtime_probe.go)
+  [workbenchTerminalLoginPresenter.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/workbenchTerminalLoginPresenter.ts)
 
 ### Kimi Code remains in setup or reports login after authentication
 
@@ -2218,3 +2407,34 @@ invalid_grant`. Search `tuttid.log` for
   [runtime-overrides.md](../runtime-overrides.md)
   [visible_error.go](../../../packages/agent/daemon/runtime/visible_error.go)
   [setup.go](../../../services/tuttid/service/agentextension/setup.go)
+
+### Terminal login succeeds but the setup terminal remains open
+
+- Symptom:
+  The provider's terminal login reports success and returns to its normal TUI,
+  but AgentGUI keeps the setup terminal open and continues polling the Target as
+  `auth_required`.
+- Quick checks:
+  Confirm the Desktop terminal diagnostic reports the startup action as
+  `submitted`, then inspect repeated Target setup probes. Compare the fresh ACP
+  `initialize` response with `session/new`: some runtimes keep advertising a
+  terminal login method even after authentication succeeds.
+- Root cause:
+  ACP `authMethods` is a catalog of available authentication methods, not the
+  current authentication state. Treating a terminal-only catalog as an
+  immediate `auth_required` verdict skips `session/new`, so a successfully
+  configured runtime can never become `ready` and the Host never closes its
+  login-terminal handle.
+- Fix:
+  Preserve the advertised methods for presentation, but verify readiness with
+  the bounded setup `session/new` probe. Continue mapping explicit
+  authentication, missing-model, missing-provider, and terminal-method timeout
+  outcomes to `auth_required`. Do not scrape terminal output or inject an exit
+  command to infer login completion.
+- Validation:
+  Cover a runtime that still advertises only a terminal login method while
+  `session/new` returns a usable model, plus unconfigured runtimes whose
+  `session/new` returns no usable model, a missing-provider error, or a timeout.
+- References:
+  [standard_acp_setup.go](../../../packages/agent/daemon/runtime/standard_acp_setup.go)
+  [desktopTerminalLoginReadinessMonitor.ts](../../../apps/desktop/src/renderer/src/features/workspace-agent/services/internal/desktopTerminalLoginReadinessMonitor.ts)

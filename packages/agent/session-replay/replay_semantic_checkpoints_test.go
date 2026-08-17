@@ -221,6 +221,32 @@ func TestCanonicalTurnPhaseFoldsActivityVocabulary(t *testing.T) {
 	}
 }
 
+func TestCanonicalCallStatusFoldsActivityVocabulary(t *testing.T) {
+	tests := map[string]string{
+		"running":           "running",
+		"working":           "running",
+		"streaming":         "running",
+		"in_progress":       "running",
+		"pending":           "running",
+		"waiting_approval":  "running",
+		"awaiting_approval": "running",
+		"waiting_input":     "running",
+		" streaming ":       "running",
+		"completed":         "completed",
+		"failed":            "failed",
+	}
+	for recorded, want := range tests {
+		if got := canonicalCallStatus(recorded); got != want {
+			t.Fatalf(
+				"canonicalCallStatus(%q) = %q, want %q",
+				recorded,
+				got,
+				want,
+			)
+		}
+	}
+}
+
 func TestSemanticTurnStateMatchesTerminalActivityPhase(t *testing.T) {
 	if !semanticTurnStateMatches(
 		storesqlite.TurnPhaseSettled,
@@ -293,6 +319,32 @@ func TestProjectBindingMatchesCanonicalCWDAndRailPlacement(t *testing.T) {
 				t.Fatalf("%s mismatch was accepted", name)
 			}
 		})
+	}
+}
+
+func TestProjectBindingMatchesSharedWorkspaceRemappedCWD(t *testing.T) {
+	expected := agenthost.HistoricalSession{
+		AgentTargetID:   "local:codex",
+		Provider:        "codex",
+		Cwd:             "/workspace/agent-session-replay",
+		RailSectionKind: storesqlite.RailSectionKindProject,
+		RailProjectPath: "/workspace/agent-session-replay",
+		RailSectionKey:  "project:/workspace/agent-session-replay",
+	}
+	actual := storesqlite.Session{
+		AgentTargetID:   expected.AgentTargetID,
+		Provider:        expected.Provider,
+		Cwd:             "/workspace/24238bb8-983c-4b0e-a516-e9719ab7ea5c/agent-session-replay",
+		RailSectionKind: expected.RailSectionKind,
+		RailProjectPath: expected.RailProjectPath,
+		RailSectionKey:  expected.RailSectionKey,
+	}
+	if !projectBindingMatches(actual, expected) {
+		t.Fatal("shared confined cwd remapping should match recorded project binding")
+	}
+	actual.Cwd = "/workspace/other-room/other-project"
+	if projectBindingMatches(actual, expected) {
+		t.Fatal("unrelated remapped cwd must not match")
 	}
 }
 

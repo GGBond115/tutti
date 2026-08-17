@@ -13,6 +13,13 @@ import (
 )
 
 func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessionID string, input SendInput) (SendInputResult, error) {
+	if input.Guidance && strings.TrimSpace(input.TurnID) == "" {
+		// The service is the cross-process boundary. Guidance must carry the
+		// canonical Turn captured by the caller. A durable claim can recover a
+		// retry only when that target is retained; it must not make a new request
+		// without an explicit target look valid.
+		return SendInputResult{}, ErrActiveTurnTargetRequired
+	}
 	input.ClientSubmitID = strings.TrimSpace(input.ClientSubmitID)
 	if input.ClientSubmitID == "" {
 		legacyClientSubmitID, _ := input.Metadata["clientSubmitId"].(string)
@@ -28,6 +35,10 @@ func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessio
 	normalizedContent, _, err := normalizePromptContent(input.Content)
 	if err != nil {
 		s.reportAgentServiceNodeFailure(ctx, agentSessionID, "message_send", "content_normalized", "", nodeStartedAt, err)
+		return SendInputResult{}, err
+	}
+	if err := s.validatePromptConnectors(ctx, normalizedContent); err != nil {
+		s.reportAgentServiceNodeFailure(ctx, agentSessionID, "message_send", "connectors_validated", "", nodeStartedAt, err)
 		return SendInputResult{}, err
 	}
 	s.reportAgentServiceNodeSuccess(ctx, agentSessionID, "message_send", "content_normalized", "", nodeStartedAt)
@@ -51,6 +62,9 @@ func (s *Service) SendInput(ctx context.Context, workspaceID string, agentSessio
 		if existingCanonicalTurnID != "" {
 			// A durable claim already owns this submit: reuse its canonical
 			// turn so a retry reconciles instead of redispatching.
+			if input.Guidance && strings.TrimSpace(input.TurnID) != existingCanonicalTurnID {
+				return SendInputResult{}, ErrActiveTurnTargetMismatch
+			}
 			preparedTurnID = existingCanonicalTurnID
 			hostInput.TurnID = existingCanonicalTurnID
 		} else {

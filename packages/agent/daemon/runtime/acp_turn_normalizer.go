@@ -55,6 +55,15 @@ func (n *acpTurnNormalizer) StartCompactionNotice(messageID string) (string, boo
 	return messageID, true
 }
 
+func (n *acpTurnNormalizer) HasCompactionNotice() bool {
+	if n == nil {
+		return false
+	}
+	n.compactionMu.Lock()
+	defer n.compactionMu.Unlock()
+	return n.compactionMessageID != ""
+}
+
 // CompleteCompactionNotice selects the provider-reported completed terminal.
 // Terminal selection is first-write-wins: a late completion after a locally
 // synthesized failed/canceled terminal is ignored.
@@ -859,8 +868,13 @@ func (n *acpTurnNormalizer) thinkingSnapshotEvent(session Session, turnID string
 const (
 	liveContentOperationMetadataKey    = "_tuttiLiveContentOperation"
 	liveToolOutputOperationMetadataKey = "_tuttiLiveToolOutputOperation"
-	liveMessageRoleMetadataKey         = "_tuttiLiveMessageRole"
-	liveMessageKindMetadataKey         = "_tuttiLiveMessageKind"
+	// liveToolProgressMetadataKey marks Claude tool_updated call.started
+	// events that stream input/progress onto an already-open tool call. Those
+	// must still project durable message updates, but must not mint another
+	// tool.started checkpoint (no matching commit → checkpoint_commit_unconfirmed).
+	liveToolProgressMetadataKey = "_tuttiLiveToolProgress"
+	liveMessageRoleMetadataKey  = "_tuttiLiveMessageRole"
+	liveMessageKindMetadataKey  = "_tuttiLiveMessageKind"
 )
 
 func attachTextLiveOperation(

@@ -7,6 +7,7 @@ import type {
 } from "@tutti-os/workspace-file-reference/contracts";
 import type { ReferenceSourceAggregator } from "@tutti-os/workspace-file-reference/core";
 import type { ReferenceSourcePickerProps } from "@tutti-os/workspace-file-reference/ui";
+import type { AgentProjectDropdownOptions } from "./AgentComposerProjectMenu";
 import type { AgentGuiWorkbenchCommandBridge } from "../../workbench/commands";
 import type { AgentSettings } from "../../contexts/settings/domain/agentSettings";
 import type { WorkspaceLinkAction } from "../../actions/workspaceLinkActions";
@@ -16,6 +17,7 @@ import type {
   AgentGUIProviderRailAllPresentation,
   AgentGUIProviderRailMode,
   AgentGUIProviderReadinessGate,
+  AgentGUIInteractionReadinessSource,
   AgentGUIObservationGapSource,
   AgentGUITargetConnectionSource,
   AgentGUIHomeSuggestionId,
@@ -53,6 +55,7 @@ import type { RichTextMentionService } from "@tutti-os/ui-rich-text/service";
 import type { AgentGUIEngagementEventSink } from "./engagement/agentGUIEngagement.types";
 import type { AgentGUIComposerAppendRequest } from "./controller/useAgentGUIComposerAppendRequest";
 import type { OpenAgentEnvPanelInput } from "../../shared/agentEnv";
+import type { AgentGUISessionLaunchMode } from "./model/agentSessionLaunchMode";
 
 export interface AgentGUINodeIdentity {
   nodeId: string;
@@ -68,6 +71,7 @@ export interface AgentGUINodeWorkspace {
   selectProjectDirectory?: () => Promise<{ path: string } | null>;
   resolveExternalPromptEntries?: AgentComposerProps["resolveExternalPromptEntries"];
   prepareExternalPromptFiles?: AgentComposerProps["prepareExternalPromptFiles"];
+  resolvePastedPath?: AgentComposerProps["resolvePastedPath"];
   promptAssetLimit?: number | null;
   projectDirectorySourceAggregator?: ReferenceSourceAggregator | null;
   referenceSourceAggregator?: ReferenceSourceAggregator | null;
@@ -126,6 +130,12 @@ export interface AgentGUINodeHostCapabilities {
   sessionInputHistoryEnabled?: boolean;
   /** Host-owned experimental opt-in for creating Session forks. */
   sessionForkEnabled?: boolean;
+  /** Host-owned opt-in for launching self-owned local Sessions in git worktrees. */
+  sessionWorktreeEnabled?: boolean;
+  /** Host-owned durable launch preference projection for this workspace. */
+  sessionLaunchModesByProjectSectionKey?: Readonly<
+    Record<string, AgentGUISessionLaunchMode>
+  >;
   /** Host-owned experimental opt-in for the Codex saver-mode composer entry. */
   codexSaverModeEntryEnabled?: boolean;
   capabilityMenuState?: AgentComposerCapabilityMenuState;
@@ -141,6 +151,8 @@ export interface AgentGUINodeHostCapabilities {
   visibleErrorPresentationOverrides?: AgentVisibleErrorOverrides | null;
   agentTargets?: readonly AgentGUIAgentTarget[];
   agentTargetsLoading?: boolean;
+  /** Complete presentation-only catalog for resolving Agent mention identity. */
+  mentionAgentTargets?: readonly AgentGUIAgentTarget[];
   /** Launch-only targets for active-conversation handoff. */
   handoffAgentTargets?: readonly AgentGUIAgentTarget[];
   handoffAgentTargetsLoading?: boolean;
@@ -152,7 +164,14 @@ export interface AgentGUINodeHostCapabilities {
   providerReadinessGates?: Partial<
     Record<AgentGUIProvider, AgentGUIProviderReadinessGate | null>
   > | null;
+  /** Target-level connection for new-conversation and ordinary Composer admission. */
   targetConnectionSource?: AgentGUITargetConnectionSource | null;
+  /**
+   * Host-owned write readiness keyed by exact pending Interaction identity.
+   * When present for the displayed prompt, it takes precedence over target
+   * connection and exact-Turn observation-gap presentation.
+   */
+  interactionReadinessSource?: AgentGUIInteractionReadinessSource | null;
   /** Host-owned, ephemeral projection gap keyed by exact Session and Turn. */
   observationGapSource?: AgentGUIObservationGapSource | null;
   defaultAgentTargetId?: string | null;
@@ -192,6 +211,10 @@ export interface AgentGUINodeHostActions {
   onRememberComposerDefaults?: (
     input: AgentGUIRememberComposerDefaultsInput
   ) => void | Promise<AgentGUIRememberComposerDefaultsResult>;
+  onSessionLaunchModePreferenceChange?: (input: {
+    mode: AgentGUISessionLaunchMode;
+    projectSectionKey: string;
+  }) => void | Promise<void>;
   isMuted?: boolean;
   onMinimize?: () => void;
   onToggleMaximize?: () => void;
@@ -231,6 +254,12 @@ export interface AgentGUINodeRenderSlots {
    */
   agentConfigAccount?: (context: AgentGUIAgentConfigMenuContext) => ReactNode;
   projectDirectoryPickerHeaderActions?: ReferenceSourcePickerProps["renderHeaderActions"];
+  projectSelectOptions?: AgentProjectDropdownOptions;
+  referencePickerSidebarActions?: (
+    context: Parameters<
+      NonNullable<ReferenceSourcePickerProps["renderSidebarActions"]>
+    >[0] & { purpose: "directory" | "reference" }
+  ) => ReactNode;
   providerRailEmpty?: AgentGUIAgentsEmptyRenderer;
   sidebarFooter?: (ctx: AgentGUISidebarFooterContext) => ReactNode;
 }
@@ -380,6 +409,7 @@ export function areAgentGUINodePropsEqual(
     pw.selectProjectDirectory === nw.selectProjectDirectory &&
     pw.resolveExternalPromptEntries === nw.resolveExternalPromptEntries &&
     pw.prepareExternalPromptFiles === nw.prepareExternalPromptFiles &&
+    pw.resolvePastedPath === nw.resolvePastedPath &&
     pw.promptAssetLimit === nw.promptAssetLimit &&
     pw.projectDirectorySourceAggregator ===
       nw.projectDirectorySourceAggregator &&
@@ -398,6 +428,9 @@ export function areAgentGUINodePropsEqual(
       nc.referenceProvenanceFilterEnabled &&
     pc.sessionInputHistoryEnabled === nc.sessionInputHistoryEnabled &&
     pc.sessionForkEnabled === nc.sessionForkEnabled &&
+    pc.sessionWorktreeEnabled === nc.sessionWorktreeEnabled &&
+    pc.sessionLaunchModesByProjectSectionKey ===
+      nc.sessionLaunchModesByProjectSectionKey &&
     pc.codexSaverModeEntryEnabled === nc.codexSaverModeEntryEnabled &&
     agentGuiStateEquals(previous.state, next.state) &&
     pf.position.x === nf.position.x &&
@@ -434,6 +467,7 @@ export function areAgentGUINodePropsEqual(
     pc.comingSoonProviders === nc.comingSoonProviders &&
     pc.providerReadinessGates === nc.providerReadinessGates &&
     pc.targetConnectionSource === nc.targetConnectionSource &&
+    pc.interactionReadinessSource === nc.interactionReadinessSource &&
     pc.observationGapSource === nc.observationGapSource &&
     pc.defaultAgentTargetId === nc.defaultAgentTargetId &&
     pc.providerAuthAccountLabels === nc.providerAuthAccountLabels &&
@@ -452,6 +486,8 @@ export function areAgentGUINodePropsEqual(
     pa.onResize === na.onResize &&
     pa.onUpdateNode === na.onUpdateNode &&
     pa.onRememberComposerDefaults === na.onRememberComposerDefaults &&
+    pa.onSessionLaunchModePreferenceChange ===
+      na.onSessionLaunchModePreferenceChange &&
     pa.isMuted === na.isMuted &&
     pa.onMinimize === na.onMinimize &&
     pa.onToggleMaximize === na.onToggleMaximize &&
@@ -464,6 +500,8 @@ export function areAgentGUINodePropsEqual(
     ps.providerRailEmpty === ns.providerRailEmpty &&
     ps.projectDirectoryPickerHeaderActions ===
       ns.projectDirectoryPickerHeaderActions &&
+    ps.projectSelectOptions === ns.projectSelectOptions &&
+    ps.referencePickerSidebarActions === ns.referencePickerSidebarActions &&
     ps.sidebarFooter === ns.sidebarFooter
   );
 }

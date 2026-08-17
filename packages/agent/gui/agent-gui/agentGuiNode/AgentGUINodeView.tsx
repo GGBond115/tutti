@@ -18,8 +18,8 @@ import { AgentTargetInfoRendererProvider } from "../../shared/AgentTargetInfoRen
 import { AgentConversationClockProvider } from "../../shared/agentConversation/components/AgentConversationClock";
 import type { AgentGUINodeViewModel } from "./model/agentGuiNodeTypes";
 import {
-  agentTargetPresentationKey,
-  projectAgentTargetPresentations
+  mentionAgentTargetPresentationKey,
+  projectMentionAgentTargetPresentations
 } from "./model/agentGuiTargetPresentation";
 import styles from "./AgentGUINode.styles";
 import {
@@ -31,10 +31,8 @@ import { AgentGUIConfigMenu } from "./view/AgentGUIAccountConfig";
 import { AgentGUIProviderRail } from "./view/AgentGUIProviderRail";
 import { type AgentGUIConversationRailState } from "./view/AgentGUIConversationRailPane";
 import { AgentGUIConversationRailController } from "./controller/AgentGUIConversationRailController";
-import {
-  AgentGUIDetailPane,
-  EMPTY_WORKSPACE_APP_ICONS
-} from "./view/AgentGUIDetailPane";
+import { AgentGUIDetailPane } from "./view/AgentGUIDetailPane";
+import { EMPTY_WORKSPACE_APP_ICONS } from "./view/agentGUIDetailConstants";
 import { mergeWorkspaceAppIconsFromCommands } from "./view/agentGUIDetailModelHelpers";
 import { AgentGUIRenameConversationDialog } from "./view/AgentGUIRenameConversationDialog";
 import { AgentGUIReferencePickerSurface } from "./view/AgentGUIReferencePickerSurface";
@@ -58,17 +56,7 @@ export type {
   AgentGUIComposerFooterAccessoryContext,
   AgentGUIComposerFooterAccessoryRenderer
 } from "./view/AgentGUIComposerFooterAccessory.types";
-export type {
-  AgentGUINodeViewProps,
-  AgentGUIAgentsEmptyRenderer,
-  AgentGUIConversationRailLayout,
-  AgentGUISidebarFooterContext,
-  AgentGUISidebarFooterRenderer,
-  AgentGUIViewLabels,
-  AgentMentionReferenceTargetResolver,
-  AgentWorkspaceReferenceInitialTargetInput,
-  AgentWorkspaceReferenceInitialTargetResolver
-} from "./view/AgentGUINodeView.types";
+export * from "./AgentGUINodeView.publicTypes";
 export {
   buildAgentConversationHandoffPrompt,
   handoffProjectPathForConversation,
@@ -86,11 +74,17 @@ export {
 import { useAgentGUIExternalRequests } from "./view/useAgentGUIExternalRequests";
 export function AgentGUINodeView({
   viewModel,
+  mentionAgentTargets,
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
   sessionForkEnabled = false,
+  sessionWorktreeEnabled = false,
+  sessionLaunchModesByProjectSectionKey,
+  onSessionLaunchModePreferenceChange,
   renderAgentTargetInfo,
   renderProjectDirectoryPickerHeaderActions,
+  projectSelectOptions,
+  renderReferencePickerSidebarActions,
   renderSidebarFooter,
   renderProviderRailEmpty,
   providerRailAllPresentation,
@@ -136,6 +130,7 @@ export function AgentGUINodeView({
   onWorkspaceFileReferencesAdded,
   resolveExternalPromptEntries = null,
   prepareExternalPromptFiles = null,
+  resolvePastedPath = null,
   promptAssetLimit = null,
   onConversationRailWidthChanged,
   onConversationRailLayoutChange,
@@ -217,12 +212,10 @@ export function AgentGUINodeView({
   const toggleProjectPinned = useStableEventCallback(
     actions.toggleProjectPinned
   );
-  const confirmDeleteProjectConversations = useStableEventCallback(
-    actions.confirmDeleteProjectConversations
-  );
-  const confirmDeleteConversations = useStableEventCallback(
-    actions.confirmDeleteConversations
-  );
+  const projectDelete = actions.confirmDeleteProjectConversations;
+  const confirmProjectDelete = useStableEventCallback(projectDelete);
+  const conversationDelete = actions.confirmDeleteConversations;
+  const confirmConversationDelete = useStableEventCallback(conversationDelete);
   const requestDeleteConversation = useStableEventCallback(
     actions.requestDeleteConversation
   );
@@ -276,7 +269,6 @@ export function AgentGUINodeView({
       if (conversationRailCollapsed || event.button !== 0) {
         return;
       }
-
       event.preventDefault();
       event.currentTarget.setPointerCapture?.(event.pointerId);
       railResizeInteractionRef.current = {
@@ -290,7 +282,6 @@ export function AgentGUINodeView({
     },
     [conversationRailCollapsed, conversationRailWidthPx]
   );
-
   const handleConversationRailResizePointerMove =
     useAgentGUIConversationRailResizePointerMove({
       clampConversationRailWidth,
@@ -299,7 +290,6 @@ export function AgentGUINodeView({
       providerRailWidthPx,
       railResizeInteractionRef
     });
-
   const endConversationRailResize = useCallback(
     (event?: PointerEvent<HTMLDivElement>): void => {
       const resizeState = railResizeInteractionRef.current;
@@ -322,7 +312,6 @@ export function AgentGUINodeView({
     },
     [onConversationRailWidthChanged]
   );
-
   useEffect(() => {
     if (isRailResizing || railResizeWidthPx === null) {
       return;
@@ -412,7 +401,6 @@ export function AgentGUINodeView({
     selectedAgentTarget: viewModel.rail.selectedAgentTarget
   });
   const openAgentSettings = useCallback(() => {
-    // Provider-scoped config menu -> Agents tab, focusing this provider's row.
     openWorkspaceSettingsPanel({
       section: "agent",
       pane: "agents",
@@ -470,8 +458,8 @@ export function AgentGUINodeView({
       onRemoveProject: removeProject,
       onMoveProject: moveProject,
       onToggleProjectPinned: toggleProjectPinned,
-      onConfirmDeleteProjectConversations: confirmDeleteProjectConversations,
-      onConfirmDeleteConversations: confirmDeleteConversations,
+      onConfirmDeleteProjectConversations: confirmProjectDelete,
+      onConfirmDeleteConversations: confirmConversationDelete,
       onRequestDeleteConversation: requestDeleteConversation,
       onRequestRenameConversation: requestRenameConversation,
       onCancelDeleteConversation: cancelDeleteConversation,
@@ -483,8 +471,8 @@ export function AgentGUINodeView({
     [
       cancelDeleteConversation,
       confirmDeleteConversation,
-      confirmDeleteConversations,
-      confirmDeleteProjectConversations,
+      confirmConversationDelete,
+      confirmProjectDelete,
       conversationRailCollapsed,
       createConversationDisabled,
       conversationRailLabels,
@@ -516,16 +504,20 @@ export function AgentGUINodeView({
       workspaceUserProjectI18n
     ]
   );
-  const targetPresentationKey = agentTargetPresentationKey(
-    viewModel.rail.agentTargets
+  const targetPresentationKey = mentionAgentTargetPresentationKey(
+    viewModel.rail.agentTargets,
+    viewModel.composer.handoffAgentTargets,
+    mentionAgentTargets
   );
   const agentTargetPresentations = useMemo<
     readonly AgentMessageMarkdownAgentTarget[]
   >(
     () =>
-      projectAgentTargetPresentations({
-        agentTargets: viewModel.rail.agentTargets,
+      projectMentionAgentTargetPresentations({
+        handoffTargets: viewModel.composer.handoffAgentTargets,
+        mentionTargets: mentionAgentTargets,
         ownerSeparator: labels.sharedAgentOwnerSeparator,
+        railTargets: viewModel.rail.agentTargets,
         workspaceId: viewModel.shell.workspaceId
       }),
     [
@@ -638,9 +630,15 @@ export function AgentGUINodeView({
             inert={conversationRailCollapsed ? true : undefined}
           >
             <AgentConversationClockProvider isVisible={isVisible}>
+              {/* Selecting an Activity row must not rebuild its all-provider snapshot. */}
               <AgentGUIConversationRailController
                 {...conversationRailStoreState}
+                activityContextKey={[
+                  viewModel.shell.currentUserId?.trim() ?? "",
+                  viewModel.shell.nodeId?.trim() ?? ""
+                ].join("\u0000")}
                 conversations={viewModel.rail.conversations}
+                currentUserId={viewModel.shell.currentUserId}
                 nodeId={viewModel.shell.nodeId}
                 registerInteractionLockProbe={registerRailInteractionLockProbe}
                 userProjects={viewModel.rail.userProjects}
@@ -691,6 +689,13 @@ export function AgentGUINodeView({
                 referenceProvenanceFilters={referenceProvenanceFilters}
                 sessionInputHistoryEnabled={sessionInputHistoryEnabled}
                 sessionForkEnabled={sessionForkEnabled}
+                sessionWorktreeEnabled={sessionWorktreeEnabled}
+                sessionLaunchModesByProjectSectionKey={
+                  sessionLaunchModesByProjectSectionKey
+                }
+                onSessionLaunchModePreferenceChange={
+                  onSessionLaunchModePreferenceChange
+                }
                 composerEngagement={composerEngagement}
                 actions={actions}
                 labels={labels}
@@ -720,8 +725,10 @@ export function AgentGUINodeView({
                 onRequestWorkspaceReferences={requestWorkspaceReferences}
                 resolveExternalPromptEntries={resolveExternalPromptEntries}
                 prepareExternalPromptFiles={prepareExternalPromptFiles}
+                resolvePastedPath={resolvePastedPath}
                 promptAssetLimit={promptAssetLimit}
                 selectProjectDirectory={effectiveSelectProjectDirectory}
+                projectSelectOptions={projectSelectOptions}
                 onRequestGitBranches={onRequestGitBranches}
                 onRequestComposerFocus={requestComposerFocus}
                 workspaceAppIcons={effectiveWorkspaceAppIcons}
@@ -746,6 +753,7 @@ export function AgentGUINodeView({
           renderDirectoryHeaderActions={
             renderProjectDirectoryPickerHeaderActions
           }
+          renderSidebarActions={renderReferencePickerSidebarActions}
           resolveContentErrorAction={resolveReferenceContentErrorAction}
           resolveEntryIconUrl={resolveWorkspaceReferenceEntryIconUrl}
           workspaceId={viewModel.shell.workspaceId}

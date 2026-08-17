@@ -15,6 +15,9 @@ import (
 func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (events []activityshared.Event, err error) {
 	unlockLifecycle := a.lockSessionLifecycle(session.AgentSessionID)
 	defer unlockLifecycle()
+	if err := a.admitCodexReplacementLocked(session.AgentSessionID); err != nil {
+		return nil, err
+	}
 	trace := newCodexAppServerStartupTrace(session)
 	defer func() {
 		trace.Finish(err)
@@ -40,9 +43,13 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	}
 	started := false
 	keepSession := false
+	startedSession := &codexAppServerSession{
+		client:          client,
+		pendingRequests: make(map[string]*pendingInteractiveRequest),
+	}
 	defer func() {
 		if !started {
-			_ = client.Close()
+			a.closeOrRetainCodexSession(session.AgentSessionID, startedSession)
 		}
 		if !keepSession {
 			a.removeSession(session.AgentSessionID)
@@ -184,6 +191,9 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	}
 	unlockLifecycle := a.lockSessionLifecycle(session.AgentSessionID)
 	defer unlockLifecycle()
+	if err := a.admitCodexReplacementLocked(session.AgentSessionID); err != nil {
+		return err
+	}
 	// Resume may run over a session that still holds a live client. Unlike
 	// Start, the old client is kept alive until the replacement has resumed
 	// successfully (storeSession closes it on replace): if the new spawn or
@@ -210,9 +220,13 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	started := false
 	keepSession := false
 	previousSession := a.getSession(session.AgentSessionID)
+	startedSession := &codexAppServerSession{
+		client:          client,
+		pendingRequests: make(map[string]*pendingInteractiveRequest),
+	}
 	defer func() {
 		if !started {
-			_ = client.Close()
+			a.closeOrRetainCodexSession(session.AgentSessionID, startedSession)
 		}
 		if !keepSession {
 			if previousSession != nil {
@@ -376,8 +390,20 @@ func (*CodexAppServerAdapter) CanResume(session Session) bool {
 }
 
 func (a *CodexAppServerAdapter) HasLiveSession(session Session) bool {
-	appSession := a.getSession(session.AgentSessionID)
-	return appSession != nil && appSession.client != nil
+	a.mu.Lock()
+	appSession := a.sessions[strings.TrimSpace(session.AgentSessionID)]
+	if appSession == nil || appSession.client == nil || appSession.releasing || appSession.releaseFailed {
+		a.mu.Unlock()
+		return false
+	}
+	client := appSession.client
+	a.mu.Unlock()
+	select {
+	case <-client.Done():
+		return false
+	default:
+		return true
+	}
 }
 
 func (a *CodexAppServerAdapter) Close(ctx context.Context, session Session) error {
@@ -494,15 +520,50 @@ func (a *CodexAppServerAdapter) ReleaseLiveSession(_ context.Context, session Se
 	return a.closeLiveSession(agentSessionID)
 }
 
+// DisconnectLiveSession resolves pending interactions and drops only the
+// app-server transport. The Codex thread remains resumable; no provider
+// thread/session deletion request is sent.
+func (a *CodexAppServerAdapter) DisconnectLiveSession(_ context.Context, session Session) error {
+	if a == nil {
+		return nil
+	}
+	agentSessionID := strings.TrimSpace(session.AgentSessionID)
+	unlockLifecycle := a.lockSessionLifecycle(agentSessionID)
+	defer unlockLifecycle()
+	a.rejectPendingRequests(agentSessionID, ErrSessionDisconnected)
+	return a.closeLiveSession(agentSessionID)
+}
+
 func (a *CodexAppServerAdapter) closeLiveSession(agentSessionID string) error {
 	a.mu.Lock()
 	appSession := a.sessions[agentSessionID]
-	delete(a.sessions, agentSessionID)
 	shared := appSession != nil &&
 		a.clientReferencedLocked(appSession.client, agentSessionID)
+	if shared {
+		delete(a.sessions, agentSessionID)
+		a.mu.Unlock()
+		return nil
+	}
+	if appSession != nil && appSession.client != nil {
+		appSession.releasing = true
+		appSession.client.SetMessageHandler(nil)
+	}
 	a.mu.Unlock()
-	if appSession != nil && appSession.client != nil && !shared {
-		return appSession.client.Close()
+	if appSession != nil && appSession.client != nil {
+		if err := appSession.client.Close(); err != nil {
+			a.mu.Lock()
+			if a.sessions[agentSessionID] == appSession {
+				appSession.releasing = false
+				appSession.releaseFailed = true
+			}
+			a.mu.Unlock()
+			return err
+		}
+		a.mu.Lock()
+		if a.sessions[agentSessionID] == appSession {
+			delete(a.sessions, agentSessionID)
+		}
+		a.mu.Unlock()
 	}
 	return nil
 }
@@ -611,18 +672,14 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 	// an in-flight RPC. Because turn/start responds immediately while the
 	// turn keeps streaming, this is the main delivery path for turn output:
 	// resolve the active turn context so notifications keep producing
-	// activity events after the RPC has returned.
+	// activity events after the RPC has returned. Child sessions may outlive
+	// that root turn, so their events retain a session-level fallback below.
 	client.SetMessageHandler(func(ctx context.Context, message acpMessage) error {
 		endInputUnit := a.inputUnits.begin(ctx, session.AgentSessionID)
 		defer endInputUnit()
 		turnSession := session
-		// thread/fork learns its child id after this long-lived handler is
-		// installed. Refresh the provider identity from the registered adapter
-		// session so idle notifications after OpenSide are still owned by the
-		// ephemeral child rather than the source or an empty thread.
-		if current := a.getSession(session.AgentSessionID); current != nil &&
-			strings.TrimSpace(current.threadID) != "" {
-			turnSession.ProviderSessionID = current.threadID
+		if appSession := a.getSession(session.AgentSessionID); appSession != nil {
+			turnSession.ProviderSessionID = firstNonEmpty(appSession.threadID, turnSession.ProviderSessionID)
 		}
 		turnID := ""
 		var normalizer *acpTurnNormalizer
@@ -636,15 +693,38 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 			turnEmitCommands = activeTurn.emitCommands
 		}
 		events, err := a.handleAppServerMessage(ctx, client, turnSession, turnID, message, normalizer, turnEmit, turnEmitCommands)
+		// Stamp the reduction while the decoder-owned provider input unit is
+		// still in scope. Most turn output is stamped again by the active-turn
+		// emitter, but lifecycle reductions such as turn/started can take a
+		// different emission path. The tracker is idempotent, so the emitter
+		// can retain its existing boundary without duplicating indexes.
+		events = a.inputUnits.stamp(session.AgentSessionID, events)
+		// A child may outlive its root Turn. Only child events owned by the
+		// currently active canonical root Turn may enter that Turn's emitter;
+		// otherwise a newer Turn's acceptance buffer or close fence can drop them.
+		turnEvents, detachedChildEvents := appServerEventsForActiveRootTurn(
+			session.AgentSessionID,
+			turnID,
+			events,
+		)
 		if turnEmit != nil {
-			turnEmit(events)
+			turnEmit(turnEvents)
+		}
+		if len(detachedChildEvents) > 0 {
+			a.emitSessionEvents(
+				session.AgentSessionID,
+				a.stampTurnLifecycleSnapshots(session.AgentSessionID, detachedChildEvents),
+			)
 		}
 		return err
 	})
 	started := false
 	defer func() {
 		if !started {
-			_ = client.Close()
+			a.closeOrRetainCodexSession(session.AgentSessionID, &codexAppServerSession{
+				client:          client,
+				pendingRequests: make(map[string]*pendingInteractiveRequest),
+			})
 		}
 	}()
 	captureOrigin := processCassetteCaptureOrigin(conn)
@@ -693,4 +773,28 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 	})
 	started = true
 	return client, initializeResult, false, nil
+}
+
+func appServerEventsForActiveRootTurn(
+	rootAgentSessionID string,
+	activeRootTurnID string,
+	events []activityshared.Event,
+) ([]activityshared.Event, []activityshared.Event) {
+	rootAgentSessionID = strings.TrimSpace(rootAgentSessionID)
+	activeRootTurnID = strings.TrimSpace(activeRootTurnID)
+	turnEvents := make([]activityshared.Event, 0, len(events))
+	detachedChildEvents := make([]activityshared.Event, 0, len(events))
+	for _, event := range events {
+		eventAgentSessionID := strings.TrimSpace(event.AgentSessionID)
+		if eventAgentSessionID != "" && eventAgentSessionID != rootAgentSessionID {
+			if activeRootTurnID == "" || strings.TrimSpace(event.RootTurnID) != activeRootTurnID {
+				detachedChildEvents = append(detachedChildEvents, event)
+				continue
+			}
+		}
+		if activeRootTurnID != "" {
+			turnEvents = append(turnEvents, event)
+		}
+	}
+	return turnEvents, detachedChildEvents
 }

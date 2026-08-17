@@ -5,6 +5,8 @@
 #import <TuttiMobileGo/TUTLiveprotocolmobile.objc.h>
 #import <TuttiMobileGo/TUTMobile.objc.h>
 #import <UIKit/UIKit.h>
+#import "DeviceLinkFraming.h"
+#import "DeviceLinkRelayProbe.h"
 
 static NSString *const TUTAgentLiveEventName = @"TuttiDeviceLinkAgentLive";
 static const int64_t TUTAgentLiveOpenTimeoutMillis = 10000;
@@ -20,7 +22,7 @@ static const NSUInteger TUTMaxResponseFrameBytes =
     ((TUTMaxResponseBodyBytes + 2) / 3 * 4) + TUTFrameEnvelopeBytes;
 
 static NSError *TUTDeviceLinkError(NSString *code, NSString *message) {
-  return [NSError errorWithDomain:@"dev.tutti.mobile.device-link"
+  return [NSError errorWithDomain:@"sh.tutti.mobile.device-link"
                              code:1
                          userInfo:@{
                            NSLocalizedDescriptionKey : message,
@@ -42,79 +44,6 @@ static NSDictionary *TUTJSONObject(NSData *data, NSError **error) {
     return nil;
   }
   return value;
-}
-
-static BOOL TUTWriteFully(TUTMobileStream *stream, NSData *payload,
-                          NSError **error) {
-  NSUInteger offset = 0;
-  while (offset < payload.length) {
-    NSData *chunk = offset == 0
-                        ? payload
-                        : [payload subdataWithRange:NSMakeRange(
-                              offset, payload.length - offset)];
-    long written = 0;
-    if (![stream write:chunk ret0_:&written error:error]) {
-      return NO;
-    }
-    if (written <= 0 || (NSUInteger)written > chunk.length) {
-      if (error != NULL) {
-        *error = TUTDeviceLinkError(
-            @"INVALID_WRITE",
-            @"DeviceLink stream returned an invalid write count");
-      }
-      return NO;
-    }
-    offset += (NSUInteger)written;
-  }
-  return YES;
-}
-
-static NSData *TUTReadFully(TUTMobileStream *stream, NSUInteger size,
-                            NSError **error) {
-  NSMutableData *output = [NSMutableData dataWithCapacity:size];
-  while (output.length < size) {
-    NSUInteger remaining = size - output.length;
-    NSMutableData *chunk =
-        [NSMutableData dataWithLength:MIN(remaining, TUTMaxReadChunk)];
-    long count = [stream readInto:chunk];
-    if (count <= 0 || (NSUInteger)count > chunk.length) {
-      if (error != NULL) {
-        *error = TUTDeviceLinkError(
-            @"INCOMPLETE_FRAME",
-            @"DeviceLink stream closed before the response completed");
-      }
-      return nil;
-    }
-    [output appendBytes:chunk.bytes length:(NSUInteger)count];
-  }
-  return output;
-}
-
-static NSData *TUTFrame(NSData *payload) {
-  uint32_t size = CFSwapInt32HostToBig((uint32_t)payload.length);
-  NSMutableData *framed =
-      [NSMutableData dataWithBytes:&size length:sizeof(size)];
-  [framed appendData:payload];
-  return framed;
-}
-
-static NSUInteger TUTReadFrameSize(TUTMobileStream *stream, NSUInteger maximum,
-                                   NSError **error) {
-  NSData *header = TUTReadFully(stream, sizeof(uint32_t), error);
-  if (header == nil) {
-    return 0;
-  }
-  uint32_t encoded = 0;
-  [header getBytes:&encoded length:sizeof(encoded)];
-  NSUInteger size = (NSUInteger)CFSwapInt32BigToHost(encoded);
-  if (size == 0 || size > maximum) {
-    if (error != NULL) {
-      *error = TUTDeviceLinkError(@"INVALID_FRAME",
-                                  @"DeviceLink frame size is invalid");
-    }
-    return 0;
-  }
-  return size;
 }
 
 @interface TuttiDeviceLink : RCTEventEmitter <RCTBridgeModule>
@@ -145,11 +74,11 @@ RCT_EXPORT_MODULE(TuttiDeviceLink)
   self = [super init];
   if (self != nil) {
     _operationQueue = dispatch_queue_create(
-        "dev.tutti.mobile.device-link.operations", DISPATCH_QUEUE_CONCURRENT);
-    _closeQueue = dispatch_queue_create("dev.tutti.mobile.device-link.close",
+        "sh.tutti.mobile.device-link.operations", DISPATCH_QUEUE_CONCURRENT);
+    _closeQueue = dispatch_queue_create("sh.tutti.mobile.device-link.close",
                                         DISPATCH_QUEUE_SERIAL);
     _agentLiveQueue = dispatch_queue_create(
-        "dev.tutti.mobile.device-link.agent-live", DISPATCH_QUEUE_SERIAL);
+        "sh.tutti.mobile.device-link.agent-live", DISPATCH_QUEUE_SERIAL);
     [[NSNotificationCenter defaultCenter]
         addObserver:self
            selector:@selector(applicationDidEnterBackground)
@@ -213,19 +142,21 @@ RCT_REMAP_METHOD(prepareLink,
                  timeoutMillis:(double)timeoutMillis
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
+  (void)timeoutMillis;
   int64_t generation = [self beginLinkOperation];
   dispatch_async(self.operationQueue, ^{
     NSError *error = nil;
     TUTMobileLink *prepared = TUTMobileNewLink(stunEndpointsJSON, &error);
     if (prepared == nil || error != nil) {
+      [self closeDetachedLink:[self cancelLinkOperation:generation]];
       reject(@"DEVICE_LINK_PREPARE_FAILED", @"Unable to prepare DeviceLink",
              error);
       return;
     }
-    NSString *description =
-        [prepared localDescription:(int64_t)timeoutMillis error:&error];
+    NSString *description = [prepared startLocalDescription:&error];
     if (description == nil || error != nil) {
       [self closeDetachedLink:prepared];
+      [self closeDetachedLink:[self cancelLinkOperation:generation]];
       reject(@"DEVICE_LINK_PREPARE_FAILED", @"Unable to prepare DeviceLink",
              error);
       return;
@@ -243,6 +174,102 @@ RCT_REMAP_METHOD(prepareLink,
       @"token" : @(generation),
     });
   });
+}
+
+RCT_REMAP_METHOD(nextCandidateExchangeAction,
+                 nextCandidateExchangeAction:(double)token
+                 timeoutMillis:(double)timeoutMillis
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  TUTMobileLink *selected = [self linkSnapshotForGeneration:(int64_t)token];
+  if (selected == nil) {
+    reject(@"DEVICE_LINK_CANDIDATE_FAILED",
+           @"DeviceLink preparation is no longer current", nil);
+    return;
+  }
+  dispatch_async(self.operationQueue, ^{
+    NSError *error = nil;
+    NSString *action = [selected
+        nextCandidateExchangeAction:(int64_t)timeoutMillis
+                              error:&error];
+    if (action == nil || error != nil) {
+      reject(@"DEVICE_LINK_CANDIDATE_FAILED",
+             @"Unable to read DeviceLink candidate action", error);
+      return;
+    }
+    resolve(action);
+  });
+}
+
+RCT_REMAP_METHOD(resolveCandidateExchangeAction,
+                 resolveCandidateExchangeAction:(double)actionId
+                 succeeded:(BOOL)succeeded
+                 retryable:(BOOL)retryable
+                 candidatesJSON:(NSString *)candidatesJSON
+                 token:(double)token
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  TUTMobileLink *selected = [self linkSnapshotForGeneration:(int64_t)token];
+  if (selected == nil) {
+    reject(@"DEVICE_LINK_CANDIDATE_FAILED",
+           @"DeviceLink preparation is no longer current", nil);
+    return;
+  }
+  dispatch_async(self.operationQueue, ^{
+    NSError *error = nil;
+    long added = 0;
+    BOOL resolved = [selected
+        resolveCandidateExchangeAction:(int64_t)actionId
+                              succeeded:succeeded
+                              retryable:retryable
+                          candidatesJSON:candidatesJSON
+                                   ret0_:&added
+                                   error:&error];
+    if (!resolved || error != nil) {
+      reject(@"DEVICE_LINK_CANDIDATE_FAILED",
+             @"Unable to resolve DeviceLink candidate action", error);
+      return;
+    }
+    resolve(@(added));
+  });
+}
+
+RCT_REMAP_METHOD(notifyRemoteCandidateChange,
+                 notifyRemoteCandidateChange:(double)token
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  TUTMobileLink *selected = [self linkSnapshotForGeneration:(int64_t)token];
+  if (selected == nil) {
+    reject(@"DEVICE_LINK_CANDIDATE_FAILED",
+           @"DeviceLink preparation is no longer current", nil);
+    return;
+  }
+  NSError *error = nil;
+  if (![selected notifyRemoteCandidateChange:&error]) {
+    reject(@"DEVICE_LINK_CANDIDATE_FAILED",
+           @"Unable to notify DeviceLink candidate change", error);
+    return;
+  }
+  resolve(nil);
+}
+
+RCT_REMAP_METHOD(stopCandidateExchange,
+                 stopCandidateExchange:(double)token
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  TUTMobileLink *selected = [self linkSnapshotForGeneration:(int64_t)token];
+  if (selected != nil) {
+    [selected stopCandidateExchange];
+  }
+  resolve(nil);
+}
+
+RCT_REMAP_METHOD(cancelLink,
+                 cancelLink:(double)token
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  [self closeDetachedLink:[self cancelLinkOperation:(int64_t)token]];
+  resolve(nil);
 }
 
 RCT_REMAP_METHOD(connectLink,
@@ -300,6 +327,38 @@ RCT_REMAP_METHOD(configureRelay,
   resolve(nil);
 }
 
+RCT_REMAP_METHOD(probeRelay,
+                 probeRelay:(double)timeoutMillis
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  NSDictionary *relay = [self relaySnapshot];
+  if (relay == nil) {
+    reject(@"DEVICE_LINK_RELAY_PROBE_FAILED",
+           @"DeviceLink Relay is not configured", nil);
+    return;
+  }
+  int64_t timeout = MAX((int64_t)timeoutMillis, 1);
+  TUTDeviceLinkProbeRelay(
+      relay, timeout, self.operationQueue,
+      ^NSDictionary *(TUTMobileStream *stream, int64_t requestTimeout,
+                       NSError **error) {
+        return [self requestAgentHTTPWithStream:stream
+                                          method:@"GET"
+                                            path:@"/v1/preferences/desktop"
+                                            body:@""
+                                     timeoutMillis:requestTimeout
+                                             error:error];
+      },
+      ^(NSError *error) {
+        if (error != nil) {
+          reject(@"DEVICE_LINK_RELAY_PROBE_FAILED", @"Relay peer handshake failed",
+                 error);
+          return;
+        }
+        resolve(nil);
+      });
+}
+
 RCT_REMAP_METHOD(requestAgentHTTP,
                  requestAgentHTTP:(NSString *)method
                  path:(NSString *)path
@@ -318,13 +377,13 @@ RCT_REMAP_METHOD(requestAgentHTTP,
     NSDictionary *response = nil;
     if (selected != nil) {
       response = [self requestAgentHTTPWithLink:selected
+                                          relay:relay
                                          method:method
                                            path:path
                                            body:body
-                                  timeoutMillis:(int64_t)timeoutMillis
+                                          timeoutMillis:(int64_t)timeoutMillis
                                           error:&error];
-    }
-    if (response == nil && relay != nil) {
+    } else if (relay != nil) {
       NSError *relayError = nil;
       TUTMobileStream *stream = TUTMobileDialRelay(
           relay[@"endpoint"], relay[@"queryJSON"], relay[@"headersJSON"],
@@ -339,7 +398,7 @@ RCT_REMAP_METHOD(requestAgentHTTP,
       }
       if (response != nil) {
         error = nil;
-      } else if (error == nil) {
+      } else {
         error = relayError;
       }
     }
@@ -431,7 +490,8 @@ RCT_REMAP_METHOD(startAgentLive,
     };
     NSData *requestData = TUTJSONData(request, &error);
     if (requestData == nil || requestData.length > TUTMaxRequestFrameBytes ||
-        !TUTWriteFully(stream, TUTFrame(requestData), &error)) {
+        !TUTDeviceLinkWriteFully(stream, TUTDeviceLinkFrame(requestData),
+                                 &error)) {
       [self clearAgentLiveStream:stream generation:generation];
       [self closeDetachedStream:stream];
       reject(@"AGENT_LIVE_SUBSCRIBE_FAILED",
@@ -442,11 +502,12 @@ RCT_REMAP_METHOD(startAgentLive,
     resolve(nil);
     while ([self isAgentLiveCurrent:stream generation:generation]) {
       NSUInteger size =
-          TUTReadFrameSize(stream, TUTMaxAgentLiveFrameBytes, &error);
+          TUTDeviceLinkReadFrameSize(stream, TUTMaxAgentLiveFrameBytes,
+                                     &error);
       if (size == 0) {
         break;
       }
-      NSData *frame = TUTReadFully(stream, size, &error);
+      NSData *frame = TUTDeviceLinkReadFully(stream, size, &error);
       NSString *result =
           frame == nil ? nil
                        : [subscriber apply:frame error:&error];
@@ -498,13 +559,24 @@ RCT_REMAP_METHOD(closeLink,
 }
 
 - (NSDictionary *)requestAgentHTTPWithLink:(TUTMobileLink *)link
+                                     relay:(NSDictionary *)relay
                                     method:(NSString *)method
                                       path:(NSString *)path
                                      body:(NSString *)body
                             timeoutMillis:(int64_t)timeoutMillis
                                      error:(NSError **)error {
   int64_t timeout = MAX(timeoutMillis, 1);
-  TUTMobileStream *stream = [link openStream:timeout error:error];
+  TUTMobileStream *stream = nil;
+  if (relay != nil) {
+    stream = [link openStreamWithRelay:relay[@"endpoint"]
+                              queryJSON:relay[@"queryJSON"]
+                            headersJSON:relay[@"headersJSON"]
+                            subprotocol:relay[@"subprotocol"]
+                          timeoutMillis:timeout
+                                  error:error];
+  } else {
+    stream = [link openStream:timeout error:error];
+  }
   if (stream == nil) {
     return nil;
   }
@@ -556,15 +628,16 @@ RCT_REMAP_METHOD(closeLink,
     if (payload == nil || payload.length > TUTMaxRequestFrameBytes) {
       return nil;
     }
-    if (!TUTWriteFully(stream, TUTFrame(payload), error)) {
+    if (!TUTDeviceLinkWriteFully(stream, TUTDeviceLinkFrame(payload), error)) {
       return nil;
     }
     NSUInteger responseSize =
-        TUTReadFrameSize(stream, TUTMaxResponseFrameBytes, error);
+        TUTDeviceLinkReadFrameSize(stream, TUTMaxResponseFrameBytes, error);
     if (responseSize == 0) {
       return nil;
     }
-    NSData *responseData = TUTReadFully(stream, responseSize, error);
+    NSData *responseData =
+        TUTDeviceLinkReadFully(stream, responseSize, error);
     if (responseData == nil) {
       return nil;
     }
@@ -620,14 +693,28 @@ RCT_REMAP_METHOD(closeLink,
 
 - (TUTMobileStream *)openAgentStream:(TUTMobileLink *)link
                                relay:(NSDictionary *)relay
-                       timeoutMillis:(int64_t)timeoutMillis
+                               timeoutMillis:(int64_t)timeoutMillis
                                error:(NSError **)error {
   NSError *directError = nil;
   if (link != nil) {
-    TUTMobileStream *stream = [link openStream:MAX(timeoutMillis, 1)
-                                         error:&directError];
+    TUTMobileStream *stream = relay != nil
+                                  ? [link openStreamWithRelay:
+                                           relay[@"endpoint"]
+                                             queryJSON:relay[@"queryJSON"]
+                                           headersJSON:relay[@"headersJSON"]
+                                           subprotocol:relay[@"subprotocol"]
+                                         timeoutMillis:MAX(timeoutMillis, 1)
+                                                 error:&directError]
+                                  : [link openStream:MAX(timeoutMillis, 1)
+                                               error:&directError];
     if (stream != nil) {
       return stream;
+    }
+    if (relay != nil) {
+      if (error != NULL) {
+        *error = directError;
+      }
+      return nil;
     }
   }
   if (relay != nil) {
@@ -701,6 +788,18 @@ RCT_REMAP_METHOD(closeLink,
     self.relaySubprotocol = nil;
   }
   [self closeDetachedLink:previous];
+}
+
+- (TUTMobileLink *)cancelLinkOperation:(int64_t)generation {
+  @synchronized(self) {
+    if (generation != self.linkGeneration) {
+      return nil;
+    }
+    self.linkGeneration += 1;
+    TUTMobileLink *previous = self.link;
+    self.link = nil;
+    return previous;
+  }
 }
 
 - (void)closeDetachedLink:(TUTMobileLink *)link {

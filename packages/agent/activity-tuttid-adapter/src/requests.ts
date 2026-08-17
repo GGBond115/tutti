@@ -38,6 +38,7 @@ export function tuttiCreateWorkspaceAgentSessionRequestFromActivity(
     ...(capabilityRefs.length > 0 ? { capabilityRefs } : {}),
     clientSubmitId: input.clientSubmitId,
     cwd: input.cwd ?? null,
+    ...(input.isolation ? { isolation: input.isolation } : {}),
     initialContent: input.initialGoalControl
       ? []
       : tuttiPromptContentBlocksFromActivity(input.initialContent ?? []),
@@ -60,6 +61,9 @@ export function tuttiCreateWorkspaceAgentSessionRequestFromActivity(
         }
       : {}),
     model: input.model ?? null,
+    ...(input.modelExplicit !== undefined
+      ? { modelExplicit: input.modelExplicit }
+      : {}),
     ...(input.noProject !== undefined
       ? { noProject: input.noProject ?? null }
       : {}),
@@ -70,6 +74,9 @@ export function tuttiCreateWorkspaceAgentSessionRequestFromActivity(
     planMode: input.planMode ?? null,
     ...(options.recordingId ? { recordingId: options.recordingId } : {}),
     reasoningEffort: input.reasoningEffort ?? null,
+    ...(input.reasoningEffortExplicit !== undefined
+      ? { reasoningEffortExplicit: input.reasoningEffortExplicit }
+      : {}),
     speed: input.speed ?? null,
     title: input.title ?? null,
     visible: input.visible ?? null
@@ -93,6 +100,7 @@ export function tuttiCreateWorkspaceAgentSessionRequestFromActivation(
       : undefined,
     clientSubmitId: input.clientSubmitId,
     cwd: input.cwd,
+    isolation: input.isolation,
     initialContent: input.initialContent
       ? input.initialContent.map((block) => ({ ...block }))
       : undefined,
@@ -104,10 +112,12 @@ export function tuttiCreateWorkspaceAgentSessionRequestFromActivation(
       ? { ...input.initialTuttiModeActivation }
       : undefined,
     model: input.settings?.model,
+    modelExplicit: input.modelExplicit,
     permissionModeId: input.settings?.permissionModeId,
     planMode: input.settings?.planMode,
     railPlacement: input.railPlacement ? { ...input.railPlacement } : undefined,
     reasoningEffort: input.settings?.reasoningEffort,
+    reasoningEffortExplicit: input.reasoningEffortExplicit,
     speed: input.settings?.speed,
     submitDiagnostics: input.submitDiagnostics
       ? { ...input.submitDiagnostics }
@@ -130,6 +140,9 @@ export function tuttiSendWorkspaceAgentSessionInputRequestFromActivity(
     content: tuttiPromptContentBlocksFromActivity(input.content),
     displayPrompt: input.displayPrompt ?? null,
     ...(input.guidance === true ? { guidance: true } : {}),
+    ...(input.guidance === true && input.targetTurnId?.trim()
+      ? { turnId: input.targetTurnId.trim() }
+      : {}),
     ...(input.submitDiagnostics
       ? {
           submitDiagnostics: tuttiSubmitDiagnosticsFromActivity(
@@ -151,7 +164,8 @@ function tuttiPromptContentBlocksFromActivity(
       block.type !== "text" &&
       block.type !== "image" &&
       block.type !== "skill" &&
-      block.type !== "mention"
+      block.type !== "mention" &&
+      block.type !== "connector"
     ) {
       throw new Error("Unsupported workspace agent prompt content block");
     }
@@ -180,6 +194,9 @@ function tuttiPromptContentBlocksFromActivity(
     }
     if (block.path !== undefined) {
       nextBlock.path = block.path;
+    }
+    if (block.connectorKey !== undefined) {
+      nextBlock.connectorKey = block.connectorKey;
     }
     if (block.text !== undefined) {
       nextBlock.text = block.text;

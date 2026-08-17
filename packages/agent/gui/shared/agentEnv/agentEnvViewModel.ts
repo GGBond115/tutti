@@ -198,11 +198,11 @@ export function buildAgentEnvWizardViewModel(
   const networkReachable =
     networkChecks.length === 0 ? null : networkChecks.every((c) => c.reachable);
 
+  // The completed stage label already conveys the sign-in state. Render a
+  // detail only when the provider supplies an actual user-facing account label.
   const accountDetail: StageDetailToken | null = status?.auth.accountLabel
     ? { kind: "text", text: status.auth.accountLabel }
-    : status?.auth.status === "authenticated"
-      ? { kind: "text", text: "__SIGNED_IN__" }
-      : null;
+    : null;
   const authMethod: string | null = status?.auth.authMethod ?? null;
 
   const stages = deriveAgentSetupStages({
@@ -213,6 +213,7 @@ export function buildAgentEnvWizardViewModel(
     adapterInstalled: status?.adapter.installed ?? false,
     adapterVersionMismatch,
     authenticated: status?.auth.status === "authenticated",
+    credentialsConfigured: status?.auth.status === "configured",
     authRequired: status?.auth.status === "required",
     ready: Boolean(ready),
     activePhase: activeAction?.phase ?? null,

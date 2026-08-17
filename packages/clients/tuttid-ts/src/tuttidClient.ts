@@ -9,6 +9,7 @@ import {
   completeWorkspaceIssueTaskRun,
   createWorkspaceIssue,
   createWorkspaceIssueRun,
+  startWorkspaceIssueRun,
   createWorkspaceIssueTask,
   createWorkspaceIssueTasks,
   createWorkspaceIssueTaskRun,
@@ -77,6 +78,7 @@ import {
   putWorkspaceWorkbench,
   checkWorkspaceTerminalCloseGuard,
   readWorkspaceFilePreview,
+  readWorkspaceIssueAttachment,
   removeWorkspaceIssueContextRef,
   removeWorkspaceIssueTaskContextRef,
   resizeWorkspaceTerminal,
@@ -100,6 +102,10 @@ import {
 import { createClient } from "./generated/client/index.ts";
 import { createAgentProvidersClient } from "./agentProvidersClient.ts";
 import { createCollaborationRunsClient } from "./collaborationRunsClient.ts";
+import {
+  createConnectorMarketClient,
+  type ConnectorMarketClient
+} from "./connectorMarketClient.ts";
 import { unwrapAccepted, unwrapData } from "./tuttidClientResponse.ts";
 import { createWorkspaceAppsClient } from "./workspaceAppsClient.ts";
 import { createWorkspaceAgentClient } from "./workspaceAgentClient.ts";
@@ -126,7 +132,7 @@ const defaultBaseUrl = "http://tuttid.local";
 
 export function createTuttidClient(
   input: CreateTuttidClientInput
-): TuttidClient & MobileRemoteAccessClient {
+): TuttidClient & MobileRemoteAccessClient & ConnectorMarketClient {
   const client = createClient({
     auth: input.auth,
     baseUrl: input.baseUrl ?? defaultBaseUrl,
@@ -135,6 +141,7 @@ export function createTuttidClient(
 
   return {
     ...createCollaborationRunsClient(client),
+    ...createConnectorMarketClient(client),
     ...createWorkspaceAgentConfigurationClient(client),
     ...createWorkspaceIssueOrchestrationClient(client),
     async listAgentQuickPrompts() {
@@ -426,6 +433,15 @@ export function createTuttidClient(
       return unwrapData(response, "Create workspace issue run request failed.")
         .run;
     },
+    async startWorkspaceIssueRun(workspaceID, issueID, request) {
+      const response = await startWorkspaceIssueRun({
+        client,
+        body: request,
+        path: { issueID, workspaceID }
+      });
+      return unwrapData(response, "Start workspace issue run request failed.")
+        .run;
+    },
     async createWorkspaceFile(workspaceID, path) {
       const response = await createWorkspaceFile({
         client,
@@ -614,6 +630,16 @@ export function createTuttidClient(
         path: { issueID, workspaceID }
       });
       return unwrapData(response, "Workspace issue detail request failed.");
+    },
+    async readWorkspaceIssueAttachment(workspaceID, issueID, contextRefID) {
+      const response = await readWorkspaceIssueAttachment({
+        client,
+        path: { contextRefID, issueID, workspaceID }
+      });
+      return unwrapData(
+        response,
+        "Read workspace issue attachment request failed."
+      );
     },
     async searchWorkspaceIssueReferences(workspaceID, request) {
       const response = await searchWorkspaceIssueReferences({

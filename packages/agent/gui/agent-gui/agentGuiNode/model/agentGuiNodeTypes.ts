@@ -1,5 +1,6 @@
 import type {
   AgentActivityUsage,
+  AgentActivityComposerOptionsLoadStatus,
   CanonicalAgentSession,
   SessionRuntimeAvailability
 } from "@tutti-os/agent-activity-core";
@@ -53,6 +54,11 @@ export interface AgentGUISessionChrome {
         message: string;
         canRetry?: boolean;
         followupAction?: never;
+        /**
+         * The recovery only gates the currently displayed interaction. Keep
+         * that prompt visible while rendering the recovery as inline chrome.
+         */
+        interactionScoped?: boolean;
       }
     | {
         kind: "resume-unavailable";
@@ -102,9 +108,34 @@ export interface AgentGUIComposerSettingOption {
   effect?: "new_session" | "next_call";
 }
 
+export interface AgentGUIComposerModelCatalogTestimonyVM {
+  /** Only an authoritative catalog may retire a remembered recent model. */
+  authoritative: boolean;
+  /** Provider-native model discovery is still in flight. */
+  loading: boolean;
+  /** Effective selected model used to recognize selected-only bootstrap echoes. */
+  effectiveModel: string | null;
+  /** Narrow catalog provenance needed by local recent-model reconciliation. */
+  models: readonly {
+    value: string;
+    requested?: boolean;
+  }[];
+}
+
+export interface AgentGUIComposerModelChoiceHistoryVM {
+  /** Exact Agent Target identity; null fails closed and disables persistence. */
+  targetId: string | null;
+  /** Null until the composer has any provider-native catalog testimony. */
+  catalog: AgentGUIComposerModelCatalogTestimonyVM | null;
+}
+
 export interface AgentGUIProviderSkillOption {
   name: string;
   trigger: string;
+  /** Stable daemon connector key used for host-owned setup navigation. */
+  connectorKey?: string;
+  /** Presentation icon projected by the connector catalog. */
+  iconUrl?: string;
   /** Daemon-issued invocation contract; never infer this from provider id. */
   invocation?: "promptItem" | "textTrigger";
   sourceKind:
@@ -119,6 +150,12 @@ export interface AgentGUIProviderSkillOption {
   pluginName?: string;
   path?: string;
   kind?: "skill" | "connector";
+  status?:
+    | "available"
+    | "disabled"
+    | "authRequired"
+    | "setupRequired"
+    | "unsupported";
 }
 
 export interface AgentComposerTextBlock {
@@ -295,9 +332,17 @@ export interface AgentGUIComposerSettingsVM {
   permissionModeChangeDuringTurn?: boolean;
   slashCommandPolicy?: AgentSlashCommandPolicy | null;
   isSettingsLoading: boolean;
+  /** Terminal composer-options failure with no cached catalog to render. */
+  composerOptionsError?: boolean;
+  /** Activity-core request lifecycle for the target-scoped options catalog. */
+  composerOptionsLoadStatus?: AgentActivityComposerOptionsLoadStatus;
   /** Initial slash command and capability catalog request is in flight. */
   isCapabilityOptionsLoading?: boolean;
+  /** Local Connector Market projection is being loaded or refreshed. */
+  isConnectorOptionsLoading?: boolean;
   isModelOptionsLoading?: boolean;
+  /** Device-local model recents/favorites identity and catalog testimony. */
+  modelChoiceHistory?: AgentGUIComposerModelChoiceHistoryVM;
   modelUnavailable: boolean;
   reasoningUnavailable: boolean;
   speedUnavailable: boolean;
@@ -426,11 +471,14 @@ export type AgentGUIComposerSubmissionBlockedReason =
   | "agent_targets_loading"
   | "authentication_required"
   | "conversation_busy"
-  | "resume_unavailable";
+  | "resume_unavailable"
+  | "settings_update_pending";
 
 export interface AgentGUIComposerGate {
   /** Canonical busy projection captured with the same gate snapshot. */
   conversationBusy: boolean;
+  /** A submitted prompt is waiting for its canonical Turn to appear. */
+  isAwaitingTurnStart?: boolean;
   /**
    * Runtime-dependent command availability used by Composer-adjacent
    * controls such as Stop and interactive responses.
@@ -470,6 +518,8 @@ export interface AgentGUIComposerViewModel {
   isSubmitting: boolean;
   isInterrupting: boolean;
   isCancelPending: boolean;
+  /** The Engine can stop a pending prompt before its Turn is visible. */
+  hasPendingSubmitStopTarget?: boolean;
   promptImagesSupported: boolean;
   compactSupported: boolean | null;
   /** Provider goal exposes a real paused state and pause/resume controls. */
@@ -493,7 +543,10 @@ export interface AgentGUIComposerViewModel {
 }
 
 export interface AgentGUIInteractionViewModel {
+  approvalDisabledReason: string | null;
+  interactivePromptDisabledReason: string | null;
   isRespondingApproval: boolean;
+  isRespondingInteractivePrompt: boolean;
   pendingApproval: AgentGUIApprovalRequest | null;
   pendingInteractivePrompt: AgentGUIInteractivePrompt | null;
   sessionChrome: AgentGUISessionChrome;

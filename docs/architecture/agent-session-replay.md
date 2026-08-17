@@ -161,6 +161,17 @@ SQLite database containing one transient Replay Surface per Cassette. It is runt
 composition, not another durable product Workspace and not a multi-root
 Cassette.
 
+Replay Workspace aligns every cassette's Activity clock to the earliest first
+Activity timestamp in the batch. This preserves the wall-clock offset between
+cassettes that were recorded concurrently. Realtime playback therefore keeps
+cross-Session ordering scenarios deterministic; fast-forward may intentionally
+skip elapsed waits while retaining each cassette's Activity order.
+
+Scenario screenshot settling remains limited to stable checkpoints by default.
+A scenario may opt into immediate `turn.working` settling with
+`settleForWorkingScreenshot: true` when it performs bounded DOM assertions for
+a transient cross-Session state; tool-start checkpoints remain excluded.
+
 After a Replay Workspace creates its Replay Surfaces, Desktop applies the
 Workbench balanced layout to exactly those AgentGUI Nodes. A single Surface
 receives the Workbench safe-area frame without locking the layout. A batch with
@@ -485,6 +496,16 @@ placement from the Cassette's expected Session state, and seeds the deduplicated
 `user_projects` rows. The semantic runtime remains the exclusive Workspace
 creator; the project rows only make the canonical project Rail sections
 queryable when their Sessions are restored or created.
+The developer runner also copies a valid Tutti account session from
+`~/.tutti-dev/account/auth.json` into the isolated state directory. This keeps
+authenticated host and connector-market paths available without sharing the
+primary daemon database. `TUTTI_AGENT_SESSION_REPLAY_HOST_ACCOUNT_AUTH` selects
+a different source file, and `TUTTI_AGENT_SESSION_REPLAY_SKIP_HOST_ACCOUNT_AUTH`
+disables the copy. A missing or invalid source is a soft skip for CI and
+machines without a login. The temporary copy is written with owner-only
+permissions, is never included in a Cassette, and is removed with the runtime.
+Provider preparation, auth watching, availability probes, provider CLIs, and
+provider network requests remain disabled during Replay.
 For a managed multi-Surface launch, Main passes one temporary Surface-status
 handoff to the isolated Desktop. Single-Surface developer replay uses the same
 Cassette identity without creating durable execution metadata.

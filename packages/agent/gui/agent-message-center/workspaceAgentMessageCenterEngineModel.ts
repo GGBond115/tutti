@@ -21,10 +21,8 @@ import {
   extractExitPlanModeOptions,
   isExitPlanSwitchModeInput
 } from "../shared/agentConversation/exitPlanOptions";
-import {
-  latestPlanTurnId,
-  planImplementationPromptFromPlanTurn
-} from "../shared/agentConversation/planImplementationPresentation";
+import { consumerAwaitingPlanImplementation } from "../shared/agentConversation/planImplementationAwaiting";
+import { planImplementationPromptFromPlanTurn } from "../shared/agentConversation/planImplementationPresentation";
 import {
   buildWorkspaceAgentMessageCenterItem,
   buildWorkspaceAgentMessageCenterModelFromItems,
@@ -45,8 +43,17 @@ export function buildWorkspaceAgentMessageCenterModelFromEngine(
   snapshot: Pick<AgentActivitySnapshot, "sessionMessagesById" | "workspaceId">,
   options: BuildWorkspaceAgentMessageCenterOptions = {}
 ): WorkspaceAgentMessageCenterModel {
+  const includeHiddenSessionIds = new Set(
+    (options.includeHiddenSessionIds ?? [])
+      .map((sessionId) => sessionId.trim())
+      .filter((sessionId) => sessionId.length > 0)
+  );
   const items = presentation.consumers
-    .filter((consumer) => consumer.session.visible !== false)
+    .filter(
+      (consumer) =>
+        consumer.session.visible !== false ||
+        includeHiddenSessionIds.has(consumer.session.agentSessionId.trim())
+    )
     .map((consumer) => {
       const interaction = latestPendingInteraction(consumer);
       const needsAttention = interaction
@@ -248,12 +255,19 @@ export function selectWorkspaceAgentAttentionItems(
     }
 
     const latestTurn = consumer.latestTurn;
+    const statusKey = promptStatusKey(
+      consumer.session.agentSessionId,
+      latestTurn?.turnId ?? "",
+      latestTurn?.turnId ?? ""
+    );
     if (
-      latestTurn?.phase !== "settled" ||
-      latestTurn.outcome !== "completed" ||
-      consumer.session.capabilities?.planImplementation !== true ||
-      consumer.session.capabilities.planMode !== true ||
-      latestPlanTurnId(messages) !== latestTurn.turnId
+      !consumerAwaitingPlanImplementation({
+        capabilities: consumer.session.capabilities,
+        dismissed: presentation.dismissedPlanTurnKeys[statusKey] === true,
+        latestTurn,
+        messages
+      }) ||
+      !latestTurn
     ) {
       continue;
     }
@@ -264,12 +278,6 @@ export function selectWorkspaceAgentAttentionItems(
       turnId: latestTurn.turnId,
       requestId: latestTurn.turnId
     };
-    const statusKey = promptStatusKey(
-      target.agentSessionId,
-      target.turnId,
-      target.requestId
-    );
-    if (presentation.dismissedPlanTurnKeys[statusKey]) continue;
     const prompt = planImplementationPromptFromPlanTurn(
       latestTurn.turnId,
       consumer.session.title

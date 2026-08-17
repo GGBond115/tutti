@@ -148,7 +148,13 @@ export function useAgentGUIDetailSideChrome({
       onRemoveQueuedPrompt: () => {},
       onEditQueuedPrompt: () => {},
       onInterruptCurrentTurn: interrupt,
-      onSubmitInteractivePrompt: submitInteraction,
+      onSubmitInteractivePrompt: (input) => {
+        void submitInteraction(input).catch(() => {});
+        // Side is event-confirmed rather than optimistically dismissed. Its
+        // transient runtime keeps the prompt live on transport failure and
+        // clears it when the Side event stream confirms the response.
+        return false;
+      },
       onLinkAction: baseComposerProps.onLinkAction
     };
   }, [

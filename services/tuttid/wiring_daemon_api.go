@@ -1,3 +1,4 @@
+//revive:disable:file-length-limit // Composition root is intentionally kept as one auditable dependency graph.
 package main
 
 import (
@@ -59,6 +60,7 @@ func buildDaemonAPI(
 	browserService *browsersvc.Service,
 	computerService *computersvc.Service,
 	modelGateway *modelgatewayservice.Gateway,
+	connectorRuntime agentservice.ConnectorRuntime,
 	installTuttiModeWatchdog func(tuttimodeexecutionservice.Worker),
 ) (tuttiapi.DaemonAPI, *workspaceservice.AppCenterService, *agentdaemon.Runtime, *agentservice.ProviderAuthWatcher, error) {
 	workspaceStore, _ := store.(workspacedata.WorkbenchStore)
@@ -86,6 +88,10 @@ func buildDaemonAPI(
 	workflowStore, _ := store.(tuttimodeplanservice.Store)
 	tuttiModeActivationStore, _ := store.(tuttimodeactivationservice.Store)
 	fileAdapter := workspacedata.LocalFilesAdapter{}
+	issueAttachmentFiles, err := reconcileIssueAttachmentFiles(ctx, store)
+	if err != nil {
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
+	}
 
 	events := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
 	preferencesPublisher := eventstreamservice.DesktopPreferencesPublisher{Service: events}
@@ -98,9 +104,7 @@ func buildDaemonAPI(
 		Publisher:                      preferencesPublisher,
 		AgentComposerDefaultsPublisher: preferencesPublisher,
 	}
-	agentTargets := agenttargetservice.Service{
-		Store: agentTargetStore,
-	}
+	agentTargets := agenttargetservice.Service{Store: agentTargetStore}
 	agentRuntimeDir, err := tuttitypes.DefaultAgentRuntimeDir()
 	if err != nil {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("resolve agent runtime directory: %w", err)
@@ -119,6 +123,7 @@ func buildDaemonAPI(
 		Installations:     agentextensiondata.NewFileInstallationStore(agentExtensionStateDir),
 		Discovery:         agentSetupDiscovery,
 		Preferences:       preferencesStore,
+		UserPathAdapter:   agentstatusservice.NewUserPathAdapter(),
 	}
 	preferences.RegisterChangeObserver(func(ctx context.Context, previous, current preferencesbiz.DesktopPreferences) {
 		for _, reconcileErr := range agentExtensionManager.ReconcileDesktopPreferencesChange(ctx, previous, current) {
@@ -190,6 +195,10 @@ func buildDaemonAPI(
 		eventstreamservice.TopicPreferencesAgentComposerDefaultsPatchRequested,
 		eventstreamservice.NewPreferencesAgentComposerDefaultsPatchRequestedHandler(preferences),
 	)
+	events.RegisterIntentHandler(
+		eventstreamservice.TopicPreferencesAgentSessionLaunchModePatchRequested,
+		eventstreamservice.NewPreferencesAgentSessionLaunchModePatchRequestedHandler(preferences),
+	)
 	agentActivityProjection := agentservice.NewActivityProjection(agentActivityRepo)
 	modelPolicies.Sessions = modelPolicySessionTargetResolver{projection: agentActivityProjection}
 	collabRuns.Timeline = agentservice.CollaborationTimelineReporter{Projection: agentActivityProjection}
@@ -203,7 +212,9 @@ func buildDaemonAPI(
 		AnalyticsReporter:          analyticsReporter,
 		ManagedRuntime:             managedRuntimeResolver,
 		ClaudeCodeRuntimeDir:       filepath.Join(agentRuntimeDir, "claude-code"),
+		UserCommandBinDir:          agentExtensionBinDir,
 		CodexRuntimeSelectionStore: agentProviderRuntimeSelectionStore,
+		UserPathAdapter:            agentstatusservice.NewUserPathAdapter(),
 	})
 	// Shared so a runtime auth failure (reporter side) surfaces in the status
 	// probe (List side) — see agentRunOutcomeReporter.
@@ -254,10 +265,9 @@ func buildDaemonAPI(
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("create agent runtime: %w", err)
 	}
 	agentRuntimePreparer := runtimeprep.NewDefaultPreparer(tuttitypes.DefaultStateDir())
+	agentRuntimePreparer.RegisterProvider(runtimeprep.CodexPreparer{AuthProjector: runtimeprep.MutagenAuthFileProjector{StateDir: tuttitypes.DefaultStateDir()}})
 	agentRuntimePreparer.RegisterProvider(tuttiagentservice.NewPreparer(tuttitypes.DefaultStateDir()))
-	agentRuntimePreparer.ComputerUseAvailable = func() bool {
-		return runtimeprep.ComputerUseDefaultEnabled() && computersvc.CheckReady() == nil
-	}
+	configureAgentRuntimeAvailability(agentRuntimePreparer, browserService, computerService)
 	userProjectService := userprojectservice.Service{
 		Store:     userProjectStore,
 		Publisher: eventstreamservice.UserProjectPublisher{Service: events},
@@ -270,6 +280,9 @@ func buildDaemonAPI(
 	configureAgentRuntimeEventObservers(agentRuntime.Controller(), events)
 	agentModelCapabilities := agentservice.NewModelCapabilitiesService()
 	agentModelCatalog := agentservice.NewAgentModelCatalog()
+	agentModelCatalog.PersistentPath = filepath.Join(
+		tuttitypes.DefaultStateDir(), "agent-model-catalog", "model-catalog.json",
+	)
 	agentModelCatalog.ModelCapabilities = agentModelCapabilities
 	agentModelCatalog.ProviderCommands = &agentStatusService
 	agentSessionPurgeStore, ok := agentActivityRepo.(agenthost.SessionPurgeStore)
@@ -308,10 +321,12 @@ func buildDaemonAPI(
 		SourceRootDir: filepath.Join(tuttitypes.DefaultStateDir(), "agent-prompt-assets"),
 	}
 	var agentRuntimePreparation runtimeprep.Preparer
+	var browserUseAvailable func() bool
 	var computerUseAvailable func() bool
 	var availabilityChecker agentservice.ProviderAvailabilityChecker
 	if !replayComposition {
 		agentRuntimePreparation = agentRuntimePreparer
+		browserUseAvailable = agentRuntimePreparer.BrowserUseAvailable
 		computerUseAvailable = agentRuntimePreparer.ComputerUseAvailable
 		availabilityChecker = agentservice.AgentStatusProviderAvailabilityChecker{
 			Service: &agentStatusService,
@@ -347,7 +362,10 @@ func buildDaemonAPI(
 	agentSessionConfig := agentservice.ServiceConfig{
 		Runtime: agentservice.ServiceRuntimeConfig{
 			Preparer:                 agentRuntimePreparation,
+			Connector:                connectorRuntime,
+			ConnectorCapabilities:    agentRuntimeController,
 			ModelGateway:             modelGateway,
+			BrowserUseAvailable:      browserUseAvailable,
 			ComputerUseAvailable:     computerUseAvailable,
 			RuntimeOperationStore:    agentActivityRepo,
 			RuntimeOperationOwner:    uuid.NewString(),
@@ -362,6 +380,7 @@ func buildDaemonAPI(
 		Sessions: agentservice.ServiceSessionConfig{
 			Initializer:       agentActivityProjection,
 			Reader:            agentActivityProjection,
+			DeletedSessions:   agentActivityProjection,
 			PurgeStore:        agentSessionPurgeStore,
 			DeletionGuard:     sessionDeletionGuard,
 			UserProjectReader: userProjectService,
@@ -378,6 +397,7 @@ func buildDaemonAPI(
 			AgentTargetStore:            agentTargetStore,
 			WorkspaceAgentResolver:      workspaceAgents,
 			AgentComposerDefaultsReader: preferences,
+			DesktopPreferencesReader:    preferences,
 			ExtensionComposerProfiles: agentExtensionComposerProfileResolver{
 				manager: agentExtensionManager,
 			},
@@ -428,6 +448,8 @@ func buildDaemonAPI(
 		Components:      agentServiceComponents,
 	}
 	agentSessionService := agentservice.NewService(agentRuntimeController, agentSessionConfig)
+	configureUserProjectSessionDeletion(&userProjectService, agentSessionService)
+	agentStatusService.OnProviderStatusInvalidated = agentSessionService.InvalidateProviderAvailabilityCache
 	preferences.AgentComposerDefaultsValidator = agentSessionService
 	modelPlans.NativeSubscriptionProbe = modelPlanNativeSubscriptionProbe{Agents: agentSessionService}
 	automationExecutor := &automationruleservice.DaemonExecutor{Agents: agentSessionService, Ledger: automationRulesStore}
@@ -493,7 +515,8 @@ func buildDaemonAPI(
 	if maintenanceState, ok := store.(agentmaintenanceservice.StateStore); ok {
 		agentMaintenance = &agentmaintenanceservice.Service{
 			Host: agentHost, Preferences: preferences, State: maintenanceState,
-			IsIdle: agentSessionService.IdleForDataMaintenance,
+			Resources: agentSessionService,
+			IsIdle:    agentSessionService.IdleForDataMaintenance,
 		}
 		if compactor, ok := store.(agentmaintenanceservice.DatabaseCompactor); ok {
 			agentMaintenance.Compactor = compactor
@@ -527,9 +550,7 @@ func buildDaemonAPI(
 		Executions: tuttiModeExecutions,
 	}
 	sourceActivityObservers.Add(tuttiModeSourceActivity)
-	tuttiModeMainWakeRecovery := &tuttiModeMainWakeReadyRecovery{
-		Delegate: tuttiModeExecutions,
-	}
+	tuttiModeMainWakeRecovery := &tuttiModeMainWakeReadyRecovery{Delegate: tuttiModeExecutions}
 	issueService := workspaceservice.IssueManagerService{
 		RunLauncher:                  issueRunAgentLauncher{Sessions: agentSessionService, Host: agentHost},
 		RunLaunchGate:                issueRunLaunchGate,
@@ -537,6 +558,8 @@ func buildDaemonAPI(
 		SourceSessionContextResolver: issueSourceSessionContextResolver{Sessions: agentActivityProjection},
 		Publisher:                    eventstreamservice.WorkspaceIssuePublisher{Service: events},
 		Store:                        issueStore,
+		AttachmentFiles:              issueAttachmentFiles,
+		AttachmentLaunchPins:         workspaceservice.NewIssueAttachmentLaunchPins(),
 		AgentTargetReader:            agentTargetStore,
 		PlanningTimeline:             agentservice.IssuePlanningTimelineReporter{Projection: agentActivityProjection},
 		TuttiModeExecutions:          tuttiModeExecutions,
@@ -590,7 +613,7 @@ func buildDaemonAPI(
 				ctx,
 				workspaceID,
 				tuttiModeMainWakeOwner,
-				issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
+				issueExecutionCoordinator.ReconcileIssueExecutions,
 				tuttiModeMainWakeRecovery,
 			)
 			if err != nil {
@@ -704,28 +727,15 @@ func buildDaemonAPI(
 		agentRuntime.Close()
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("reconcile interrupted app factory jobs: %w", err)
 	}
-	workspaces, err := workspaceService.List(ctx)
+	workspaces, err := recoverIssueExecutionsAtStartup(
+		ctx,
+		workspaceService,
+		issueExecutionCoordinator,
+		tuttiModeExecutions,
+	)
 	if err != nil {
 		agentRuntime.Close()
-		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-			"list workspaces for Issue Run startup recovery: %w",
-			err,
-		)
-	}
-	for _, workspace := range workspaces {
-		if _, err := issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(ctx, workspace.ID); err != nil {
-			agentRuntime.Close()
-			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-				"recover Tutti mode Run launch intents at startup for workspace %q: %w",
-				workspace.ID,
-				err,
-			)
-		}
-		repairTuttiModeMainWakesAtStartup(
-			ctx,
-			tuttiModeExecutions,
-			workspace.ID,
-		)
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
 	}
 	tuttiModeWatchdogWorker := newTuttiModeWatchdogWorker(
 		ctx, tuttiModeExecutions, tuttiModeMainWakeOwner,
@@ -749,7 +759,8 @@ func buildDaemonAPI(
 		Apps: appCenterService, Events: events,
 		ManagedCredentials: managedCredentials,
 		AgentSessions:      agentSessionService, AgentTargets: agentTargets,
-		Preferences: preferences, TuttiModePlans: tuttiModePlans,
+		AgentTargetSetup: agentTargetSetup,
+		Preferences:      preferences, TuttiModePlans: tuttiModePlans,
 		TuttiModeExecutions:  tuttiModeExecutions,
 		TuttiModeActivations: tuttiModeActivations,
 		Browser:              browserService, Computer: computerService,

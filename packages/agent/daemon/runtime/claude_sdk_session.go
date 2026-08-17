@@ -6,17 +6,38 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 )
 
 func (a *ClaudeCodeSDKAdapter) storeSession(agentSessionID string, session *claudeSDKAdapterSession) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	if session != nil && session.childSessions == nil {
 		session.childSessions = make(map[string]claudeSDKChildSession)
 	}
-	a.sessions[agentSessionID] = session
+	agentSessionID = strings.TrimSpace(agentSessionID)
+	for {
+		a.mu.Lock()
+		previous := a.sessions[agentSessionID]
+		a.mu.Unlock()
+		if previous != nil && previous != session {
+			previous.dispatchMu.Lock()
+		}
+		a.mu.Lock()
+		if a.sessions[agentSessionID] != previous {
+			a.mu.Unlock()
+			if previous != nil && previous != session {
+				previous.dispatchMu.Unlock()
+			}
+			continue
+		}
+		a.sessions[agentSessionID] = session
+		a.mu.Unlock()
+		if previous != nil && previous != session {
+			previous.dispatchMu.Unlock()
+		}
+		return
+	}
 }
 
 func (*ClaudeCodeSDKAdapter) applySidecarSessionEvent(
@@ -56,6 +77,7 @@ func (a *ClaudeCodeSDKAdapter) removeSession(agentSessionID string, expected *cl
 	if a == nil || expected == nil {
 		return false
 	}
+	expected.dispatchMu.Lock()
 	a.mu.Lock()
 	expected.invalid = true
 	pending := make([]*pendingInteractiveRequest, 0, len(expected.pendingRequests))
@@ -64,6 +86,7 @@ func (a *ClaudeCodeSDKAdapter) removeSession(agentSessionID string, expected *cl
 	}
 	if a.sessions[agentSessionID] != expected {
 		a.mu.Unlock()
+		expected.dispatchMu.Unlock()
 		for _, request := range pending {
 			request.finish(pendingInteractiveRequestStateSuperseded)
 		}
@@ -71,25 +94,19 @@ func (a *ClaudeCodeSDKAdapter) removeSession(agentSessionID string, expected *cl
 	}
 	delete(a.sessions, agentSessionID)
 	a.mu.Unlock()
+	expected.dispatchMu.Unlock()
 	for _, request := range pending {
 		request.finish(pendingInteractiveRequestStateSuperseded)
 	}
 	return true
 }
 
-func (a *ClaudeCodeSDKAdapter) markSessionInvalid(session *claudeSDKAdapterSession) {
-	if a == nil || session == nil {
-		return
-	}
-	a.mu.Lock()
-	session.invalid = true
-	a.mu.Unlock()
-}
-
 func (a *ClaudeCodeSDKAdapter) restorePreviousSession(agentSessionID string, previous *claudeSDKAdapterSession) bool {
 	if a == nil || previous == nil {
 		return false
 	}
+	previous.dispatchMu.Lock()
+	defer previous.dispatchMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	current := a.sessions[agentSessionID]
@@ -103,6 +120,25 @@ func (a *ClaudeCodeSDKAdapter) restorePreviousSession(agentSessionID string, pre
 	return true
 }
 
+// restoreOwnedPreviousSession is used only when a replacement launch fails.
+// An invalid previous session remains unusable, but restoring it to the owned
+// registry preserves the physical handle for a later close retry.
+func (a *ClaudeCodeSDKAdapter) restoreOwnedPreviousSession(agentSessionID string, previous *claudeSDKAdapterSession) bool {
+	if a == nil || previous == nil {
+		return false
+	}
+	previous.dispatchMu.Lock()
+	defer previous.dispatchMu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	current := a.sessions[agentSessionID]
+	if current != nil {
+		return current == previous
+	}
+	a.sessions[agentSessionID] = previous
+	return true
+}
+
 func (a *ClaudeCodeSDKAdapter) sessionIsUsable(agentSessionID string, session *claudeSDKAdapterSession) bool {
 	if a == nil || session == nil {
 		return false
@@ -110,6 +146,16 @@ func (a *ClaudeCodeSDKAdapter) sessionIsUsable(agentSessionID string, session *c
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.sessions[agentSessionID] == session && !session.invalid
+}
+
+func (a *ClaudeCodeSDKAdapter) sessionMayDispatch(agentSessionID string, session *claudeSDKAdapterSession) bool {
+	if a == nil || session == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	current := a.sessions[agentSessionID]
+	return !session.invalid && current == session
 }
 
 func (a *ClaudeCodeSDKAdapter) emitCommandSnapshot(snapshot AgentSessionCommandSnapshot) {
@@ -260,7 +306,7 @@ func (s *claudeSDKAdapterSession) mirrorGoalSlashPrompt(session Session, prompt 
 		return activityshared.Event{}, false
 	}
 	if updateType == "thread_goal_update" {
-		s.liveState.goal = clonePayload(goal)
+		s.liveState.goal = normalizeClaudeGoalTiming(goal, s.liveState.goal, time.Now().UnixMilli())
 	} else {
 		s.liveState.goal = nil
 	}

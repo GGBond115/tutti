@@ -1,8 +1,10 @@
 package agentruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,30 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
 	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
+
+func TestClaudeSDKCancellationDiagnosticsAreForwardedAsStructuredLogs(t *testing.T) {
+	var output bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(previousLogger)
+	})
+
+	logClaudeSDKSidecarDebugStderr([]byte(
+		"ignored stderr\n" + claudeSDKCancelLogPrefix + ` {"stage":"interrupt_timed_out","turnId":"turn-1"}` + "\n",
+	))
+
+	logged := output.String()
+	if !strings.Contains(logged, `msg=CLAUDE_CODE_CANCEL_DIAGNOSTIC`) {
+		t.Fatalf("log = %q, want cancellation prefix", logged)
+	}
+	if !strings.Contains(logged, `event=agent_session.claude_sdk.cancel_diagnostic`) {
+		t.Fatalf("log = %q, want cancellation diagnostic event", logged)
+	}
+	if !strings.Contains(logged, `interrupt_timed_out`) || !strings.Contains(logged, `turn-1`) {
+		t.Fatalf("log = %q, want structured payload", logged)
+	}
+}
 
 func TestClaudeCodeSDKAdapterExecWithSidecarTestDriver(t *testing.T) {
 	t.Setenv(claudeSDKSidecarTestDriverEnv, "1")
@@ -417,6 +443,66 @@ func TestClaudeCodeSDKAdapterClosesSyntheticTurnLifecycleWithoutExecWaiter(t *te
 	}
 }
 
+// After consume() clears the only known provider turn id, a synthetic
+// turn_completed that omits providerTurnId must still project completed
+// using the synthetic turn id (C06 steer continuation).
+func TestClaudeCodeSDKAdapterSyntheticTurnCompletedWithoutProviderTurnID(t *testing.T) {
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	session := standardTestSession(ProviderClaudeCode)
+	adapterSession := &claudeSDKAdapterSession{
+		session:           session,
+		providerSessionID: "provider-session-1",
+		pendingRequests:   make(map[string]*pendingInteractiveRequest),
+		pendingResponses:  make(map[string]chan claudeSDKSidecarEvent),
+		turns:             make(map[string]*claudeSDKTurnWaiter),
+		liveState:         newClaudeSDKLiveState(),
+	}
+	adapter.storeSession(session.AgentSessionID, adapterSession)
+	adapter.beginClaudeSDKRootTurn(adapterSession, "root-turn-1", "provider-turn-1")
+	// Simulate the interrupted root turn consuming its provider identity
+	// before the synthetic continuation starts (C06 guide abort path).
+	if !adapter.consumeClaudeSDKRootProviderTurn(adapterSession, "provider-turn-1") {
+		t.Fatal("expected root provider turn to be known")
+	}
+
+	var published []activityshared.Event
+	adapter.SetSessionEventSink(func(agentSessionID string, events []activityshared.Event) {
+		if agentSessionID == session.AgentSessionID {
+			published = append(published, events...)
+		}
+	})
+
+	_ = adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
+		Type: "turn_started",
+		Payload: map[string]any{
+			"turnId":    "synthetic-continuation-2",
+			"synthetic": true,
+		},
+	})
+	_ = adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":     "synthetic-continuation-2",
+			"stopReason": "end_turn",
+		},
+	})
+
+	var sawCompleted bool
+	for _, event := range published {
+		if event.Type != activityshared.EventRootProviderTurnCompleted {
+			continue
+		}
+		sawCompleted = true
+		if event.Payload.TurnID != "root-turn-1" ||
+			event.Payload.ProviderTurnID != "synthetic-continuation-2" {
+			t.Fatalf("completed = %#v", event.Payload)
+		}
+	}
+	if !sawCompleted {
+		t.Fatalf("published = %#v, want synthetic completed without payload providerTurnId", published)
+	}
+}
+
 func TestClaudeCodeSDKAdapterRoundTripUsesReaderDispatcherAfterExec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -518,7 +604,7 @@ func TestClaudeSDKLineReaderTracksNDJSONInputUnitsAtCompletionChunk(t *testing.T
 			RecordingID:  "recording-1",
 			ConnectionID: "connection-1",
 			ChunkSeq:     4,
-			Stdout:       []byte(`{"version":8,"type":"assistant_delta","payload":{"text":"hel`),
+			Stdout:       []byte(`{"version":10,"type":"assistant_delta","payload":{"text":"hel`),
 		},
 		{
 			RecordingID:  "recording-1",
@@ -526,7 +612,7 @@ func TestClaudeSDKLineReaderTracksNDJSONInputUnitsAtCompletionChunk(t *testing.T
 			ChunkSeq:     5,
 			Stdout: []byte(
 				`lo"}}` + "\n" +
-					`{"version":8,"type":"turn_completed","payload":{"turnId":"turn-1"}}` + "\n",
+					`{"version":10,"type":"turn_completed","payload":{"turnId":"turn-1"}}` + "\n",
 			),
 		},
 	}}

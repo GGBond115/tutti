@@ -15,7 +15,7 @@ Classify the request before invoking any Tutti CLI command:
 2. Workspace app work uses app scopes from the command guide. If the request comes from `mention://workspace-app/<appId>?workspaceId=...`, invoke `$workspace-app` and use this skill as its command reference.
    {{if hasFamily "agent"}}3. Agent work uses the Host-advertised `agent ...` commands. Handoff decisions belong to `$tutti-handoff`; use this skill only as its CLI reference.
    {{end}}{{if hasFamily "browser"}}4. Browser automation uses the Host-advertised `browser ...` commands.
-   {{end}}{{if hasFamily "computer"}}5. macOS desktop automation uses the Host-advertised `computer ...` commands.
+   {{end}}{{if hasFamily "computer"}}5. Desktop automation uses the Host-advertised `computer ...` commands.
    {{end}}6. If none match, read `command-guide.md` before guessing.
 
 Completion criterion: every Tutti CLI call must be traceable to a routed family, a mention URI, prior command output, current CLI help, or a command-guide entry.
@@ -26,7 +26,8 @@ Tutti mention links are internal handoffs. Parse them as data; do not open them 
 
 - `mention://workspace-issue/<issueId>?workspaceId=...`: use `$issue-manager`.
 - `mention://workspace-app/<appId>?workspaceId=...`: use `$workspace-app`.
-  {{if has "agent-context.agent.wait"}}- `mention://agent-session/<sessionId>?workspaceId=...`: a context reference to an existing session, not a work order. Use `{{command "agent-context.agent.wait"}}` to await its next stop point. {{if has "agent-context.agent.session-summary"}}Use `{{command "agent-context.agent.session-summary"}}` for conversation recovery. {{end}}{{if has "agent-context.agent.get"}}Use `{{command "agent-context.agent.get"}}` only for the context exposed by this Host.{{end}}
+  {{if has "agent-context.agent.session-summary"}}- `mention://agent-session/<sessionId>?workspaceId=...`: a context reference to an existing session, not a work order. Recover its conversation with `{{command "agent-context.agent.session-summary"}}`.
+  {{else if has "agent-context.agent.get"}}- `mention://agent-session/<sessionId>?workspaceId=...`: a context reference to an existing session, not a work order. Recover the context exposed by this Host with `{{command "agent-context.agent.get"}}`.
   {{end}}{{if has "agent-context.agent.list"}}- `mention://agent-target/<targetId>?workspaceId=...`: behavior per `$tutti-handoff`. Verify the id with `{{if hasInput "agent-context.agent.list" "agent-id"}}{{command "agent-context.agent.list" (args "agent-id" "<targetId>")}}{{else}}{{command "agent-context.agent.list"}}{{end}}`, then use the generic agent workflow. An instruction for the mentioned agent is handed off, not absorbed.
   {{end}}- Unknown `mention://...`: parse the URI and ask for clarification if no command family or skill matches.
 

@@ -23,10 +23,14 @@ export const businessEventTopicAgentQuickpromptUpdated =
 export const businessEventTopicAgentSideUpdated = "agent.side.updated" as const;
 export const businessEventTopicAnalyticsDebugReported =
   "analytics.debug.reported" as const;
+export const businessEventTopicConnectorMarketChanged =
+  "connector.market.changed" as const;
 export const businessEventTopicPreferencesAgentComposerDefaultsChanged =
   "preferences.agent.composer.defaults.changed" as const;
 export const businessEventTopicPreferencesAgentComposerDefaultsPatchRequested =
   "preferences.agent.composer.defaults.patch.requested" as const;
+export const businessEventTopicPreferencesAgentSessionLaunchModePatchRequested =
+  "preferences.agent.session.launch.mode.patch.requested" as const;
 export const businessEventTopicPreferencesDesktopUpdateRequested =
   "preferences.desktop.update.requested" as const;
 export const businessEventTopicPreferencesDesktopUpdated =
@@ -54,7 +58,7 @@ export interface BusinessEventDefinition {
   scope: BusinessEventScopeName;
 }
 
-export const businessEventCatalogRevision = "sha256:83e9ef0d3ea5c05b" as const;
+export const businessEventCatalogRevision = "sha256:d2f4d0e3e3737a60" as const;
 
 export const businessEventDefinitions = [
   {
@@ -114,6 +118,13 @@ export const businessEventDefinitions = [
     scope: "desktop"
   },
   {
+    topic: "connector.market.changed",
+    version: 1,
+    direction: "server->client",
+    owner: "core",
+    scope: "global"
+  },
+  {
     topic: "preferences.agent.composer.defaults.changed",
     version: 1,
     direction: "server->client",
@@ -122,6 +133,13 @@ export const businessEventDefinitions = [
   },
   {
     topic: "preferences.agent.composer.defaults.patch.requested",
+    version: 1,
+    direction: "client->server",
+    owner: "core",
+    scope: "desktop"
+  },
+  {
+    topic: "preferences.agent.session.launch.mode.patch.requested",
     version: 1,
     direction: "client->server",
     owner: "core",
@@ -249,6 +267,13 @@ export const businessEventDefinitionByTopic = {
     owner: "desktop",
     scope: "desktop"
   },
+  "connector.market.changed": {
+    topic: "connector.market.changed",
+    version: 1,
+    direction: "server->client",
+    owner: "core",
+    scope: "global"
+  },
   "preferences.agent.composer.defaults.changed": {
     topic: "preferences.agent.composer.defaults.changed",
     version: 1,
@@ -258,6 +283,13 @@ export const businessEventDefinitionByTopic = {
   },
   "preferences.agent.composer.defaults.patch.requested": {
     topic: "preferences.agent.composer.defaults.patch.requested",
+    version: 1,
+    direction: "client->server",
+    owner: "core",
+    scope: "desktop"
+  },
+  "preferences.agent.session.launch.mode.patch.requested": {
+    topic: "preferences.agent.session.launch.mode.patch.requested",
     version: 1,
     direction: "client->server",
     owner: "core",

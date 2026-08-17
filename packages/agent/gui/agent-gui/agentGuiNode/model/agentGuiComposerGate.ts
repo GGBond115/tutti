@@ -18,11 +18,18 @@ export interface ResolveAgentGUIComposerGateInput {
   isCollaboratorConversation: boolean;
   isCreatingConversation: boolean;
   isInterrupting: boolean;
+  isAwaitingTurnStart: boolean;
   isSubmitting: boolean;
   pendingApproval: boolean;
   pendingInteractivePrompt: boolean;
   providerReadinessGate: AgentGUIProviderReadinessGate | null;
   selectedAgentTargetUnavailable: boolean;
+  /**
+   * True while a session settings update is unsettled (in flight, waiting for
+   * runtime, timed out/unknown, or failed). Blocks submit until idle so send
+   * cannot race UpdateSettings on the daemon settings lock.
+   */
+  settingsUpdatePending: boolean;
   sessionRuntimeBlockedReason: AgentGUIRuntimeBlockedReason | null;
   targetConnectionBlocked: boolean;
 }
@@ -30,7 +37,7 @@ export interface ResolveAgentGUIComposerGateInput {
 export function resolveAgentGUIComposerGate(
   input: ResolveAgentGUIComposerGateInput
 ): AgentGUIComposerGate {
-  const conversationBusy = input.activeConversationBusy || input.isSubmitting;
+  const conversationBusy = input.activeConversationBusy;
   const sharingRevoked =
     input.sessionRuntimeBlockedReason === "agent_sharing_revoked";
   const runtime: AgentGUIComposerGate["runtime"] = sharingRevoked
@@ -71,6 +78,8 @@ export function resolveAgentGUIComposerGate(
     !input.pendingApproval &&
     !input.pendingInteractivePrompt &&
     !input.authBlocked &&
+    !input.settingsUpdatePending &&
+    !input.isAwaitingTurnStart &&
     !conversationBusy &&
     !input.isCreatingConversation &&
     !input.isInterrupting;
@@ -109,6 +118,7 @@ export function resolveAgentGUIComposerGate(
 
   return {
     conversationBusy,
+    isAwaitingTurnStart: input.isAwaitingTurnStart,
     runtime,
     editor,
     submission
@@ -169,6 +179,8 @@ function resolveSubmissionBlockReason(
   if (input.pendingApproval) return "pending_approval";
   if (input.pendingInteractivePrompt) return "pending_interactive_prompt";
   if (input.authBlocked) return "authentication_required";
+  if (input.settingsUpdatePending) return "settings_update_pending";
+  if (input.isAwaitingTurnStart) return "submitting";
   if (input.activeConversationBusy) return "conversation_busy";
   if (input.isCreatingConversation) return "creating_conversation";
   if (input.isSubmitting) return "submitting";

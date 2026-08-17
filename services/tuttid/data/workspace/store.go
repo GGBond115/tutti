@@ -126,6 +126,10 @@ type AgentComposerDefaultsPatchStore interface {
 	PatchAgentComposerDefaultsForTarget(context.Context, string, preferencesbiz.AgentComposerDefaultsPatch) (preferencesbiz.AgentComposerDefaults, error)
 }
 
+type AgentSessionLaunchModePatchStore interface {
+	PatchAgentSessionLaunchMode(context.Context, string, string, string) (preferencesbiz.DesktopPreferences, error)
+}
+
 type ModelPlansStore interface {
 	DeleteModelPlan(context.Context, string, string) error
 	GetModelPlan(context.Context, string, string) (modelplanbiz.Plan, error)
@@ -337,6 +341,24 @@ type UserProjectStore interface {
 	PinUserProject(context.Context, string, bool) ([]userprojectbiz.Project, bool, error)
 	PutUserProject(context.Context, userprojectbiz.Project) (userprojectbiz.Project, error)
 	TouchUserProject(context.Context, string, int64) error
+}
+
+// UserProjectRemovalPlan is returned by the compare-and-finalize project
+// removal transaction. A non-finalized plan contains every live, unpinned
+// root session that must be closed through the Agent Host before the store can
+// safely remove the project.
+type UserProjectRemovalPlan struct {
+	Finalized             bool
+	SessionIDsByWorkspace map[string][]string
+	RehomedSessions       int
+}
+
+// UserProjectRemovalStore exposes the coordinated project-removal seam used
+// by the user-project service. It is intentionally separate from
+// UserProjectStore so lightweight callers and test stores can retain the
+// metadata-only contract.
+type UserProjectRemovalStore interface {
+	TryFinalizeUserProjectRemovalByPath(context.Context, string) (UserProjectRemovalPlan, error)
 }
 
 type AppStore interface {

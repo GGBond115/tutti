@@ -686,11 +686,50 @@ func TestReplayProcessTransportMatchesJSONRPCRequestSemanticsAndMapsResponseID(t
 	}
 }
 
+func TestReplayProcessTransportIgnoresVolatileInitializeClientInfo(t *testing.T) {
+	expected := []byte(
+		`{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-cli","title":"Codex","version":"0.146.0"},"capabilities":{"experimentalApi":true}}}` + "\n",
+	)
+	actual := []byte(
+		`{"id":7,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"codex-cli","title":"TSH","version":"0.146.1"}}}` + "\n",
+	)
+
+	descriptor := codexReplayDescriptorForCassetteTest(t)
+	responseIDs, _, matches := processCassetteJSONMatch(
+		descriptor,
+		expected,
+		actual,
+		"",
+		"",
+		"",
+		nil,
+	)
+	if !matches {
+		t.Fatal("initialize clientInfo version/title drift did not match")
+	}
+	if got := responseIDs["1"]; got != json.Number("7") {
+		t.Fatalf("mapped response id = %#v, want 7", got)
+	}
+
+	changedName := bytes.Replace(actual, []byte(`"name":"codex-cli"`), []byte(`"name":"other-cli"`), 1)
+	if _, _, matches := processCassetteJSONMatch(
+		descriptor,
+		expected,
+		changedName,
+		"",
+		"",
+		"",
+		nil,
+	); matches {
+		t.Fatal("initialize clientInfo.name mismatch matched")
+	}
+}
+
 func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentities(t *testing.T) {
 	directory := t.TempDir()
 	base := &cassetteTestConnection{received: []ProcessFrame{
-		{Stdout: []byte(`{"version":8,"id":"request-recorded","type":"ok","payload":{"providerSessionId":"provider-recorded"}}` + "\n")},
-		{Stdout: []byte(`{"version":8,"id":"exec-recorded","type":"ok"}` + "\n")},
+		{Stdout: []byte(`{"version":10,"id":"request-recorded","type":"ok","payload":{"providerSessionId":"provider-recorded"}}` + "\n")},
+		{Stdout: []byte(`{"version":10,"id":"exec-recorded","type":"ok"}` + "\n")},
 	}}
 	recording, err := NewRecordingProcessTransport(
 		cassetteTestTransport{connection: base},
@@ -713,14 +752,14 @@ func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentitie
 	if err != nil {
 		t.Fatal(err)
 	}
-	recordedStart := []byte(`{"version":8,"id":"request-recorded","type":"start","payload":{"agentSessionId":"session-recorded","providerSessionId":"provider-recorded","cwd":"/Users/recorded/project","env":{"ANTHROPIC_API_KEY":"secret-recorded","CLAUDE_CONFIG_DIR":"/Users/recorded/.claude","IS_SANDBOX":"1"}}}` + "\n")
+	recordedStart := []byte(`{"version":10,"id":"request-recorded","type":"start","payload":{"agentSessionId":"session-recorded","providerSessionId":"provider-recorded","cwd":"/Users/recorded/project","env":{"ANTHROPIC_API_KEY":"secret-recorded","CLAUDE_CONFIG_DIR":"/Users/recorded/.claude","IS_SANDBOX":"1"}}}` + "\n")
 	if err := connection.Send(recordedStart); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := connection.Recv(); err != nil {
 		t.Fatal(err)
 	}
-	recordedExec := []byte(`{"version":8,"id":"exec-recorded","type":"exec","payload":{"agentSessionId":"session-recorded","turnId":"turn-recorded","promptCorrelationId":"submit-recorded","prompt":"REPLAY_EXACT"}}` + "\n")
+	recordedExec := []byte(`{"version":10,"id":"exec-recorded","type":"exec","payload":{"agentSessionId":"session-recorded","turnId":"turn-recorded","promptCorrelationId":"submit-recorded","prompt":"REPLAY_EXACT"}}` + "\n")
 	if err := connection.Send(recordedExec); err != nil {
 		t.Fatal(err)
 	}
@@ -777,7 +816,7 @@ func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentitie
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayStart := []byte(`{"payload":{"env":{"ANTHROPIC_API_KEY":"different-secret","CLAUDE_CONFIG_DIR":"/isolated/.claude","IS_SANDBOX":"1"},"cwd":"/isolated/project","providerSessionId":"provider-replayed","agentSessionId":"session-replayed"},"type":"start","id":"request-replayed","version":8}` + "\n")
+	replayStart := []byte(`{"payload":{"env":{"ANTHROPIC_API_KEY":"different-secret","CLAUDE_CONFIG_DIR":"/isolated/.claude","IS_SANDBOX":"1"},"cwd":"/isolated/project","providerSessionId":"provider-replayed","agentSessionId":"session-replayed"},"type":"start","id":"request-replayed","version":10}` + "\n")
 	if err := replayed.Send(replayStart); err != nil {
 		t.Fatal(err)
 	}
@@ -789,7 +828,7 @@ func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentitie
 		!bytes.Contains(frame.Stdout, []byte(`"providerSessionId":"provider-recorded"`)) {
 		t.Fatalf("mapped Claude start response = %s", frame.Stdout)
 	}
-	replayExec := []byte(`{"version":8,"id":"exec-replayed","type":"exec","payload":{"agentSessionId":"session-replayed","turnId":"turn-replayed","promptCorrelationId":"submit-replayed","prompt":"REPLAY_EXACT"}}` + "\n")
+	replayExec := []byte(`{"version":10,"id":"exec-replayed","type":"exec","payload":{"agentSessionId":"session-replayed","turnId":"turn-replayed","promptCorrelationId":"submit-replayed","prompt":"REPLAY_EXACT"}}` + "\n")
 	if err := replayed.Send(replayExec); err != nil {
 		t.Fatal(err)
 	}
@@ -903,23 +942,81 @@ func TestRecordingAndReplayProcessTransportProjectsPlanDecisionClientUserMessage
 	}
 }
 
-func TestReplayProcessTransportKeepsOrdinaryClientUserMessageIDStrict(t *testing.T) {
+func TestReplayProcessTransportRemapsOrdinaryClientUserMessageIDConsistently(t *testing.T) {
 	expected := []byte(
 		`{"id":9,"method":"turn/start","params":{"clientUserMessageId":"user-submit-1"}}` + "\n",
 	)
 	actual := []byte(
 		`{"id":10,"method":"turn/start","params":{"clientUserMessageId":"user-submit-2"}}` + "\n",
 	)
-	if _, _, matches := processCassetteJSONMatch(
-		codexReplayDescriptorForCassetteTest(t),
+	descriptor := codexReplayDescriptorForCassetteTest(t)
+	_, learned, matches := processCassetteJSONMatch(
+		descriptor,
 		expected,
 		actual,
 		"",
 		"",
 		"",
 		nil,
+	)
+	if !matches {
+		t.Fatal("ordinary clientUserMessageId runtime identity did not match")
+	}
+	if got := learned["user-submit-1"]; got != "user-submit-2" {
+		t.Fatalf("learned clientUserMessageId = %q, want user-submit-2", got)
+	}
+
+	followupExpected := []byte(
+		`{"id":11,"method":"turn/start","params":{"clientUserMessageId":"user-submit-1"}}` + "\n",
+	)
+	followupActual := []byte(
+		`{"id":12,"method":"turn/start","params":{"clientUserMessageId":"user-submit-2"}}` + "\n",
+	)
+	if _, _, matches := processCassetteJSONMatch(
+		descriptor,
+		followupExpected,
+		followupActual,
+		"",
+		"",
+		"",
+		learned,
+	); !matches {
+		t.Fatal("consistent clientUserMessageId mapping did not match")
+	}
+
+	conflictingActual := bytes.Replace(
+		followupActual,
+		[]byte("user-submit-2"),
+		[]byte("user-submit-3"),
+		1,
+	)
+	if _, _, matches := processCassetteJSONMatch(
+		descriptor,
+		followupExpected,
+		conflictingActual,
+		"",
+		"",
+		"",
+		learned,
 	); matches {
-		t.Fatal("ordinary clientUserMessageId mismatch matched")
+		t.Fatal("conflicting clientUserMessageId mapping matched")
+	}
+
+	mappedInbound := mapProcessCassetteFrameJSON(
+		[]byte(`{"method":"turn/completed","params":{"clientUserMessageId":"user-submit-1"}}`+"\n"),
+		"",
+		"",
+		"",
+		descriptor,
+		learned,
+	)
+	var inboundMessage map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(mappedInbound), &inboundMessage); err != nil {
+		t.Fatal(err)
+	}
+	inboundParams, _ := inboundMessage["params"].(map[string]any)
+	if got := payloadString(inboundParams, "clientUserMessageId"); got != "user-submit-2" {
+		t.Fatalf("mapped inbound clientUserMessageId = %q, want user-submit-2", got)
 	}
 }
 
@@ -1327,6 +1424,14 @@ func TestReplayProcessTransportAbsorbsExtraOptionalProbeDuringInbound(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(string(frame.Stdout), `"id":9`) ||
+		!strings.Contains(string(frame.Stdout), `"result"`) {
+		t.Fatalf("synthetic probe stdout = %q, want id=9 result", frame.Stdout)
+	}
+	frame, err = connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(string(frame.Stdout), "turn/started") {
 		t.Fatalf("stdout = %q, want turn/started", frame.Stdout)
 	}
@@ -1342,6 +1447,244 @@ func TestReplayProcessTransportAbsorbsExtraOptionalProbeDuringInbound(t *testing
 	if err := replay.VerifyComplete(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestReplayProcessTransportSynthesizesOptionalGoalGetDuringInbound(t *testing.T) {
+	request := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "outbound",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	stdout := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "stdout",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	replay := replayProcessTransportWithChunksForTest(t, []replayConnectionChunksForTest{{
+		spec: ProcessSpec{Provider: ProviderCodex, AgentSessionID: "session-1"},
+		chunks: []processCassetteChunk{
+			request(`{"id":1,"method":"initialize"}`),
+			stdout(`{"id":1,"result":{}}`),
+			stdout(`{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}`),
+			request(`{"id":30,"method":"turn/start"}`),
+			stdout(`{"id":30,"result":{"turn":{"id":"turn-1"}}}`),
+		},
+	}})
+	connection, err := replay.Start(context.Background(), ProcessSpec{
+		Provider: ProviderCodex, AgentSessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Send([]byte("{\"id\":1,\"method\":\"initialize\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	// Activation metadata refresh may probe goal/get before the provider cursor
+	// reaches later taped traffic. Absorbing must still unblock NoHandler waits.
+	if err := connection.Send([]byte(
+		`{"id":42,"method":"thread/goal/get","params":{"threadId":"thread-1"}}` + "\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), `"id":42`) ||
+		!strings.Contains(string(frame.Stdout), `"result"`) {
+		t.Fatalf("synthetic goal/get stdout = %q, want id=42 result", frame.Stdout)
+	}
+	frame, err = connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), "turn/started") {
+		t.Fatalf("stdout = %q, want turn/started", frame.Stdout)
+	}
+	if err := connection.Send([]byte("{\"id\":3,\"method\":\"turn/start\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	if state := replay.ReplayPlaybackState(); !state.Drained {
+		t.Fatalf("playback state = %#v, want drained", state)
+	}
+	if err := replay.VerifyComplete(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReplayProcessTransportSynthesizesOptionalProbeWhileInboundPaused(t *testing.T) {
+	request := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "outbound",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	stdout := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "stdout",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	replay := replayProcessTransportWithChunksForTest(t, []replayConnectionChunksForTest{{
+		spec: ProcessSpec{Provider: ProviderCodex, AgentSessionID: "session-1"},
+		chunks: []processCassetteChunk{
+			request(`{"id":1,"method":"initialize"}`),
+			stdout(`{"id":1,"result":{}}`),
+			stdout(`{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}`),
+		},
+	}})
+	connection, err := replay.Start(context.Background(), ProcessSpec{
+		Provider: ProviderCodex, AgentSessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Send([]byte("{\"id\":1,\"method\":\"initialize\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	if err := replay.PauseReplayPlayback(); err != nil {
+		t.Fatal(err)
+	}
+	type recvResult struct {
+		frame ProcessFrame
+		err   error
+	}
+	result := make(chan recvResult, 1)
+	go func() {
+		frame, recvErr := connection.Recv()
+		result <- recvResult{frame: frame, err: recvErr}
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := connection.Send([]byte(
+		`{"id":42,"method":"thread/goal/get","params":{"threadId":"thread-1"}}` + "\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if !strings.Contains(string(got.frame.Stdout), `"id":42`) ||
+			!strings.Contains(string(got.frame.Stdout), `"result"`) {
+			t.Fatalf(
+				"synthetic goal/get while paused stdout = %q, want id=42 result",
+				got.frame.Stdout,
+			)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Recv() did not drain synthetic optional probe while inbound paused")
+	}
+	if err := replay.ResumeReplayPlayback(); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), "turn/started") {
+		t.Fatalf("stdout = %q, want turn/started after resume", frame.Stdout)
+	}
+	if err := replay.VerifyComplete(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReplayProcessTransportCompleteUnitYieldsForSyntheticWhileHeld(t *testing.T) {
+	request := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "outbound",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	stdout := func(value string) processCassetteChunk {
+		return processCassetteChunk{
+			Kind: "stdout",
+			Data: base64.StdEncoding.EncodeToString([]byte(value + "\n")),
+		}
+	}
+	replay := replayProcessTransportWithChunksForTest(t, []replayConnectionChunksForTest{{
+		spec: ProcessSpec{Provider: ProviderCodex, AgentSessionID: "session-1"},
+		chunks: []processCassetteChunk{
+			request(`{"id":1,"method":"initialize"}`),
+			stdout(`{"id":1,"result":{}}`),
+			stdout(`{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}`),
+		},
+	}})
+	connection, err := replay.Start(context.Background(), ProcessSpec{
+		Provider: ProviderCodex, AgentSessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayConn, ok := connection.(*replayProcessConnection)
+	if !ok {
+		t.Fatal("connection is not replayProcessConnection")
+	}
+	if err := connection.Send([]byte("{\"id\":1,\"method\":\"initialize\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(frame.Stdout), "turn/started") {
+		t.Fatalf("stdout = %q, want turn/started", frame.Stdout)
+	}
+	if err := replay.SetReplayProviderCursor([]sessionreplay.ProviderUnitPosition{{
+		ConnectionID: frame.ConnectionID,
+		ChunkSeq:     frame.ChunkSeq,
+		UnitIndex:    1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- replayConn.CompleteProviderInputUnit(context.Background(), ProviderInputUnit{
+			Position: sessionreplay.ProviderUnitPosition{
+				ConnectionID: frame.ConnectionID,
+				ChunkSeq:     frame.ChunkSeq,
+				UnitIndex:    1,
+			},
+			Kind: sessionreplay.ProviderInputUnitProtocolMessage,
+		})
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := connection.Send([]byte(
+		`{"id":42,"method":"thread/goal/get","params":{"threadId":"thread-1"}}` + "\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, errReplaySyntheticPending) {
+			t.Fatalf("CompleteProviderInputUnit error = %v, want synthetic pending", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("CompleteProviderInputUnit did not yield for synthetic optional probe")
+	}
+	synthetic, err := connection.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(synthetic.Stdout), `"id":42`) {
+		t.Fatalf("synthetic stdout = %q, want id=42", synthetic.Stdout)
+	}
+	replay.ClearReplayProviderCursor()
 }
 
 func TestReplayProcessTransportAbsorbsExtraOptionalProbeAfterCassetteEnd(t *testing.T) {

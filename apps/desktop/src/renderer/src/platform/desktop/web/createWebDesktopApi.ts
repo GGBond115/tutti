@@ -252,6 +252,8 @@ function createWebDeveloperApi(): DesktopDeveloperApi {
 
 function createWebPlatformApi(): DesktopPlatformApi {
   return {
+    distribution: "direct",
+    appName: "",
     homeDirectory: "",
     os: inferPlatform(),
     resolveDroppedEntries() {
@@ -350,6 +352,9 @@ function createWebHostApi(): DesktopHostApi {
     window: {
       approveClose() {
         window.close();
+        return Promise.resolve();
+      },
+      setCloseGuardEnabled() {
         return Promise.resolve();
       },
       capturePreview() {

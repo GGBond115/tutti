@@ -17,6 +17,7 @@ import {
   Switch
 } from "@tutti-os/ui-system";
 import { useAnalyticsDebugPreferenceService } from "@renderer/features/analytics-debug";
+import { useAppUpdateService } from "@renderer/features/app-update";
 import { useDesktopPreferencesService } from "@renderer/features/desktop-preferences/ui/useDesktopPreferencesService";
 import { useTranslation } from "@renderer/i18n";
 import { cn } from "@renderer/lib/format";
@@ -39,8 +40,7 @@ import {
   isFeatureEnabled,
   LAB_AGENT_SESSION_FORK_FLAG,
   LAB_CODEX_SAVER_MODE_FLAG,
-  LAB_ENABLED_FLAG,
-  MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
+  LAB_ENABLED_FLAG
 } from "../../../../../shared/featureFlags/catalog.ts";
 import { formatWorkspaceSettingsBytes } from "../services/workspaceSettingsFormat";
 import { useWorkspaceSettingsService } from "./useWorkspaceSettingsService";
@@ -62,6 +62,7 @@ type FileDefaultOpenerDraft = {
 
 export function WorkspaceDeveloperSettingsSection() {
   const { t } = useTranslation();
+  const { state: appUpdateState } = useAppUpdateService();
   const {
     service: analyticsDebugPreferenceService,
     state: analyticsDebugPreferenceState
@@ -103,10 +104,6 @@ export function WorkspaceDeveloperSettingsSection() {
   const codexSaverModeEnabled = isFeatureEnabled(
     pendingFeatureFlags,
     LAB_CODEX_SAVER_MODE_FLAG
-  );
-  const mobileRemoteAccessSettingsEnabled = isFeatureEnabled(
-    pendingFeatureFlags,
-    MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
   );
   const featureFlagsUpdating =
     desktopPreferencesState.changingFeatureFlags !== null;
@@ -154,12 +151,6 @@ export function WorkspaceDeveloperSettingsSection() {
     void settingsService.changeFeatureFlags({
       ...pendingFeatureFlags,
       [LAB_CODEX_SAVER_MODE_FLAG]: enabled
-    });
-  };
-  const onMobileRemoteAccessSettingsEnabledChange = (enabled: boolean) => {
-    void settingsService.changeFeatureFlags({
-      ...pendingFeatureFlags,
-      [MOBILE_REMOTE_ACCESS_SETTINGS_FLAG]: enabled
     });
   };
   const onReferenceProvenanceFilterEnabledChange = (enabled: boolean) => {
@@ -385,27 +376,6 @@ export function WorkspaceDeveloperSettingsSection() {
       <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
         <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
           <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
-            {t("workspace.settings.developer.mobileRemoteAccessSettingsLabel")}
-          </strong>
-          <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
-            {t(
-              "workspace.settings.developer.mobileRemoteAccessSettingsDescription"
-            )}
-          </p>
-        </div>
-        <Switch
-          aria-label={t(
-            "workspace.settings.developer.mobileRemoteAccessSettingsLabel"
-          )}
-          checked={mobileRemoteAccessSettingsEnabled}
-          disabled={featureFlagsUpdating}
-          onCheckedChange={onMobileRemoteAccessSettingsEnabledChange}
-        />
-      </div>
-
-      <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
-        <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
-          <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
             {t("workspace.settings.developer.referenceProvenanceFilterLabel")}
           </strong>
           <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
@@ -447,11 +417,13 @@ export function WorkspaceDeveloperSettingsSection() {
         onAppCatalogChannelChange={onAppCatalogChannelChange}
       />
 
-      <ReleaseChannelControl
-        changingUpdateChannel={changingUpdateChannel}
-        updateChannel={updateChannel}
-        onUpdateChannelChange={onUpdateChannelChange}
-      />
+      {appUpdateState.supportsReleaseChannels ? (
+        <ReleaseChannelControl
+          changingUpdateChannel={changingUpdateChannel}
+          updateChannel={updateChannel}
+          onUpdateChannelChange={onUpdateChannelChange}
+        />
+      ) : null}
 
       <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
         <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">

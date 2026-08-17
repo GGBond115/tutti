@@ -133,6 +133,23 @@ const RUNTIME_STORES = new WeakMap<
   AgentSideConversationRuntime,
   Map<string, EngineStateStore<AgentSideConversationSnapshot>>
 >();
+interface AgentSideCapabilitySnapshot {
+  supported: boolean;
+  settled: boolean;
+}
+
+const EMPTY_CAPABILITY_SNAPSHOT: AgentSideCapabilitySnapshot = {
+  supported: false,
+  settled: true
+};
+const EMPTY_CAPABILITY_STORE: EngineStateStore<AgentSideCapabilitySnapshot> = {
+  getSnapshot: () => EMPTY_CAPABILITY_SNAPSHOT,
+  subscribe: () => () => {}
+};
+const RUNTIME_CAPABILITY_STORES = new WeakMap<
+  AgentSideConversationRuntime,
+  Map<string, EngineStateStore<AgentSideCapabilitySnapshot>>
+>();
 
 function emptySnapshot(workspaceId: string): AgentSideConversationSnapshot {
   let snapshot = EMPTY_SNAPSHOTS.get(workspaceId);
@@ -183,5 +200,56 @@ export function useAgentSideConversationSnapshot(
   return useEngineSelector(
     sideConversationStore(runtime, normalizedWorkspaceId),
     (snapshot) => snapshot
+  );
+}
+
+function sideCapabilityStore(
+  runtime: AgentSideConversationRuntime | null,
+  input: AgentSideConversationOpenInput
+): EngineStateStore<AgentSideCapabilitySnapshot> {
+  if (!runtime || !input.sourceAgentSessionId) return EMPTY_CAPABILITY_STORE;
+  let stores = RUNTIME_CAPABILITY_STORES.get(runtime);
+  if (!stores) {
+    stores = new Map();
+    RUNTIME_CAPABILITY_STORES.set(runtime, stores);
+  }
+  const key = JSON.stringify(input);
+  const existing = stores.get(key);
+  if (existing) return existing;
+  let snapshot: AgentSideCapabilitySnapshot = {
+    supported: false,
+    settled: false
+  };
+  const listeners = new Set<() => void>();
+  const store: EngineStateStore<AgentSideCapabilitySnapshot> = {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }
+  };
+  stores.set(key, store);
+  void runtime
+    .resolveCapabilities(input)
+    .then((capabilities) => {
+      snapshot = {
+        supported: supportsAgentSideConversation(capabilities),
+        settled: true
+      };
+      listeners.forEach((listener) => listener());
+    })
+    .catch(() => {
+      snapshot = EMPTY_CAPABILITY_SNAPSHOT;
+      listeners.forEach((listener) => listener());
+    });
+  return store;
+}
+
+export function useAgentSideConversationSupport(
+  input: AgentSideConversationOpenInput
+): boolean {
+  const runtime = useOptionalAgentSideConversationRuntime();
+  return useEngineSelector(sideCapabilityStore(runtime, input), (snapshot) =>
+    snapshot.settled ? snapshot.supported : false
   );
 }

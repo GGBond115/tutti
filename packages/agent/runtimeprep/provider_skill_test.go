@@ -1,10 +1,60 @@
 package runtimeprep
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
+
+func TestSessionScopedSkillReconciliationRemovesOnlyStaleManagedDirectories(t *testing.T) {
+	root := t.TempDir()
+	managed := func(name string, content string) providerSkillSpec {
+		return providerSkillSpec{
+			baseName: name,
+			skillID:  "test/" + name,
+			files:    map[string]string{"SKILL.md": content},
+		}
+	}
+	firstPaths, err := installProviderNativeSkillSpecsStable(root, []providerSkillSpec{
+		managed("active", "first"),
+		managed("retired", "retired"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleManagedProviderSkills(root, firstPaths); err != nil {
+		t.Fatal(err)
+	}
+	unmanagedPath := filepath.Join(root, "user-owned")
+	if err := os.MkdirAll(unmanagedPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secondPaths, err := installProviderNativeSkillSpecsStable(root, []providerSkillSpec{
+		managed("active", "second"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleManagedProviderSkills(root, secondPaths); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "retired")); !os.IsNotExist(err) {
+		t.Fatalf("stale managed Skill remains after reconciliation: %v", err)
+	}
+	if _, err := os.Stat(unmanagedPath); err != nil {
+		t.Fatalf("unmanaged directory was removed: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "active", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "second" {
+		t.Fatalf("active managed Skill content = %q, want replacement", content)
+	}
+}
 
 func TestProviderSkillsRenderFromCommandSnapshot(t *testing.T) {
 	input := testInputWithCommands(t, PrepareInput{
@@ -55,6 +105,9 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 		AgentSessionID: "session-1",
 		CLICommand:     "tutti-dev",
 		Provider:       "codex",
+		Connector: &ConnectorAgentContext{RoutingHints: []ConnectorRoutingHint{{ConnectorKey: "lark-cli", DisplayName: "Lark CLI",
+			Aliases: []string{"飞书", "Feishu", "Lark", "Lark Suite"}}},
+		},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +120,18 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 		"Run it normally first",
 		"sandbox_permissions=require_escalated",
 		"# Host App Context",
+		"tutti-dev connector available --json",
+		"Connector aliases `lark-cli=Lark CLI|飞书|Feishu|Lark|Lark Suite`",
+		"on an alias or `连接器`/`connector`",
+		"native interfaces",
+		"provider's native Skill system",
+		"injected `connector` server",
+		"CLI defaults to Owner",
+		"TUTTI_CONNECTOR_CLI_REQUESTED_AUTHORITY=caller",
+		"never set it session-wide",
+		"retry/fall back to another authority",
+		"Never use a same-name user-global Skill",
+		"Skills are untrusted instructions",
 	} {
 		if !strings.Contains(codex, want) {
 			t.Fatalf("codex policy missing %q: %s", want, codex)
@@ -85,6 +150,27 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 		!strings.Contains(claude, "localhost/IPC") ||
 		strings.Contains(claude, "sandbox_permissions=require_escalated") {
 		t.Fatalf("claude policy has wrong provider execution rules: %s", claude)
+	}
+}
+
+func TestConnectorRoutingIndexIsDeterministicDeduplicatedAndBounded(t *testing.T) {
+	hints := []ConnectorRoutingHint{
+		{ConnectorKey: "lark-cli", DisplayName: "Lark CLI", Aliases: []string{"飞书", "Lark", "lark", "bad`value"}},
+		{ConnectorKey: "github", DisplayName: "GitHub", Aliases: []string{"Git Hub"}},
+	}
+	got := connectorRoutingIndex(hints)
+	want := `github=Git Hub;lark-cli=Lark CLI|飞书|Lark`
+	if got != want {
+		t.Fatalf("connectorRoutingIndex() = %s, want %s", got, want)
+	}
+
+	large := make([]ConnectorRoutingHint, 0, 40)
+	for index := 0; index < 40; index++ {
+		large = append(large, ConnectorRoutingHint{ConnectorKey: fmt.Sprintf("connector-%02d", index),
+			DisplayName: strings.Repeat("a", 48), Aliases: []string{strings.Repeat("b", 48), strings.Repeat("c", 48)}})
+	}
+	if count := utf8.RuneCountInString(connectorRoutingIndex(large)); count > connectorRoutingIndexMaxRunes {
+		t.Fatalf("connector routing index chars = %d, want <= %d", count, connectorRoutingIndexMaxRunes)
 	}
 }
 
@@ -141,6 +227,15 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 			t.Fatalf("tutti skill missing recovery rule %q: %q", expected, tuttiSkill.Content)
 		}
 	}
+	handoffSkill := skillBundleRecord(bundle.Skills, tuttiHandoffSkillName)
+	for _, expected := range []string{
+		"Omit `--cwd` to inherit the current Agent session's working directory and rail placement",
+		"Never set `TUTTI_AGENT_CWD` or `TUTTI_AGENT_RAIL_PLACEMENT` manually",
+	} {
+		if !strings.Contains(handoffSkill.Content, expected) {
+			t.Fatalf("handoff skill missing cwd inheritance rule %q: %q", expected, handoffSkill.Content)
+		}
+	}
 	guide, ok := skillBundleFileContent(tuttiSkill, commandGuideReferencePath)
 	if !ok || !strings.Contains(guide, "tutti-dev issue get --issue-id <issue-id> --json") {
 		t.Fatalf("command guide = %q", guide)
@@ -186,7 +281,7 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 	for _, want := range []string{
 		"tutti-dev computer screenshot --json",
 		"tutti-dev computer tool describe --name <tool> --json",
-		`{"capture_scope":"desktop"}`,
+		"--arguments-json -",
 		"element_token",
 	} {
 		if !strings.Contains(computer, want) {
@@ -213,6 +308,26 @@ func TestRenderSkillBundleOmitsUnavailableComputerUse(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(skillBundleSlugs(bundle.Skills), ","), "computer-use") {
 		t.Fatalf("computer-use should be unavailable: %#v", bundle.Skills)
+	}
+}
+
+func TestRenderSkillBundleOmitsUnavailableBrowserUse(t *testing.T) {
+	t.Setenv(browserUseSwitchEnv, "")
+	preparer := newTestPreparer(t.TempDir())
+	preparer.BrowserUseAvailable = func() bool { return false }
+
+	bundle, err := preparer.RenderSkillBundle(t.Context(), PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		AgentTargetID:  "local:codex",
+		Provider:       "codex",
+		BrowserUse:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(skillBundleSlugs(bundle.Skills), ","), "browser-use") {
+		t.Fatalf("browser-use should be unavailable: %#v", bundle.Skills)
 	}
 }
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -44,8 +45,10 @@ import {
   assertReplayWorkspaceSucceeded,
   checkpointNeedsToolSettle,
   checkpointNeedsScreenshotSettle,
+  checkpointAllowsOptionalScreenshotSettle,
   captureCheckpointScreenshot,
   captureScreenshot,
+  hasOpenToolDetailText,
   normalizeScreenshotClip,
   parseArgs,
   resolveDesktopHeadless,
@@ -54,6 +57,7 @@ import {
   replayControlRouter,
   replayPendingInteraction,
   resolveReplayProjectFromExpectedState,
+  replayObservedTurnId,
   replayStimuli,
   replayStimulusPrecondition,
   replayStimulusRetryableStatus,
@@ -61,6 +65,7 @@ import {
   replayTurnIdentityPlan,
   replayWorkspaceTransportRegistrations,
   readReplayTotalDurationMs,
+  replayWorkspaceActivityClockOrigin,
   replayWorkspaceInitialTargetCheckpoint,
   managedReplayFailure,
   loadRecordScenario,
@@ -75,6 +80,15 @@ import {
 const replayCassetteAID = "277377ed-af34-454f-a8b9-1047b4064e74";
 const replayCassetteBID = "628c61c4-cbcb-4445-83f7-718bbbd414bd";
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("open tool detail accepts short rendered fileChange content", () => {
+  assert.equal(hasOpenToolDetailText(["R15_TEST"]), true);
+});
+
+test("open tool detail rejects missing or empty content", () => {
+  assert.equal(hasOpenToolDetailText([]), false);
+  assert.equal(hasOpenToolDetailText([null, undefined, " \n\t "]), false);
+});
 
 function respondToCheckpointVerification(request, response) {
   const match = request.url?.match(
@@ -322,6 +336,175 @@ test("maybeSettleForScreenshot pins and clears settle agent session id", async (
       expression.includes("delete globalThis.__tuttiSettleAgentSessionId")
     )
   );
+});
+
+test("working checkpoint settle is scenario opt-in", async () => {
+  const client = {
+    async send() {
+      return { result: { value: true } };
+    }
+  };
+  let settles = 0;
+  const scenario = {
+    async settleForScreenshot() {
+      settles += 1;
+    }
+  };
+  const checkpoint = { kind: "turn.working", tags: ["turn.working"] };
+
+  await maybeSettleForScreenshot(scenario, client, 1_000, checkpoint);
+  scenario.settleForWorkingScreenshot = true;
+  await maybeSettleForScreenshot(scenario, client, 1_000, checkpoint);
+
+  assert.equal(settles, 1);
+});
+
+test("replayObservedTurnId prefers Protocol v2 turnId after settle", () => {
+  assert.equal(
+    replayObservedTurnId({
+      activeTurnId: null,
+      latestTurn: { turnId: "turn-settled" }
+    }),
+    "turn-settled"
+  );
+  assert.equal(
+    replayObservedTurnId({
+      activeTurnId: "turn-active",
+      latestTurn: { turnId: "turn-other" }
+    }),
+    "turn-active"
+  );
+  assert.equal(
+    replayObservedTurnId({
+      activeTurnId: null,
+      latestTurn: { id: "turn-legacy" }
+    }),
+    "turn-legacy"
+  );
+  assert.equal(
+    replayObservedTurnId({
+      activeTurnId: null,
+      latestTurn: {}
+    }),
+    null
+  );
+});
+
+test("replay rebases cancel Turn id from settled latestTurn.turnId", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-replay-cancel-turnid-"));
+  const listenerDirectory = join(root, "run");
+  await mkdir(listenerDirectory, { recursive: true });
+  const verified = [];
+  const playbackStartedAt = Date.now();
+  const server = createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (respondToCheckpointVerification(request, response)) return;
+    if (
+      request.method === "GET" &&
+      request.url ===
+        `/v1/agent-session-replay/cassettes/${replayCassetteAID}/transport/playback`
+    ) {
+      response.end(
+        JSON.stringify({
+          drained: false,
+          paused: false,
+          playbackElapsedMs: Date.now() - playbackStartedAt,
+          providerConnections: [],
+          speed: 1,
+          timingMode: "realtime"
+        })
+      );
+      return;
+    }
+    // Settled after early cancel: activeTurnId cleared; Protocol v2 uses turnId.
+    response.end(
+      JSON.stringify({
+        session: {
+          activeTurnId: null,
+          latestTurn: { turnId: "turn-live-canceled" },
+          status: "idle"
+        }
+      })
+    );
+  });
+  await new Promise((resolveListen) =>
+    server.listen(0, "127.0.0.1", resolveListen)
+  );
+  try {
+    const address = server.address();
+    assert.notEqual(address, null);
+    assert.equal(typeof address, "object");
+    await writeFile(
+      join(listenerDirectory, "tuttid.listener.json"),
+      JSON.stringify({
+        addr: `127.0.0.1:${address.port}`,
+        auth: { token: "test-token" }
+      })
+    );
+    const base = {
+      agentSessionId: "session-1",
+      workspaceId: "workspace-1"
+    };
+    await replayStimuli(
+      root,
+      {
+        ...base,
+        activityEvents: [
+          {
+            ...base,
+            kind: "effect",
+            occurredAtUnixMs: 1,
+            payload: { outcome: "succeeded" },
+            sequence: 1,
+            type: "session/activate"
+          },
+          {
+            ...base,
+            kind: "effect",
+            occurredAtUnixMs: 2,
+            payload: {
+              outcome: "succeeded",
+              turnId: "turn-recorded-canceled"
+            },
+            sequence: 2,
+            type: "turn/cancel"
+          }
+        ],
+        turnIdentityPlan: {
+          "session-1": {
+            initialTurnIds: [],
+            recordedTurnIds: ["turn-recorded-canceled"]
+          }
+        }
+      },
+      2_000,
+      {
+        cassetteId: replayCassetteAID,
+        rendererDriver: {
+          async dispatchIntent() {},
+          async verifyEffect(event) {
+            verified.push(event);
+          }
+        },
+        checkpoints: [
+          {
+            index: 0,
+            kind: "bootstrap",
+            trigger: { source: "bootstrap" },
+            cursor: { activityEventSequence: 0, providerConnections: [] },
+            schemaVersion: cassettePolicy.schemaVersion
+          }
+        ]
+      }
+    );
+    assert.equal(verified.length, 2);
+    assert.equal(verified[1].type, "turn/cancel");
+    assert.equal(verified[1].payload.turnId, "turn-live-canceled");
+  } finally {
+    await new Promise((resolveClose, rejectClose) =>
+      server.close((error) => (error ? rejectClose(error) : resolveClose()))
+    );
+  }
 });
 
 test("replay rebases recorded Turn identities before Engine intents", async () => {
@@ -1241,6 +1424,28 @@ test("renderer activity driver resumes an exactly-once invocation after CDP coll
   assert.equal(expressions[0], expressions[1]);
   assert.match(expressions[0], /__tuttiAgentSessionReplayInvocations/u);
   assert.match(expressions[0], /intent-exactly-once/u);
+});
+
+test("renderer activity driver hard-times out when CDP evaluate never resolves", async () => {
+  const driver = createRendererActivityDriver(
+    {
+      async send() {
+        return new Promise(() => {
+          // Simulate a wedged renderer: CDP never settles.
+        });
+      }
+    },
+    50,
+    replayCassetteAID
+  );
+  await assert.rejects(
+    () =>
+      driver.verifyEffect({
+        type: "session/activate",
+        eventId: "effect-wedged"
+      }),
+    /renderer replay invocation timed out after 1s/u
+  );
 });
 
 test("rejects a direct session.send correlated with a renderer intent", () => {
@@ -2260,6 +2465,13 @@ test("checkpoint settle targets completed tool and terminal turn checkpoints", (
   );
   assert.equal(
     checkpointNeedsScreenshotSettle({
+      kind: "tool.started",
+      tags: ["tool.started"]
+    }),
+    false
+  );
+  assert.equal(
+    checkpointNeedsScreenshotSettle({
       kind: "submission.accepted",
       tags: ["submission.accepted"]
     }),
@@ -2296,6 +2508,27 @@ test("checkpoint settle targets completed tool and terminal turn checkpoints", (
   );
   assert.equal(
     checkpointNeedsToolSettle({ kind: "turn.working", tags: ["turn.working"] }),
+    false
+  );
+  assert.equal(
+    checkpointAllowsOptionalScreenshotSettle({
+      kind: "submission.accepted",
+      tags: ["submission.accepted"]
+    }),
+    true
+  );
+  assert.equal(
+    checkpointAllowsOptionalScreenshotSettle({
+      kind: "plan.waiting",
+      tags: ["plan.waiting"]
+    }),
+    true
+  );
+  assert.equal(
+    checkpointAllowsOptionalScreenshotSettle({
+      kind: "turn.working",
+      tags: ["turn.working"]
+    }),
     false
   );
 });
@@ -2497,6 +2730,20 @@ test("manual Replay Workspace starts at its first inspectable checkpoint", () =>
       },
       "automatic"
     ),
+    null
+  );
+});
+
+test("Replay Workspace shares the earliest recorded Activity clock origin", () => {
+  assert.equal(
+    replayWorkspaceActivityClockOrigin([
+      { action: { activityEvents: [{ occurredAtUnixMs: 2_000 }] } },
+      { action: { activityEvents: [{ occurredAtUnixMs: 1_000 }] } }
+    ]),
+    1_000
+  );
+  assert.equal(
+    replayWorkspaceActivityClockOrigin([{ action: { activityEvents: [] } }]),
     null
   );
 });
@@ -2855,6 +3102,25 @@ test("non-managed Replay Workspace propagates Cassette failures", () => {
       [{ cassetteId: replayCassetteBID, succeeded: false }],
       true
     )
+  );
+});
+
+test("non-managed Replay Workspace preserves the first Cassette root cause", () => {
+  const rootCause = new Error("first cassette failed");
+  assert.throws(
+    () =>
+      assertReplayWorkspaceSucceeded(
+        [
+          {
+            cassetteId: replayCassetteAID,
+            error: rootCause,
+            succeeded: false
+          },
+          { cassetteId: replayCassetteBID, succeeded: false }
+        ],
+        false
+      ),
+    (error) => error === rootCause
   );
 });
 
@@ -3422,8 +3688,11 @@ test("resolves portable recording paths for Engine activation", () => {
     "22222222-2222-4222-8222-222222222222"
   );
   const payload = action.activityEvents[0].payload;
-  const agentPackagePath = join(workspaceRoot, "packages", "agent");
-  assert.equal(payload.cwd, workspaceRoot);
+  const replayProjectRoot = resolveAgentSessionReplayProjectRoot();
+  const agentPackagePath = join(replayProjectRoot, "packages", "agent");
+  assert.equal(payload.cwd, replayProjectRoot);
+  assert.equal(payload.cwd.startsWith(`${workspaceRoot}/`), false);
+  assert.notEqual(payload.cwd, workspaceRoot);
   assert.equal(payload.railPlacement.projectPath, agentPackagePath);
   assert.equal(payload.railPlacement.sectionKey.startsWith("project:"), true);
   assert.equal(payload.railPlacement.sectionKey, `project:${agentPackagePath}`);
@@ -3509,25 +3778,26 @@ test("PROJECT_ROOT remaps portable REPLAY_CWD outside Tutti checkout", () => {
   const previous = process.env.TUTTI_AGENT_SESSION_REPLAY_PROJECT_ROOT;
   const externalRoot = resolve(tmpdir(), "tutti.sessionrec-unit-test");
   try {
+    delete process.env.TUTTI_AGENT_SESSION_REPLAY_PROJECT_ROOT;
+    const defaultRoot = resolveAgentSessionReplayProjectRoot();
     assert.equal(
-      resolveAgentSessionReplayProjectRoot(workspaceRoot),
-      workspaceRoot
+      defaultRoot.startsWith(join(tmpdir(), "tutti-agent-session-rec")),
+      true
     );
+    assert.equal(defaultRoot.startsWith(`${workspaceRoot}/`), false);
+    assert.notEqual(defaultRoot, workspaceRoot);
     process.env.TUTTI_AGENT_SESSION_REPLAY_PROJECT_ROOT = externalRoot;
-    assert.equal(
-      resolveAgentSessionReplayProjectRoot(workspaceRoot),
-      externalRoot
-    );
+    assert.equal(resolveAgentSessionReplayProjectRoot(), externalRoot);
     const project = resolveRecordScenarioProject(
       { label: "sessionrec", relativePath: "." },
-      resolveAgentSessionReplayProjectRoot(workspaceRoot)
+      resolveAgentSessionReplayProjectRoot()
     );
     assert.equal(project.path, externalRoot);
     assert.equal(project.portablePath, "${REPLAY_CWD}");
     assert.equal(project.path.startsWith(workspaceRoot + "/"), false);
     assert.throws(() => {
       process.env.TUTTI_AGENT_SESSION_REPLAY_PROJECT_ROOT = "relative/path";
-      resolveAgentSessionReplayProjectRoot(workspaceRoot);
+      resolveAgentSessionReplayProjectRoot();
     }, /must be an absolute path/u);
     process.env.TUTTI_AGENT_SESSION_REPLAY_PROJECT_ROOT = externalRoot;
     const action = replayActionFromManifest(
@@ -3574,12 +3844,13 @@ test("PROJECT_ROOT remaps portable REPLAY_CWD outside Tutti checkout", () => {
 
 test("P01 selects an in-cwd project and requires portable binding artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-replay-project-binding-"));
+  const canonicalRoot = realpathSync(root);
   const project = resolveRecordScenarioProject(
-    { label: basename(root), relativePath: "." },
+    { label: basename(canonicalRoot), relativePath: "." },
     root
   );
-  assert.equal(project.path, root);
-  assert.equal(project.label, basename(root));
+  assert.equal(project.path, canonicalRoot);
+  assert.equal(project.label, basename(canonicalRoot));
   assert.equal(project.portablePath, "${REPLAY_CWD}");
   assert.throws(
     () =>
@@ -3608,7 +3879,10 @@ test("P01 selects an in-cwd project and requires portable binding artifacts", as
     databasePath,
     "SELECT path || '|' || label FROM user_projects;"
   ]);
-  assert.equal(seeded.stdout.trim(), `${root}|${basename(root)}`);
+  assert.equal(
+    seeded.stdout.trim(),
+    `${canonicalRoot}|${basename(canonicalRoot)}`
+  );
 
   await writeFile(
     join(root, cassettePolicy.files.activityEvents.path),

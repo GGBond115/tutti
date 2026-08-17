@@ -48,6 +48,7 @@ func IsUserCancelled(err error) bool {
 
 type Config struct {
 	AccountBaseURL   string
+	AccountHeaders   http.Header
 	AppCallbackURL   string
 	AppID            string
 	AuthJSONPath     string
@@ -162,7 +163,7 @@ func NewClient(config Config) (*Client, error) {
 	if httpClient == nil {
 		// This package is a standalone module and intentionally preserves the
 		// caller's process-wide default client customizations.
-		httpClient = http.DefaultClient //nolint:forbidigo
+		httpClient = http.DefaultClient //nolint:forbidigo // standalone module preserves caller's process-wide client
 	}
 	return &Client{config: normalized, http: httpClient}, nil
 }
@@ -648,7 +649,6 @@ func (c *Client) fetchUserInfo(ctx context.Context, cookie string) (*UserInfo, e
 	}
 	return &user, nil
 }
-
 func (c *Client) logoutSession(ctx context.Context, cookie string) error {
 	return c.postAccount(ctx, "/auth/v1/logout-web-session", cookie, map[string]string{"app_id": c.config.AppID}, nil)
 }
@@ -661,6 +661,9 @@ func (c *Client) postAccount(ctx context.Context, path string, cookie string, bo
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, buildAccountURL(c.config.AccountBaseURL, path), bytes.NewReader(raw))
 	if err != nil {
 		return err
+	}
+	if len(c.config.AccountHeaders) != 0 {
+		req.Header = c.config.AccountHeaders.Clone()
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
@@ -711,6 +714,7 @@ func (c *Client) writeAuthJSON(session Session) error {
 var errUnauthorized = errors.New("unauthorized")
 
 func normalizeConfig(config Config) Config {
+	config.AccountHeaders = config.AccountHeaders.Clone()
 	config.AppID = firstNonEmpty(config.AppID, DefaultAppID)
 	config.AccountBaseURL = firstNonEmpty(config.AccountBaseURL, DefaultAccountBaseURL)
 	config.AuthLoginURL = firstNonEmpty(config.AuthLoginURL, DefaultAuthLoginURL)

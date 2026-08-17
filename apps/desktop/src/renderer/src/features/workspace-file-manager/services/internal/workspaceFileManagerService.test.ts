@@ -7,6 +7,7 @@ import {
 } from "@tutti-os/client-tuttid-ts";
 import {
   createWorkspaceFileManagerI18nRuntime,
+  resolveWorkspaceFileLocationDefaultId,
   type WorkspaceFileManagerPersistedState,
   workspaceFileManagerI18nResources
 } from "@tutti-os/workspace-file-manager/services";
@@ -217,6 +218,44 @@ test("workspace file manager service treats missing or unreadable entries as abs
     }),
     false
   );
+});
+
+test("workspace file manager service compares native Windows paths with daemon logical paths", async () => {
+  const dependencies = createDependenciesStub();
+  let requestedPath: string | undefined;
+  dependencies.tuttidClient.listWorkspaceFileDirectory = async (
+    workspaceId,
+    input
+  ) => {
+    requestedPath = input?.path;
+    return {
+      directoryPath: "/C:/",
+      entries: [
+        {
+          createdTimeMs: null,
+          hasChildren: false,
+          kind: "file",
+          lastOpenedMs: null,
+          mtimeMs: null,
+          name: "README.md",
+          path: "/C:/README.md",
+          sizeBytes: 12
+        }
+      ],
+      root: "/C:/",
+      workspaceId
+    };
+  };
+  const service = new WorkspaceFileManagerService(dependencies);
+
+  assert.equal(
+    await service.entryExists({
+      path: "C:\\README.md",
+      workspaceID: "workspace-1"
+    }),
+    true
+  );
+  assert.equal(requestedPath, "/C:/");
 });
 
 test("workspace file manager service restores snapshot state without localStorage", () => {
@@ -606,6 +645,7 @@ test("workspace file manager service includes hidden entries for direct reveal i
 test("desktop workspace file locations include projects and local entries", () => {
   const sections = buildDesktopWorkspaceFileLocationSections({
     homeDirectory: "/Users/local",
+    os: "darwin",
     projects: [
       {
         id: "project-1",
@@ -632,6 +672,40 @@ test("desktop workspace file locations include projects and local entries", () =
       "local:desktop",
       DESKTOP_WORKSPACE_FILE_HOME_LOCATION_ID
     ]
+  );
+  assert.equal(
+    resolveWorkspaceFileLocationDefaultId({
+      defaultLocationId: DESKTOP_WORKSPACE_FILE_HOME_LOCATION_ID,
+      persistedLocationId: DESKTOP_WORKSPACE_FILE_RECENT_LOCATION_ID,
+      sections
+    }),
+    DESKTOP_WORKSPACE_FILE_RECENT_LOCATION_ID
+  );
+});
+
+test("Windows desktop locations hide recent and persisted recent falls back to home", () => {
+  const sections = buildDesktopWorkspaceFileLocationSections({
+    homeDirectory: "C:\\Users\\demo",
+    os: "win32",
+    projects: []
+  });
+
+  assert.deepEqual(
+    sections[1]?.locations.map((location) => location.id),
+    [
+      "local:downloads",
+      "local:documents",
+      "local:desktop",
+      DESKTOP_WORKSPACE_FILE_HOME_LOCATION_ID
+    ]
+  );
+  assert.equal(
+    resolveWorkspaceFileLocationDefaultId({
+      defaultLocationId: DESKTOP_WORKSPACE_FILE_HOME_LOCATION_ID,
+      persistedLocationId: DESKTOP_WORKSPACE_FILE_RECENT_LOCATION_ID,
+      sections
+    }),
+    DESKTOP_WORKSPACE_FILE_HOME_LOCATION_ID
   );
 });
 
@@ -880,6 +954,8 @@ function createDependenciesStub(): {
       setAgentSessionAutomationRuleOverride: fail,
       listModelPlans: fail,
       listWorkspaceAgents: fail,
+      listWorkspaceManagedWorktrees: fail,
+      deleteWorkspaceManagedWorktree: fail,
       createWorkspaceAgent: fail,
       updateWorkspaceAgent: fail,
       deleteWorkspaceAgent: fail,
@@ -914,6 +990,7 @@ function createDependenciesStub(): {
       createWorkspaceIssueTasks: fail,
       createWorkspaceIssueTaskRun: fail,
       createWorkspaceIssueRun: fail,
+      startWorkspaceIssueRun: fail,
       createWorkspace: fail,
       createWorkspaceAgentSession: fail,
       forkWorkspaceAgentSession: fail,
@@ -931,6 +1008,10 @@ function createDependenciesStub(): {
       deleteWorkspaceAgentSessionsBatch: fail,
       updateWorkspaceAgentSessionTitle: fail,
       clearWorkspaceAgentSessions: fail,
+      listWorkspaceDeletedAgentSessions: fail,
+      restoreWorkspaceDeletedAgentSession: fail,
+      purgeWorkspaceDeletedAgentSession: fail,
+      purgeWorkspaceDeletedAgentSessions: fail,
       deleteWorkspaceApp: fail,
       deleteWorkspaceAppFactoryJob: fail,
       deleteWorkspaceIssue: fail,
@@ -1021,6 +1102,7 @@ function createDependenciesStub(): {
       listWorkspaceAgentSessionGitBranches: fail,
       listWorkspaceGitBranches: fail,
       resolveWorkspaceGitPatchSupport: fail,
+      resolveWorkspaceAgentSessionWorktreeSupport: fail,
       updateWorkspaceAgentSessionSettings: fail,
       getWorkspaceAgentSessionTuttiModeActivation: fail,
       updateWorkspaceAgentSessionTuttiModeActivation: fail,
@@ -1044,7 +1126,8 @@ function createDependenciesStub(): {
       decideWorkspaceWorkflowCheckpoint: fail,
       cancelWorkspaceIssueExecution: fail,
       setCollaborationRunAdoption: fail,
-      cancelTuttiModeExecution: fail
+      cancelTuttiModeExecution: fail,
+      readWorkspaceIssueAttachment: fail
     },
     platformApi: {
       homeDirectory: "/Users/local",

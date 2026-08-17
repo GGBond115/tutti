@@ -181,6 +181,14 @@ contract supplies an empty MCP array and does not manage an agent's private MCP
 configuration; adding a non-empty product-level MCP input is a separate Host
 contract change.
 
+Standard ACP process recycling is capability-driven rather than extension-name
+driven. When the live `initialize` response advertises `session/load` or
+`session/resume`, the shared 30-minute idle reaper may close only that ACP
+transport and CLI process while retaining the Tutti session and provider
+session id. The next execution launches a new process and restores the provider
+session. The reaper does not send `session/close`, skips providers without a
+proven restore method, and treats pending interactive requests as busy.
+
 Extension composer controls stay runtime-owned after the model list is
 discovered. `tuttid` selects the newest context only within the exact workspace,
 normalized project, Agent Target, fixed installation, and request-settings
@@ -388,22 +396,38 @@ replacement rename converges on the verified old or verified new runtime
 without silently discarding the active runtime.
 
 By default, successful activation also publishes the manifest launch
-executable's basename at `~/.local/bin/<agent-command>`. The user entry is a
-Tutti-owned symlink to
-`~/.local/share/tutti/agent-runtimes/<agentKey>/bin/<agent-command>`; that
-stable per-Agent link points to the executable in the fixed runtime root and is
-atomically repointed on upgrade. A pre-existing regular file or foreign symlink
-at either entry is never overwritten. Feature disablement and daemon shutdown
-do not remove a published command, so it remains usable outside Tutti while the
-managed runtime files remain installed.
+executable's basename at `~/.local/bin/<agent-command>`. The user entry points
+to `~/.local/share/tutti/agent-runtimes/<agentKey>/bin/<agent-command>`; that
+stable per-Agent entry points to the executable in the fixed runtime root and
+is atomically repointed on upgrade. Unix uses Tutti-owned symlinks for both
+hops. Windows uses Tutti-owned `.cmd` launchers because ordinary desktop users
+do not have file-symlink privilege; the launcher preserves arguments and the
+child exit code. A pre-existing regular file, foreign symlink, or foreign
+Windows launcher at either entry is never overwritten. Feature disablement and
+daemon shutdown do not remove a published command, so it remains usable outside
+Tutti while the managed runtime files remain installed.
 
 The optional v2 `runtime.launch.publishUserCommand` field may be `false` for a
 runtime that should be private to AgentGUI. Absence preserves publication for
 every existing manifest. An opted-out runtime launches the verified fixed
 executable inside `installRoot` and neither creates nor verifies the two
-publication links. A pre-existing regular file or foreign symlink at the user
-command path is therefore ignored and cannot prevent managed activation; Tutti
-still never overwrites, removes, or repoints that entry.
+publication entries. A pre-existing regular file, foreign symlink, or foreign
+Windows launcher at the user command path is therefore ignored and cannot
+prevent managed activation; Tutti still never overwrites, removes, or repoints
+that entry.
+
+### Declarative Launch Environment
+
+The optional v2 `runtime.launch.env` field is a bounded map from the target
+process environment key to a host-owned reference. Values must use the exact
+form `${env:TUTTI_*}`; Tutti resolves the referenced `TUTTI_*` variable at
+launch time and omits the entry when the host variable is unset. Manifests
+cannot read credentials or arbitrary environment variables, and they cannot
+embed literal paths or secrets in the package. Provider-specific mappings
+belong in the extension manifest, while the daemon only implements this
+generic, allowlisted resolution. For example, a Kimi extension can declare
+`KIMI_SHELL_PATH: "${env:TUTTI_MANAGED_POSIX_SHELL}"` without adding a Kimi
+branch to `tuttid`.
 
 Discovery skips this two-link managed entry when probing PATH, then resolves it
 through the managed activation record. It therefore remains `source=managed`
@@ -458,15 +482,24 @@ being advertised is never itself an auth verdict. Authentication actions are
 durable and never persist credentials.
 
 A signed `authentication` profile may bind one runtime-advertised method ID to
-a closed terminal command declaration. Authentication profile v1 currently
-supports only `type: "terminal"` with
-`command.strategy: "runtime-subcommand"` and a bounded argv array. Tutti
-combines that declaration with the verified runtime executable only when its
-type matches the fresh ACP method type, so
-provider-specific subcommands such as a local CLI login remain in the extension
-package instead of daemon code. Profile declarations are argv data, never shell
-source, and the daemon quotes every projected argument before exposing the
-ready-to-run command.
+a closed terminal command declaration. Authentication profile v1 supports
+`type: "terminal"` with either `command.strategy: "runtime-subcommand"` and a
+bounded, non-empty argv array, or `command.strategy: "runtime-slash-command"`
+with exactly one safe slash-command name and a bounded literal `readyText`
+marker. For a slash command, the daemon exposes the quoted runtime launch plus
+one atomic typed startup action; it never exposes raw terminal input. The
+Desktop terminal adapter validates the action, generates the leading `/`, and
+submits it only after the matching terminal session emits the declared marker.
+Startup failure terminates setup readiness monitoring instead of leaving a
+background poll running. The extension cannot declare raw terminal input,
+control characters, or shell source.
+
+A declaration may also replace the advertised method's display name and
+description with bounded presentation strings. Tutti applies those fields only
+when the declaration ID and type match the fresh ACP method, so
+provider-specific setup wording and commands remain in the extension package
+instead of daemon code. For runtime subcommands, the daemon quotes every
+projected argument before exposing the ready-to-run launch command.
 
 Without a signed declaration, Tutti retains compatibility with provider
 metadata: it reads top-level ACP `type`/`args` fields first and falls back to

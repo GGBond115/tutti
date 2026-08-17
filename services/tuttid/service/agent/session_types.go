@@ -11,6 +11,7 @@ import (
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
+	market "github.com/tutti-os/tutti/packages/connector/host"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	automationrulebiz "github.com/tutti-os/tutti/services/tuttid/biz/automationrule"
 	modelplanbiz "github.com/tutti-os/tutti/services/tuttid/biz/modelplan"
@@ -66,19 +67,27 @@ type Service struct {
 	WorkspaceIDs                   func(context.Context) ([]string, error)
 	PromptAttachmentStore          PromptAttachmentStore
 	RuntimePreparer                runtimeprep.Preparer
+	ConnectorRuntime               ConnectorRuntime
+	ConnectorCapabilities          ConnectorCapabilityResolver
 	ModelGateway                   ModelGatewayRegistry
+	BrowserUseAvailable            func() bool
 	ComputerUseAvailable           func() bool
 	CapabilityLister               ComposerCapabilityLister
+	ConnectorMarketSnapshots       market.SnapshotReader
+	ConnectorMarketCurrentScope    func() market.OperationScope
 	ExtensionComposerProfiles      ExtensionComposerProfileResolver
 	AgentComposerDefaultsReader    AgentComposerDefaultsReader
+	DesktopPreferencesReader       DesktopPreferencesReader
 	ProviderAvailabilityCacheTTL   time.Duration
 	CapabilityCatalogCacheTTL      time.Duration
 	LiveModelCacheTTL              time.Duration
+	liveModelDiscoveryWaitTimeout  time.Duration
 	GeneratedFilesClock            func() time.Time
 	LiveModelDiscoveryDeleteDelay  time.Duration
 	skillOptionsCache              *composerSkillOptionsCache
 	providerAvailabilityCache      *providerAvailabilityCache
 	capabilityCatalogCache         *composerCapabilityCatalogCache
+	capabilityCatalogGroup         singleflight.Group
 	liveModelCache                 *composerLiveModelCache
 	claudeStartupLock              *claudecodeservice.StartupGate
 	liveModelDiscoveryMu           sync.Mutex
@@ -104,6 +113,32 @@ type Service struct {
 	// modelPlanBinding wires the optional workspace model access plan
 	// integration; see ConfigureModelPlanBinding.
 	modelPlanBinding modelPlanBindingRuntime
+}
+
+// ConnectorRuntime is the tuttid-owned projection of the active Connector
+// runtime into Agent session preparation. Bindings isolate one local Agent
+// session; they do not express Connector-level permissions.
+type ConnectorRuntime interface {
+	RoutingHints() []runtimeprep.ConnectorRoutingHint
+	BindSession(string, string) (runtimeprep.ConnectorAgentContext, error)
+	RevokeSession(string, string)
+	RevokeAll()
+}
+
+type ConnectorCapabilityInput struct {
+	WorkspaceID       string
+	AgentSessionID    string
+	AgentTargetID     string
+	Provider          string
+	Cwd               string
+	Env               []string
+	ProviderTargetRef map[string]any
+	PermissionModeID  string
+	Settings          ComposerSettings
+}
+
+type ConnectorCapabilityResolver interface {
+	ConnectorHTTPMCPSupported(context.Context, ConnectorCapabilityInput) (bool, error)
 }
 
 type TuttiModeSourceActivity struct {
@@ -152,12 +187,13 @@ type RuntimeController interface {
 	// cannot make that guarantee, so the service treats guidance errors as
 	// delivery-unknown. Accepted=true is not a durable provenance receipt.
 	Exec(context.Context, RuntimeExecInput) (RuntimeExecResult, error)
+	PublishSessionInitialization(context.Context, RuntimeSessionInitializationPublishInput) (ProviderRuntimeSession, error)
 	Resume(context.Context, RuntimeResumeInput) (ProviderRuntimeSession, error)
 	Session(workspaceID string, agentSessionID string) (ProviderRuntimeSession, bool)
 	SetTitle(context.Context, RuntimeSetTitleInput) (ProviderRuntimeSession, error)
 	SetVisible(context.Context, RuntimeSetVisibleInput) (ProviderRuntimeSession, error)
 	Sessions(workspaceID string) []ProviderRuntimeSession
-	Start(context.Context, RuntimeStartInput) (ProviderRuntimeSession, error)
+	Start(context.Context, RuntimeStartInput) (RuntimeStartResult, error)
 	SubmitInteractive(context.Context, RuntimeSubmitInteractiveInput) (RuntimeSubmitInteractiveResult, error)
 	InteractiveDisposition(workspaceID string, rootAgentSessionID string, agentSessionID string, turnID string, requestID string) RuntimeInteractiveDisposition
 	Subscribe(workspaceID string, agentSessionID string) (<-chan RuntimeStreamEvent, func(), bool)
@@ -167,6 +203,7 @@ type RuntimeController interface {
 
 type SessionDirectoryAllocator interface {
 	CreateSessionDirectory(context.Context) (string, error)
+	ReleaseSessionDirectory(context.Context, string) error
 }
 
 type AgentTargetStore interface {
@@ -175,6 +212,10 @@ type AgentTargetStore interface {
 
 type AgentComposerDefaultsReader interface {
 	GetAgentComposerDefaultsForTarget(context.Context, string) (preferencesbiz.AgentComposerDefaults, error)
+}
+
+type DesktopPreferencesReader interface {
+	Get(context.Context) (preferencesbiz.DesktopPreferences, error)
 }
 
 type WorkspaceAgentResolver interface {
@@ -274,9 +315,19 @@ type Session struct {
 	LatestTurn             *agentactivitybiz.Turn
 	LatestTurnInteractions []agentactivitybiz.Interaction
 	PendingInteractions    []agentactivitybiz.Interaction
+	GoalSyncState          *SessionGoalSyncState
 	TuttiModeActivation    *tuttimodeactivationbiz.Activation
 	LifecycleCapabilities  SessionLifecycleCapabilities
 	ForkedFrom             *SessionForkLineage
+}
+
+// SessionGoalSyncState is the narrow durable Goal-operation evidence exposed
+// with a Session read. Goal lifecycle and recovery remain Host-owned.
+type SessionGoalSyncState struct {
+	Revision           int64
+	SyncStatus         string
+	PendingOperationID string
+	ExecutionPending   bool
 }
 
 // SessionForkLineage is the durable provenance of a user-initiated root
@@ -298,6 +349,7 @@ type SessionLifecycleCapabilities struct {
 }
 
 type SessionIsolation struct {
+	WorktreeID   string `json:"worktreeId,omitempty"`
 	Mode         string `json:"mode"`
 	WorktreePath string `json:"worktreePath"`
 	Branch       string `json:"branch"`
@@ -349,7 +401,9 @@ type SessionSectionDeletionCandidates struct {
 }
 
 type DeleteSessionsBatchInput struct {
-	SessionIDs []string
+	SessionIDs                 []string
+	RequiredRootRailSectionKey string
+	ExcludePinnedRoots         bool
 }
 
 type DeleteSessionResult struct {
@@ -450,6 +504,18 @@ type SessionReader interface {
 	SessionDeleted(ctx context.Context, workspaceID string, agentSessionID string) (bool, error)
 }
 
+type RecoverableDeletedSessionResourceReader interface {
+	ListRecoverableDeletedSessionResources(context.Context) ([]agentactivitybiz.DeletedSessionResource, error)
+}
+
+// GlobalAgentSessionIdentityReader checks the physical-resource identity,
+// which is currently agent-session scoped rather than Workspace scoped. It is
+// a tuttid product adapter contract and is intentionally not part of Host.
+type GlobalAgentSessionIdentityReader interface {
+	AgentSessionIDExists(context.Context, string) (bool, error)
+	OtherWorkspaceLiveAgentSessionIDExists(context.Context, string, string) (bool, error)
+}
+
 type PersistedSessionListPage struct {
 	Sessions   []PersistedSession
 	HasMore    bool
@@ -465,6 +531,15 @@ type SessionPageReader interface {
 // immutable railSectionKey before the response leaves the daemon.
 type SessionInitializer interface {
 	InitializeRuntimeSession(context.Context, ProviderRuntimeSession, *agenthost.RailPlacement) (PersistedSession, error)
+}
+
+// sessionInitializerWithRailAuthority is an optional adapter capability for
+// callers whose explicit rail placement comes from an external canonical
+// authority. The legacy initializer remains valid for ordinary service paths;
+// Host adapters must use this capability when they carry the authoritative
+// placement bit across the service boundary.
+type sessionInitializerWithRailAuthority interface {
+	InitializeRuntimeSessionWithRailAuthority(context.Context, ProviderRuntimeSession, *agenthost.RailPlacement, bool) (PersistedSession, error)
 }
 
 type ChildSessionReader interface {
@@ -541,6 +616,8 @@ type SessionTitleUpdater interface {
 // Interaction entities.
 type ProviderRuntimeSession = agenthost.ProviderRuntimeSession
 type RuntimeStartInput = agenthost.RuntimeStartInput
+type RuntimeStartResult = agenthost.RuntimeStartResult
+type RuntimeSessionInitializationPublishInput = agenthost.RuntimeSessionInitializationPublishInput
 type RuntimeResumeInput = agenthost.RuntimeResumeInput
 type RuntimeExecInput = agenthost.RuntimeExecInput
 type RuntimeExecResult = agenthost.RuntimeExecResult
@@ -649,8 +726,11 @@ type CreateSessionInput struct {
 	// StrictPermissionMode rejects an explicit unsupported permission mode
 	// instead of applying the provider default. It is used by unattended
 	// automation so a typo cannot silently broaden authority.
-	StrictPermissionMode  bool
-	Model                 *string
+	StrictPermissionMode bool
+	Model                *string
+	// ModelExplicit preserves caller intent across transport. Nil keeps legacy
+	// direct-Create behavior, where a supplied non-empty model is explicit.
+	ModelExplicit         *bool
 	ModelPlanID           *string
 	PlanMode              *bool
 	BrowserUse            *bool
@@ -659,6 +739,9 @@ type CreateSessionInput struct {
 	CodexSaverModeAllowed bool
 	ProviderTargetRef     map[string]any
 	ReasoningEffort       *string
+	// ReasoningEffortExplicit has the same compatibility semantics as
+	// ModelExplicit for the model-dependent reasoning setting.
+	ReasoningEffortExplicit *bool
 	// ReasoningIntensity is an Issue-owned 0-100 strength request. When an
 	// explicit ReasoningEffort is absent, Create compiles it against the
 	// selected model's ordered reasoning-effort catalog. It is daemon-only and
@@ -670,7 +753,10 @@ type CreateSessionInput struct {
 	ConversationDetailMode string
 	Visible                *bool
 	RailPlacement          *agenthost.RailPlacement
-	ExtraSkills            []SessionSkillBundle
+	// RailPlacementAuthoritative carries an externally canonical project
+	// placement through the legacy service adapter used by conformance tests.
+	RailPlacementAuthoritative bool
+	ExtraSkills                []SessionSkillBundle
 	// ExternalRolloutSourcePath is the absolute path to the original provider
 	// CLI rollout/transcript file this session was imported from, when known.
 	// Populated from the persisted session's RuntimeContext when resuming an
@@ -683,8 +769,10 @@ type CreateSessionInput struct {
 // for callers that need to correlate the initial submission. Create remains
 // the compatibility surface for consumers that only need the Session.
 type CreateSessionResult struct {
-	Session Session
-	TurnID  string
+	Session           Session
+	TurnID            string
+	SessionStatus     agenthost.CreateSessionStatus
+	InitialGoalStatus agenthost.CreateSessionInitialGoalStatus
 }
 
 type TuttiModeActivationIntent struct {

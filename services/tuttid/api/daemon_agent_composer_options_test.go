@@ -61,6 +61,12 @@ func TestDaemonAPIGeneratedRoutesGetAgentProviderComposerOptions(t *testing.T) {
 				if input.Settings.Model != "gpt-5" || input.Settings.ReasoningEffort != "high" {
 					t.Fatalf("settings = %#v", input.Settings)
 				}
+				if input.Section != agentservice.ComposerOptionsSectionCore {
+					t.Fatalf("section = %q, want core", input.Section)
+				}
+				if !input.WaitForFreshModelCatalog {
+					t.Fatal("waitForFreshModelCatalog = false, want true")
+				}
 				return agentservice.ComposerOptions{
 					Capabilities: []string{"imageInput", "planMode", "browserUse"},
 					Commands: []agentservice.ComposerCommandOption{{
@@ -145,8 +151,10 @@ func TestDaemonAPIGeneratedRoutesGetAgentProviderComposerOptions(t *testing.T) {
 	}))
 
 	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost, "/v1/agent-providers/codex/composer-options", map[string]any{
-		"cwd":    "/workspace/project",
-		"locale": "zh-CN",
+		"cwd":                      "/workspace/project",
+		"locale":                   "zh-CN",
+		"section":                  "core",
+		"waitForFreshModelCatalog": true,
 		"settings": map[string]any{
 			"model":            "gpt-5",
 			"permissionModeId": "auto",
@@ -301,5 +309,20 @@ func TestDaemonAPIGeneratedRoutesGetAgentProviderComposerOptionsLeavesTargetDefa
 	}
 	if response.PermissionConfig.DefaultValue != nil {
 		t.Fatalf("permissionConfig = %#v", response.PermissionConfig)
+	}
+}
+
+func TestGeneratedAgentProviderCapabilityOptionsProjectsIconURL(t *testing.T) {
+	options := generatedAgentProviderCapabilityOptions([]agentservice.ComposerCapabilityOption{{
+		ID:         "connector:github",
+		Kind:       "connector",
+		Name:       "github",
+		Label:      "GitHub",
+		IconURL:    "data:image/png;base64,Z2l0aHVi",
+		Status:     "available",
+		Invocation: "textTrigger",
+	}})
+	if len(options) != 1 || options[0].IconUrl == nil || *options[0].IconUrl != "data:image/png;base64,Z2l0aHVi" {
+		t.Fatalf("options = %#v, want connector icon URL", options)
 	}
 }

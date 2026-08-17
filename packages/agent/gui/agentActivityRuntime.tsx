@@ -119,7 +119,7 @@ export interface AgentActivityRuntimeSetSessionPinnedInput {
 }
 
 export interface AgentActivityRuntimeTrackSettingsProjectChangeInput {
-  action: "clear" | "create_new" | "select_existing";
+  action: "clear" | "create_new" | "import_directory" | "select_existing";
   agentSessionId: string | null;
   provider?: string | null;
   workspaceId: string;
@@ -129,7 +129,9 @@ export interface AgentActivityRuntimeGetComposerOptionsInput {
   agentTargetId: string;
   cwd?: string | null;
   force?: boolean;
+  waitForFreshModelCatalog?: boolean;
   provider?: string;
+  section?: "full" | "core" | "capabilities" | "connectors";
   settings?: AgentHostAgentSessionComposerSettings | null;
   workspaceId: string;
 }
@@ -157,13 +159,17 @@ export interface AgentActivityRuntimeDiagnosticInput {
 }
 
 interface AgentActivityRuntimeActivateSessionInputBase {
+  activationId: string;
   agentSessionId: string;
   capabilityRefs?: AgentActivityCreateSessionInput["capabilityRefs"];
   cwd?: string;
   initialContent?: AgentActivitySendInput["content"];
   /** 仅展示用首轮文本(bundle 折叠成一个 chip);initialContent 仍带展开后的文件。 */
   initialDisplayPrompt?: string | null;
+  isolation?: AgentActivityCreateSessionInput["isolation"];
+  modelExplicit?: boolean;
   railPlacement?: AgentActivityRailPlacement;
+  reasoningEffortExplicit?: boolean;
   submitDiagnostics?: AgentActivitySendInput["submitDiagnostics"];
   settings?: AgentActivitySessionSettings;
   title?: string;
@@ -314,6 +320,18 @@ export interface AgentGUIRuntime {
    * means the canonical local origin.
    */
   origin?: string;
+  /**
+   * Enables the Codex-aligned in-memory conversation Activity View. Missing or
+   * false fails closed so external hosts opt in explicitly.
+   */
+  conversationActivityViewEnabled?: boolean;
+  /**
+   * Host query limits for the Conversation Rail. Omit when the backend accepts
+   * AgentGUI's default limits.
+   */
+  conversationRailQueryLimits?: {
+    sectionRefreshLimitMax: number;
+  };
   /**
    * The session cwd is not resolvable on the local filesystem (e.g. a
    * shared/cloud sandbox not mounted locally), so AgentGUI must not run its

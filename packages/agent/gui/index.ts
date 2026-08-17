@@ -35,6 +35,7 @@ export type {
   AgentGUIReferenceProvenanceFilterCatalog
 } from "./AgentGUI";
 export type { AgentGUIAgentConfigMenuContext } from "./agent-gui/agentGuiNode/AgentGUINode.types";
+export type { AgentGUISessionLaunchMode } from "./agent-gui/agentGuiNode/model/agentSessionLaunchMode";
 export { AgentGUIConfigAccountFallbackSuppressed } from "./agent-gui/agentGuiNode/view/AgentGUIAccountConfig";
 export type {
   TuttiModePlanAssignmentAgentDetail,
@@ -102,7 +103,8 @@ export type {
   AgentGUIComposerFocusMethod,
   AgentGUIEngagementContext,
   AgentGUIEngagementEvent,
-  AgentGUIEngagementEventSink
+  AgentGUIEngagementEventSink,
+  AgentGUIQuickPromptType
 } from "./agent-gui/agentGuiNode/engagement/agentGUIEngagement.types";
 export {
   agentGUIAgentIsReady,
@@ -137,6 +139,10 @@ export type {
   AgentGUIProviderReadinessGate,
   AgentGUIProviderReadinessGateAction,
   AgentGUIProviderReadinessGateStatus,
+  AgentGUIInteractionReadiness,
+  AgentGUIInteractionReadinessIdentity,
+  AgentGUIInteractionReadinessReason,
+  AgentGUIInteractionReadinessSource,
   AgentGUIObservationGap,
   AgentGUIObservationGapSource,
   AgentGUITargetConnectionSource,
@@ -218,6 +224,22 @@ export type {
   AgentActivityRuntimeUpdateSessionSettingsInput,
   AgentActivityRuntimeUpdateSessionSettingsResult
 } from "./agentActivityRuntime";
+export {
+  agentGUIPerformanceDuration,
+  createAgentGUIPerformanceMonitor,
+  trackAgentGUIComposerOptionsLoad
+} from "./agentGUIPerformanceMonitor";
+export type {
+  AgentGUIComposerOptionsLoadInput,
+  AgentGUIComposerOptionsLoadSource,
+  AgentGUIComposerOptionsPerformanceEvent,
+  AgentGUIComposerOptionsPerformanceTrackerInput,
+  AgentGUIFirstTokenKind,
+  AgentGUIPerformanceDurationBucket,
+  AgentGUIPerformanceEvent,
+  AgentGUIPerformanceFailureStage,
+  AgentGUIPerformanceMonitor
+} from "./agentGUIPerformanceMonitor";
 export type {
   AgentHostApi,
   AgentHostAgentTargetAuthenticatedAccount,
@@ -225,11 +247,14 @@ export type {
   AgentHostAgentTargetSetupState,
   AgentHostAgentTargetSetupWatch,
   AgentHostApplyWorkspaceGitPatchInput,
+  AgentHostResolveSessionWorktreeSupportInput,
+  AgentHostResolveSessionWorktreeSupportResult,
   AgentHostInputApi,
   AgentHostQuickPrompt,
   AgentHostQuickPromptSnapshot,
   AgentHostQuickPromptsApi,
   AgentHostSelectFilesInput,
+  AgentHostTerminalStartupAction,
   AgentHostRuntimeApi,
   AgentHostUserProject,
   AgentProviderProbeListInput,

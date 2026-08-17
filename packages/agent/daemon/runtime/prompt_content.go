@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,10 +21,17 @@ import (
 var ErrPromptImageUnsupported = errors.New("agent prompt image input is unsupported")
 
 const clientSubmitUserMessageIDPrefix = "client-submit:user:"
+const turnUserMessageIDPrefix = "turn-user:"
 
 const maxProviderPromptImageBytes int64 = 20 << 20
 
+var runtimeConnectorKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,127}$`)
+
 type canonicalSubmitFactContextKey struct{}
+
+type promptActivityMessageIDContextKey struct{}
+
+type canonicalPromptContentContextKey struct{}
 
 type canonicalSubmitFact struct {
 	clientSubmitID   string
@@ -62,6 +70,37 @@ func canonicalSubmitFactFromContext(ctx context.Context) canonicalSubmitFact {
 	}
 	fact, _ := ctx.Value(canonicalSubmitFactContextKey{}).(canonicalSubmitFact)
 	return fact
+}
+
+func withPromptActivityMessageID(ctx context.Context, messageID string) context.Context {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, promptActivityMessageIDContextKey{}, messageID)
+}
+
+func promptActivityMessageIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	messageID, _ := ctx.Value(promptActivityMessageIDContextKey{}).(string)
+	return strings.TrimSpace(messageID)
+}
+
+func withCanonicalPromptContent(ctx context.Context, content []PromptContentBlock) context.Context {
+	if len(content) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, canonicalPromptContentContextKey{}, append([]PromptContentBlock(nil), content...))
+}
+
+func canonicalPromptContentFromContext(ctx context.Context) []PromptContentBlock {
+	if ctx == nil {
+		return nil
+	}
+	content, _ := ctx.Value(canonicalPromptContentContextKey{}).([]PromptContentBlock)
+	return append([]PromptContentBlock(nil), content...)
 }
 
 type providerPromptImageMaterializer func(context.Context, []PromptContentBlock) ([]PromptContentBlock, error)
@@ -106,6 +145,12 @@ func normalizeRuntimePromptContent(content []PromptContentBlock) []PromptContent
 				Name: name,
 				Path: path,
 			})
+		case "connector":
+			connectorKey := strings.TrimSpace(block.ConnectorKey)
+			if !runtimeConnectorKeyPattern.MatchString(connectorKey) {
+				continue
+			}
+			out = append(out, PromptContentBlock{Type: "connector", ConnectorKey: connectorKey})
 		}
 	}
 	return out
@@ -153,9 +198,41 @@ func normalizeRuntimePromptContentForValidation(content []PromptContentBlock) []
 				Name: name,
 				Path: path,
 			})
+		case "connector":
+			connectorKey := strings.TrimSpace(block.ConnectorKey)
+			if !runtimeConnectorKeyPattern.MatchString(connectorKey) {
+				continue
+			}
+			out = append(out, PromptContentBlock{Type: "connector", ConnectorKey: connectorKey})
 		}
 	}
 	return out
+}
+
+func projectRuntimeConnectorPromptContent(content []PromptContentBlock) []PromptContentBlock {
+	connectorKeys := make([]string, 0)
+	seen := make(map[string]struct{})
+	providerContent := make([]PromptContentBlock, 0, len(content)+1)
+	for _, block := range content {
+		if block.Type != "connector" {
+			providerContent = append(providerContent, block)
+			continue
+		}
+		connectorKey := strings.TrimSpace(block.ConnectorKey)
+		if _, ok := seen[connectorKey]; ok {
+			continue
+		}
+		seen[connectorKey] = struct{}{}
+		connectorKeys = append(connectorKeys, connectorKey)
+	}
+	if len(connectorKeys) == 0 {
+		return providerContent
+	}
+	instruction := fmt.Sprintf(
+		"Selected local connector(s): %s. For this request, use only these installed Tutti connectors for their corresponding external services. Query `%s connector available --json` for their native interfaces. Read connector-owned Skills through the provider's native Skill system. Call MCP tools from the injected `connector` MCP server, or execute the returned connector-specific CLI command through the normal shell. Never use a similarly named user-global Skill, custom MCP server, unrelated connector, or direct service CLI.",
+		strings.Join(connectorKeys, ", "), tuttiCLICommandName(),
+	)
+	return append([]PromptContentBlock{{Type: "text", Text: instruction}}, providerContent...)
 }
 
 func validatePromptContentImagesForPreflight(content []PromptContentBlock) error {
@@ -254,13 +331,24 @@ func newUserPromptActivityEvent(
 	extra map[string]any,
 ) activityshared.Event {
 	payloadExtra := userPromptActivityPayloadExtraFromExecMetadata(ctx, extra)
+	fact := canonicalSubmitFactFromContext(ctx)
+	activityContent := canonicalPromptContentFromContext(ctx)
+	if len(activityContent) > 0 {
+		content = activityContent
+		if strings.TrimSpace(explicitDisplayPrompt) == "" {
+			_, visibleText = explicitAndVisiblePromptText(content, "")
+		}
+	}
+	if fact.clientSubmitID == "" {
+		fact.messageID = promptActivityMessageIDFromContext(ctx)
+	}
 	return newUserPromptActivityEventWithFact(
 		session,
 		content,
 		explicitDisplayPrompt,
 		visibleText,
 		turnID,
-		canonicalSubmitFactFromContext(ctx),
+		fact,
 		payloadExtra,
 	)
 }
@@ -284,6 +372,13 @@ func newUserPromptActivityEventWithFact(
 			extra = map[string]any{}
 		}
 		extra["clientSubmitId"] = fact.clientSubmitID
+		extra["messageId"] = fact.messageID
+	} else if fact.messageID != "" {
+		eventID = fact.messageID
+		extra = clonePayload(extra)
+		if extra == nil {
+			extra = map[string]any{}
+		}
 		extra["messageId"] = fact.messageID
 	}
 	return newTurnActivityEventWithIDAt(
@@ -328,6 +423,10 @@ func userPromptActivityMessageIDFromClientSubmitID(clientSubmitID string) string
 		return ""
 	}
 	return clientSubmitUserMessageIDPrefix + normalized
+}
+
+func newTurnUserPromptActivityMessageID() string {
+	return turnUserMessageIDPrefix + newID()
 }
 
 func promptContentForACP(content []PromptContentBlock) []map[string]any {
@@ -468,6 +567,11 @@ func promptContentForActivity(content []PromptContentBlock) []map[string]any {
 				item["name"] = strings.TrimSpace(block.Name)
 			}
 			out = append(out, item)
+		case "connector":
+			out = append(out, map[string]any{
+				"type":         "connector",
+				"connectorKey": block.ConnectorKey,
+			})
 		}
 	}
 	return out

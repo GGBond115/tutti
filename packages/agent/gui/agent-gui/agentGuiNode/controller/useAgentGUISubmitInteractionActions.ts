@@ -4,6 +4,7 @@ import {
   type AgentActivityInteraction,
   type AgentActivityTurn,
   type AgentSessionEngine,
+  type PendingSubmitIntentRecord,
   type SessionGoalControlSettlement
 } from "@tutti-os/agent-activity-core";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -11,7 +12,11 @@ import { useCallback, useEffect, useRef } from "react";
 import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type { AgentPromptContentBlock } from "../../../shared/contracts/dto";
-import type { AgentGUINodeData } from "../../../types";
+import type { AgentInteractionResponseInput } from "../../../shared/agentConversation/contracts/agentConversationVM";
+import type {
+  AgentGUINodeData,
+  AgentGUIInteractionReadinessSource
+} from "../../../types";
 import {
   agentPromptContentDisplayText,
   agentPromptContentHasImage,
@@ -56,7 +61,8 @@ import {
   reportAgentSubmitTraceDiagnostic,
   scheduleAgentSubmitTracePaint
 } from "./agentGuiController.reporting";
-import { resolveAgentGUIInteractionTarget } from "./agentGuiController.interactionHelpers";
+import { resolveAgentGUIInteractionReadinessIdentity } from "./agentGuiController.interactionHelpers";
+import { readAgentGUIInteractionReadiness } from "./useAgentGUIInteractionReadiness";
 import {
   resolveConversationSummaryById,
   type ConversationIntent
@@ -85,6 +91,8 @@ interface UseAgentGUISubmitInteractionActionsInput {
         immediate?: boolean;
         requiredSettingsPatch?: AgentComposerSubmitOptions["requiredSettingsPatch"];
         sendNow?: boolean;
+        submittedDraft?: AgentComposerSubmitOptions["submittedDraft"];
+        targetTurnId?: AgentComposerSubmitOptions["targetTurnId"];
         sourceScopeKey?: string;
         trackDraft?: boolean;
       }
@@ -93,12 +101,13 @@ interface UseAgentGUISubmitInteractionActionsInput {
   isComposerHomeRef: RefObject<boolean>;
   isCurrentConversation(agentSessionId: string): boolean;
   isRespondingToInteraction: boolean;
+  interactionReadinessSource?: AgentGUIInteractionReadinessSource | null;
   isSessionMarkedNonResumable(agentSessionId: string): boolean;
   persistActiveConversation(agentSessionId: string | null): void;
   planActionsRef: RefObject<{
-    implement(): void;
-    feedback(value: string): void;
-    skip(): void;
+    implement(): boolean;
+    feedback(value: string): boolean;
+    skip(): boolean;
   }>;
   promptImagesSupported: boolean;
   sessionEngine: AgentSessionEngine;
@@ -159,6 +168,7 @@ export function useAgentGUISubmitInteractionActions(
     isComposerHomeRef,
     isCurrentConversation,
     isRespondingToInteraction,
+    interactionReadinessSource,
     isSessionMarkedNonResumable,
     persistActiveConversation,
     planActionsRef,
@@ -216,6 +226,8 @@ export function useAgentGUISubmitInteractionActions(
         immediate?: boolean;
         requiredSettingsPatch?: AgentComposerSubmitOptions["requiredSettingsPatch"];
         sendNow?: boolean;
+        submittedDraft?: AgentComposerSubmitOptions["submittedDraft"];
+        targetTurnId?: AgentComposerSubmitOptions["targetTurnId"];
         sourceScopeKey?: string;
         trackDraft?: boolean;
       }
@@ -244,6 +256,7 @@ export function useAgentGUISubmitInteractionActions(
           options.sourceScopeKey ??
           resolveAgentComposerDraftScopeKey({ agentSessionId });
         const submittedDraft =
+          options?.submittedDraft ??
           draftByScopeKeyRef.current[sourceScopeKey] ??
           emptyAgentComposerDraft();
         submittedDraftSnapshotsRef.current[submitTrace.clientSubmitId] = {
@@ -286,6 +299,9 @@ export function useAgentGUISubmitInteractionActions(
                 ...options.requiredSettingsPatch
               }
             }
+          : {}),
+        ...(options?.targetTurnId?.trim()
+          ? { targetTurnId: options.targetTurnId.trim() }
           : {}),
         ...(options?.immediate === true
           ? { routing: "immediate" as const }
@@ -360,6 +376,11 @@ export function useAgentGUISubmitInteractionActions(
             : translate("agentHost.agentGui.goalControlFailed")
         );
       },
+      onSubmitFailed: (submit) => {
+        setDetailError(
+          getAgentGUIErrorMessage(agentGUISubmitSettlementError(submit))
+        );
+      },
       snapshots: submittedDraftSnapshotsRef.current
     });
     return controller.attach();
@@ -382,6 +403,8 @@ export function useAgentGUISubmitInteractionActions(
         capabilityRefs?: AgentComposerSubmitOptions["capabilityRefs"];
         requiredSettingsPatch?: AgentComposerSubmitOptions["requiredSettingsPatch"];
         sendNow?: boolean;
+        submittedDraft?: AgentComposerSubmitOptions["submittedDraft"];
+        targetTurnId?: AgentComposerSubmitOptions["targetTurnId"];
         sourceScopeKey?: string;
         trackDraft?: boolean;
       }
@@ -410,7 +433,9 @@ export function useAgentGUISubmitInteractionActions(
       executePrompt(agentSessionId, normalizedContent, displayPromptText, {
         capabilityRefs: options?.capabilityRefs,
         requiredSettingsPatch: options?.requiredSettingsPatch,
+        targetTurnId: options?.targetTurnId,
         sendNow: options?.sendNow === true,
+        submittedDraft: options?.submittedDraft,
         sourceScopeKey: options?.sourceScopeKey,
         trackDraft: options?.trackDraft === true
       });
@@ -490,6 +515,7 @@ export function useAgentGUISubmitInteractionActions(
               {
                 capabilityRefs: options?.capabilityRefs,
                 requiredSettingsPatch: options?.requiredSettingsPatch,
+                submittedDraft: options?.submittedDraft,
                 sourceScopeKey: resolveAgentComposerDraftScopeKey({}),
                 trackDraft: true
               }
@@ -499,7 +525,9 @@ export function useAgentGUISubmitInteractionActions(
         }
         const homeDraftKey = resolveAgentComposerDraftScopeKey({});
         const submittedHomeDraft = snapshotAgentComposerDraft(
-          draftByScopeKeyRef.current[homeDraftKey] ?? emptyAgentComposerDraft()
+          options?.submittedDraft ??
+            draftByScopeKeyRef.current[homeDraftKey] ??
+            emptyAgentComposerDraft()
         );
         const activationResult = startConversation(
           normalizedContent,
@@ -539,6 +567,7 @@ export function useAgentGUISubmitInteractionActions(
         {
           capabilityRefs: options?.capabilityRefs,
           requiredSettingsPatch: options?.requiredSettingsPatch,
+          submittedDraft: options?.submittedDraft,
           trackDraft: true
         }
       );
@@ -590,6 +619,8 @@ export function useAgentGUISubmitInteractionActions(
         {
           capabilityRefs: options?.capabilityRefs,
           sendNow: true,
+          submittedDraft: options?.submittedDraft,
+          targetTurnId: activeTurnId,
           trackDraft: true
         }
       );
@@ -607,61 +638,69 @@ export function useAgentGUISubmitInteractionActions(
   }, []);
 
   const submitInteractivePrompt = useCallback(
-    (input: {
-      requestId: string;
-      action?: string;
-      optionId?: string;
-      payload?: Record<string, unknown>;
-    }) => {
+    (input: AgentInteractionResponseInput): boolean => {
       // Plan-implementation actions are client-orchestrated; route them to the
       // plan decision handlers instead of submitInteractive.
       if (input.action === PLAN_IMPLEMENTATION_ACTION_IMPLEMENT) {
-        planActionsRef.current.implement();
-        return;
+        return planActionsRef.current.implement();
       }
       if (input.action === PLAN_IMPLEMENTATION_ACTION_FEEDBACK) {
-        planActionsRef.current.feedback(
+        return planActionsRef.current.feedback(
           typeof input.payload?.text === "string" ? input.payload.text : ""
         );
-        return;
       }
       if (input.action === PLAN_IMPLEMENTATION_ACTION_SKIP) {
-        planActionsRef.current.skip();
-        return;
+        return planActionsRef.current.skip();
       }
-      const normalizedRequestId = input.requestId.trim();
       const normalizedOptionId = input.optionId?.trim() ?? "";
-      const target = resolveAgentGUIInteractionTarget(
-        activeEnginePendingInteractions,
-        normalizedRequestId
-      );
-      const agentSessionId = target?.agentSessionId ?? "";
-      const turnId = target?.turnId ?? "";
+      const target = resolveAgentGUIInteractionReadinessIdentity({
+        agentSessionId: input.agentSessionId,
+        requestId: input.requestId,
+        turnId: input.turnId,
+        workspaceId
+      });
+      const exactPendingInteraction =
+        target !== null &&
+        activeEnginePendingInteractions.some(
+          (interaction) =>
+            interaction.status === "pending" &&
+            interaction.agentSessionId.trim() === target.agentSessionId &&
+            interaction.turnId.trim() === target.turnId &&
+            interaction.requestId.trim() === target.requestId
+        );
+      if (!target || !exactPendingInteraction || isRespondingToInteraction) {
+        return false;
+      }
       if (
-        !agentSessionId ||
-        !normalizedRequestId ||
-        !turnId ||
-        isRespondingToInteraction
+        readAgentGUIInteractionReadiness({
+          identity: target,
+          source: interactionReadinessSource
+        })?.status === "blocked"
       ) {
-        return;
+        return false;
       }
       setDetailError(null);
-      sessionEngine.submitInteractionResponse({
+      return sessionEngine.submitInteractionResponse({
         ...(input.action?.trim() ? { action: input.action.trim() } : {}),
-        agentSessionId,
+        agentSessionId: target.agentSessionId,
         ...(normalizedOptionId ? { optionId: normalizedOptionId } : {}),
         ...(input.payload ? { payload: { ...input.payload } } : {}),
-        requestId: normalizedRequestId,
-        turnId
+        requestId: target.requestId,
+        turnId: target.turnId
       });
     },
-    [activeEnginePendingInteractions, isRespondingToInteraction, sessionEngine]
+    [
+      activeEnginePendingInteractions,
+      interactionReadinessSource,
+      isRespondingToInteraction,
+      sessionEngine,
+      workspaceId
+    ]
   );
 
   const submitApprovalOption = useCallback(
-    (requestId: string, optionId: string) => {
-      void submitInteractivePrompt({ requestId, optionId });
-    },
+    (input: AgentInteractionResponseInput): boolean =>
+      submitInteractivePrompt(input),
     [submitInteractivePrompt]
   );
 
@@ -719,4 +758,21 @@ function goalControlSettlementError(
   if (settlement.errorCode) error.code = settlement.errorCode;
   if (settlement.errorReason) error.reason = settlement.errorReason;
   return error;
+}
+
+export function agentGUISubmitSettlementError(
+  submit: Pick<
+    PendingSubmitIntentRecord,
+    "errorCode" | "errorMessage" | "errorReason"
+  >
+): Error {
+  return Object.assign(
+    new Error(
+      submit.errorMessage?.trim() || translate("agentHost.agentGui.sendFailed")
+    ),
+    {
+      ...(submit.errorCode ? { code: submit.errorCode } : {}),
+      ...(submit.errorReason ? { reason: submit.errorReason } : {})
+    }
+  );
 }

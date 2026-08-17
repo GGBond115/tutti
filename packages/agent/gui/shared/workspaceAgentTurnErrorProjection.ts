@@ -5,19 +5,24 @@ import type {
 } from "./workspaceAgentSessionDetailViewModel";
 
 /**
- * Enriches Turns that the hydrated transcript has already projected.
+ * Enriches Turns that the hydrated transcript has already projected, plus an
+ * errored latest Turn that has not emitted any transcript item yet.
  *
  * `sessionTurns` can describe the full session while `turns` contains only the
- * current message window. Canonical lifecycle metadata therefore must not
- * create transcript membership or alter transcript order.
+ * current message window. Historical canonical lifecycle metadata therefore
+ * must not create transcript membership or alter transcript order. The exact
+ * latest Turn is the one exception because its canonical error is the current
+ * conversation result rather than paginated history.
  */
 export function enrichProjectedTurnsWithCanonicalErrors({
   turns,
+  latestTurnId,
   sessionTurns,
   provider,
   agentSessionId
 }: {
-  turns: ReadonlyMap<string, WorkspaceAgentSessionDetailTurn>;
+  turns: Map<string, WorkspaceAgentSessionDetailTurn>;
+  latestTurnId: string | null;
   sessionTurns: readonly AgentActivityTurn[];
   provider: string;
   agentSessionId: string;
@@ -34,11 +39,26 @@ export function enrichProjectedTurnsWithCanonicalErrors({
       continue;
     }
 
-    const turn = turns.get(canonicalTurn.turnId);
+    const turn =
+      turns.get(canonicalTurn.turnId) ??
+      (canonicalTurn.turnId === latestTurnId
+        ? createProjectedTurn(turns, canonicalTurn.turnId)
+        : null);
     if (!turn) {
       continue;
     }
-    if (turn.agentMessages.some((message) => message.visibleError)) {
+    const existingErrorMessage = turn.agentMessages.find(
+      (message) => message.visibleError
+    );
+    if (existingErrorMessage) {
+      const explicitDetail = canonicalTurn.error?.detail ?? "";
+      if (explicitDetail.trim() && existingErrorMessage.visibleError) {
+        existingErrorMessage.visibleError = {
+          ...existingErrorMessage.visibleError,
+          detail: explicitDetail,
+          detailAvailable: true
+        };
+      }
       continue;
     }
 
@@ -70,15 +90,35 @@ export function enrichProjectedTurnsWithCanonicalErrors({
   }
 }
 
+function createProjectedTurn(
+  turns: Map<string, WorkspaceAgentSessionDetailTurn>,
+  turnId: string
+): WorkspaceAgentSessionDetailTurn {
+  const turn: WorkspaceAgentSessionDetailTurn = {
+    id: turnId,
+    userMessage: null,
+    userMessages: [],
+    agentMessages: [],
+    toolCalls: [],
+    toolCallCount: 0,
+    hasFailedToolCall: false,
+    agentItems: []
+  };
+  turns.set(turnId, turn);
+  return turn;
+}
+
 function visibleErrorFromCanonicalTurn(
   turn: AgentActivityTurn,
   provider: string
 ): NonNullable<WorkspaceAgentSessionDetailMessage["visibleError"]> {
+  const explicitDetail = turn.error?.detail ?? "";
   return {
     code: turn.error?.code?.trim() || null,
     phase: "turn",
     provider: provider.trim() || null,
-    detail: turn.error?.message.trim() || null,
+    detail: explicitDetail || turn.error?.message.trim() || null,
+    ...(explicitDetail.trim() ? { detailAvailable: true } : {}),
     retryable: null
   };
 }

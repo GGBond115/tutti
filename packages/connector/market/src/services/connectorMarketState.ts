@@ -1,5 +1,7 @@
 import type {
   Connector,
+  ConnectorMarketCatalogPage,
+  ConnectorMarketCategory,
   ConnectorMarketErrorShape,
   ConnectorMarketSnapshot,
   ConnectorMutationResult,
@@ -7,33 +9,25 @@ import type {
 } from "../contracts/index.ts";
 import type { ConnectorMarketStoreState } from "./connectorMarketService.interface.ts";
 
-export function createConnectorMarketStoreState(
-  workspaceId?: string
-): ConnectorMarketStoreState {
+export function createConnectorMarketStoreState(): ConnectorMarketStoreState {
   return {
     loadState: "idle",
     catalogState: "stale",
     catalogOperation: null,
+    catalogSections: [],
     connectorsByKey: {},
     connectorKeys: [],
+    pendingInstallationsByConnectorKey: {},
+    pendingAuthorizationsByConnectorKey: {},
+    pendingUninstallNotificationsByOperationId: {},
     operationsByConnectorKey: {},
+    authorizingConnectorKeys: {},
+    authorizationViewsByConnectorKey: {},
     lastError: null,
     revision: 0,
-    workspaceId
+    snapshotRevision: 0,
+    lastEventCursor: 0
   };
-}
-
-export function resetConnectorMarketWorkspaceState(
-  state: ConnectorMarketStoreState,
-  workspaceId?: string
-): void {
-  state.workspaceId = workspaceId;
-  state.loadState = "loading";
-  state.connectorsByKey = {};
-  state.connectorKeys = [];
-  state.operationsByConnectorKey = {};
-  state.catalogOperation = null;
-  state.lastError = null;
 }
 
 export function clearConnectorMarketStoreState(
@@ -43,43 +37,166 @@ export function clearConnectorMarketStoreState(
   state.loadState = initial.loadState;
   state.catalogState = initial.catalogState;
   state.catalogOperation = initial.catalogOperation;
+  state.catalogSections = initial.catalogSections;
   state.connectorsByKey = initial.connectorsByKey;
   state.connectorKeys = initial.connectorKeys;
+  state.pendingInstallationsByConnectorKey =
+    initial.pendingInstallationsByConnectorKey;
+  state.pendingAuthorizationsByConnectorKey =
+    initial.pendingAuthorizationsByConnectorKey;
+  state.pendingUninstallNotificationsByOperationId =
+    initial.pendingUninstallNotificationsByOperationId;
   state.operationsByConnectorKey = initial.operationsByConnectorKey;
+  state.authorizingConnectorKeys = initial.authorizingConnectorKeys;
+  state.authorizationViewsByConnectorKey =
+    initial.authorizationViewsByConnectorKey;
   state.lastError = initial.lastError;
   state.revision = initial.revision;
-  state.workspaceId = initial.workspaceId;
+  state.snapshotRevision = initial.snapshotRevision;
+  state.lastEventCursor = initial.lastEventCursor;
+}
+
+export function applyConnectorMarketCategories(
+  state: ConnectorMarketStoreState,
+  categories: ConnectorMarketCategory[]
+): void {
+  state.catalogSections = [...categories]
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((category) => ({
+      ...category,
+      connectorKeys: [],
+      loadState: category.itemCount === 0 ? "ready" : "idle"
+    }));
+}
+
+export function markConnectorMarketSectionLoading(
+  state: ConnectorMarketStoreState,
+  sectionId: string
+): void {
+  const section = state.catalogSections.find(
+    (candidate) => candidate.categoryId === sectionId
+  );
+  if (section) {
+    section.loadState = "loading";
+  }
+}
+
+export function markConnectorMarketSectionError(
+  state: ConnectorMarketStoreState,
+  sectionId: string
+): void {
+  const section = state.catalogSections.find(
+    (candidate) => candidate.categoryId === sectionId
+  );
+  if (section) {
+    section.loadState = "error";
+  }
+}
+
+export function applyConnectorMarketCatalogPage(
+  state: ConnectorMarketStoreState,
+  page: ConnectorMarketCatalogPage
+): void {
+  const section = state.catalogSections.find(
+    (candidate) => candidate.categoryId === page.sectionId
+  );
+  if (!section) {
+    return;
+  }
+  for (const item of page.items) {
+    const current = state.connectorsByKey[item.connector.key];
+    if (!current || item.connector.revision >= current.revision) {
+      applyConnector(state, item.connector);
+    }
+    if (!section.connectorKeys.includes(item.connector.key)) {
+      section.connectorKeys.push(item.connector.key);
+    }
+  }
+  section.nextPageToken = page.nextPageToken;
+  section.loadState = "ready";
+  state.revision = Math.max(state.revision, page.revision);
 }
 
 export function applyConnectorMarketSnapshot(
   state: ConnectorMarketStoreState,
   next: ConnectorMarketSnapshot
 ): void {
-  if (next.revision < state.revision) {
+  if (next.revision < state.snapshotRevision) {
     return;
   }
-  state.connectorsByKey = Object.fromEntries(
-    next.connectors.map((connector) => [connector.key, connector])
+  const nextConnectorKeys = new Set(
+    next.connectors.map((connector) => connector.key)
   );
-  state.connectorKeys = next.connectors.map((connector) => connector.key);
-  state.operationsByConnectorKey = {};
-  state.catalogOperation = null;
+  for (const connector of next.connectors) {
+    const current = state.connectorsByKey[connector.key];
+    if (!current || connector.revision >= current.revision) {
+      state.connectorsByKey[connector.key] = connector;
+    }
+  }
+  for (const connectorKey of Object.keys(state.connectorsByKey)) {
+    const current = state.connectorsByKey[connectorKey];
+    if (
+      !nextConnectorKeys.has(connectorKey) &&
+      current &&
+      current.revision <= next.revision
+    ) {
+      delete state.connectorsByKey[connectorKey];
+    }
+  }
+  state.connectorKeys = [
+    ...next.connectors.map((connector) => connector.key),
+    ...Object.keys(state.connectorsByKey).filter(
+      (connectorKey) => !nextConnectorKeys.has(connectorKey)
+    )
+  ];
+  const snapshotOperationsByConnectorKey: Record<string, ConnectorOperation> =
+    {};
+  let snapshotCatalogOperation: ConnectorOperation | null = null;
   for (const operation of next.operations) {
     if (operation.connectorKey) {
-      const current = state.operationsByConnectorKey[operation.connectorKey];
+      const current = snapshotOperationsByConnectorKey[operation.connectorKey];
       if (!current || isNewerConnectorOperation(operation, current)) {
-        state.operationsByConnectorKey[operation.connectorKey] = operation;
+        snapshotOperationsByConnectorKey[operation.connectorKey] = operation;
       }
     } else if (
       operation.kind === "refresh_catalog" &&
-      (!state.catalogOperation ||
-        isNewerConnectorOperation(operation, state.catalogOperation))
+      (!snapshotCatalogOperation ||
+        isNewerConnectorOperation(operation, snapshotCatalogOperation))
     ) {
-      state.catalogOperation = operation;
+      snapshotCatalogOperation = operation;
     }
   }
+  for (const [connectorKey, current] of Object.entries(
+    state.operationsByConnectorKey
+  )) {
+    const fromSnapshot = snapshotOperationsByConnectorKey[connectorKey];
+    if (
+      (!fromSnapshot || isNewerConnectorOperation(current, fromSnapshot)) &&
+      (state.connectorsByKey[connectorKey]?.revision ?? 0) > next.revision
+    ) {
+      snapshotOperationsByConnectorKey[connectorKey] = current;
+    }
+  }
+  state.operationsByConnectorKey = snapshotOperationsByConnectorKey;
+  if (
+    state.catalogOperation &&
+    (!snapshotCatalogOperation ||
+      isNewerConnectorOperation(
+        state.catalogOperation,
+        snapshotCatalogOperation
+      )) &&
+    state.revision > next.revision
+  ) {
+    snapshotCatalogOperation = state.catalogOperation;
+  }
+  state.catalogOperation = snapshotCatalogOperation;
   state.catalogState = next.catalogState;
-  state.revision = next.revision;
+  state.revision = Math.max(state.revision, next.revision);
+  state.snapshotRevision = next.revision;
+  state.lastEventCursor = Math.max(
+    state.lastEventCursor,
+    next.eventCursor ?? 0
+  );
   state.loadState = "ready";
   state.lastError = null;
 }
@@ -88,19 +205,28 @@ export function applyConnectorMutationResult(
   state: ConnectorMarketStoreState,
   result: ConnectorMutationResult
 ): void {
-  if (result.revision < state.revision) {
-    return;
-  }
   if (result.connector) {
-    applyConnector(state, result.connector);
+    const current = state.connectorsByKey[result.connector.key];
+    if (!current || result.connector.revision >= current.revision) {
+      applyConnector(state, result.connector);
+    }
   }
   if (result.operation.connectorKey) {
-    state.operationsByConnectorKey[result.operation.connectorKey] =
-      result.operation;
+    const current =
+      state.operationsByConnectorKey[result.operation.connectorKey];
+    if (!current || isNewerConnectorOperation(result.operation, current)) {
+      state.operationsByConnectorKey[result.operation.connectorKey] =
+        result.operation;
+    }
   } else if (result.operation.kind === "refresh_catalog") {
-    state.catalogOperation = result.operation;
+    if (
+      !state.catalogOperation ||
+      isNewerConnectorOperation(result.operation, state.catalogOperation)
+    ) {
+      state.catalogOperation = result.operation;
+    }
   }
-  state.revision = result.revision;
+  state.revision = Math.max(state.revision, result.revision);
   state.lastError = null;
 }
 
@@ -122,8 +248,7 @@ export function normalizeConnectorMarketError(
   }
   return {
     code: "connector_market_unknown",
-    message:
-      error instanceof Error ? error.message : "Unknown connector market error",
+    message: error instanceof Error ? error.message : String(error),
     retryable: false
   };
 }

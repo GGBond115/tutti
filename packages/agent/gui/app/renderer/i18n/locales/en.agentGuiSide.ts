@@ -1,0 +1,13 @@
+export const enAgentGuiSide = {
+  sideCommandDescription:
+    "Open a temporary conversation from the current live context",
+  sidePanelTitle: "Side conversation",
+  sideInputPlaceholder: "Ask a related question",
+  sideResize: "Resize Side conversation",
+  sideClose: "Close",
+  sideInteractionTitle: "Side needs your response",
+  sideContentUnsupported:
+    "This attachment type is not supported in a Side conversation yet.",
+  sideOperationFailed:
+    "The Side conversation could not complete that operation. Close it and try again."
+} as const;

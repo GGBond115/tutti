@@ -12,6 +12,7 @@ import {
   createRichTextMarkdownLinkInsertResult,
   createRichTextTriggerProvider
 } from "@tutti-os/ui-rich-text/plugins";
+import { isRichTextFolderHref } from "@tutti-os/ui-rich-text/core";
 import type { RichTextTriggerProvider } from "@tutti-os/ui-rich-text/types";
 import {
   tuttiFileAssetUrls,
@@ -33,7 +34,6 @@ import {
   createAgentSessionAtContributor,
   createAgentTargetAtContributor
 } from "./desktopRichTextAtAgentContributors.ts";
-import { createWorkspaceModelAtContributor } from "./desktopRichTextAtModelContributor.ts";
 import {
   compactMentionPresentation,
   compactStringRecord,
@@ -128,8 +128,7 @@ export class DesktopRichTextAtService implements IDesktopRichTextAtService {
       createWorkspaceAppAtContributor({
         tuttidClient: dependencies.tuttidClient,
         getLocale: dependencies.getLocale
-      }),
-      createWorkspaceModelAtContributor(dependencies.tuttidClient)
+      })
     ];
   }
 
@@ -523,17 +522,70 @@ function resolveWorkspaceFileLabel(item: WorkspaceFileAtItem): string {
   }
 
   const path = item.path.trim();
-  return path.split("/").filter(Boolean).at(-1) || path;
+  return path.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) || path;
 }
 
 function isIssueWorkspaceRuntimePath(path: string, root: string): boolean {
-  const trimmed = path.trim();
-  const normalizedRoot = root.trim().replace(/\/+$/, "");
+  const trimmed = normalizeWorkspaceFileBoundaryPath(path);
+  const normalizedRoot = normalizeWorkspaceFileBoundaryPath(root);
   if (!normalizedRoot) {
     return false;
   }
   const issueRoot = `${normalizedRoot}/issues`;
   return trimmed === issueRoot || trimmed.startsWith(`${issueRoot}/`);
+}
+
+function normalizeWorkspaceFileBoundaryPath(
+  value: string,
+  rootPath?: string
+): string {
+  const raw = value.trim().replaceAll("\\", "/");
+  const root = rootPath
+    ? normalizeWorkspaceFileBoundaryPath(rootPath)
+    : "/workspace";
+  const rooted = raw
+    ? /^(?:\/?[A-Za-z]:|\/)/.test(raw)
+      ? raw
+      : `${root}/${raw}`
+    : root;
+  const driveMatch = /^\/?([A-Za-z]:)(?:\/|$)/.exec(rooted);
+  const drive = driveMatch?.[1] ?? "";
+  const body = drive
+    ? rooted.slice(driveMatch?.[0].length ?? 0)
+    : rooted.replace(/^\/+/, "");
+  const segments: string[] = [];
+  for (const segment of body.split("/").filter(Boolean)) {
+    if (segment === ".") continue;
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  if (drive) {
+    return segments.length === 0
+      ? `${drive}/`
+      : `${drive}/${segments.join("/")}`;
+  }
+  return `/${segments.join("/")}`.replace(/\/$/, "") || "/";
+}
+
+function isWorkspaceFilePathWithinProviderRoot(
+  path: string,
+  rootPath: string
+): boolean {
+  const root = normalizeWorkspaceFileBoundaryPath(rootPath);
+  const candidate = normalizeWorkspaceFileBoundaryPath(path, root);
+  const usesWindowsDrive = /^\/?[A-Za-z]:/.test(root);
+  const comparableRoot = usesWindowsDrive ? root.toLowerCase() : root;
+  const comparableCandidate = usesWindowsDrive
+    ? candidate.toLowerCase()
+    : candidate;
+  return (
+    comparableRoot === "/" ||
+    comparableCandidate === comparableRoot ||
+    comparableCandidate.startsWith(`${comparableRoot}/`)
+  );
 }
 
 function createWorkspaceFileAtContributor(
@@ -542,6 +594,9 @@ function createWorkspaceFileAtContributor(
   return {
     capability: "file",
     getProviders(input) {
+      const restrictDirectoryToProviderRoot =
+        input.surface === "workspace-app-external";
+      let providerRootPath: string | null = null;
       return [
         createRichTextTriggerProvider<WorkspaceFileAtItem>({
           id: FILE_PROVIDER_ID,
@@ -574,6 +629,78 @@ function createWorkspaceFileAtContributor(
                 path: entry.path
               }));
           },
+          async queryDirectory(directoryInput) {
+            if (directoryInput.abortSignal?.aborted) {
+              return [];
+            }
+            const directoryPath = directoryInput.directoryPath.trim();
+            let rootResponse: Awaited<
+              ReturnType<TuttidClient["listWorkspaceFileDirectory"]>
+            > | null = null;
+            if (restrictDirectoryToProviderRoot && providerRootPath === null) {
+              rootResponse = await tuttidClient.listWorkspaceFileDirectory(
+                input.workspaceId
+              );
+              providerRootPath = rootResponse.root.trim();
+            }
+            if (
+              restrictDirectoryToProviderRoot &&
+              directoryPath &&
+              (!providerRootPath ||
+                !isWorkspaceFilePathWithinProviderRoot(
+                  directoryPath,
+                  providerRootPath
+                ))
+            ) {
+              throw new Error(
+                "Workspace app file mention directory escapes the provider root."
+              );
+            }
+            const normalizedDirectoryPath = directoryPath
+              ? normalizeWorkspaceFileBoundaryPath(
+                  directoryPath,
+                  providerRootPath ?? undefined
+                )
+              : "";
+            const response =
+              rootResponse &&
+              (!normalizedDirectoryPath ||
+                normalizedDirectoryPath ===
+                  normalizeWorkspaceFileBoundaryPath(rootResponse.root))
+                ? rootResponse
+                : await tuttidClient.listWorkspaceFileDirectory(
+                    input.workspaceId,
+                    directoryPath ? { path: directoryPath } : undefined
+                  );
+            if (
+              restrictDirectoryToProviderRoot &&
+              providerRootPath &&
+              normalizeWorkspaceFileBoundaryPath(response.root) !==
+                normalizeWorkspaceFileBoundaryPath(providerRootPath)
+            ) {
+              throw new Error(
+                "Workspace app file mention directory resolved outside the provider root."
+              );
+            }
+            if (directoryInput.abortSignal?.aborted) {
+              return [];
+            }
+            const entries = response.entries
+              .filter(
+                (entry) =>
+                  !isIssueWorkspaceRuntimePath(entry.path, response.root)
+              )
+              .map((entry) => ({
+                displayName: entry.name,
+                kind: entry.kind,
+                path: entry.path
+              }));
+            return directoryInput.maxResults === undefined
+              ? entries
+              : entries.slice(0, Math.max(0, directoryInput.maxResults));
+          },
+          getItemDirectory: (item) =>
+            item.kind === "directory" ? { path: item.path.trim() } : null,
           getItemKey: (item) => item.path,
           getItemLabel: resolveWorkspaceFileLabel,
           getItemSubtitle: (item) => item.path.trim(),
@@ -592,7 +719,7 @@ function createWorkspaceFileAtContributor(
 
 function workspaceFileReferenceHref(item: WorkspaceFileAtItem): string {
   const path = item.path.trim();
-  if (item.kind === "directory" && path && !path.endsWith("/")) {
+  if (item.kind === "directory" && path && !isRichTextFolderHref(path)) {
     return `${path}/`;
   }
   return path;

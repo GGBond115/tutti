@@ -29,6 +29,9 @@ func (s *Store) AdoptProviderGoalOperation(ctx context.Context, input ProviderGo
 	if objective == "" || status != "active" {
 		return GoalControlOperation{}, SessionGoalState{}, false, errors.New("provider goal adoption requires an active objective")
 	}
+	if jsonMapInt64(input.Goal, "startedAtUnixMs") <= 0 {
+		input.Goal["startedAtUnixMs"] = input.OccurredAtUnixMS
+	}
 	goalJSON, err := marshalNullableJSONMap(input.Goal)
 	if err != nil {
 		return GoalControlOperation{}, SessionGoalState{}, false, err
@@ -112,6 +115,7 @@ ON CONFLICT(workspace_id, agent_session_id) DO UPDATE SET
   tombstoned = 0,
   sync_status = excluded.sync_status,
   pending_operation_id = NULL,
+  execution_pending = 0,
   last_evidence_json = excluded.last_evidence_json,
   last_error = '',
   observed_at_unix_ms = excluded.observed_at_unix_ms,

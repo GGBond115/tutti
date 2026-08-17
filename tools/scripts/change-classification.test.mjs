@@ -87,6 +87,20 @@ test("workflow and hook changes select repository tool contracts", () => {
   }
 });
 
+test("Go CI and shared selector changes use tool contracts instead of all Go lanes", () => {
+  for (const file of [
+    ".github/workflows/pr-checks.yml",
+    "tools/scripts/run-changed-go-validation.mjs",
+    "tools/scripts/run-check-changed-targets.mjs"
+  ]) {
+    const classification = classifyChangedFiles([file], {
+      releasePackages
+    });
+    assert.equal(classification.runGo, false, file);
+    assert.equal(classification.runContracts, true, file);
+  }
+});
+
 test("Agent Session Replay changes select the current-build closed loop", () => {
   for (const file of [
     "packages/agent/session-replay/cassette.go",
@@ -111,6 +125,36 @@ test("unrelated UI changes do not select the Agent Session Replay closed loop", 
   );
 
   assert.equal(classification.runAgentSessionReplay, false);
+});
+
+test("ordinary Desktop source changes skip the Windows installer", () => {
+  for (const file of [
+    "apps/desktop/src/main/index.ts",
+    "apps/desktop/src/preload/index.ts",
+    "apps/desktop/src/renderer/src/main.tsx",
+    "apps/desktop/test/register-asset-stub.mjs",
+    "apps/desktop/electron.vite.config.ts",
+    "apps/desktop/tsconfig.json"
+  ]) {
+    const classification = classifyChangedFiles([file], { releasePackages });
+
+    assert.equal(classification.buildWindowsInstaller, false, file);
+  }
+});
+
+test("Windows packaging inputs select the Windows installer", () => {
+  for (const file of [
+    "package.json",
+    "pnpm-lock.yaml",
+    "apps/desktop/package.json",
+    "apps/desktop/build/icon.png",
+    "apps/desktop/scripts/vendor-managed-posix-shell.mjs",
+    "services/tuttid/builtin-apps/tutti-onboarding/src/main.ts"
+  ]) {
+    const classification = classifyChangedFiles([file], { releasePackages });
+
+    assert.equal(classification.buildWindowsInstaller, true, file);
+  }
 });
 
 test("published CSS and assets select package packing and UI boundaries", () => {
@@ -266,6 +310,37 @@ test("package manifest comparison ignores only test scripts", () => {
     });
     assert.equal(
       committedBuildChangeIsRelevant("packages/agent/gui/package.json"),
+      true
+    );
+
+    const headRef = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      env: gitEnv
+    }).trim();
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify({
+        name: "@tutti-os/agent-gui",
+        scripts: {
+          build: "tsup --working-copy",
+          test: "vitest run --working-copy"
+        }
+      })}\n`
+    );
+    assert.equal(
+      createPackageManifestPackRelevance({
+        baseRef: "HEAD",
+        headRef,
+        root
+      })("packages/agent/gui/package.json"),
+      false
+    );
+    assert.equal(
+      createPackageManifestPackRelevance({
+        baseRef: "HEAD",
+        root
+      })("packages/agent/gui/package.json"),
       true
     );
   } finally {

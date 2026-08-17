@@ -14,6 +14,7 @@ import {
   selectEngineSessionDetailLoading,
   selectEngineSessionOperationError,
   selectEngineSessionRuntimeAvailability,
+  selectEngineSessionRuntimeActivity,
   selectEngineSessionIsRespondingToInteraction,
   selectEngineSessionReconcile,
   selectEngineSessionSettingsUpdate,
@@ -22,6 +23,7 @@ import {
   selectLatestPendingSubmitForSession,
   selectPendingSubmitsForSession,
   selectSessionHasUnconfirmedSubmit,
+  selectSessionHasPendingSubmitStopTarget,
   selectSessionGoalControlPresentation,
   selectSessionIsSubmitting,
   sessionGoalControlPresentationsEqual,
@@ -79,6 +81,11 @@ export function useAgentGUISessionEngineState(input: {
   );
   const hasUnconfirmedSubmit = useEngineSelector(sessionEngine, (state) =>
     selectSessionHasUnconfirmedSubmit(state, activeConversationId)
+  );
+  const activeHasPendingSubmitStopTarget = useEngineSelector(
+    sessionEngine,
+    (state) =>
+      selectSessionHasPendingSubmitStopTarget(state, activeConversationId)
   );
   const activeCancelState = useEngineSelector(sessionEngine, (state) =>
     selectEngineCancelState(state, activeConversationId)
@@ -197,6 +204,10 @@ export function useAgentGUISessionEngineState(input: {
     (state) =>
       selectEngineSessionRuntimeAvailability(state, activeConversationId)
   );
+  const activeEngineRuntimeActivity = useEngineSelector(
+    sessionEngine,
+    (state) => selectEngineSessionRuntimeActivity(state, activeConversationId)
+  );
   const activeEngineHasPendingInteractions = useEngineSelector(
     sessionEngine,
     (state) => selectEngineHasPendingInteractions(state, activeConversationId)
@@ -217,9 +228,12 @@ export function useAgentGUISessionEngineState(input: {
     activeEngineLatestTurn,
     activeEnginePendingInteractions,
     activeEngineRuntimeAvailability,
+    activeEngineRuntimeActivity,
     activeEngineSession,
     activeEngineSessionDeleted,
+    activeEngineSettingsUpdate,
     activeGoalControlPresentation,
+    activeHasPendingSubmitStopTarget,
     activeLatestPendingSubmit,
     activePendingActivation,
     activePendingSubmits,
@@ -288,7 +302,9 @@ const SESSION_SETTINGS_STATUS_SHOWS_OPTIMISTIC_VALUE = {
   failed: false,
   idle: false,
   inFlight: true,
-  unknown: true,
+  // Timed-out updates must not keep showing the optimistic value (e.g. High)
+  // or the composer looks settled while the durable session is still medium.
+  unknown: false,
   waitingForPromptSend: true,
   waitingForRuntime: true
 } satisfies Record<SessionSettingsUpdateStatus, boolean>;

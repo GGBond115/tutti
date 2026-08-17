@@ -9,6 +9,10 @@ const runtimeWorkflowPath = new URL(
   "../../.github/workflows/publish-tutti-app-runtime.yml",
   import.meta.url
 );
+const runtimeLockPath = new URL(
+  "../../config/tutti.app-runtime.lock.json",
+  import.meta.url
+);
 
 test("buildTuttiAppRuntimeCatalog writes runtime catalog from artifact metadata", async () => {
   const tempDir = await mkdtemp(path.join(tmpdir(), "tutti-runtime-catalog-"));
@@ -107,10 +111,15 @@ test("Tutti app runtime workflow publishes immutable artifacts and mutable catal
 
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /config\/tutti\.app-runtime\.lock\.json/);
+  assert.match(workflow, /platform === "windows-amd64"/);
+  assert.match(workflow, /lock\.python\?\.windows\?\.version/);
   assert.match(workflow, /uv python install --no-bin "\$\{PYTHON_VERSION\}"/);
-  assert.match(workflow, /python-\$env:PYTHON_VERSION-windows\.tar\.gz/);
+  assert.match(workflow, /python-\$env:PYTHON_VERSION-embed-amd64\.zip/);
   assert.match(workflow, /PYTHON_WINDOWS_ARCHIVE_SHA256/);
-  assert.match(workflow, /tar -xzf \$archivePath/);
+  assert.match(workflow, /Expand-Archive -LiteralPath \$archivePath/);
+  assert.match(workflow, /Get-AuthenticodeSignature/);
+  assert.match(workflow, /O=Python Software Foundation/);
+  assert.match(workflow, /\.Extension -in '\.exe', '\.dll', '\.pyd'/);
   assert.match(workflow, /SHASUMS256\.txt/);
   assert.match(
     workflow,
@@ -147,6 +156,21 @@ test("Tutti app runtime workflow publishes immutable artifacts and mutable catal
   assert.match(workflow, /build-tutti-app-runtime-catalog\.mjs/);
   assert.match(workflow, /max-age=31536000, immutable/);
   assert.match(workflow, /max-age=60/);
+});
+
+test("Windows runtime pins the official signed CPython 3.12.10 embeddable package", async () => {
+  const lock = JSON.parse(await readFile(runtimeLockPath, "utf8"));
+
+  assert.equal(lock.python.version, "3.12.13");
+  assert.equal(lock.python.windows.version, "3.12.10");
+  assert.equal(
+    lock.python.windows.archiveUrl,
+    "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
+  );
+  assert.equal(
+    lock.python.windows.archiveSha256,
+    "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
+  );
 });
 
 function assertAwsValidationBeforeConfigure(workflow, names) {

@@ -7,6 +7,10 @@ import {
   useSyncExternalStore
 } from "react";
 import { useService } from "@tutti-os/infra/di";
+import {
+  IConnectorMarketModule,
+  openConnectorMarketDialog
+} from "@tutti-os/connector-market/services";
 import type {
   WorkspaceAgentProvider,
   WorkspaceSummary
@@ -35,6 +39,10 @@ import { useWorkspaceFileManagerService } from "@renderer/features/workspace-fil
 import { IWorkspaceFilePreviewSurfaceHost } from "@renderer/features/workspace-file-preview";
 import { useTranslation } from "@renderer/i18n";
 import { createWorkspaceWorkbenchDesktopI18nRuntime } from "@shared/i18n";
+import {
+  isFeatureEnabled,
+  LAB_CONNECTORS_FLAG
+} from "../../../../../shared/featureFlags/catalog.ts";
 import type {
   DesktopDockIconStyle,
   DesktopFeatureFlags,
@@ -152,6 +160,7 @@ export function useWorkspaceWorkbenchShellRuntime({
     useWorkspaceAppCenterService();
   const { state: desktopPreferencesState } = useDesktopPreferencesService();
   const { service: workspaceSettingsService } = useWorkspaceSettingsService();
+  const connectorMarketModule = useService(IConnectorMarketModule);
   const agentsService = useService(IAgentsService);
   const workspaceAppSurfaceHost = useService(IWorkspaceAppSurfaceHost);
   const workspaceFilePreviewSurfaceHost = useService(
@@ -176,6 +185,27 @@ export function useWorkspaceWorkbenchShellRuntime({
   );
   const handleCapabilitySettingsRequest = useCallback(
     (target: WorkspaceWorkbenchCapabilitySettingsTarget) => {
+      if (typeof target !== "string") {
+        const featureFlags =
+          desktopPreferencesState.changingFeatureFlags ??
+          desktopPreferencesState.featureFlags;
+        if (!isFeatureEnabled(featureFlags, LAB_CONNECTORS_FLAG)) {
+          return;
+        }
+        if (target.action === "open") {
+          void openConnectorMarketDialog(
+            connectorMarketModule.root,
+            target.connectorKey
+          ).catch(() => undefined);
+          return;
+        }
+        workspaceSettingsService.openPanel(
+          { id: state.workspace.id },
+          { pane: "connectors" }
+        );
+        connectorMarketModule.root.uiState.openConnector(target.connectorKey);
+        return;
+      }
       workspaceSettingsService.openPanel(
         { id: state.workspace.id },
         {
@@ -184,7 +214,13 @@ export function useWorkspaceWorkbenchShellRuntime({
         }
       );
     },
-    [state.workspace.id, workspaceSettingsService]
+    [
+      connectorMarketModule,
+      desktopPreferencesState.changingFeatureFlags,
+      desktopPreferencesState.featureFlags,
+      state.workspace.id,
+      workspaceSettingsService
+    ]
   );
   const shellRuntimeControllerRef =
     useRef<WorkspaceWorkbenchShellRuntimeController | null>(null);
@@ -406,20 +442,41 @@ export function useWorkspaceWorkbenchShellRuntime({
       return;
     }
 
-    return workbenchHostService.onWindowCloseRequest((payload) => {
-      void shellRuntimeController
-        .requestWindowClose({
-          reason: payload.reason
-        })
-        .then((outcome) => {
-          if (payload.requestId) {
-            workbenchHostService.resolveWindowCloseRequest({
-              outcome,
-              requestId: payload.requestId
-            });
-          }
-        });
+    const disposeCloseRequestListener =
+      workbenchHostService.onWindowCloseRequest((payload) => {
+        void shellRuntimeController
+          .requestWindowClose({
+            reason: payload.reason
+          })
+          .then((outcome) => {
+            if (payload.requestId) {
+              workbenchHostService.resolveWindowCloseRequest({
+                outcome,
+                requestId: payload.requestId
+              });
+            }
+          })
+          .catch(() => {
+            if (payload.requestId) {
+              workbenchHostService.resolveWindowCloseRequest({
+                outcome: "blocked",
+                requestId: payload.requestId
+              });
+            }
+          });
+      });
+
+    void workbenchHostService.setWindowCloseGuardEnabled(true).catch(() => {
+      // Older preload clients do not expose the native close interception
+      // handshake. The renderer-side guard remains usable in that case.
     });
+
+    return () => {
+      disposeCloseRequestListener();
+      void workbenchHostService
+        .setWindowCloseGuardEnabled(false)
+        .catch(() => undefined);
+    };
   }, [enableWindowCloseGuard, shellRuntimeController, workbenchHostService]);
 
   const handleWorkbenchHostReady = useCallback(

@@ -83,6 +83,15 @@ export interface BuildWorkspaceAgentMessageCenterOptions {
   agentPresentations?: readonly WorkspaceAgentMessageCenterAgentPresentation[];
   avoidGroupingEdits?: boolean;
   identityBySessionId?: Record<string, WorkspaceAgentMessageCenterIdentity>;
+  /**
+   * Canonical Agent Session ids to keep in the model even when
+   * `session.visible === false`.
+   * Ambient surfaces (the global Message Center) never list hidden sessions;
+   * a surface whose subject IS a specific session (e.g. the Issue task card
+   * over a hidden delegate run) opts that exact session in so its pending
+   * prompts stay renderable and answerable.
+   */
+  includeHiddenSessionIds?: readonly string[];
   itemCutoffUnixMs?: number | null;
   promptFallbackLabels?: WorkspaceAgentMessageCenterPromptFallbackLabels;
   workspaceRoot?: string | null;
@@ -343,17 +352,20 @@ function approvalPromptFromMessage(
     return null;
   }
   const payload = recordValue(message.payload);
-  const input = recordValue(payload.input);
-  if (isExitPlanMessage(message, input)) {
+  const rootInput = recordValue(payload.input);
+  const nestedInput = recordValue(recordValue(rootInput.toolCall).input);
+  const displayInput =
+    Object.keys(nestedInput).length > 0 ? nestedInput : rootInput;
+  if (isExitPlanMessage(message, rootInput)) {
     return null;
   }
   const requestId =
-    stringValue(input.requestId) ??
+    stringValue(rootInput.requestId) ??
     stringValue(payload.requestId) ??
     stringValue(payload.approvalRequestId) ??
     message.messageId;
   const options = [
-    ...arrayValue(input.options),
+    ...arrayValue(rootInput.options),
     ...arrayValue(payload.options)
   ].flatMap((option) => {
     const record = recordValue(option);
@@ -397,8 +409,8 @@ function approvalPromptFromMessage(
       mcpTarget?.displayName ?? null,
       stringValue(payload.summary),
       stringValue(payload.title),
-      stringValue(input.title),
-      stringValue(input.command),
+      stringValue(displayInput.title),
+      stringValue(displayInput.command),
       messageSummary(message),
       message.kind
     ),
@@ -407,7 +419,7 @@ function approvalPromptFromMessage(
       stringValue(payload.name) ??
       stringValue(payload.tool),
     status: message.status ?? stringValue(payload.status),
-    input: Object.keys(input).length > 0 ? input : payload,
+    input: Object.keys(displayInput).length > 0 ? displayInput : payload,
     options,
     output: null,
     occurredAtUnixMs: messageTimeUnixMs(message) || null

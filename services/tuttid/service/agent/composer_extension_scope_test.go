@@ -137,7 +137,7 @@ func TestComposerRuntimeContextPersistedFallbackRequiresPinnedIdentity(t *testin
 func TestExtensionCapabilitiesRemainUnknownWithoutLiveRuntimeFacts(t *testing.T) {
 	options := applyExtensionComposerCapabilities(ComposerOptions{
 		RuntimeContext: map[string]any{},
-	}, ExtensionComposerProfile{Capabilities: []string{"compact", "planMode"}}, false)
+	}, ExtensionComposerProfile{Capabilities: []string{"compact", "planMode"}}, false, false)
 	if len(options.Capabilities) != 0 {
 		t.Fatalf("capabilities = %#v, want no fabricated signed-only runtime facts", options.Capabilities)
 	}
@@ -206,7 +206,7 @@ func TestExtensionBrowserCapabilityHonorsMasterSwitch(t *testing.T) {
 	t.Setenv("TUTTI_BROWSER_USE", "0")
 	options := applyExtensionComposerCapabilities(ComposerOptions{
 		RuntimeContext: map[string]any{"capabilities": []string{"browserUse", "compact"}},
-	}, ExtensionComposerProfile{Capabilities: []string{"browserUse", "compact"}}, false)
+	}, ExtensionComposerProfile{Capabilities: []string{"browserUse", "compact"}}, false, false)
 	if slices.Contains(options.Capabilities, "browserUse") {
 		t.Fatalf("capabilities = %#v, want browserUse omitted when master switch is off", options.Capabilities)
 	}
@@ -220,14 +220,14 @@ func TestExtensionComputerUseCapabilityRequiresHostAvailability(t *testing.T) {
 	profile := ExtensionComposerProfile{Capabilities: []string{"computerUse", "compact"}}
 	options := applyExtensionComposerCapabilities(ComposerOptions{
 		RuntimeContext: map[string]any{"capabilities": []string{"compact"}},
-	}, profile, true)
+	}, profile, true, true)
 	if !slices.Contains(options.Capabilities, "computerUse") {
 		t.Fatalf("capabilities = %#v, want extension-declared computerUse when host is available", options.Capabilities)
 	}
 
 	options = applyExtensionComposerCapabilities(ComposerOptions{
 		RuntimeContext: map[string]any{"capabilities": []string{"computerUse", "compact"}},
-	}, profile, false)
+	}, profile, false, true)
 	if slices.Contains(options.Capabilities, "computerUse") {
 		t.Fatalf("capabilities = %#v, want computerUse omitted when host is unavailable", options.Capabilities)
 	}
@@ -235,7 +235,7 @@ func TestExtensionComputerUseCapabilityRequiresHostAvailability(t *testing.T) {
 	t.Setenv("TUTTI_COMPUTER_USE", "0")
 	options = applyExtensionComposerCapabilities(ComposerOptions{
 		RuntimeContext: map[string]any{"capabilities": []string{"computerUse", "compact"}},
-	}, profile, true)
+	}, profile, true, true)
 	if slices.Contains(options.Capabilities, "computerUse") {
 		t.Fatalf("capabilities = %#v, want computerUse omitted when master switch is off", options.Capabilities)
 	}
@@ -512,12 +512,18 @@ func TestExtensionHiddenComposerDiscoveryCleansPreparedRuntimeAfterStartFailure(
 	}
 }
 
-func TestExtensionHiddenComposerDiscoveryCallerCancellationClosesSession(t *testing.T) {
+func TestExtensionHiddenComposerDiscoveryCallerCancellationLeavesSharedDiscoveryRunning(t *testing.T) {
 	runtime := newFakeRuntime()
 	started := make(chan struct{})
+	release := make(chan struct{})
 	closed := make(chan struct{})
 	runtime.startHook = func(_ RuntimeStartInput, session ProviderRuntimeSession) ProviderRuntimeSession {
 		close(started)
+		<-release
+		session.RuntimeContext["configOptions"] = []any{map[string]any{
+			"id": "model", "currentValue": "example-pro",
+			"options": []any{map[string]any{"value": "example-pro", "name": "Example Pro"}},
+		}}
 		return session
 	}
 	runtime.closeHook = func(RuntimeCloseInput) { close(closed) }
@@ -535,13 +541,21 @@ func TestExtensionHiddenComposerDiscoveryCallerCancellationClosesSession(t *test
 	if err := <-result; !errors.Is(err, context.Canceled) {
 		t.Fatalf("discovery error = %v, want caller cancellation", err)
 	}
+	close(release)
 	select {
 	case <-closed:
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for caller-canceled discovery cleanup")
+		t.Fatal("timed out waiting for shared discovery cleanup")
 	}
 	if len(runtime.closeCalls) != 1 || len(runtime.sessions) != 0 {
-		t.Fatalf("close=%d sessions=%d, want caller-canceled discovery closed", len(runtime.closeCalls), len(runtime.sessions))
+		t.Fatalf("close=%d sessions=%d, want completed shared discovery closed", len(runtime.closeCalls), len(runtime.sessions))
+	}
+	models, err := service.discoverLiveComposerModels(context.Background(), input, ComposerSettings{})
+	if err != nil || len(models) != 1 || models[0].Value != "example-pro" {
+		t.Fatalf("cached discovery result = %#v, error = %v", models, err)
+	}
+	if len(runtime.startCalls) != 1 {
+		t.Fatalf("start calls = %d, want cached result without another runtime", len(runtime.startCalls))
 	}
 }
 

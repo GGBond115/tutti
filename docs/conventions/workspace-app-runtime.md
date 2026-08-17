@@ -94,13 +94,14 @@ The workflow is:
 
 The workflow:
 
-1. Installs the pinned uv version.
-2. Uses uv to install the pinned Python baseline.
-3. Downloads the pinned Node release for each platform and verifies it against Node's `SHASUMS256.txt`.
-4. Assembles separate Python and Node zips per platform.
-5. Writes metadata for each platform's runtime components.
-6. Uploads immutable component zips to S3.
-7. Builds and uploads `catalog.json`.
+1. Installs the pinned uv version on macOS and Linux.
+2. Uses uv to install the pinned macOS/Linux Python baseline.
+3. Downloads the pinned official CPython embeddable package on Windows, verifies its SHA-256, and requires valid Authenticode signatures on every `.exe`, `.dll`, and `.pyd` file.
+4. Downloads the pinned Node release for each platform and verifies it against Node's `SHASUMS256.txt`.
+5. Assembles separate Python and Node zips per platform.
+6. Writes metadata for each platform's runtime components.
+7. Uploads immutable component zips to S3.
+8. Builds and uploads `catalog.json`.
 
 Runtime artifacts should be uploaded under a dedicated S3 prefix, normally:
 
@@ -159,7 +160,7 @@ The runtime catalog consumed by tuttid has this shape:
       },
       "profiles": {
         "baseline": ["python", "node"],
-        "node-static": ["node"]
+        "connector-node-static": ["node"]
       }
     }
   }
@@ -167,19 +168,30 @@ The runtime catalog consumed by tuttid has this shape:
 ```
 
 tuttid resolves the `baseline` profile by default when launching apps, and may
-preload smaller profiles such as `node-static` during daemon startup or an
+preload smaller profiles such as `connector-node-static` during daemon startup or an
 explicit runtime-preparation workflow before first launch. Listing App Center
 apps must not preload runtimes as a side effect. App manifests must not declare
 a runtime kind. The Windows managed runtime publishes the same Python+Node
 `baseline` profile as Unix so existing Python apps (for example Automation)
 remain portable. Apps that only need Node may declare
-`runtime.profile: "node-static"` so launch does not require the Python
+`runtime.profile: "connector-node-static"` so launch does not require the Python
 component. If runtime requirements need to become more selective later, add a
 capability list such as runtime component requirements rather than restoring a
-single-kind manifest field. The Windows Python component is built from the
-version-pinned relocatable archive in config/tutti.app-runtime.lock.json;
-the archive URL and SHA-256 are locked separately because some CPython patch
-releases are source-only on python.org.
+single-kind manifest field. macOS and Linux currently use Python 3.12.13 from
+the pinned uv-managed distribution. Windows uses python.org's official signed
+Python 3.12.10 embeddable package because Python 3.12.10 is the last 3.12 patch
+release with official Windows binaries; later 3.12 security releases are
+source-only. The Windows version, archive URL, and SHA-256 are pinned separately
+in `config/tutti.app-runtime.lock.json`, and platform metadata must report the
+effective version rather than the cross-platform default.
+
+The Windows embeddable package is intentionally minimal and isolated. It does
+not include `pip`, `venv`, or `ensurepip`. Windows workspace apps using the
+baseline profile must ship their dependencies in the app package and must not
+install packages into the managed runtime. Moving Windows to a later Python
+patch requires either an official signed binary distribution or Authenticode
+signing of every shipped `.exe`, `.dll`, and `.pyd` file with an approved Tutti
+publisher identity. SHA-256 verification alone is not a code-signing substitute.
 
 ## Runtime Overrides
 

@@ -23,6 +23,7 @@ import {
   validateCancelResult,
   validateSendInputResult
 } from "./commandResult.validation.ts";
+import { deriveCanonicalSubmitAvailability } from "./sessionLifecycle.availability.ts";
 
 test("snapshot decomposes protocol v2 session and turn entities", () => {
   const result = reduce(createInitialSessionLifecycleState(), {
@@ -587,6 +588,7 @@ test("Turn provenance survives lifecycle upserts, reconcile snapshots, and selec
       sourceGoalRevision: 99,
       updatedAtUnixMs: 3
     },
+    live: true,
     type: "turn/upserted"
   }).state;
 
@@ -636,6 +638,7 @@ test("legacy_unknown Turn provenance is never inferred during reconcile", () => 
       sourceGoalRevision: 1,
       updatedAtUnixMs: 3
     },
+    live: true,
     type: "turn/upserted"
   }).state;
 
@@ -733,6 +736,7 @@ test("turn and interaction events update independent canonical collections", () 
     sessions: [session(null, 1)]
   }).state;
   state = reduce(state, {
+    live: true,
     type: "turn/upserted",
     turn: activeTurn(2)
   }).state;
@@ -868,6 +872,44 @@ test("interaction timeout and late cross-scope results never become success", ()
   );
 });
 
+test("stale interactive responses request an authoritative session reconcile", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(activeTurn(1), 1)]
+  }).state;
+  state = reduce(state, {
+    type: "interaction/upserted",
+    interaction: interaction("pending", 2)
+  }).state;
+  state = reduce(state, interactionResponseRequested("respond-1")).state;
+
+  const stale = reduce(state, {
+    commandId: "respond-1",
+    commandType: "interaction/respond",
+    correlationId: canonicalInteractionKey("session-1", "turn-1", "request-1"),
+    errorMessage: "interactive request is stale",
+    errorReason: "agent_interactive_request_stale",
+    outcome: "failed",
+    type: "engine/commandResult"
+  });
+
+  assert.equal(
+    stale.state.interactionResponsesById[
+      canonicalInteractionKey("session-1", "turn-1", "request-1")
+    ]?.status,
+    "failed"
+  );
+  assert.deepEqual(stale.followUpIntents, [
+    {
+      agentSessionId: "session-1",
+      needsMessages: true,
+      needsState: true,
+      type: "session/reconcileRequested",
+      workspaceId: "workspace-1"
+    }
+  ]);
+});
+
 test("terminal canonical session snapshot confirms an acknowledged response", () => {
   const source = session(activeTurn(1), 1);
   source.pendingInteractions = [interaction("pending", 1)];
@@ -980,7 +1022,11 @@ test("identical request ids remain isolated across turns in one session", () => 
     type: "session/snapshotReceived",
     sessions: [session(turn1, 1)]
   }).state;
-  state = reduce(state, { type: "turn/upserted", turn: turn2 }).state;
+  state = reduce(state, {
+    live: true,
+    type: "turn/upserted",
+    turn: turn2
+  }).state;
   state = reduce(state, {
     type: "interaction/upserted",
     interaction: interaction("pending", 2)
@@ -1160,6 +1206,162 @@ test("cancel requested before turn creation waits for a v2 turn entity", () => {
     sessions: [session(activeTurn(2), 2)]
   });
   assert.ok(started.commands.some((command) => command.type === "turn/cancel"));
+});
+
+test("stop for a pending submit waits for that submit instead of the next unrelated turn", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(null, 1)]
+  }).state;
+  const waiting = reduce(state, {
+    type: "session/stopRequested",
+    agentSessionId: "session-1",
+    awaitingTurnExpiresAtUnixMs: 30_000,
+    clientSubmitId: "submit-1",
+    commandId: "stop-1",
+    workspaceId: "workspace-1"
+  });
+  assert.equal(
+    waiting.state.operationBySessionId["session-1"]?.cancel
+      .targetClientSubmitId,
+    "submit-1"
+  );
+
+  const unrelated = reduce(waiting.state, {
+    type: "session/upserted",
+    session: session(activeTurn(2), 2)
+  });
+  assert.equal(unrelated.commands.length, 0);
+  assert.equal(
+    unrelated.state.operationBySessionId["session-1"]?.cancel.status,
+    "awaitingTurn"
+  );
+
+  const turn = { ...activeTurn(4), turnId: "turn-2" };
+  const matched = reduce(waiting.state, {
+    commandId: "send-1",
+    commandType: "queue/sendPrompt",
+    correlationId: "submit-1",
+    outcome: "succeeded",
+    type: "engine/commandResult",
+    value: { session: session(turn, 4), turn, turnId: turn.turnId }
+  });
+  assert.deepEqual(matched.commands.at(-1), {
+    agentSessionId: "session-1",
+    commandId: "stop-1",
+    timeoutMs: 30_000,
+    turnId: "turn-2",
+    type: "turn/cancel",
+    workspaceId: "workspace-1"
+  });
+  assert.equal(
+    matched.state.operationBySessionId["session-1"]?.cancel.turnId,
+    "turn-2"
+  );
+});
+
+test("stop for a submit still resolves after send admission times out", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(null, 1)]
+  }).state;
+  state = reduce(state, {
+    type: "session/stopRequested",
+    agentSessionId: "session-1",
+    awaitingTurnExpiresAtUnixMs: 30_000,
+    clientSubmitId: "submit-1",
+    commandId: "stop-1",
+    workspaceId: "workspace-1"
+  }).state;
+
+  state = reduce(state, {
+    commandId: "send-1",
+    commandType: "queue/sendPrompt",
+    correlationId: "submit-1",
+    errorCode: "aborted",
+    errorMessage: "admission timed out",
+    outcome: "timedOut",
+    type: "engine/commandResult"
+  }).state;
+
+  const message = reduce(state, {
+    messages: [
+      {
+        agentSessionId: "session-1",
+        kind: "user_prompt",
+        messageId: "message-1",
+        occurredAtUnixMs: 2,
+        payload: { clientSubmitId: "submit-1" },
+        role: "user",
+        turnId: "turn-2",
+        version: 1
+      }
+    ],
+    type: "message/snapshotReceived"
+  });
+  assert.equal(
+    message.state.operationBySessionId["session-1"]?.cancel.turnId,
+    "turn-2"
+  );
+  assert.equal(message.commands.length, 0);
+
+  const turn = { ...activeTurn(4), turnId: "turn-2" };
+  const matched = reduce(message.state, {
+    live: true,
+    type: "turn/upserted",
+    turn
+  });
+  assert.deepEqual(matched.commands.at(-1), {
+    agentSessionId: "session-1",
+    commandId: "stop-1",
+    timeoutMs: 30_000,
+    turnId: "turn-2",
+    type: "turn/cancel",
+    workspaceId: "workspace-1"
+  });
+});
+
+test("stop target correlation ignores a message from another workspace", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(null, 1)]
+  }).state;
+  state = reduce(state, {
+    type: "session/stopRequested",
+    agentSessionId: "session-1",
+    awaitingTurnExpiresAtUnixMs: 30_000,
+    clientSubmitId: "submit-1",
+    commandId: "stop-1",
+    workspaceId: "workspace-1"
+  }).state;
+
+  const message = {
+    agentSessionId: "session-1",
+    kind: "user_prompt",
+    messageId: "message-1",
+    occurredAtUnixMs: 2,
+    payload: { clientSubmitId: "submit-1" },
+    role: "user",
+    turnId: "turn-2",
+    version: 1
+  };
+  const ignored = reduce(state, {
+    messages: [{ ...message, workspaceId: "workspace-other" }],
+    type: "message/snapshotReceived"
+  });
+  assert.equal(
+    ignored.state.operationBySessionId["session-1"]?.cancel.turnId,
+    null
+  );
+
+  const matched = reduce(ignored.state, {
+    messages: [{ ...message, workspaceId: "workspace-1" }],
+    type: "message/snapshotReceived"
+  });
+  assert.equal(
+    matched.state.operationBySessionId["session-1"]?.cancel.turnId,
+    "turn-2"
+  );
 });
 
 for (const provider of ["cursor", "codex", "claude-code"]) {
@@ -1394,6 +1596,7 @@ test("durably accepted cancel stays pending until the canonical turn settles", (
   );
 
   const settled = reduce(accepted.state, {
+    live: true,
     type: "turn/upserted",
     turn: {
       ...settlingTurn,
@@ -1625,7 +1828,11 @@ test("interaction then turn then session converges without exposing orphans", ()
     selectEngineInteraction(engine, "session-1", "turn-1", "request-1"),
     null
   );
-  state = reduce(state, { type: "turn/upserted", turn: activeTurn(2) }).state;
+  state = reduce(state, {
+    live: true,
+    type: "turn/upserted",
+    turn: activeTurn(2)
+  }).state;
   engine = { ...engine, sessionLifecycle: state };
   assert.equal(selectEngineTurn(engine, "session-1", "turn-1"), null);
   const parentSession = session(null, 3);
@@ -1654,7 +1861,11 @@ test("delete tombstone rejects late orphan turn and interaction upserts", () => 
     type: "session/removed",
     agentSessionId: "session-1"
   }).state;
-  state = reduce(state, { type: "turn/upserted", turn: activeTurn(2) }).state;
+  state = reduce(state, {
+    live: true,
+    type: "turn/upserted",
+    turn: activeTurn(2)
+  }).state;
   state = reduce(state, {
     type: "interaction/upserted",
     interaction: interaction("pending", 2)
@@ -1701,6 +1912,135 @@ test("realtime Turn projection atomically clears its owned Session reference", (
   }).state;
   assert.equal(state.sessionsById["session-1"]?.title, "Reconciled");
   assert.equal(state.sessionsById["session-1"]?.updatedAtUnixMs, 3);
+});
+
+test("host-fenced same-Turn settlement survives cross-device clock skew", () => {
+  const running = activeTurn(200);
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(running, 300)],
+    type: "session/snapshotReceived"
+  }).state;
+
+  state = reduce(state, {
+    activeTurnId: null,
+    hostFencedSameTurnSettlement: true,
+    turn: {
+      ...running,
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 190,
+      updatedAtUnixMs: 190
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, null);
+  assert.equal(state.sessionsById["session-1"]?.updatedAtUnixMs, 300);
+  assert.deepEqual(state.turnsById[canonicalTurnKey("session-1", "turn-1")], {
+    ...running,
+    outcome: "completed",
+    phase: "settled",
+    settledAtUnixMs: 190,
+    updatedAtUnixMs: 190
+  });
+
+  state = reduce(state, {
+    session: session(running, 300),
+    type: "session/upserted"
+  }).state;
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, null);
+});
+
+test("host-fenced settlement cannot clear a different active Turn", () => {
+  const turnA = { ...activeTurn(200), turnId: "turn-a" };
+  const turnB = { ...activeTurn(300), turnId: "turn-b" };
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(turnB, 300)],
+    type: "session/snapshotReceived"
+  }).state;
+  state = reduce(state, {
+    live: true,
+    turn: turnA,
+    type: "turn/upserted"
+  }).state;
+
+  state = reduce(state, {
+    activeTurnId: null,
+    hostFencedSameTurnSettlement: true,
+    turn: {
+      ...turnA,
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 190,
+      updatedAtUnixMs: 190
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-a")]?.phase,
+    "settled"
+  );
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-b");
+  assert.deepEqual(deriveCanonicalSubmitAvailability(state, "session-1"), {
+    state: "blocked",
+    reason: "active_turn"
+  });
+});
+
+test("unmarked Turn projection still rejects an older settlement", () => {
+  const running = activeTurn(200);
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(running, 300)],
+    type: "session/snapshotReceived"
+  }).state;
+
+  state = reduce(state, {
+    activeTurnId: null,
+    turn: {
+      ...running,
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 190,
+      updatedAtUnixMs: 190
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-1");
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-1")]?.phase,
+    "running"
+  );
+});
+
+test("generic Turn upsert still rejects an older settlement", () => {
+  const running = activeTurn(200);
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(running, 300)],
+    type: "session/snapshotReceived"
+  }).state;
+
+  state = reduce(state, {
+    live: true,
+    turn: {
+      ...running,
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 190,
+      updatedAtUnixMs: 190
+    },
+    type: "turn/upserted"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-1");
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-1")]?.phase,
+    "running"
+  );
 });
 
 test("cached Turn projection fences a stale Session loaded afterward", () => {
@@ -1827,6 +2167,7 @@ test("same-Turn terminal evidence repairs an inconsistent active pointer", () =>
       settledAtUnixMs: 2,
       updatedAtUnixMs: 2
     },
+    live: true,
     type: "turn/upserted"
   }).state;
 
@@ -1867,6 +2208,7 @@ test("late Turn projection cannot clear or replace a newer active Turn", () => {
   }).state;
   state = reduce(state, {
     turn: activeTurn(1),
+    live: true,
     type: "turn/upserted"
   }).state;
 
@@ -1902,14 +2244,17 @@ test("late Turn projection cannot clear or replace a newer active Turn", () => {
 
 test("settled turn is terminal against newer live phases and outcome changes", () => {
   let state = reduce(createInitialSessionLifecycleState(), {
+    live: true,
     type: "turn/upserted",
     turn: { ...activeTurn(2), phase: "settled", outcome: "completed" }
   }).state;
   state = reduce(state, {
+    live: true,
     type: "turn/upserted",
     turn: { ...activeTurn(3), phase: "running" }
   }).state;
   state = reduce(state, {
+    live: true,
     type: "turn/upserted",
     turn: { ...activeTurn(4), phase: "settled", outcome: "failed" }
   }).state;
@@ -1920,10 +2265,12 @@ test("settled turn is terminal against newer live phases and outcome changes", (
 
 test("running and waiting transitions remain bidirectional before settle", () => {
   let state = reduce(createInitialSessionLifecycleState(), {
+    live: true,
     type: "turn/upserted",
     turn: activeTurn(1)
   }).state;
   state = reduce(state, {
+    live: true,
     type: "turn/upserted",
     turn: { ...activeTurn(2), phase: "waiting" }
   }).state;
@@ -1932,6 +2279,7 @@ test("running and waiting transitions remain bidirectional before settle", () =>
     "waiting"
   );
   state = reduce(state, {
+    live: true,
     type: "turn/upserted",
     turn: activeTurn(3)
   }).state;
@@ -1943,10 +2291,12 @@ test("running and waiting transitions remain bidirectional before settle", () =>
 
 test("equal timestamp terminal turn wins and invalid settling regression is rejected", () => {
   let state = reduce(createInitialSessionLifecycleState(), {
+    live: true,
     type: "turn/upserted",
     turn: { ...activeTurn(2), phase: "settling" }
   }).state;
   state = reduce(state, {
+    live: true,
     type: "turn/upserted",
     turn: { ...activeTurn(2), phase: "running" }
   }).state;
@@ -1955,6 +2305,7 @@ test("equal timestamp terminal turn wins and invalid settling regression is reje
     "settling"
   );
   state = reduce(state, {
+    live: true,
     type: "turn/upserted",
     turn: { ...activeTurn(2), phase: "settled", outcome: "completed" }
   }).state;
@@ -1981,6 +2332,7 @@ function reduce(
             content: [],
             errorCode: null,
             errorMessage: null,
+            errorReason: null,
             expiresAtUnixMs: 1,
             requestedAtUnixMs: 1,
             status: "requested",

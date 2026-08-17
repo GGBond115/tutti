@@ -133,7 +133,11 @@ func TestChildSessionReportReturnsCanonicalRelations(t *testing.T) {
 	if len(graph.Sessions) != 5 {
 		t.Fatalf("captured Sessions=%#v", graph.Sessions)
 	}
-	if err := store.RestoreHistoricalSessionGraph(ctx, "ws-restore", graph); err != nil {
+	if err := store.RestoreHistoricalSessionGraph(ctx, HistoricalSessionGraphRestoreInput{
+		WorkspaceID: "ws-restore",
+		UserID:      "user-restore",
+		Graph:       graph,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := store.ListChildSessions(ctx, "ws-restore", "root")
@@ -235,8 +239,8 @@ func TestDeleteSessionTombstonesEntireChildSessionTree(t *testing.T) {
 	for sessionID, turnID := range map[string]string{
 		"root": "root-turn", "child-1": "child-turn-1", "child-2": "child-turn-2",
 	} {
-		if turn, found, err := store.GetTurn(context.Background(), "ws-1", sessionID, turnID); err != nil || found {
-			t.Fatalf("GetTurn(%s)=%#v found=%v err=%v", sessionID, turn, found, err)
+		if turn, found, err := store.GetTurn(context.Background(), "ws-1", sessionID, turnID); err != nil || !found || turn.Phase != TurnPhaseSettled || turn.Outcome != TurnOutcomeInterrupted {
+			t.Fatalf("GetTurn(%s)=%#v found=%v err=%v, want preserved interrupted history", sessionID, turn, found, err)
 		}
 	}
 }
@@ -279,6 +283,47 @@ func TestDeleteSessionsBatchRejectsChangedDeletionPlan(t *testing.T) {
 	for _, sessionID := range []string{"root", "child-1", "child-2"} {
 		if deleted, lookupErr := store.SessionDeleted(context.Background(), "ws-1", sessionID); lookupErr != nil || deleted {
 			t.Fatalf("SessionDeleted(%s)=%v err=%v after rejected plan", sessionID, deleted, lookupErr)
+		}
+	}
+}
+
+func TestDeleteSessionsBatchPreservesRootPinnedAfterConditionalPlan(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	seedChildSessionTree(t, store)
+	ctx := context.Background()
+	sectionKey := RailSectionKeyForProject("/workspace/project")
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_sessions
+SET rail_section_key = ?
+WHERE workspace_id = 'ws-1' AND agent_session_id = 'root'
+`, sectionKey); err != nil {
+		t.Fatal(err)
+	}
+	input := DeleteSessionsBatchInput{
+		WorkspaceID:                "ws-1",
+		SessionIDs:                 []string{"root"},
+		RequiredRootRailSectionKey: sectionKey,
+		ExcludePinnedRoots:         true,
+	}
+	plan, err := store.PlanDeleteSessions(ctx, input)
+	if err != nil || len(plan.SessionIDs) != 3 {
+		t.Fatalf("PlanDeleteSessions() = %#v, error = %v", plan, err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_sessions
+SET pinned_at_unix_ms = 100
+WHERE workspace_id = 'ws-1' AND agent_session_id = 'root'
+`); err != nil {
+		t.Fatal(err)
+	}
+	input.ExpectedSessionIDs = plan.SessionIDs
+	if _, err := store.DeleteSessionsBatch(ctx, input); !errors.Is(err, ErrDeleteSessionsPlanChanged) {
+		t.Fatalf("DeleteSessionsBatch() error = %v, want plan changed", err)
+	}
+	for _, sessionID := range []string{"root", "child-1", "child-2"} {
+		if deleted, lookupErr := store.SessionDeleted(ctx, "ws-1", sessionID); lookupErr != nil || deleted {
+			t.Fatalf("SessionDeleted(%s)=%v err=%v after root was pinned", sessionID, deleted, lookupErr)
 		}
 	}
 }

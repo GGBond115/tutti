@@ -13,6 +13,7 @@ import type {
   AgentHostAgentTargetSetupWatch,
   AgentHostTerminalLoginApi,
   AgentHostTerminalLoginHandle,
+  AgentHostTerminalStartupAction,
   AgentHostToastApi
 } from "../../host/agentHostApi.ts";
 import { useTranslation } from "../../i18n/index.ts";
@@ -51,7 +52,10 @@ export interface AgentTargetSetupController {
   refresh(): Promise<void>;
   selectAuthMethod(methodId: string): void;
   setDialogOpen(open: boolean): void;
-  startTerminalLogin(command: string): Promise<void>;
+  startTerminalLogin(input: {
+    command: string;
+    startupAction?: AgentHostTerminalStartupAction | null;
+  }): Promise<void>;
   subscribe(listener: () => void): () => void;
 }
 
@@ -258,9 +262,24 @@ function createAgentTargetSetupController(input: {
       });
     }
   };
-  const startTerminalLogin = async (command: string) => {
-    const normalizedCommand = command.trim();
+  const startTerminalLogin = async (request: {
+    command: string;
+    startupAction?: AgentHostTerminalStartupAction | null;
+  }) => {
+    const normalizedCommand = request.command.trim();
     if (!input.terminalLogin || !normalizedCommand) return;
+    if (
+      request.startupAction &&
+      !input.terminalLogin.supportedStartupActionTypes?.includes(
+        request.startupAction.type
+      )
+    ) {
+      update({
+        terminalLoginError: "unavailable",
+        terminalLoginPhase: "error"
+      });
+      return;
+    }
     cancelTerminalLogin(false);
     const generation = terminalLoginGeneration;
     update({
@@ -271,7 +290,10 @@ function createAgentTargetSetupController(input: {
     try {
       handle = await input.terminalLogin.run({
         agentTargetId: input.agentTargetId,
-        command: normalizedCommand
+        command: normalizedCommand,
+        ...(request.startupAction
+          ? { startupAction: request.startupAction }
+          : {})
       });
     } catch {
       settleTerminalLogin(generation, "unavailable");
@@ -329,17 +351,23 @@ function createAgentTargetSetupController(input: {
         unsubscribe = input.watch.subscribe((setup) => {
           const notification = notifications.observe(setup);
           if (notification) input.onNotification(notification);
-          if (
-            state.terminalLoginPhase === "waiting" &&
-            setup.snapshot?.status === "ready"
-          ) {
+          const ready = setup.snapshot?.status === "ready";
+          // Setup projection is the source of truth for signed-in. Clear local
+          // in-flight flags as soon as ready arrives so CTAs cannot keep saying
+          // "opening login" after the checklist already shows a signed-in account.
+          if (ready && state.terminalLoginPhase === "waiting") {
             terminalLoginGeneration += 1;
             closeTerminalLoginHandle();
             update({
               setup,
+              authenticatePending: false,
               terminalLoginError: null,
               terminalLoginPhase: "idle"
             });
+            return;
+          }
+          if (ready && state.authenticatePending) {
+            update({ setup, authenticatePending: false });
             return;
           }
           update({ setup });

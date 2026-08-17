@@ -1,5 +1,6 @@
 import { NativeModules } from "react-native";
 import type { AccountSession, DeviceIdentity } from "../services/mobileDomain";
+import type { QRCodeScanResult } from "../services/servicePorts";
 import type { AppLifecycleNative } from "./appLifecyclePort";
 export type { AccountSession, DeviceIdentity } from "../services/mobileDomain";
 
@@ -11,10 +12,19 @@ export interface BrowserLoginCompletion {
 }
 
 interface MobileSecurityNative {
+  addListener(eventName: string): void;
   readonly clientVersion: string;
+  readonly clientVersionCode?: number;
+  cancelUpdate?(): Promise<void>;
   cancelQRCodeScan(): Promise<void>;
   clearLegacySessionCookie(accountBaseURL: string): Promise<void>;
   clearSession(): Promise<void>;
+  installUpdate?(
+    apkURL: string,
+    sha256: string,
+    sizeBytes: number,
+    targetVersionCode: number
+  ): Promise<void>;
   getOrCreateIdentity(): Promise<DeviceIdentity>;
   loadSession(): Promise<AccountSession | null>;
   saveSession(
@@ -24,7 +34,8 @@ interface MobileSecurityNative {
     name: string,
     avatarURL: string
   ): Promise<void>;
-  scanQRCode(): Promise<string>;
+  scanQRCode(): Promise<QRCodeScanResult>;
+  removeListeners(count: number): void;
   sign(message: string): Promise<string>;
   startBrowserLogin(
     appId: string,
@@ -40,6 +51,7 @@ interface MobilePreferencesNative {
 
 interface DeviceLinkNative {
   addListener(eventName: string): void;
+  cancelLink(token: number): Promise<void>;
   closeLink(): Promise<void>;
   configureRelay?: (
     endpoint: string,
@@ -47,12 +59,18 @@ interface DeviceLinkNative {
     headersJSON: string,
     subprotocol: string
   ) => Promise<void>;
+  probeRelay(timeoutMillis: number): Promise<void>;
   connectLink(
     peerDescriptionJSON: string,
     caller: boolean,
     token: number,
     timeoutMillis: number
   ): Promise<string>;
+  nextCandidateExchangeAction(
+    token: number,
+    timeoutMillis: number
+  ): Promise<string>;
+  notifyRemoteCandidateChange(token: number): Promise<void>;
   prepareLink(
     stunEndpointsJSON: string,
     timeoutMillis: number
@@ -75,11 +93,19 @@ interface DeviceLinkNative {
     status: number;
   }>;
   removeListeners(count: number): void;
+  resolveCandidateExchangeAction(
+    actionId: number,
+    succeeded: boolean,
+    retryable: boolean,
+    candidatesJSON: string,
+    token: number
+  ): Promise<number>;
   runLoopbackProbe(timeoutMillis: number): Promise<string>;
   startAgentLive(
     workspaceId: string,
     subscriptionGeneration: number
   ): Promise<void>;
+  stopCandidateExchange(token: number): Promise<void>;
   stopAgentLive(): Promise<void>;
 }
 

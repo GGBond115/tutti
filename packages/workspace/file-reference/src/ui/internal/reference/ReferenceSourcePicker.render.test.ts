@@ -8,6 +8,11 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import type { ReferenceNode } from "../../../contracts/referenceSource.ts";
+import {
+  appendReferenceSearchResultPage,
+  createReferenceSearchResultIndex,
+  referenceSearchResultNodeAt
+} from "../../../react/internal/reference/referenceSearchResultIndex.ts";
 import type { ReferenceSourcePickerProps } from "./ReferenceSourcePicker.tsx";
 
 type JsdomModule = {
@@ -208,6 +213,80 @@ test("reference source picker renders shared folder icons and content errors", a
       "directoryPicker.searchPlaceholder"
     );
 
+    const confirmedRoots: Array<
+      Array<{ path: string; kind: string; displayName: string }>
+    > = [];
+    let rootConfirmCloseCount = 0;
+    (
+      globalThis as { __referenceSourcePickerView?: unknown }
+    ).__referenceSourcePickerView = {
+      ...createFolderOnlyView(folderNode),
+      activeSourceId: "workspace",
+      activeTabLabel: "Workspace",
+      currentEntries: [],
+      currentNode: null,
+      focusedNode: null,
+      selection: [],
+      selectionCount: 0,
+      selectedGroupKey: null
+    };
+    await act(async () => {
+      root?.render(
+        createElement(ReferenceSourcePicker, {
+          aggregator: {},
+          confirmRootDirectoryPath: "/workspace",
+          copy: createCopy(),
+          fileManagerCopy: { t: (key: string) => key },
+          onClose() {
+            rootConfirmCloseCount += 1;
+          },
+          onConfirm(
+            refs: Array<{ path: string; kind: string; displayName: string }>
+          ) {
+            confirmedRoots.push(refs);
+          },
+          open: true,
+          purpose: "directory",
+          workspaceId: "workspace-directory-root-confirm-test"
+        } as unknown as ReferenceSourcePickerProps)
+      );
+    });
+    const rootConfirmBody = dom.window.document.body.textContent ?? "";
+    assert.match(rootConfirmBody, /Workspace/);
+    assert.match(rootConfirmBody, /\/workspace/);
+    assert.match(rootConfirmBody, /referencePicker\.previewFolder/);
+    assert.match(rootConfirmBody, /referencePicker\.emptyDirectory/);
+    assert.doesNotMatch(rootConfirmBody, /referencePicker\.selectGroupHint/);
+    assert.doesNotMatch(rootConfirmBody, /referencePicker\.emptyPreview/);
+    const rootConfirmButton = Array.from(
+      dom.window.document.querySelectorAll("button")
+    ).find((button) => button.textContent === "directoryPicker.confirm");
+    assert.ok(rootConfirmButton);
+    assert.equal(rootConfirmButton.disabled, false);
+    await act(async () => {
+      rootConfirmButton.dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true })
+      );
+    });
+    assert.deepEqual(confirmedRoots, [
+      [{ path: "/workspace", kind: "folder", displayName: "workspace" }]
+    ]);
+    assert.equal(rootConfirmCloseCount, 1);
+
+    (
+      globalThis as { __referenceSourcePickerView?: unknown }
+    ).__referenceSourcePickerView = {
+      ...createFolderOnlyView(folderNode),
+      canCreateDirectory: true,
+      capabilities: { directoryCreatable: true, filterable: true },
+      filterCategories: [
+        {
+          extensions: ["png"],
+          id: "image",
+          labelKey: "referencePicker.fileTypeImage"
+        }
+      ]
+    };
     let pickerCloseCount = 0;
     await act(async () => {
       root?.render(
@@ -443,7 +522,11 @@ test("reference source picker renders shared folder icons and content errors", a
       currentEntries: [],
       isQuery: true,
       searchQuery: "111",
-      searchResults: [file(opaqueNodeId, "111.md")]
+      searchResultCount: 1,
+      searchResultIdentity: 1,
+      searchResultIndex: createReferenceSearchResultIndex([
+        file(opaqueNodeId, "111.md")
+      ])
     };
     await act(async () => {
       root?.render(
@@ -461,6 +544,187 @@ test("reference source picker renders shared folder icons and content errors", a
     const searchBodyText = dom.window.document.body.textContent ?? "";
     assert.match(searchBodyText, /111\.md/);
     assert.doesNotMatch(searchBodyText, new RegExp(opaqueNodeId));
+
+    const stableSearchView = createFolderOnlyView(folderNode);
+    let largeResultIndex = createReferenceSearchResultIndex();
+    const largeResultCount = 140_000;
+    for (let page = 0; page < Math.ceil(largeResultCount / 30); page += 1) {
+      const first = page * 30;
+      largeResultIndex = appendReferenceSearchResultPage(
+        largeResultIndex,
+        Array.from(
+          { length: Math.min(30, largeResultCount - first) },
+          (_, offset) =>
+            file(`large-${first + offset}`, `large-${first + offset}.md`)
+        )
+      );
+    }
+    let loadMoreCount = 0;
+    (
+      globalThis as { __referenceSourcePickerView?: unknown }
+    ).__referenceSourcePickerView = {
+      ...stableSearchView,
+      currentEntries: [],
+      hasMore: true,
+      isQuery: true,
+      loadMore() {
+        loadMoreCount += 1;
+      },
+      searchQuery: "large",
+      searchResultCount: largeResultCount,
+      searchResultIdentity: 2,
+      searchResultIndex: largeResultIndex
+    };
+    await act(async () => {
+      root?.render(
+        createElement(ReferenceSourcePicker, {
+          aggregator: {},
+          copy: createCopy(),
+          onClose() {},
+          onConfirm() {},
+          open: true,
+          workspaceId: "workspace-reference-virtual-results-test"
+        } as unknown as ReferenceSourcePickerProps)
+      );
+    });
+    const virtualList = dom.window.document.querySelector<HTMLElement>(
+      '[data-reference-search-virtual-list="true"]'
+    );
+    assert.ok(virtualList);
+    const searchViewport = virtualList.closest<HTMLElement>(
+      '[data-testid="scroll-viewport"]'
+    );
+    assert.ok(searchViewport);
+    Object.defineProperty(searchViewport, "clientHeight", {
+      configurable: true,
+      value: 580
+    });
+    Object.defineProperty(searchViewport, "scrollHeight", {
+      configurable: true,
+      value: 8_000_000
+    });
+    searchViewport.scrollTop = 2_900_000;
+    await act(async () => {
+      searchViewport.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    const middleRows = [
+      ...dom.window.document.querySelectorAll<HTMLElement>(
+        "[data-reference-search-index]"
+      )
+    ];
+    assert.ok(middleRows.length <= 32);
+    assert.ok(
+      middleRows.some(
+        (row) => Number(row.dataset.referenceSearchIndex) >= 49_990
+      )
+    );
+    assert.equal(loadMoreCount, 0);
+    searchViewport.scrollTop = 8_000_000 - 580;
+    await act(async () => {
+      searchViewport.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    const finalRows = [
+      ...dom.window.document.querySelectorAll<HTMLElement>(
+        "[data-reference-search-index]"
+      )
+    ];
+    assert.ok(finalRows.length <= 32);
+    assert.ok(
+      finalRows.some(
+        (row) => Number(row.dataset.referenceSearchIndex) === 139_999
+      )
+    );
+    assert.equal(loadMoreCount, 1);
+    largeResultIndex = appendReferenceSearchResultPage(
+      largeResultIndex,
+      Array.from({ length: 30 }, (_, offset) =>
+        file(
+          `large-${largeResultCount + offset}`,
+          `large-${largeResultCount + offset}.md`
+        )
+      )
+    );
+    (
+      globalThis as { __referenceSourcePickerView?: unknown }
+    ).__referenceSourcePickerView = {
+      ...stableSearchView,
+      currentEntries: [],
+      hasMore: true,
+      isQuery: true,
+      loadMore() {
+        loadMoreCount += 1;
+      },
+      searchQuery: "large",
+      searchResultCount: largeResultCount + 30,
+      searchResultIdentity: 2,
+      searchResultIndex: largeResultIndex
+    };
+    await act(async () => {
+      root?.render(
+        createElement(ReferenceSourcePicker, {
+          aggregator: {},
+          copy: createCopy(),
+          onClose() {},
+          onConfirm() {},
+          open: true,
+          workspaceId: "workspace-reference-virtual-results-test"
+        } as unknown as ReferenceSourcePickerProps)
+      );
+    });
+    assert.equal(
+      loadMoreCount,
+      1,
+      "appending a capped page must not drain the remaining cursor automatically"
+    );
+    assert.ok(searchViewport.scrollTop < 8_000_000 - 580);
+    searchViewport.scrollTop = 8_000_000 - 580;
+    await act(async () => {
+      searchViewport.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    assert.equal(loadMoreCount, 2);
+    const finalNode = referenceSearchResultNodeAt(
+      largeResultIndex,
+      largeResultCount + 29
+    );
+    assert.ok(finalNode);
+    (
+      globalThis as { __workspaceFileEntryIconRenderCount?: number }
+    ).__workspaceFileEntryIconRenderCount = 0;
+    (
+      globalThis as { __referenceSourcePickerView?: unknown }
+    ).__referenceSourcePickerView = {
+      ...stableSearchView,
+      currentEntries: [],
+      focusedNode: finalNode,
+      isQuery: true,
+      searchQuery: "large",
+      searchResultCount: largeResultCount + 30,
+      searchResultIdentity: 2,
+      searchResultIndex: largeResultIndex,
+      selection: [finalNode],
+      selectionCount: 1
+    };
+    await act(async () => {
+      root?.render(
+        createElement(ReferenceSourcePicker, {
+          aggregator: {},
+          copy: createCopy(),
+          onClose() {},
+          onConfirm() {},
+          open: true,
+          workspaceId: "workspace-reference-virtual-results-test"
+        } as unknown as ReferenceSourcePickerProps)
+      );
+    });
+    assert.equal(searchViewport.scrollTop, 8_000_000 - 580);
+    const iconRenderCount = (
+      globalThis as { __workspaceFileEntryIconRenderCount?: number }
+    ).__workspaceFileEntryIconRenderCount;
+    assert.notEqual(iconRenderCount, undefined);
+    assert.ok(
+      (iconRenderCount ?? Number.POSITIVE_INFINITY) <= 32,
+      "focus and selection changes must only render the bounded visible window"
+    );
   } finally {
     if (root) {
       await act(async () => {
@@ -509,6 +773,7 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
           textClassName,
           textFrameClassName,
           viewportProps,
+          viewportRef,
           withHandle,
           ...rest
         } = props;
@@ -547,7 +812,19 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
       }
       export const ResizablePanelGroup = passthrough("div");
       export function ScrollArea(props = {}) {
-        return h("div", cleanProps(props), h("div", props.viewportProps ?? {}, props.children));
+        return h(
+          "div",
+          cleanProps(props),
+          h(
+            "div",
+            {
+              ...(props.viewportProps ?? {}),
+              "data-testid": "scroll-viewport",
+              ref: props.viewportRef
+            },
+            props.children
+          )
+        );
       }
       export const Tooltip = passthrough("span");
       export function TooltipContent(props = {}) {
@@ -601,7 +878,14 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
     "file-preview.mjs",
     `
       import { createElement } from "react";
-      export function WorkspaceFilePreviewSurface({ emptyMessage }) {
+      export function WorkspaceFilePreviewSurface({
+        directoryMessage,
+        emptyMessage,
+        state
+      }) {
+        if (state?.status === "directory") {
+          return createElement("div", null, directoryMessage);
+        }
         return createElement("div", null, emptyMessage);
       }
     `
@@ -612,6 +896,8 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
     `
       import { createElement } from "react";
       export function WorkspaceFileEntryIcon({ entry, frameClassName }) {
+        globalThis.__workspaceFileEntryIconRenderCount =
+          (globalThis.__workspaceFileEntryIconRenderCount ?? 0) + 1;
         if (entry.kind === "directory") {
           return createElement(
             "span",
@@ -752,6 +1038,7 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
     tempDir,
     "core.mjs",
     `
+      export const SOURCE_ROOT_NODE_ID = "\\0source-root";
       export function base64UrlDecode(value) {
         return Buffer.from(value, "base64url").toString("utf8");
       }
@@ -774,7 +1061,7 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
     "presentation.mjs",
     `
       export function formatReferenceNodePathText(node) {
-        return node.ref.nodeId;
+        return node.contextLabel || node.displayName || node.ref.nodeId;
       }
       export function formatReferencePreviewDateTime(value) {
         return String(value);
@@ -786,6 +1073,72 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
         return node.mtimeMs ?? node.createdTimeMs ?? null;
       }
     `
+  );
+
+  const resultIndexUrl = writeTranspiledModule(
+    tempDir,
+    "reference-search-result-index.mjs",
+    readFileSync(
+      new URL(
+        "../../../react/internal/reference/referenceSearchResultIndex.ts",
+        import.meta.url
+      ),
+      "utf8"
+    ),
+    "referenceSearchResultIndex.ts"
+  );
+  const virtualWindowUrl = writeTranspiledModule(
+    tempDir,
+    "reference-search-virtual-window.mjs",
+    readFileSync(
+      new URL("./referenceSearchVirtualWindow.ts", import.meta.url),
+      "utf8"
+    ),
+    "referenceSearchVirtualWindow.ts"
+  );
+  const iconEntryUrl = writeTranspiledModule(
+    tempDir,
+    "reference-node-icon-entry.mjs",
+    readFileSync(
+      new URL("./referenceNodeIconEntry.ts", import.meta.url),
+      "utf8"
+    ).replace(
+      /from "\.\.\/\.\.\/\.\.\/core\/index\.ts";/,
+      `from "${coreUrl}";`
+    ),
+    "referenceNodeIconEntry.ts"
+  );
+  const searchResultListUrl = writeTranspiledModule(
+    tempDir,
+    "reference-search-result-list.mjs",
+    readFileSync(
+      new URL("./ReferenceSearchResultList.tsx", import.meta.url),
+      "utf8"
+    )
+      .replace(/from "@tutti-os\/ui-system";/, `from "${uiSystemUrl}";`)
+      .replace(/from "@tutti-os\/ui-system\/icons";/, `from "${iconsUrl}";`)
+      .replace(
+        /from "@tutti-os\/workspace-file-manager";/,
+        `from "${fileManagerUrl}";`
+      )
+      .replace(
+        /from "\.\.\/\.\.\/\.\.\/core\/index\.ts";/,
+        `from "${coreUrl}";`
+      )
+      .replace(
+        /from "\.\.\/\.\.\/\.\.\/react\/internal\/reference\/referenceSearchResultIndex\.ts";/,
+        `from "${resultIndexUrl}";`
+      )
+      .replace(
+        /from "\.\/referenceNodeIconEntry\.ts";/,
+        `from "${iconEntryUrl}";`
+      )
+      .replace(
+        /from "\.\/referenceSearchVirtualWindow\.ts";/,
+        `from "${virtualWindowUrl}";`
+      ),
+    "ReferenceSearchResultList.tsx",
+    true
   );
 
   const componentSource = readFileSync(
@@ -848,9 +1201,9 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
     )
     .replace(
       new RegExp(
-        'import \\{\\s*base64UrlDecode[\\s\\S]*?\\} from "../../../core/index\\.ts";'
+        'import \\{\\s*nodeRefKey[\\s\\S]*?\\} from "../../../core/index\\.ts";'
       ),
-      `import { base64UrlDecode, nodeRefKey } from "${coreUrl}";`
+      `import { nodeRefKey, SOURCE_ROOT_NODE_ID } from "${coreUrl}";`
     )
     .replace(
       new RegExp(
@@ -866,6 +1219,14 @@ function buildReferenceSourcePickerRenderModule(tempDir: string): string {
         resolveReferencePreviewSizeBytes,
         resolveReferencePreviewTimestampMs
       } from "${presentationUrl}";`
+    )
+    .replace(
+      /from "\.\/ReferenceSearchResultList\.tsx";/,
+      `from "${searchResultListUrl}";`
+    )
+    .replace(
+      /from "\.\/referenceNodeIconEntry\.ts";/,
+      `from "${iconEntryUrl}";`
     );
 
   const transpiled = ts.transpileModule(componentSource, {
@@ -886,6 +1247,25 @@ function writeMock(tempDir: string, fileName: string, source: string): string {
   const filePath = join(tempDir, fileName);
   writeFileSync(filePath, source);
   return pathToFileURL(filePath).href;
+}
+
+function writeTranspiledModule(
+  tempDir: string,
+  outputName: string,
+  source: string,
+  sourceName: string,
+  jsx = false
+): string {
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      jsx: jsx ? ts.JsxEmit.ReactJSX : undefined,
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      verbatimModuleSyntax: true
+    },
+    fileName: sourceName
+  }).outputText;
+  return writeMock(tempDir, outputName, output);
 }
 
 function createFolderOnlyView(node: ReferenceNode) {
@@ -922,12 +1302,16 @@ function createFolderOnlyView(node: ReferenceNode) {
     previewState: { status: "empty" },
     revealNode: async () => {},
     searchQuery: "",
-    searchResults: [],
+    searchResultCount: 0,
+    searchResultIdentity: 0,
+    searchResultIndex: createReferenceSearchResultIndex(),
     selectTarget: async () => false,
     selectGroup: () => {},
     selectedGroupKey: "workspace:root",
     selection: [],
     selectionCount: 0,
+    activeSourceId: "workspace",
+    currentNode: null,
     setFilters: () => {},
     setFocusedNode: () => {},
     setSearchQuery: () => {},

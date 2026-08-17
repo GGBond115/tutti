@@ -214,6 +214,24 @@ transport、Agent live Subscriber 和产品 adapter 的现有所有权，不把 
 `cocoapods_pathname_workaround.rb`；GitHub macOS runner 和本机 pnpm workspace
 都可能在 CocoaPods 生成工程时触发该符号链接解析缺陷。
 
+### 4.1 移动端连接竞速边界
+
+移动端连接分成两个边界，不能把控制面轮询和数据面建流混为一谈：
+
+| 边界                                       | 当前策略                                                                                                                                                            | 所有者                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| DeviceLink attempt / Relay descriptor 准备 | direct attempt 与 Relay descriptor 并行；Relay 只有完成一次对端 Agent 请求/响应后才可成为可用路径；WebSocket 事件优先唤醒 direct attempt，丢失时仍按 500ms 轮询状态 | `apps/mobile/src/services/pairingClient.ts` + 原生 bridge              |
+| Agent HTTP / live 数据流                   | direct 与 Relay 的底层拨号仍可并行；两条路径先完成 DeviceLink transport probe，收到对端 ACK 后才选中，应用帧仍由原生 bridge 处理                                    | `packages/device-link/mobile` + `services/tuttid/service/mobileremote` |
+
+控制面 WebSocket 复用已上线的设备级 V2 长连接：握手携带当前 session cookie 和
+`deviceId`，只接收 `device_link.attempt.changed` 作为唤醒提示；HTTP attempt API
+仍是唯一事实来源，推送丢失、重连或乱序都由重读和 500ms 轮询兜底。paired-device
+attempt 不绑定 room，服务端按 `userId + deviceId` 精确投递，因此连接功能未开启时
+不会建立这条长连接。Relay descriptor 先准备好时，原生层先通过 DeviceLink
+transport probe 确认对端 tunnel，再让 Relay 参与连接结果竞速；具体 Agent 请求仍在
+探测成功后发送，direct attempt 仍在后台完成。TSH Desktop 的默认 3 秒 Relay 兜底策略
+属于另一套已上线产品策略，本改动不改变它。
+
 ### 账号浏览器认证边界
 
 Mobile 继续复用 Desktop 使用的托管 Web 登录页、localhost callback bridge 和账号
@@ -293,9 +311,11 @@ screen composition and product-specific interaction.
   it does not duplicate the computer list. The account service's avatar URL is
   persisted with the secure session on both platforms, while sessions written
   before that field existed continue to use the account-label fallback.
-  Software Update is an informational settings row until a signed release
-  manifest and updater service are introduced; the UI must not claim that an
-  update check ran before that application capability exists.
+  Android Software Update is a user-triggered check against the HTTPS mobile
+  release pointer. When a newer release is available, the App downloads the
+  checksum-verified APK and opens the Android package installer; Android also
+  verifies the APK's release signature and the user must confirm the
+  installation. It does not check or download in the background.
 - Mobile Settings exposes the device-local theme preference directly in the App
   section. The row opens a compact single-choice sheet for system, light, and
   dark modes; selection applies immediately across the full app and status bar.
@@ -331,13 +351,38 @@ screen composition and product-specific interaction.
   generic allow/deny commands.
 
 需要在没有本机开发环境的真机上测试时，可从 GitHub Actions 手动运行
-`Mobile Internal Build` 并选择 `android`。它只上传保留 14 天的内部 artifact
-`tutti-mobile-internal-<commit>`，其中的 `app-release.apk` 已嵌入 JavaScript
-bundle，可直接侧载；不会创建 GitHub Release 或公开下载链接。所有 Android
-artifact 使用同一把长期 release key 签名，因此可覆盖升级并为后续自动更新保留
-稳定的应用身份。CI 同时用仓库级 `github.run_number` 写入单调递增的 Android
-`versionCode`；`versionName` 仍由应用源码管理。工作流从 GitHub Actions Secrets
-读取以下四项，缺失任何一项都会在构建前失败，不得回退到临时 key 或 unsigned APK：
+`Mobile Internal Build` 并选择 `android`。默认情况下它上传保留 14 天的内部
+artifact `tutti-mobile-internal-<commit>`，其中的 `app-release.apk` 已嵌入
+JavaScript bundle，可直接侧载。所有 Android artifact 使用同一把长期 release key
+签名，因此正式 release 之间可以覆盖升级。CI 用仓库级 `github.run_number` 写入
+单调递增的 Android `versionCode`，并使用 workflow 的 `android_version_name` 作为
+`versionName`。
+
+需要发布给 App 内手动更新时，在同一个 workflow 中将 `publish_android` 设为 `true`。
+它会把 APK 上传到不可变的版本目录，并更新：
+
+```text
+https://<mobile-release-base-url>/latest.json
+```
+
+`latest.json` 使用 `tutti.android.mobile.latest.v1`，包含 `versionName`、
+`versionCode`、APK URL、APK 大小和 SHA-256。APK 和校验和写入
+`<tag>/<sha256>/` 内容寻址目录并使用长期 immutable 缓存；同一版本的失败发布即使因
+新的 Actions run number 生成了不同 APK，也会落到新的摘要目录。工作流会先预检 APK
+和校验和是否缺失或内容一致，再补传缺失对象，最后更新使用短缓存的根目录指针，避免
+部分发布把后续重试卡在不可覆盖的旧对象上。当前 App 内置的检查地址是
+`https://d1x7gb6wqsqmnm.cloudfront.net/tutti-mobile-release-assets/latest.json`，
+所以 `TUTTI_MOBILE_RELEASE_ASSETS_BASE_URL` 必须指向同一个
+`tutti-mobile-release-assets` 前缀。发布需要以下仓库变量：
+
+- `AWS_REGION`
+- `TUTTI_ARTIFACTS_AWS_ROLE_ARN`
+- `TUTTI_MOBILE_RELEASE_ASSETS_BASE_URL`
+- `TUTTI_MOBILE_RELEASE_ASSETS_S3_BUCKET`
+- `TUTTI_MOBILE_RELEASE_ASSETS_S3_PREFIX`
+
+工作流从 GitHub Actions Secrets 读取以下四项，缺失任何一项都会在构建前失败，
+不得回退到临时 key 或 unsigned APK：
 
 - `ANDROID_RELEASE_KEYSTORE_BASE64`
 - `ANDROID_RELEASE_KEYSTORE_PASSWORD`
@@ -349,38 +394,47 @@ release keystore 必须在 GitHub 之外另做加密备份。GitHub Secret 的�
 `apps/mobile/android/release-certificate.pem`；CI 会把 APK 的证书指纹与它比对，
 防止 Actions Secrets 被误换后产出另一条无法升级的签名链。
 
+Android 更新要求安装包保持相同的 application ID 和 release 签名，并且新包的
+`versionCode` 高于已安装版本。已经安装 debug 签名包的设备不能直接覆盖安装
+release 包，需要先卸载 debug 包。普通 Android 设备会在下载完成后显示系统安装
+确认，不支持静默安装。通过校验的 APK 会保留给权限恢复、安装取消或安装失败后的重试；
+安装成功回调会立即删除它，如果升级时旧进程被系统替换，则新版本首次启动会根据记录的
+目标 `versionCode` 完成清理。
+
 在 iOS 真机上测试时，运行同一工作流并选择 `ios`。它使用仓库已有的 App Store
 Connect API Key 和 `IOS_DEVELOPMENT_TEAM` 仓库变量，让 Xcode 自动管理云签名并
-使用 `IOS_TEST_DEVICE_UDID` secret 幂等登记内部测试设备，再导出 development
-IPA。工作流上传保留 14 天的内部 artifact
-`tutti-mobile-ios-internal-<commit>`，其中包含 `tutti-mobile-internal.ipa` 和
-SHA-256 校验文件；不会创建 GitHub Release 或公开下载链接。IPA 只能安装到 Apple
-Developer 后台由该 secret 配置并包含在自动生成描述文件中的设备。选择 `all` 可
-同时构建两个平台。
+组合 GitHub Actions run number 和 attempt 作为唯一构建号，导出 App Store
+Connect IPA 并上传 TestFlight。工作流会确认签名后的 App 包含 release
+`main.jsbundle`，同时上传保留 14 天的私有 artifact
+`tutti-mobile-ios-testflight-<commit>`，其中包含
+`tutti-mobile-testflight.ipa` 和 SHA-256 校验文件；不会创建 GitHub Release 或公开
+下载链接。测试人员通过 TestFlight 安装，不需要预先登记设备 UDID；App Store
+Connect 仍需把处理完成的构建分配给对应的内部或外部测试组。选择 `all` 可同时构建
+两个平台。
 
 ## 6. 调试时先判断问题属于哪一层
 
-| 现象                           | 首先检查                                                   |
-| ------------------------------ | ---------------------------------------------------------- |
-| 页面布局、点击、列表滚动不正确 | React Native component 和 state                            |
-| DTO 有值但消息渲染错误         | AgentGUI projection，不要在 screen 内临时修数据            |
-| JS 报 native module 不存在     | Native module 注册、Gradle AAR 依赖、重新安装 App          |
-| App 切后台后连接状态错误       | Android lifecycle adapter                                  |
-| 扫码未请求相机权限或立即返回   | Manifest `CAMERA`、App 权限和 ZXing `CaptureActivity`      |
-| 手动配对点击后只闪动           | `TuttiMobileSecurity`、设备 identity 注册和页面错误区      |
-| 同邮箱登录仍提示无法配对       | 确认 Mobile 与 Desktop 使用相同登录方式和同一账号 identity |
-| ICE 没有 candidate             | Manifest 网络权限、网络状态、DeviceLink 诊断               |
-| QUIC 握手失败                  | peer identity、证书 fingerprint、protocol epoch            |
-| P2P 失败但 Relay 成功          | 这是允许的 fallback，检查清洗后的 path 诊断                |
-| 手机和桌面会话状态不一致       | snapshot/event reconcile 和 Agent API，不修本地缓存        |
-| 创建、发送、取消语义不一致     | `packages/agent/host`，不能在移动端复制生命周期            |
+| 现象                           | 首先检查                                                     |
+| ------------------------------ | ------------------------------------------------------------ |
+| 页面布局、点击、列表滚动不正确 | React Native component 和 state                              |
+| DTO 有值但消息渲染错误         | AgentGUI projection，不要在 screen 内临时修数据              |
+| JS 报 native module 不存在     | Native module 注册、Gradle AAR 依赖、重新安装 App            |
+| App 切后台后连接状态错误       | Android lifecycle adapter                                    |
+| 扫码未请求相机权限或立即返回   | Manifest `CAMERA`、App 权限和 ZXing `PairingCaptureActivity` |
+| 手动配对点击后只闪动           | `TuttiMobileSecurity`、设备 identity 注册和页面错误区        |
+| 同邮箱登录仍提示无法配对       | 确认 Mobile 与 Desktop 使用相同登录方式和同一账号 identity   |
+| ICE 没有 candidate             | Manifest 网络权限、网络状态、DeviceLink 诊断                 |
+| QUIC 握手失败                  | peer identity、证书 fingerprint、protocol epoch              |
+| P2P 失败但 Relay 成功          | 这是允许的 fallback，检查清洗后的 path 诊断                  |
+| 手机和桌面会话状态不一致       | snapshot/event reconcile 和 Agent API，不修本地缓存          |
+| 创建、发送、取消语义不一致     | `packages/agent/host`，不能在移动端复制生命周期              |
 
 常用 ADB 命令：
 
 ```sh
 adb devices
 adb shell pm list packages | grep tutti
-adb shell am force-stop dev.tutti.mobile
+adb shell am force-stop sh.tutti.mobile
 adb logcat
 adb logcat -c
 adb logcat -s 'TuttiMobileSecurity:E' 'ReactNativeJS:V' '*:S'
@@ -393,14 +447,15 @@ adb install -r path/to/app-debug.apk
 Native bridge 只导出原始 Ed25519 公钥和签名结果。
 
 扫码属于页面发起、Native 完成的本地系统交互，不属于远端配对操作。Android 打开
-ZXing `CaptureActivity` 时 `MainActivity` 会暂停，但 App 进程仍在前台；
+ZXing `PairingCaptureActivity` 时 `MainActivity` 会暂停，但 App 进程仍在前台；
 `TuttiAppLifecycle` 因此不得发布后台事件。iOS 同样只向业务层投影整个
 `UIApplication` 的前后台语义，不暴露页面级过渡。设备服务使用显式 `scanning`
 阶段承接扫码结果，只有解析出配对码后才启动可被真实后台策略暂停的 claim/poll。
 已经发出的 claim 必须在回到前台后按 challenge 状态对账，不能盲目重试可能已经成功的
 POST；只读 poll 才可以在生命周期中断后安全重试。扫码 adapter 返回可取消
 operation；设备服务销毁时必须关闭原生扫描界面，并在旧 scanner callback 排空后才
-完成取消。手动输入框的展开和值属于 screen 临时状态，不进入设备服务快照。
+完成取消。扫码页内的“无法扫描？输入配对码”会关闭 Native scanner，并由 screen 打开
+共享的手动输入面板；输入框的展开和值属于 screen 临时状态，不进入设备服务快照。
 
 移动端为生命周期与配对阶段输出结构化 JavaScript 日志，只记录事件名、可枚举阶段、
 来源和脱敏错误码。禁止记录二维码、手动配对码、challenge id、secret 或 session。
@@ -457,8 +512,9 @@ Google Play 账号。以下事项等正式分发前再处理：
 - Personal `tuttid` 已接入设备注册、QR challenge、Desktop confirm、配对列表和撤销；
 - Personal 配对 API 已进入生成的 Go/TypeScript daemon client，账号 cookie 和设备私钥不会返回给 UI。
 - Desktop 设置页已接入二维码创建、配对码复制、轮询确认和撤销；
-- Desktop owner host 仅在持久化的 `mobile.remoteAccessSettings` 能力开关开启时
-  轮询配对和 DeviceLink attempt 控制面；关闭会停止 discovery 并断开已有远程链路；
+- Desktop owner host 的 mobile remote access 当前已停用；持久化的
+  `mobile.remoteAccessSettings` 键仅为旧 profile 保留，desktop daemon 会忽略它，
+  不再轮询配对和 DeviceLink attempt 控制面；
 - `apps/mobile` 已接入平台原生浏览器认证 GitHub 登录和邮箱验证码登录、Android Keystore
   设备身份、设备列表、内置 ZXing 二维码扫描或手动粘贴配对码，以及 challenge
   claim/poll；
@@ -482,6 +538,10 @@ Google Play 账号。以下事项等正式分发前再处理：
 - Android caller 已接入 create/get/update attempt、STUN 二次 gathering、真实
   DeviceLink request stream、端到端请求 deadline、prepare/connect generation
   fencing 和 Native 15 秒后台 grace period；
+- Android/iOS caller 已将 direct 与 Relay 的 Agent 数据流接入同一条即时竞速；控制面
+  Relay descriptor 先就绪时先做一次端到端 Agent 请求确认，不再把 WebSocket 101
+  当成成功，同时不等待 direct attempt 的 TTL；direct attempt 会在后台继续完成，
+  作为后续数据流竞速的 direct 候选；UI 和现有 DeviceLink path scope 保持不变；
 - 移动端已直接复用 `@tutti-os/client-tuttid-ts`，并从
   `@tutti-os/agent-gui` 复用安全的 Interaction answer model、无 DOM 的会话摘要和
   canonical 对话流 projection，完成 Personal 单 workspace 校验、按置顶/项目/最近分组的
@@ -489,8 +549,9 @@ Google Play 账号。以下事项等正式分发前再处理：
   消息读取、新建/切换、发送、停止和结构化 Interaction 提交；Native 对话流遵循同一份
   消息合并、思考、工具活动、处理态和 Turn summary 语义，并复用 AgentGUI 的
   `following` / `detached` 末尾跟随状态机；Mobile 只负责原生手势、滚动执行与展开状态。
-  会话列表标题显示当前电脑和连接状态；连接详情仅展示 Native ICE 分类后的路径范围、
-  端到端 P2P 通道和即时健康探测耗时，不暴露 candidate 或地址信息。
+  会话列表标题显示当前电脑和连接状态；连接详情继续复用现有路径、传输通道和即时
+  健康探测字段，不暴露 candidate 或地址信息；Relay 竞速属于 native transport
+  内部行为，不新增 UI 分支；
   切换会话会定位最新内容，流式更新只在 `following` 时跟随；主动上滑会在首个滚动帧前
   进入 `detached` 并提供回到底部入口，内容增长和近底部几何不能自行恢复跟随；加载历史
   消息时保持当前阅读锚点；
@@ -598,8 +659,9 @@ Mobile 也点击“使用 GitHub 登录”并在平台浏览器认证会话中�
 相同邮箱不保证得到同一个账号 identity。Desktop 先在设置的开发者页打开
 “启用手机远程访问”，再进入「连接」并点击“配对手机”生成二维码。Mobile
 登录成功后点击配对，优先扫描 Desktop 二维码。首次扫码时允许 App 使用相机；如果
-当前环境无法使用相机，就在 Desktop 点击“复制配对码”，再在 Mobile 展开手动配对
-入口并粘贴。
+当前环境无法使用相机，就在 Desktop 点击“复制配对码”，再在 Mobile 的扫码页点击
+“无法扫描？输入配对码”并粘贴。相机权限被拒绝或扫码器不可用时，Mobile 会自动打开
+同一个手动输入面板。
 
 配对二维码是 5 分钟有效的一次性 challenge。Desktop 会在 challenge 到期或状态查询
 失败后撤下旧二维码；此时重新点击“配对手机”生成新码，不要继续使用之前复制或拍摄的
@@ -610,8 +672,8 @@ Mobile 也点击“使用 GitHub 登录”并在平台浏览器认证会话中�
 按顺序验证，每一步成功后再继续：
 
 1. Mobile 只显示当前手机 identity 拥有的同账号配对设备。
-2. 点击 Desktop 后成功建立 direct DeviceLink，并且仅在返回恰好一个 Personal
-   workspace 时进入会话列表；零个或多个 workspace 都明确失败。
+2. 点击 Desktop 后成功建立可用 DeviceLink，并且仅在返回恰好一个 Personal workspace
+   时进入会话列表；零个或多个 workspace 都明确失败。
 3. 会话列表可新建、切换会话，选择后进入独立详情页并正确显示历史对话流。
 4. 发送一条普通消息，Desktop 和 Mobile 最终显示同一个结果且没有重复消息。
 5. 在 Agent 运行时点击停止，两个端最终收敛到同一个 Turn 状态。
@@ -619,8 +681,8 @@ Mobile 也点击“使用 GitHub 登录”并在平台浏览器认证会话中�
 7. 将 App 切到后台少于 15 秒再返回，当前连接保持；切到后台超过 15 秒再返回，
    App 回到设备列表并可手动重连。
 8. 在 Desktop 移除手机配对，Mobile 刷新后不再显示该 Desktop，旧连接不可继续使用。
-9. 至少分别测试同一 Wi-Fi 和手机蜂窝网络。记录 direct P2P 是否成功；蜂窝或严格
-   NAT 失败但同一 Wi-Fi 成功时，将结果归入 Relay fallback 后续项，不改 Agent 协议。
+9. 至少分别测试同一 Wi-Fi 和手机蜂窝网络，确认 Agent HTTP/live 请求均可用；Relay
+   仅作为内部传输，不改变现有 UI 和 Agent DTO。
 
 验收失败时保留三个终端：Desktop、Metro、`adb logcat`。先记录失败发生在哪一层、
 操作步骤和用户可见错误，不要复制网络 candidate、IP、Agent 正文或任何账号材料。

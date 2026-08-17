@@ -426,6 +426,7 @@ func sessionStateUpdateFromPatch(patch WorkspaceAgentStatePatch) WorkspaceAgentS
 		Capabilities:          canonical.CloneCapabilitySnapshot(patch.Capabilities),
 		RuntimeContext:        clonePayloadMap(patch.RuntimeContext),
 		RuntimeContextPatch:   canonical.CloneRuntimeContextPatch(patch.RuntimeContextPatch),
+		RuntimeActivity:       cloneRuntimeActivityObservation(patch.RuntimeActivity),
 		TurnLifecycle:         cloneTurnLifecycle(patch.TurnLifecycle),
 		SubmitAvailability:    cloneSubmitAvailability(patch.SubmitAvailability),
 		InteractionTransition: cloneInteractionTransition(patch.InteractionTransition),
@@ -448,6 +449,8 @@ func sessionStateUpdateFromPatch(patch WorkspaceAgentStatePatch) WorkspaceAgentS
 			ActiveTurnID:            cloneStringPointer(patch.Turn.ActiveTurnID),
 			Phase:                   strings.TrimSpace(patch.Turn.Phase),
 			Outcome:                 strings.TrimSpace(patch.Turn.Outcome),
+			ErrorCode:               strings.TrimSpace(patch.Turn.ErrorCode),
+			ErrorMessage:            strings.TrimSpace(patch.Turn.ErrorMessage),
 			Settling:                patch.Turn.Settling,
 			CompletedCommand:        cloneCompletedCommand(patch.Turn.CompletedCommand),
 			SubmitAvailability:      cloneSubmitAvailability(patch.Turn.SubmitAvailability),
@@ -458,6 +461,16 @@ func sessionStateUpdateFromPatch(patch WorkspaceAgentStatePatch) WorkspaceAgentS
 		}
 	}
 	return out
+}
+
+func cloneRuntimeActivityObservation(
+	value *canonical.WorkspaceAgentRuntimeActivityObservation,
+) *canonical.WorkspaceAgentRuntimeActivityObservation {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func cloneCapabilityReferences(

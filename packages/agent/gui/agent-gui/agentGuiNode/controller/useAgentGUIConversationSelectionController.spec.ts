@@ -82,10 +82,13 @@ describe("clearRolledBackAgentGUISelection", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
+        nodeId: "node-1",
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
           dispatch: vi.fn(),
@@ -193,10 +196,13 @@ describe("clearRolledBackAgentGUISelection", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
+        nodeId: "node-1",
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
           dispatch: vi.fn(),
@@ -265,6 +271,31 @@ describe("clearRolledBackAgentGUISelection", () => {
     const transientConversation = {
       id: failedAgentSessionId
     } as AgentGUIConversationSummary;
+    const failedActivationSnapshot = {
+      pendingIntents: {
+        activationsByRequestId: {
+          "activation-1": {
+            agentSessionId: failedAgentSessionId,
+            agentTargetId: "target-1",
+            clientSubmitId: "submit-1",
+            content: [],
+            cwd: "/workspace",
+            errorCode: null,
+            errorMessage: "create failed",
+            expiresAtUnixMs: 45_001,
+            initialPromptRetracted: false,
+            initialTurnExpected: false,
+            mode: "new",
+            requestId: "activation-1",
+            requestedAtUnixMs: 1,
+            status: "failed",
+            title: null,
+            workspaceId: "workspace-1"
+          }
+        }
+      },
+      sessionLifecycle: { sessionsById: {} }
+    };
 
     const { result } = renderHook(() => {
       const [activeConversationId, setActiveConversationId] = useState<
@@ -311,16 +342,17 @@ describe("clearRolledBackAgentGUISelection", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
+        nodeId: "node-1",
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
           dispatch: vi.fn(),
-          getSnapshot: vi.fn(() => ({
-            pendingIntents: { activationsByRequestId: {} }
-          }))
+          getSnapshot: vi.fn(() => failedActivationSnapshot)
         } as unknown as AgentSessionEngine,
         setActiveConversationId,
         setDetailError: vi.fn(),
@@ -353,9 +385,7 @@ describe("clearRolledBackAgentGUISelection", () => {
         },
         sessionEngine: {
           dispatch: vi.fn(),
-          getSnapshot: vi.fn(() => ({
-            pendingIntents: { activationsByRequestId: {} }
-          }))
+          getSnapshot: vi.fn(() => failedActivationSnapshot)
         } as unknown as AgentSessionEngine,
         setIntent,
         transientConversation,
@@ -419,11 +449,14 @@ describe("conversation reload ownership", () => {
         intent,
         isComposerHomeRef,
         isMountedRef: { current: true },
+        isSurfaceActive: true,
+        isSurfaceVisible: true,
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages,
         loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: (agentSessionId) =>
           agentSessionId,
+        nodeId: "node-1",
         onDataChangeRef: {
           current: (updater) => {
             dataRef.current = updater(dataRef.current);
@@ -457,13 +490,17 @@ describe("shouldMarkActiveConversationRead", () => {
     completionKey: "turn:session-1:turn-1:completed",
     isUnread: true,
     kind: "completed" as const,
-    markedUnreadByUser: false
+    markedUnreadByUser: false,
+    observationProvenance: "live" as const
   };
 
   it("keeps a manually marked unread completion unread in the current selection", () => {
     expect(
       shouldMarkActiveConversationRead({
         activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceDocumentExposed: true,
+        isSurfaceVisible: true,
         previousActiveConversationId: "session-1",
         record: { ...record, markedUnreadByUser: true }
       })
@@ -474,6 +511,9 @@ describe("shouldMarkActiveConversationRead", () => {
     expect(
       shouldMarkActiveConversationRead({
         activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceDocumentExposed: true,
+        isSurfaceVisible: true,
         previousActiveConversationId: "session-2",
         record: { ...record, markedUnreadByUser: true }
       })
@@ -484,9 +524,51 @@ describe("shouldMarkActiveConversationRead", () => {
     expect(
       shouldMarkActiveConversationRead({
         activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceDocumentExposed: true,
+        isSurfaceVisible: true,
         previousActiveConversationId: "session-1",
         record
       })
     ).toBe(true);
+  });
+
+  it("keeps unread attention when the selected Session belongs to an inactive surface", () => {
+    expect(
+      shouldMarkActiveConversationRead({
+        activeConversationId: "session-1",
+        isSurfaceActive: false,
+        isSurfaceDocumentExposed: true,
+        isSurfaceVisible: true,
+        previousActiveConversationId: "session-1",
+        record
+      })
+    ).toBe(false);
+  });
+
+  it("keeps unread attention when the selected Session belongs to a hidden surface", () => {
+    expect(
+      shouldMarkActiveConversationRead({
+        activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceDocumentExposed: true,
+        isSurfaceVisible: false,
+        previousActiveConversationId: "session-1",
+        record
+      })
+    ).toBe(false);
+  });
+
+  it("keeps unread attention when the document is hidden or unfocused", () => {
+    expect(
+      shouldMarkActiveConversationRead({
+        activeConversationId: "session-1",
+        isSurfaceActive: true,
+        isSurfaceDocumentExposed: false,
+        isSurfaceVisible: true,
+        previousActiveConversationId: "session-1",
+        record
+      })
+    ).toBe(false);
   });
 });

@@ -55,7 +55,7 @@ type cancelTurnInput struct {
 
 type sendInput struct {
 	SessionID string   `cli:"session-id" validate:"required"`
-	Guidance  bool     `cli:"guidance" description:"Send this prompt as guidance to the currently active turn instead of starting a new turn."`
+	Guidance  bool     `cli:"guidance" description:"Capture and guide the exact active turn instead of starting a new turn."`
 	Images    []string `cli:"image" description:"Image file to attach to this prompt. May be passed multiple times."`
 	Prompt    string   `cli:"prompt" validate:"required"`
 }
@@ -142,7 +142,7 @@ func (p Provider) runStart(ctx context.Context, invoke framework.InvokeContext, 
 		return nil, fmt.Errorf("%w: agent target id is required", cliservice.ErrInvalidInput)
 	}
 	provider := strings.TrimSpace(target.Provider)
-	launchContext, err := p.resolveStartLaunchContext(ctx, invoke.WorkspaceID, input.Cwd, invoke.Request.Context)
+	launchContext, err := resolveStartLaunchContext(input.Cwd, invoke.Request.Context)
 	if err != nil {
 		return nil, err
 	}
@@ -212,57 +212,36 @@ type startLaunchContext struct {
 	railPlacement *agenthost.RailPlacement
 }
 
-func (p Provider) resolveStartLaunchContext(
-	ctx context.Context,
-	workspaceID string,
+func resolveStartLaunchContext(
 	explicit string,
 	invokeContext cliservice.InvokeContext,
 ) (startLaunchContext, error) {
 	if cwd := strings.TrimSpace(explicit); cwd != "" {
 		return startLaunchContext{cwd: cwd}, nil
 	}
-	callerID := strings.TrimSpace(invokeContext.AgentSessionID)
-	if callerID == "" {
+	cwd := strings.TrimSpace(invokeContext.AgentCWD)
+	encodedPlacement := strings.TrimSpace(invokeContext.AgentRailPlacementJSON)
+	if cwd == "" && encodedPlacement == "" {
 		return startLaunchContext{}, nil
 	}
-	session, err := p.sessions.Get(ctx, workspaceID, callerID)
-	if err != nil {
-		return startLaunchContext{}, err
+	if cwd == "" || encodedPlacement == "" {
+		return startLaunchContext{}, fmt.Errorf(
+			"%w: inherited Agent cwd and rail placement must be provided together",
+			cliservice.ErrInvalidInput,
+		)
 	}
-	kind := agenthost.RailPlacementKind(strings.TrimSpace(session.RailSectionKind))
-	projectPath := strings.TrimSpace(session.RailProjectPath)
-	cwd := strings.TrimSpace(session.Cwd)
-	if cwd == "" && kind == agenthost.RailPlacementKindProject {
-		cwd = projectPath
+	placement, err := agenthost.ParseAgentRailPlacementEnvironment(encodedPlacement)
+	if err != nil {
+		return startLaunchContext{}, fmt.Errorf(
+			"%w: invalid inherited Agent rail placement: %v",
+			cliservice.ErrInvalidInput,
+			err,
+		)
 	}
 	return startLaunchContext{
 		cwd:           cwd,
-		railPlacement: railPlacementFromCallerSession(session),
+		railPlacement: placement,
 	}, nil
-}
-
-func railPlacementFromCallerSession(session agentservice.Session) *agenthost.RailPlacement {
-	kind := agenthost.RailPlacementKind(strings.TrimSpace(session.RailSectionKind))
-	projectPath := strings.TrimSpace(session.RailProjectPath)
-	sectionKey := strings.TrimSpace(session.RailSectionKey)
-	switch kind {
-	case agenthost.RailPlacementKindConversations:
-		if projectPath != "" || sectionKey != "conversations" {
-			return nil
-		}
-	case agenthost.RailPlacementKindProject:
-		if projectPath == "" || sectionKey == "" || sectionKey == "conversations" {
-			return nil
-		}
-	default:
-		return nil
-	}
-	return &agenthost.RailPlacement{
-		Version:     1,
-		Kind:        kind,
-		ProjectPath: projectPath,
-		SectionKey:  sectionKey,
-	}
 }
 
 func (p Provider) newOpenCommand() cliservice.Command {
@@ -341,6 +320,17 @@ func (p Provider) runSend(ctx context.Context, invoke framework.InvokeContext, i
 	if err != nil {
 		return nil, err
 	}
+	turnID := ""
+	if input.Guidance {
+		session, err := p.sessions.Get(ctx, invoke.WorkspaceID, input.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		turnID = strings.TrimSpace(session.ActiveTurnID)
+		if turnID == "" {
+			return nil, agentservice.ErrActiveTurnTargetRequired
+		}
+	}
 	messagePage, err := p.sessions.ListMessages(ctx, invoke.WorkspaceID, input.SessionID, agentservice.ListMessagesInput{
 		Limit: 1,
 		Order: agentactivitybiz.MessageOrderDesc,
@@ -352,6 +342,7 @@ func (p Provider) runSend(ctx context.Context, invoke framework.InvokeContext, i
 	result, err := p.sessions.SendInput(ctx, invoke.WorkspaceID, input.SessionID, agentservice.SendInput{
 		Content:        content,
 		Guidance:       input.Guidance,
+		TurnID:         turnID,
 		ClientSubmitID: uuid.NewString(),
 	})
 	if err != nil {

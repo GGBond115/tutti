@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
@@ -24,6 +25,7 @@ type serviceHostRuntimePreparationSupport interface {
 	prepareRuntimeForResume(context.Context, PersistedSession) (preparedRuntime, error)
 	resolveProviderTargetRefForResume(context.Context, PersistedSession) (map[string]any, error)
 	cleanupSessionResources(context.Context, string, string) error
+	releaseSessionResourcesForRecoverableDeletion(context.Context, string, string) error
 	deleteTuttiModeActivationSessionState(context.Context, string, string) error
 }
 
@@ -32,31 +34,39 @@ type serviceHostRuntimePreparationSupport interface {
 // cleanup dependencies; it has no Host or Service reference.
 type serviceRuntimePreparation struct {
 	runtimePreparer              runtimeprep.Preparer
+	connectorRuntime             ConnectorRuntime
+	connectorCapabilities        ConnectorCapabilityResolver
 	modelGateway                 ModelGatewayRegistry
 	modelCatalog                 AgentModelCatalog
 	agentTargetStore             AgentTargetStore
 	workspaceAgentResolver       WorkspaceAgentResolver
 	extensionComposerProfiles    ExtensionComposerProfileResolver
+	browserUseAvailable          func() bool
 	computerUseAvailable         func() bool
 	modelPlanBinding             modelPlanBindingRuntime
 	agentSessionResourceReleaser AgentSessionResourceReleaser
+	sessionReader                SessionReader
 	tuttiModeActivations         TuttiModeActivationPort
 }
 
 func newServiceRuntimePreparation(config ServiceConfig) *serviceRuntimePreparation {
 	return &serviceRuntimePreparation{
 		runtimePreparer:           config.Runtime.Preparer,
+		connectorRuntime:          config.Runtime.Connector,
+		connectorCapabilities:     config.Runtime.ConnectorCapabilities,
 		modelGateway:              config.Runtime.ModelGateway,
 		modelCatalog:              config.Composer.ModelCatalog,
 		agentTargetStore:          config.Composer.AgentTargetStore,
 		workspaceAgentResolver:    config.Composer.WorkspaceAgentResolver,
 		extensionComposerProfiles: config.Composer.ExtensionComposerProfiles,
+		browserUseAvailable:       config.Runtime.BrowserUseAvailable,
 		computerUseAvailable:      config.Runtime.ComputerUseAvailable,
 		modelPlanBinding: modelPlanBindingRuntime{
 			Bindings: config.Runtime.ModelBindings,
 			Plans:    config.Runtime.ModelPlans,
 		},
 		agentSessionResourceReleaser: config.Resources.AgentSessionResourceReleaser,
+		sessionReader:                config.Sessions.Reader,
 		tuttiModeActivations:         config.Observers.TuttiModeActivations,
 	}
 }
@@ -67,13 +77,17 @@ func (p *serviceRuntimePreparation) facade() *Service {
 	}
 	return &Service{
 		RuntimePreparer:              p.runtimePreparer,
+		ConnectorRuntime:             p.connectorRuntime,
+		ConnectorCapabilities:        p.connectorCapabilities,
 		ModelGateway:                 p.modelGateway,
 		ModelCatalog:                 p.modelCatalog,
 		AgentTargetStore:             p.agentTargetStore,
 		WorkspaceAgentResolver:       p.workspaceAgentResolver,
 		ExtensionComposerProfiles:    p.extensionComposerProfiles,
+		BrowserUseAvailable:          p.browserUseAvailable,
 		ComputerUseAvailable:         p.computerUseAvailable,
 		AgentSessionResourceReleaser: p.agentSessionResourceReleaser,
+		SessionReader:                p.sessionReader,
 		TuttiModeActivations:         p.tuttiModeActivations,
 		modelPlanBinding:             p.modelPlanBinding,
 	}
@@ -108,6 +122,14 @@ func (p *serviceRuntimePreparation) cleanupSessionResources(
 	return p.facade().cleanupSessionResources(ctx, workspaceID, agentSessionID)
 }
 
+func (p *serviceRuntimePreparation) releaseSessionResourcesForRecoverableDeletion(
+	ctx context.Context,
+	workspaceID string,
+	agentSessionID string,
+) error {
+	return p.facade().releaseSessionResourcesForRecoverableDeletion(ctx, workspaceID, agentSessionID)
+}
+
 func (p *serviceRuntimePreparation) deleteTuttiModeActivationSessionState(
 	ctx context.Context,
 	workspaceID string,
@@ -139,7 +161,8 @@ func withServicePreparedRuntime(ctx context.Context, service *Service, prepared 
 
 func (a serviceHostPreparation) Prepare(ctx context.Context, input agenthost.RuntimePreparationInput) (agenthost.PreparedRuntime, error) {
 	if override, ok := ctx.Value(servicePreparedRuntimeContextKey{}).(servicePreparedRuntimeContext); ok && override.support == a.support {
-		return agenthost.PreparedRuntime{Cwd: override.prepared.Cwd, Env: append([]string(nil), override.prepared.Env...)}, nil
+		return agenthost.PreparedRuntime{Cwd: override.prepared.Cwd, Env: append([]string(nil), override.prepared.Env...),
+			MCPServers: hostMCPServerBindings(override.prepared.MCPServers)}, nil
 	}
 	settings := input.Settings
 	persisted := PersistedSession{
@@ -154,23 +177,47 @@ func (a serviceHostPreparation) Prepare(ctx context.Context, input agenthost.Run
 	if err != nil {
 		return agenthost.PreparedRuntime{}, err
 	}
+	cleanupPreparationFailure := func(cause error) error {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		return errors.Join(cause, a.support.cleanupSessionResources(
+			cleanupCtx,
+			input.WorkspaceID,
+			input.AgentSessionID,
+		))
+	}
 	if err := a.bindCommittedSessionForkProviderState(ctx, input); err != nil {
-		return agenthost.PreparedRuntime{}, err
+		return agenthost.PreparedRuntime{}, cleanupPreparationFailure(err)
 	}
 	var targetRef map[string]any
 	if strings.TrimSpace(input.AgentTargetID) != "" {
 		resolvedRef, err := a.support.resolveProviderTargetRefForResume(ctx, persisted)
 		if err != nil {
-			return agenthost.PreparedRuntime{}, err
+			return agenthost.PreparedRuntime{}, cleanupPreparationFailure(err)
 		}
 		targetRef = resolvedRef
 	}
 	settings = persisted.Settings
 	return agenthost.PreparedRuntime{
-		Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...),
+		Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...), MCPServers: hostMCPServerBindings(prepared.MCPServers),
 		ProviderTargetRef: clonePayload(targetRef), Settings: &settings,
 		RuntimeContext: persistedSessionRuntimeContext(persisted),
 	}, nil
+}
+
+func hostMCPServerBindings(input []runtimeprep.MCPServerBinding) []agenthost.MCPServerBinding {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make([]agenthost.MCPServerBinding, 0, len(input))
+	for _, binding := range input {
+		headers := make(map[string]string, len(binding.Headers))
+		for key, value := range binding.Headers {
+			headers[key] = value
+		}
+		result = append(result, agenthost.MCPServerBinding{Name: binding.Name, Type: binding.Type, URL: binding.URL, Headers: headers})
+	}
+	return result
 }
 
 func (a serviceHostPreparation) bindCommittedSessionForkProviderState(
@@ -224,5 +271,15 @@ func (a serviceHostPreparation) Cleanup(ctx context.Context, input agenthost.Run
 	if input.OrphanActivationCleanup {
 		activationErr = a.support.deleteTuttiModeActivationSessionState(ctx, input.WorkspaceID, input.AgentSessionID)
 	}
-	return errors.Join(a.support.cleanupSessionResources(ctx, input.WorkspaceID, input.AgentSessionID), activationErr)
+	var resourceErr error
+	if input.PreserveRecoverableState {
+		resourceErr = a.support.releaseSessionResourcesForRecoverableDeletion(
+			ctx,
+			input.WorkspaceID,
+			input.AgentSessionID,
+		)
+	} else {
+		resourceErr = a.support.cleanupSessionResources(ctx, input.WorkspaceID, input.AgentSessionID)
+	}
+	return errors.Join(resourceErr, activationErr)
 }

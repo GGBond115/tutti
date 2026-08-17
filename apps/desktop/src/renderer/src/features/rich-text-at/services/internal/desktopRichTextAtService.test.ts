@@ -170,6 +170,36 @@ test("desktop rich text @ service assembles workspace file providers by capabili
   });
 });
 
+test("desktop file mention provider preserves native Windows folder separators", async () => {
+  const service = new DesktopRichTextAtService({
+    tuttidClient: createTuttidClient({
+      async searchWorkspaceFiles() {
+        return {
+          entries: [
+            {
+              kind: "directory",
+              name: "generated",
+              path: "C:\\Users\\demo\\workspace\\generated\\",
+              score: 100
+            }
+          ],
+          root: "C:\\Users\\demo\\workspace",
+          workspaceID: "workspace-1"
+        };
+      }
+    })
+  });
+  const provider = getProvider(service, "file");
+  const [item] = await queryProvider(provider);
+
+  assert.equal((item as { kind?: string } | undefined)?.kind, "directory");
+  assert.deepEqual(provider.toInsertResult(item), {
+    href: "C:\\Users\\demo\\workspace\\generated\\",
+    kind: "markdown-link",
+    label: "generated"
+  });
+});
+
 test("desktop rich text @ service assembles workspace issue providers by capability", async () => {
   const listCalls: Array<{
     workspaceId: string;
@@ -1581,6 +1611,189 @@ test("desktop rich text @ service honors abort before provider search starts", a
   assert.equal(searchCallCount, 0);
 });
 
+test("desktop file mention provider lists direct file and folder children", async () => {
+  const calls: Array<{ workspaceId: string; path?: string }> = [];
+  const service = new DesktopRichTextAtService({
+    tuttidClient: createTuttidClient({
+      async listWorkspaceFileDirectory(
+        workspaceId: string,
+        request?: { includeHidden?: boolean; path?: string }
+      ) {
+        calls.push({ workspaceId, path: request?.path });
+        return {
+          directoryPath: request?.path ?? "/workspace",
+          entries: [
+            { kind: "directory", name: "docs", path: "/workspace/docs" },
+            {
+              kind: "file",
+              name: "README.md",
+              path: "/workspace/README.md"
+            }
+          ],
+          root: "/workspace",
+          workspaceID: workspaceId
+        };
+      }
+    })
+  });
+  const [provider] = service.getProviders({
+    capabilities: ["file"],
+    surface: "workspace-app-external",
+    target: "workspace-app",
+    workspaceId: "workspace-1"
+  });
+  assert.ok(provider?.queryDirectory);
+
+  const rootItems = await provider.queryDirectory({
+    context: {},
+    directoryPath: "",
+    keyword: "",
+    trigger: "@"
+  });
+  const childItems = await provider.queryDirectory({
+    context: {},
+    directoryPath: "/workspace/docs",
+    keyword: "",
+    trigger: "@"
+  });
+
+  assert.deepEqual(calls, [
+    { workspaceId: "workspace-1", path: undefined },
+    { workspaceId: "workspace-1", path: "/workspace/docs" }
+  ]);
+  assert.deepEqual(rootItems, childItems);
+  assert.deepEqual(provider.getItemDirectory?.(rootItems[0]), {
+    path: "/workspace/docs"
+  });
+  assert.equal(provider.getItemDirectory?.(rootItems[1]), null);
+  assert.deepEqual(provider.toInsertResult(rootItems[0]), {
+    href: "/workspace/docs/",
+    kind: "markdown-link",
+    label: "docs"
+  });
+});
+
+test("workspace app file mention provider rejects directories outside its root", async () => {
+  const calls: Array<{ workspaceId: string; path?: string }> = [];
+  const service = new DesktopRichTextAtService({
+    tuttidClient: createTuttidClient({
+      async listWorkspaceFileDirectory(
+        workspaceId: string,
+        request?: { includeHidden?: boolean; path?: string }
+      ) {
+        calls.push({ workspaceId, path: request?.path });
+        return {
+          directoryPath: "/workspace",
+          entries: [],
+          root: "/workspace",
+          workspaceID: workspaceId
+        };
+      }
+    })
+  });
+  const [provider] = service.getProviders({
+    capabilities: ["file"],
+    surface: "workspace-app-external",
+    target: "workspace-app",
+    workspaceId: "workspace-1"
+  });
+  assert.ok(provider?.queryDirectory);
+
+  await assert.rejects(
+    Promise.resolve(
+      provider.queryDirectory({
+        context: {},
+        directoryPath: "/etc",
+        keyword: "",
+        trigger: "@"
+      })
+    ),
+    /escapes the provider root/
+  );
+  assert.deepEqual(calls, [{ workspaceId: "workspace-1", path: undefined }]);
+});
+
+test("workspace app file mention provider rejects directories resolved under another root", async () => {
+  const service = new DesktopRichTextAtService({
+    tuttidClient: createTuttidClient({
+      async listWorkspaceFileDirectory(
+        workspaceId: string,
+        request?: { includeHidden?: boolean; path?: string }
+      ) {
+        return request?.path
+          ? {
+              directoryPath: request.path,
+              entries: [],
+              root: "/",
+              workspaceID: workspaceId
+            }
+          : {
+              directoryPath: "/workspace",
+              entries: [],
+              root: "/workspace",
+              workspaceID: workspaceId
+            };
+      }
+    })
+  });
+  const [provider] = service.getProviders({
+    capabilities: ["file"],
+    surface: "workspace-app-external",
+    target: "workspace-app",
+    workspaceId: "workspace-1"
+  });
+  assert.ok(provider?.queryDirectory);
+
+  await assert.rejects(
+    Promise.resolve(
+      provider.queryDirectory({
+        context: {},
+        directoryPath: "/workspace/external-link",
+        keyword: "",
+        trigger: "@"
+      })
+    ),
+    /resolved outside the provider root/
+  );
+});
+
+test("desktop agent file mention provider keeps external absolute directory access", async () => {
+  const calls: Array<{ workspaceId: string; path?: string }> = [];
+  const service = new DesktopRichTextAtService({
+    tuttidClient: createTuttidClient({
+      async listWorkspaceFileDirectory(
+        workspaceId: string,
+        request?: { includeHidden?: boolean; path?: string }
+      ) {
+        calls.push({ workspaceId, path: request?.path });
+        return {
+          directoryPath: request?.path ?? "/workspace",
+          entries: [{ kind: "file", name: "hosts", path: "/etc/hosts" }],
+          root: request?.path ? "/" : "/workspace",
+          workspaceID: workspaceId
+        };
+      }
+    })
+  });
+  const [provider] = service.getProviders({
+    capabilities: ["file"],
+    surface: "desktop-agent-composer",
+    target: "agent-gui",
+    workspaceId: "workspace-1"
+  });
+  assert.ok(provider?.queryDirectory);
+
+  const items = await provider.queryDirectory({
+    context: {},
+    directoryPath: "/etc",
+    keyword: "",
+    trigger: "@"
+  });
+
+  assert.equal((items[0] as { path?: string } | undefined)?.path, "/etc/hosts");
+  assert.deepEqual(calls, [{ workspaceId: "workspace-1", path: "/etc" }]);
+});
+
 test("desktop rich text @ service passes abort signals through to tuttid search", async () => {
   let receivedSignal: AbortSignal | undefined;
   const service = new DesktopRichTextAtService({
@@ -1642,84 +1855,4 @@ test("desktop rich text @ service skips provider caching when metadata is presen
 
   assert.notEqual(secondProviders, firstProviders);
   assert.notEqual(secondProviders[0], firstProviders[0]);
-});
-
-test("desktop rich text @ service lists enabled plan models for workspace-model mentions", async () => {
-  const service = new DesktopRichTextAtService({
-    tuttidClient: {
-      async listModelPlans(workspaceId: string) {
-        assert.equal(workspaceId, "workspace-1");
-        return {
-          plans: [
-            {
-              enabled: true,
-              id: "plan-relay",
-              models: [
-                { id: "grok-4.5", name: "xAI: Grok 4.5" },
-                { id: "glm-5.2", name: "Z.Ai: GLM 5.2" }
-              ],
-              name: "Relay endpoint"
-            },
-            {
-              enabled: false,
-              id: "plan-disabled",
-              models: [{ id: "hidden-model", name: "Hidden" }],
-              name: "Disabled plan"
-            }
-          ]
-        };
-      }
-    } as unknown as TuttidClient
-  });
-
-  const providers = service.getProviders({
-    capabilities: ["workspace-model"],
-    surface: "composer",
-    target: "agent-gui",
-    workspaceId: "workspace-1"
-  });
-  assert.equal(providers.length, 1);
-  const provider = providers[0];
-  assert.ok(provider);
-  assert.equal(provider.id, "workspace-model");
-
-  const items = await provider.query({
-    context: {},
-    keyword: "grok",
-    maxResults: 5,
-    trigger: "@"
-  });
-  assert.equal(items.length, 1);
-  assert.equal(provider.getItemLabel(items[0]), "xAI: Grok 4.5");
-  assert.equal(provider.getItemSubtitle?.(items[0]), "Relay endpoint");
-
-  const insert = provider.toInsertResult(items[0]);
-  assert.deepEqual(insert, {
-    kind: "mention",
-    mention: {
-      entityId: "grok-4.5",
-      label: "xAI: Grok 4.5",
-      presentation: { subtitle: "Relay endpoint" },
-      scope: { modelPlanId: "plan-relay", workspaceId: "workspace-1" }
-    }
-  });
-
-  const resolved = await provider.resolveMention?.({
-    entityId: "grok-4.5",
-    label: "xAI: Grok 4.5",
-    providerId: "workspace-model",
-    scope: { modelPlanId: "plan-relay", workspaceId: "workspace-1" }
-  });
-  assert.deepEqual(resolved, {
-    label: "xAI: Grok 4.5",
-    presentation: { subtitle: "Relay endpoint" }
-  });
-
-  const disabledPlanItems = await provider.query({
-    context: {},
-    keyword: "hidden",
-    maxResults: 5,
-    trigger: "@"
-  });
-  assert.equal(disabledPlanItems.length, 0);
 });

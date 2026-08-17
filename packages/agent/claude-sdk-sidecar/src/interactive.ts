@@ -5,10 +5,14 @@ import type {
   PermissionUpdate
 } from "@anthropic-ai/claude-agent-sdk";
 import { isDeepStrictEqual } from "node:util";
-import { answersFromInteractivePayload } from "./normalizer.ts";
+import {
+  answersFromInteractivePayload,
+  stampAskUserQuestionInput
+} from "./normalizer.ts";
 import type { ClaudeSDKSidecarEventEmitter } from "./protocol.ts";
 import type { ProviderTurnPhase } from "./providerTurnAcceptance.ts";
 import { stringValue } from "./runtimeValues.ts";
+import { SessionPermissionLedger } from "./sessionPermissionLedger.ts";
 import {
   approvalOptions,
   effectivePermissionMode,
@@ -71,6 +75,7 @@ export class InteractiveCoordinator {
     signal?: AbortSignal
   ) => Promise<void>;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
+  private readonly sessionPermissions = new SessionPermissionLedger();
 
   constructor(options: {
     settings: SidecarSessionSettings;
@@ -168,6 +173,17 @@ export class InteractiveCoordinator {
       return { behavior: "allow", updatedInput: toolInput };
     }
 
+    const restoredPermissions = this.sessionPermissions.rehydrate(
+      callbackOptions.suggestions
+    );
+    if (restoredPermissions) {
+      return {
+        behavior: "allow",
+        updatedInput: toolInput,
+        updatedPermissions: restoredPermissions
+      };
+    }
+
     const submission = await this.request(
       "approval_requested",
       toolName,
@@ -177,6 +193,9 @@ export class InteractiveCoordinator {
     );
     this.emitResolved("approval_resolved", submission);
     if (isAllowOption(submission.optionId)) {
+      if (submission.optionId === "allow_always") {
+        this.sessionPermissions.remember(callbackOptions.suggestions);
+      }
       return {
         behavior: "allow",
         updatedInput: toolInput,
@@ -198,10 +217,11 @@ export class InteractiveCoordinator {
     toolInput: Record<string, unknown>,
     callbackOptions: ToolPermissionOptions
   ): Promise<PermissionResult> {
+    const stampedInput = stampAskUserQuestionInput(toolInput);
     const submission = await this.request(
       "user_input_requested",
       "AskUserQuestion",
-      toolInput,
+      stampedInput,
       [],
       callbackOptions
     );
@@ -209,8 +229,8 @@ export class InteractiveCoordinator {
     return {
       behavior: "allow",
       updatedInput: {
-        questions: toolInput.questions,
-        answers: answersFromInteractivePayload(submission.payload, toolInput)
+        questions: stampedInput.questions,
+        answers: answersFromInteractivePayload(submission.payload, stampedInput)
       }
     };
   }

@@ -46,10 +46,10 @@ type localProcessConnection struct {
 	frames             chan ProcessFrame
 	stdin              io.WriteCloser
 
-	closeOnce sync.Once
-	sendMu    sync.Mutex
-	inputOnce sync.Once
-	closeErr  error
+	closeMu     sync.Mutex
+	closingOnce sync.Once
+	sendMu      sync.Mutex
+	inputOnce   sync.Once
 }
 
 func NewLocalProcessTransport() ProcessTransport {
@@ -59,6 +59,9 @@ func NewLocalProcessTransport() ProcessTransport {
 func (localProcessTransport) Start(ctx context.Context, spec ProcessSpec) (ProcessConnection, error) {
 	if len(spec.Command) == 0 || spec.Command[0] == "" {
 		return nil, errors.New("process command is required")
+	}
+	if len(spec.SensitiveInheritedFiles) != 0 {
+		return nil, errors.New("sensitive inherited files require the connector process transport")
 	}
 	select {
 	case <-ctx.Done():
@@ -300,29 +303,34 @@ func (c *localProcessConnection) Close() error {
 	if c == nil {
 		return nil
 	}
-	c.closeOnce.Do(func() {
-		close(c.closing)
-		_ = c.CloseInput()
-		if !c.waitDone(250 * time.Millisecond) {
-			_ = c.Terminate()
-		}
-		if !c.waitDone(750 * time.Millisecond) {
-			killErr := c.Kill()
-			if !c.waitDone(2 * time.Second) {
-				if killErr != nil {
-					c.closeErr = killErr
-					return
-				}
-				c.closeErr = errors.New("process did not exit after kill")
-				return
-			}
-		}
-	})
-	if c.closeErr != nil {
-		return c.closeErr
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.waitDone(0) {
+		return nil
 	}
-	<-c.done
-	return nil
+	c.closingOnce.Do(func() { close(c.closing) })
+	return closeLocalProcessAttempt(c.waitDone, c.CloseInput, c.Terminate, c.Kill)
+}
+
+func closeLocalProcessAttempt(
+	waitDone func(time.Duration) bool,
+	closeInput func() error,
+	terminate func() error,
+	kill func() error,
+) error {
+	_ = closeInput()
+	if waitDone(250 * time.Millisecond) {
+		return nil
+	}
+	_ = terminate()
+	if waitDone(750 * time.Millisecond) {
+		return nil
+	}
+	killErr := kill()
+	if waitDone(2 * time.Second) {
+		return nil
+	}
+	return errors.Join(killErr, errors.New("process did not exit after kill"))
 }
 
 func (c *localProcessConnection) CloseInput() error {
@@ -386,14 +394,8 @@ func (w processFrameWriter) Write(data []byte) (int, error) {
 	} else {
 		frame.Stderr = chunk
 	}
-	select {
-	case w.conn.frames <- frame:
-		return len(data), nil
-	case <-w.conn.closing:
-		// Closing intentionally discards unread diagnostics. Report the write as
-		// consumed so an orderly shutdown is not rewritten as a copy failure.
-		return len(data), nil
-	}
+	w.conn.sendFrame(frame)
+	return len(data), nil
 }
 
 func (c *localProcessConnection) wait() {
@@ -410,10 +412,31 @@ func (c *localProcessConnection) wait() {
 			exitCode = exitErr.ExitCode()
 		}
 	}
-	select {
-	case c.frames <- ProcessFrame{ExitCode: &exitCode}:
-	case <-c.closing:
-	}
+	c.sendFrame(ProcessFrame{ExitCode: &exitCode})
 	close(c.frames)
 	close(c.done)
+}
+
+// sendFrame preserves the output ordering guarantee even when Close has
+// started. Once closing is signaled, a send and the close signal are both
+// ready; choosing between them directly would make final stdout/stderr
+// diagnostics disappear nondeterministically. Prefer an available queue slot
+// before observing closing, and make one last non-blocking attempt after the
+// connection starts closing.
+func (c *localProcessConnection) sendFrame(frame ProcessFrame) {
+	select {
+	case c.frames <- frame:
+		return
+	default:
+	}
+
+	select {
+	case c.frames <- frame:
+		return
+	case <-c.closing:
+		select {
+		case c.frames <- frame:
+		default:
+		}
+	}
 }

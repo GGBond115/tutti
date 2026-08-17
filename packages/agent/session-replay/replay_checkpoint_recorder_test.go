@@ -1,11 +1,13 @@
 package sessionreplay
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
+	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 func TestProviderEntityAddressIsStableAcrossRuntimeIDs(t *testing.T) {
@@ -610,6 +612,15 @@ func TestQueuedSubmitActivityBoundaryWaitsForDrainEffect(t *testing.T) {
 	if !activityIntentRequiresEffect("activation/requested") {
 		t.Fatal("activation/requested still requires an effect")
 	}
+	if !activityIntentRequiresEffect("session/stopRequested") {
+		t.Fatal("stopRequested declares turn/cancel and must defer checkpoint cuts")
+	}
+	if !activityIntentRequiresEffect("session/cancelRequested") {
+		t.Fatal("cancelRequested declares turn/cancel and must defer checkpoint cuts")
+	}
+	if activityIntentRequiresEffect("queue/enqueued") {
+		t.Fatal("queue/enqueued has no declared effects")
+	}
 	var recorder checkpointRecorder
 	queued := ActivityEvent{
 		Kind:           ActivityEventKindIntent,
@@ -633,5 +644,177 @@ func TestQueuedSubmitActivityBoundaryWaitsForDrainEffect(t *testing.T) {
 	got := recorder.completeActivityBoundary([]ActivityEvent{drain})
 	if len(got) != 2 {
 		t.Fatalf("drain should complete queued submit boundary: %#v", got)
+	}
+}
+
+func TestActivityBoundaryDefersWhileEarlierIntentPending(t *testing.T) {
+	ctx := context.Background()
+	artifacts := &activityEventArtifactStore{}
+	store := &serviceMetadataStore{}
+	service := &Service{Workflow: &Workflow{
+		States:    serviceFixtureStore{},
+		Artifacts: artifacts,
+		Transport: serviceRecorder{},
+		Store:     store,
+		NewID:     func() string { return "recording-pending-intent" },
+	}}
+	recording, err := service.Start(ctx, StartInput{
+		WorkspaceID: "workspace-1", AgentTargetID: "local:codex",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Bind(ctx, BindInput{
+		RecordingID: recording.ID, WorkspaceID: "workspace-1",
+		AgentTargetID: "local:codex", AgentSessionID: "session-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RecordActivityEvent(ctx, RecordingActivityEvent{
+		Kind: ActivityEventKindIntent, Type: "session/stopRequested",
+		EventID: "cancel-intent", WorkspaceID: "workspace-1",
+		AgentSessionID: "session-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RecordActivityEvent(ctx, RecordingActivityEvent{
+		Kind: ActivityEventKindIntent, Type: "activation/requested",
+		EventID: "activation-intent", WorkspaceID: "workspace-1",
+		AgentSessionID: "session-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RecordActivityEvent(ctx, RecordingActivityEvent{
+		Kind: ActivityEventKindEffect, Type: "session/activate",
+		EventID: "activate-1", CausedByEventID: "activation-intent",
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		Payload: map[string]any{"outcome": "succeeded"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, checkpoint := range service.checkpoints.plan.Checkpoints {
+		if checkpoint.Trigger.Source == CheckpointTriggerActivityBoundary {
+			t.Fatalf(
+				"must not cut activity boundary while cancel intent is pending: %#v",
+				checkpoint,
+			)
+		}
+	}
+	if _, pending := service.checkpoints.pendingActivityIntents["cancel-intent"]; !pending {
+		t.Fatal("cancel intent should remain pending across interleaved activation")
+	}
+	if got := service.checkpoints.completeActivityBoundary([]ActivityEvent{{
+		Kind:            ActivityEventKindEffect,
+		Type:            "turn/cancel",
+		EventID:         "cancel-effect",
+		CausedByEventID: "cancel-intent",
+		AgentSessionID:  "session-1",
+	}}); len(got) != 2 {
+		t.Fatalf("cancel effect should complete pending cancel intent: %#v", got)
+	}
+	if len(service.checkpoints.pendingActivityIntents) != 0 {
+		t.Fatalf(
+			"pending intents after cancel effect = %#v",
+			service.checkpoints.pendingActivityIntents,
+		)
+	}
+}
+
+func TestReconciledGoalKeepsActivationAsEntityOrigin(t *testing.T) {
+	ctx := context.Background()
+	service := &Service{Workflow: &Workflow{
+		States:    serviceFixtureStore{},
+		Artifacts: &activityEventArtifactStore{},
+		Transport: serviceRecorder{},
+		Store:     &serviceMetadataStore{},
+		NewID:     func() string { return "recording-goal-origin" },
+	}}
+	recording, err := service.Start(ctx, StartInput{
+		WorkspaceID: "workspace-1", AgentTargetID: "local:codex",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Bind(ctx, BindInput{
+		RecordingID: recording.ID, WorkspaceID: "workspace-1",
+		AgentTargetID: "local:codex", AgentSessionID: "session-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []RecordingActivityEvent{
+		{
+			Kind: ActivityEventKindIntent, Type: "activation/requested",
+			EventID: "activation-intent", WorkspaceID: "workspace-1",
+			AgentSessionID: "session-1",
+		},
+		{
+			Kind: ActivityEventKindEffect, Type: "session/activate",
+			EventID: "activation-effect", CausedByEventID: "activation-intent",
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+			Payload: map[string]any{
+				"outcome": "succeeded",
+				"initialGoalControl": map[string]any{
+					"action": "set", "objective": "count",
+				},
+			},
+		},
+		{
+			Kind: ActivityEventKindDirectStimulus,
+			Type: "session.settings.update", EventID: "unrelated-settings",
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		},
+	} {
+		if err := service.RecordActivityEvent(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := service.ObserveCommitted(ctx, agenthost.CommittedDelta{
+		TransactionID: "transaction-goal-complete",
+		GoalOperation: &agenthost.GoalOperationCommitted{
+			Stage: agenthost.GoalOperationReconciled,
+			State: storesqlite.SessionGoalState{
+				AgentSessionID: "session-1",
+				Observed: map[string]any{
+					"status": "complete", "objective": "count",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var completed *ReplayCheckpoint
+	for index := range service.checkpoints.plan.Checkpoints {
+		checkpoint := &service.checkpoints.plan.Checkpoints[index]
+		if containsString(checkpoint.Tags, "goal.completed") {
+			completed = checkpoint
+		}
+	}
+	if completed == nil {
+		t.Fatalf("goal.completed checkpoint missing from %#v", service.checkpoints.plan.Checkpoints)
+	}
+	var goalAddress *EntityAddress
+	for index := range completed.Subjects {
+		if completed.Subjects[index].Kind == EntityKindGoal {
+			goalAddress = &completed.Subjects[index]
+		}
+	}
+	if goalAddress == nil {
+		t.Fatalf("goal.completed subjects = %#v", completed.Subjects)
+	}
+	if got := goalAddress.Origin.ActivityEventSequence; got != 2 {
+		t.Fatalf("Goal origin sequence = %d, want activation effect sequence 2", got)
+	}
+}
+
+func TestGoalCheckpointForCommittedMapsCompleteObservation(t *testing.T) {
+	kind, status, ok := goalCheckpointForCommitted(agenthost.GoalOperationCommitted{
+		Stage: agenthost.GoalOperationReconciled,
+		State: storesqlite.SessionGoalState{
+			AgentSessionID: "session-1",
+			Observed:       map[string]any{"status": "complete", "objective": "count"},
+		},
+	})
+	if !ok || kind != "goal.completed" || status != "completed" {
+		t.Fatalf("kind=%q status=%q ok=%v", kind, status, ok)
 	}
 }

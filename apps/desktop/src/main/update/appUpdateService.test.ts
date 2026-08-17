@@ -60,6 +60,35 @@ test("createAppUpdateService can simulate a dev prerelease update", async () => 
   }
 });
 
+test("store-managed updates never configure or invoke the direct updater", async () => {
+  const driver = createFakeDriver();
+  const service = createAppUpdateService(driver, {
+    currentVersion: "1.2.3",
+    releaseFeedResolver: async () => {
+      throw new Error("Store builds must not resolve a direct release feed");
+    },
+    supportsUpdates: false,
+    unsupportedMessage: "Updates are managed by Microsoft Store."
+  });
+
+  try {
+    const configured = await service.configure({
+      channel: "rc",
+      policy: "auto"
+    });
+    const checked = await service.checkForUpdates();
+    const downloaded = await service.downloadUpdate();
+    await service.installUpdate();
+
+    assert.equal(configured.status, "unsupported");
+    assert.equal(checked.status, "unsupported");
+    assert.equal(downloaded.status, "unsupported");
+    assert.deepEqual(driver.configureCalls, []);
+  } finally {
+    service.dispose();
+  }
+});
+
 test("mandatory update sessions exclusively own and restore the updater", async () => {
   let checkCalls = 0;
   const driver = createFakeDriver({
@@ -192,6 +221,64 @@ test("createAppUpdateService reports static feed resolution errors", async () =>
 
     assert.equal(service.getState().status, "error");
     assert.deepEqual(driver.feedUrls, []);
+  } finally {
+    service.dispose();
+  }
+});
+
+test("createAppUpdateService records native check failures", async () => {
+  const driver = createFakeDriver({
+    checkForUpdates: async () => {
+      throw new Error("Update feed connection closed");
+    }
+  });
+  const service = createAppUpdateService(driver, {
+    supportsUpdates: true
+  });
+
+  try {
+    await service.configure({ channel: "stable", policy: "prompt" });
+    await waitFor(
+      () => service.getState().status === "error",
+      "native update check failure did not update service state"
+    );
+
+    assert.equal(service.getState().message, "Update feed connection closed");
+  } finally {
+    service.dispose();
+  }
+});
+
+test("createAppUpdateService records download promise failures", async () => {
+  const listeners: {
+    available?: (info: UpdateInfo) => void;
+  } = {};
+  const driver = createFakeDriver({
+    async downloadUpdate() {
+      throw new Error("Differential download connection closed");
+    },
+    onUpdateAvailable(listener) {
+      listeners.available = listener;
+      return noop;
+    }
+  });
+  const service = createAppUpdateService(driver, {
+    supportsUpdates: true
+  });
+
+  try {
+    await service.configure({ channel: "stable", policy: "prompt" });
+    listeners.available?.(createUpdateInfoFixture("1.1.0"));
+
+    await assert.rejects(
+      service.downloadUpdate(),
+      /Differential download connection closed/
+    );
+    assert.equal(service.getState().status, "error");
+    assert.equal(
+      service.getState().message,
+      "Differential download connection closed"
+    );
   } finally {
     service.dispose();
   }

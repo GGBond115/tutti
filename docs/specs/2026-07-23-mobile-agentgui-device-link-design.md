@@ -1,8 +1,8 @@
 # Mobile AgentGUI And DeviceLink Design
 
-Status: accepted product direction; Personal direct-lane MVP in implementation
+Status: accepted product direction; Personal direct-lane MVP currently disabled
 
-## Implementation progress (2026-07-27)
+## Implementation progress (2026-08-11)
 
 The release-enabled `packages/device-link` core now preserves the production ICE,
 QUIC, certificate-pinning, candidate filtering and privacy behavior extracted
@@ -13,9 +13,19 @@ adapters still own room/device identity, rendezvous, Relay credentials and
 fallback policy. Personal Desktop and Android consume the same authenticated
 facade; the direct lane includes paired-device rendezvous, framed Agent HTTP,
 request deadlines, event streaming and foreground/background close behavior.
+The shared `candidateexchange` coordinator now owns immediate ICE credential
+publication, local candidate coalescing and exact-snapshot retries, plus remote
+push-with-poll reconciliation. Personal Desktop consumes it directly; the
+gomobile `ActionPump` facade lets Android and iOS start `Connect` before STUN
+gathering finishes while Go owns publication/refresh workers, retry timers, and
+polling. TypeScript performs signed rendezvous I/O and validates the returned
+authoritative attempt before resolving an action. TSH still consumes the
+lower-level Trickle primitives and remains a post-release adapter migration
+rather than a workspace replacement.
 Android 15 ARM64 emulator build/install/start and authenticated loopback
-integration pass. Real-account physical-device network transitions and Relay
-fallback remain hardening work that does not expand the transport API. A stable
+integration pass. Mobile's Relay stream race and native consumer integration are
+now implemented; real-account physical-device network transitions and end-to-end
+Relay verification remain hardening work. A stable
 tag still requires the authenticated lifecycle checks and reproducible Mobile
 AAR consumer build to pass at the release head. TSH cutover to the shared
 manager remains a consumer-side rollout step.
@@ -222,9 +232,12 @@ TypeScript 侧继续使用：
 ### 7.4 P2P 与 Relay
 
 - P2P 与 Relay 同时受同一设备身份和配对授权约束。
-- Direct 立即开始；Relay 在现有竞速窗口后启动，快速失败时立即启动。
+- Mobile 的 Agent HTTP/live 数据流 direct 与 Relay 同时立即开始，首个成功的
+  authenticated stream 获胜；TSH Desktop 的默认 3 秒 Relay 兜底窗口由其产品策略
+  保持不变。
 - 第一条完成认证的可用链路获胜，晚到链路关闭。
-- 主界面不展示 P2P/Relay 区别，只展示连接中、已连接、重连中和设备离线。
+- 主界面和连接详情继续复用现有状态与 path scope，不新增 P2P/Relay 展示分支；选路
+  只在 native transport 内部生效。
 - 具体选路、耗时和 fallback reason 只进入清洗后的诊断与指标，不记录 candidate、IP、token 或 Agent payload。
 
 ## 8. 账号、配对和设备身份
@@ -251,12 +264,10 @@ Cookie，也不新增移动端账号实体。Android 在浏览器 provider 支�
 5. tsh-server 校验同账号和 challenge 状态；
 6. Desktop 显式确认配对。
 
-Desktop 的账号登录入口与手机远程访问入口独立发布。Tutti Agent 及工作区账号菜单
-默认显示且不再提供独立的开发者可见性开关。独立持久化的
-`mobile.remoteAccessSettings` feature flag 控制手机远程访问能力和「连接」设置入口；
-关闭时 `tuttid` owner host 不得轮询账号、配对或 DeviceLink attempt 控制面，并关闭
-已有远程链路；开启时立即开始 owner-side discovery。「连接」页承载账号登录、退出、
-刷新、手机配对和远程访问能力。该开关不创建第二套登录态、设备实体或协议能力。
+Desktop 的账号登录入口与手机远程访问入口独立发布。手机远程访问当前已停用；
+`mobile.remoteAccessSettings` 仅作为旧 profile 的持久化兼容键保留，desktop daemon
+会强制忽略它，不启动 owner-side discovery，也不提供手机配对 UI。「连接」页仍承载
+账号登录、退出和刷新。该开关不创建第二套登录态、设备实体或协议能力。
 
 QR 不包含 bearer token、私钥、原始候选或可长期使用的连接凭据。
 
@@ -422,6 +433,26 @@ MVP 优先共享 conversation projection、稳定 row identity、相邻消息合
 
 所有移动端文案仍进入 i18n。不得在 Native 组件中硬编码用户可见文案。
 
+### 11.4 会话详情展示节奏
+
+Native Mobile 会话详情保持正常时间顺序，不在展示层重组 Turn 或推断新的
+Interaction 状态。页面 Header 使用两层信息展示会话标题与现有 workspace/device
+上下文；Transcript 在宽屏上限制阅读宽度，用户消息使用紧凑气泡，Assistant 正文保持
+平面排版，Reasoning、Tool、Processing 和文件摘要使用低权重的渐进披露样式。
+会话首次进入时在最终布局帧跟随最新消息；用户已离开底部并触摸历史内容时，应先退出
+follow-end，再处理 Reasoning、Tool 或文件摘要的展开，避免内容高度变化把阅读位置强制跳回
+末尾。离开底部后保留明确的“回到底部”动作。
+
+Pending Interaction 是 Composer 前的 normal-flow sibling，并且仍是当前 exact
+Interaction 的唯一 actionable 挂载点。多个 pending 项在有限高度的独立滚动区中保持
+canonical 顺序和 exact identity；页面不把它复制为第二张 transcript 操作卡，也不使用
+absolute overlay，也不参与 Transcript 的滚动锚点或 follow-end 几何计算。Composer 使用单一 token-backed surface
+组织草稿、现有设置入口和 Send/Stop action，继续服从原有 Engine projection、草稿、
+readiness 和 overlay activation fence，不在 Native presentation 中重解释业务状态。
+窄屏上的 Composer 设置入口允许水平滚动，并使用跨平台边缘方向提示表达仍有更多设置
+（Android 同时保留原生渐隐）；键盘弹起时
+Composer 整体上移，Transcript 继续保留可阅读区域。
+
 ## 12. Composer
 
 MVP 支持：
@@ -514,9 +545,13 @@ Wi-Fi/蜂窝切换和 VPN/TUN 失败分类仍待验证。
 当前进度：共享 facade、Desktop owner host、Android caller bridge、真实
 authenticated stream 集成测试，以及代际隔离、连接池、建连去重、连接竞速和探测
 退避的 product-neutral manager 均已完成；Tutti Desktop `mobileremote` owner
-已经作为首个 adapter 接管共享 manager，TSH adapter 切换和真机跨网络验证仍待
-完成。Relay 身份认证、控制面、fallback 产品策略和 TSH 产品诊断继续由消费端
-拥有。
+已经作为首个 adapter 接管共享 manager 和 `candidateexchange`；Android/iOS 通过
+同一 Go coordinator 的 gomobile start、next/resolve action、notify 与 stop/cancel
+边界接入。初始 ICE 凭据允许携带空 candidate 立即发布，双方在 `Connect` 运行期间继续
+增量交换 candidate，不再串行等待两轮 STUN gathering；retry snapshot、500ms poll
+timer 与 worker lifecycle 不再由 TypeScript 维护第二份，服务端返回的权威 attempt
+确认 candidate 已落库后才完成 publication ACK。TSH adapter 切换和真机跨网络验证仍待
+完成。Relay 身份认证、控制面、fallback 产品策略和 TSH 产品诊断继续由消费端拥有。
 
 ### M2 — 设备、配对和控制面
 
@@ -557,17 +592,26 @@ challenge claim/poll，并只展示属于当前 Mobile identity 的配对设备�
 allowlist 和 Android fetch adapter，并直接复用生成的
 `@tutti-os/client-tuttid-ts`；workspace、Agent Target catalog、Session
 list/get/create/send/cancel/Interaction 均沿用现有 HTTP contract。owner host 会在
-caller 获得 response-only STUN endpoints 并二次发布 ICE 后再认领 attempt，避免
-连接旧 fingerprint。
+caller 获得 response-only STUN endpoints、替换临时 Participant 并立即二次发布 ICE
+凭据后再认领 attempt，避免连接旧 fingerprint；该初始快照可以没有 candidate。
+owner 与 caller 随后在 `Connect` 已运行时通过权威 attempt 快照增量补齐 candidate，
+WebSocket 只负责唤醒，丢失时继续使用 500ms HTTP 校准。
 
 Relay Agent lane 已接入同一套应用帧协议：Desktop `mobileremote` 只在用户打开
 移动端连接开关后获取 Relay owner demand，按 Device Authority 完成 identity
 enrollment、owner token 和 lease renewal；Relay stream prelude 校验 authority、
 user、target、channel 及 paired-device scope 后复用现有 Agent HTTP/live handler。
-Mobile 在直连准备阶段并行请求短期 Relay descriptor，直连优先，直连无法建立时由
-Android/iOS native adapter 使用相同 framed HTTP/live 协议拨号 Relay。因此 UI、生成
-客户端和 Agent DTO 不变。pairing 的 active 快照仍由现有控制面轮询刷新，Relay stream
-在本地快照中找不到 pairing 时 fail closed；快照刷新间隔是当前 2 秒轮询周期。
+Mobile 在直连准备阶段并行请求短期 Relay descriptor；原生层对每条 direct/Relay
+数据流先完成共享 DeviceLink transport probe，收到对端 ACK 后才让该路径赢得竞速，
+再发送应用帧；不会取消 direct attempt，后者继续到成功或当前连接代际失效。
+Android/iOS native adapter 不能把 WebSocket 101 或本地 QUIC stream allocation 单独
+当作成功路径。因此 UI、生成客户端和 Agent DTO 不变。paired-device attempt 的
+`device_link.attempt.changed` 通过已上线的设备级 V2 WebSocket 作为唤醒提示，连接
+建立时携带 session cookie 与 `deviceId`；客户端收到提示后仍通过 HTTP attempt API
+读取权威状态，推送丢失、重连或乱序时回退到 500ms 状态轮询。服务端对没有 room 的
+paired-device attempt 使用 `userId + deviceId` 精确投递；未开启连接功能的 Desktop
+不会建立这条长连接。pairing 的 active 快照仍在本地使用当前 2 秒周期轮询，Relay
+stream 在本地快照中找不到 pairing 时 fail closed。
 
 这里依赖的 Relay descriptor、Device Authority 和 `tsh-tunnel-relay` Agent channel
 是跨仓库的增量契约；服务端部署状态不在 Tutti 仓库内，须以对应 tsh-server/relay
@@ -692,16 +736,16 @@ P2P 成功率不是单独的发布门槛。发布目标是 direct 优先且 Rela
 
 ## 18. 风险与缓解
 
-| 风险                                                  | 影响                         | 缓解                                                                      |
-| ----------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------- |
-| gomobile、Pion ICE 与 quic-go 在 Android 真机行为不同 | 核心链路不可用或不稳定       | M0 先做 vertical slice；在 UI 投入前完成跨网络真机测试                    |
-| Android 网络/VPN 路由与 macOS 物理接口策略不同        | candidate 不可达或错误选路   | Android 初期使用系统路由，保留分类诊断；VPN/TUN 单独验收                  |
-| 直接导入 AgentGUI 带入 DOM/Monaco                     | Metro 构建失败或 bundle 膨胀 | 平台无关 subpath 建立严格 import boundary 和检查                          |
-| Relay 当前 channel 只覆盖既有 query lane              | 写操作被错误复用或授权过宽   | 增加明确 paired-device Agent channel，复用身份校验但不复用业务含义        |
-| App 与 Desktop 快速迭代产生协议漂移                   | 无法连接                     | 单一 `protocolEpoch` fail-fast，并协调开发期发布，不维护兼容分支          |
-| Desktop/Mobile 并发导致 ambiguous delivery            | 重复消息或重复响应           | 稳定 submit/request identity；超时后先读权威状态再重试                    |
-| UI 跨平台统一范围过大                                 | 阻塞 MVP                     | 首批共享 projection 与行为；Native renderer 独立；验证后再提炼 token/组件 |
-| 控制面意外记录敏感数据                                | 隐私泄露                     | schema、日志和指标只允许身份/分类信息；Agent payload 保持端到端数据面     |
+| 风险                                                  | 影响                         | 缓解                                                                                                                                     |
+| ----------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| gomobile、Pion ICE 与 quic-go 在 Android 真机行为不同 | 核心链路不可用或不稳定       | M0 先做 vertical slice；在 UI 投入前完成跨网络真机测试                                                                                   |
+| Android 网络/VPN 路由与 macOS 物理接口策略不同        | candidate 不可达或错误选路   | Android 默认使用 `system` 的共享 LAN-first host priority，并保留 server-reflexive 公网 fallback；Android Network 绑定与 VPN/TUN 单独验收 |
+| 直接导入 AgentGUI 带入 DOM/Monaco                     | Metro 构建失败或 bundle 膨胀 | 平台无关 subpath 建立严格 import boundary 和检查                                                                                         |
+| Relay 当前 channel 只覆盖既有 query lane              | 写操作被错误复用或授权过宽   | 增加明确 paired-device Agent channel，复用身份校验但不复用业务含义                                                                       |
+| App 与 Desktop 快速迭代产生协议漂移                   | 无法连接                     | 单一 `protocolEpoch` fail-fast，并协调开发期发布，不维护兼容分支                                                                         |
+| Desktop/Mobile 并发导致 ambiguous delivery            | 重复消息或重复响应           | 稳定 submit/request identity；超时后先读权威状态再重试                                                                                   |
+| UI 跨平台统一范围过大                                 | 阻塞 MVP                     | 首批共享 projection 与行为；Native renderer 独立；验证后再提炼 token/组件                                                                |
+| 控制面意外记录敏感数据                                | 隐私泄露                     | schema、日志和指标只允许身份/分类信息；Agent payload 保持端到端数据面                                                                    |
 
 ## 19. 后续演进
 

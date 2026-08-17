@@ -51,6 +51,7 @@ export {
 } from "./usage.ts";
 export {
   createAgentActivityWorkspaceEventCoordinator,
+  type AgentActivityWorkspaceEventIngestOptions,
   type AgentActivityWorkspaceEventInput
 } from "./workspaceEventCoordinator.ts";
 export {
@@ -211,11 +212,13 @@ export {
 export type { SessionMessagesState } from "./engine/sessionMessages.types.ts";
 export {
   selectComposerOptions,
-  selectComposerOptionsLoadStatus
+  selectComposerOptionsLoadStatus,
+  selectComposerOptionsSectionLoadStatus
 } from "./engine/composerOptions.selectors.ts";
 export type {
   ComposerOptionsIntent,
   ComposerOptionsCommand,
+  ComposerOptionsSection,
   ComposerOptionsState
 } from "./engine/composerOptions.types.ts";
 export type {
@@ -223,6 +226,8 @@ export type {
   AttentionReadCommand,
   AttentionReadIntent,
   AttentionReadRecord,
+  AttentionObservationProvenance,
+  AttentionReadStateProvenance,
   AttentionReadState
 } from "./engine/attentionReadState.types.ts";
 export {
@@ -238,9 +243,12 @@ export {
   selectEngineLatestTurn,
   selectEnginePendingInteractions,
   selectEngineSession,
+  selectEngineSessionCanReload,
+  selectFailedNewActivationResolution,
   selectEngineSessionDeleted,
   selectEngineSessionIsRespondingToInteraction,
   selectEngineSessionRuntimeAvailability,
+  selectEngineSessionRuntimeActivity,
   selectEngineSessionSettingsUpdate,
   selectEngineSessionOperationError,
   selectEngineSessionOperation,
@@ -266,6 +274,7 @@ export {
   canonicalTurnKey
 } from "./engine/sessionEntityKeys.ts";
 export type {
+  FailedNewActivationResolution,
   WorkspaceAgentConsumerCounts,
   WorkspaceAgentConsumerSession
 } from "./engine/sessionLifecycle.selectors.ts";
@@ -278,6 +287,7 @@ export type {
   SessionCancelStatus,
   SessionOperationState,
   SessionRuntimeAvailability,
+  SessionRuntimeActivity,
   SessionSettingsUpdateState,
   SessionSettingsUpdateStatus,
   SessionLifecycleState,
@@ -322,6 +332,9 @@ export type {
 export type {
   ActivityMessagesReceivedIntent,
   PendingActivationIntentRecord,
+  PendingActivationCommandOutcome,
+  PendingActivationLastObservedStage,
+  PendingActivationSnapshotOutcome,
   PendingActivationStatus,
   PendingIntentsIntent,
   PendingIntentsState,
@@ -349,9 +362,11 @@ export {
   sessionActivationPresentationMapsEqual,
   selectLatestActivationForSession,
   selectLatestPendingSubmitForSession,
+  selectPendingSubmits,
   selectPendingSubmitsForSession,
   selectSessionActivationPresentations,
   selectSessionHasUnconfirmedSubmit,
+  selectSessionHasPendingSubmitStopTarget,
   selectSessionIsSubmitting
 } from "./engine/pendingIntents.selectors.ts";
 export type { SessionActivationPresentation } from "./engine/pendingIntents.selectors.ts";
@@ -394,6 +409,7 @@ export type {
   AgentActivityCollaborationTriggerSource,
   AgentActivityCollaborationUsage,
   AgentActivityCreateSessionInput,
+  AgentActivitySessionIsolation,
   AgentActivityDeleteSessionInput,
   AgentActivityDeleteSessionResult,
   AgentActivityDeleteSessionsInput,
@@ -422,6 +438,7 @@ export type {
   AgentActivitySessionCapabilities,
   AgentActivitySessionGoal,
   AgentActivitySessionGoalState,
+  AgentActivitySessionGoalSyncState,
   AgentActivitySessionGoalSyncStatus,
   AgentActivitySessionPermissionConfig,
   AgentActivitySessionUsage,

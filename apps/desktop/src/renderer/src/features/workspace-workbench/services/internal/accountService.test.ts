@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createTuttidClient } from "@tutti-os/client-tuttid-ts";
 import { AccountService } from "./accountService.ts";
 
 test("AccountService opens login URL and refreshes user after completion", async () => {
@@ -59,14 +60,84 @@ test("AccountService opens login URL and refreshes user after completion", async
     }
   });
 
-  await service.startLogin();
+  const result = await service.startLogin();
 
+  assert.deepEqual(result, { error: null });
   assert.deepEqual(opened, ["https://tutti.sh/auth/login?state=test"]);
   assert.equal(service.store.signingIn, false);
   await waitFor(() => service.store.user?.user_id === "user-1");
   await waitFor(
     () => service.store.productSummary?.membership?.display_name === "Pro"
   );
+});
+
+test("AccountService returns the current login failure independently", async () => {
+  const service = new AccountService({
+    hostFilesApi: {
+      async openExternal() {}
+    },
+    tuttidClient: {
+      async startAccountLogin() {
+        throw new Error("login daemon unavailable");
+      },
+      async getAccountLoginStatus() {
+        throw new Error("unexpected status");
+      },
+      async getAccountUserInfo() {
+        return null;
+      },
+      async getAccountProductSummary() {
+        throw new Error("unexpected product summary refresh");
+      },
+      async dismissAccountRegistrationCreditsReward() {},
+      async logoutAccount() {}
+    }
+  });
+
+  const result = await service.startLogin();
+
+  assert.deepEqual(result, { error: "login daemon unavailable" });
+  assert.equal(service.store.error, "login daemon unavailable");
+});
+
+test("AccountService recovers login after the managed daemon restarts", async () => {
+  let starts = 0;
+  const delays: number[] = [];
+  const opened: string[] = [];
+  const service = new AccountService({
+    delay: async (milliseconds) => {
+      delays.push(milliseconds);
+    },
+    hostFilesApi: {
+      async openExternal(url) {
+        opened.push(url);
+      }
+    },
+    tuttidClient: createTuttidClient({
+      fetch: async (input) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input.toString()
+        );
+        if (url.pathname === "/v1/account/login/start") {
+          starts += 1;
+          if (starts < 3) throw new TypeError("Failed to fetch");
+          return Response.json({
+            attempt_id: "attempt-recovered",
+            expires_at: Date.now() + 60_000,
+            login_url: "https://example.test/login"
+          });
+        }
+        return Response.json({ status: "pending" });
+      }
+    })
+  });
+
+  const result = await service.startLogin();
+
+  assert.deepEqual(result, { error: null });
+  assert.equal(starts, 3);
+  assert.deepEqual(delays, [500, 1000]);
+  assert.deepEqual(opened, ["https://example.test/login"]);
 });
 
 test("AccountService reopens the active login URL without starting another attempt", async () => {

@@ -19,6 +19,7 @@ import (
 // *runtime.Controller implements this interface.
 type RuntimeBackend interface {
 	Start(context.Context, agentruntime.StartInput) (agentruntime.StartResult, error)
+	PublishSessionInitialization(context.Context, string, string) (agentruntime.Session, error)
 	Resume(context.Context, agentruntime.ResumeInput) (agentruntime.Session, error)
 	Session(string, string) (agentruntime.Session, bool)
 	State(string, string) (agentruntime.SessionStateSnapshot, error)
@@ -38,6 +39,10 @@ type RuntimeBackend interface {
 	GoalCapabilities(context.Context, agentruntime.GoalReconcileInput) (agentruntime.GoalAdapterCapabilities, error)
 }
 
+type runtimeRetainedSettingsBackend interface {
+	UpdateRetainedSettings(context.Context, agentruntime.UpdateSettingsInput) (agentruntime.UpdateSettingsResult, error)
+}
+
 type runtimeHistoryBackend interface {
 	SupportsEffectiveHistory(context.Context, agentruntime.EffectiveHistoryInput) (bool, error)
 	ReadEffectiveHistory(context.Context, agentruntime.EffectiveHistoryInput) (agentruntime.EffectiveHistorySnapshot, error)
@@ -52,9 +57,14 @@ type RuntimeController struct {
 
 var (
 	_ host.RuntimeController                       = (*RuntimeController)(nil)
+	_ host.RuntimeSessionInitializationPublisher   = (*RuntimeController)(nil)
+	_ host.RuntimeSessionRepreparer                = (*RuntimeController)(nil)
 	_ host.RuntimeHistoryController                = (*RuntimeController)(nil)
 	_ host.RuntimeProviderTurnAcceptanceReconciler = (*RuntimeController)(nil)
 	_ host.RuntimeSessionLiveness                  = (*RuntimeController)(nil)
+	_ host.RuntimeWorkspaceDisconnector            = (*RuntimeController)(nil)
+	_ host.RuntimeWorkspaceDisconnectTargeter      = (*RuntimeController)(nil)
+	_ host.RuntimeRetainedSettingsUpdater          = (*RuntimeController)(nil)
 	_ host.RuntimeSubmitProvenanceReporter         = (*RuntimeController)(nil)
 	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)
 	_ host.SessionForkTurnBindingRecoveryRuntime   = (*RuntimeController)(nil)
@@ -65,6 +75,10 @@ var (
 	_ host.GoalRuntimeRecoveryPolicyResolver       = (*RuntimeController)(nil)
 	_ host.GoalRuntimeGenerationFencer             = (*RuntimeController)(nil)
 )
+
+type runtimeSessionReprepareBackend interface {
+	Reprepare(context.Context, agentruntime.ResumeInput) (agentruntime.Session, error)
+}
 
 func (a *RuntimeController) SupportsEffectiveHistory(
 	ctx context.Context,
@@ -121,9 +135,9 @@ func (a *RuntimeController) RollbackLatestTurn(
 	return projected, mapRuntimeError(err)
 }
 
-func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartInput) (host.ProviderRuntimeSession, error) {
+func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartInput) (host.RuntimeStartResult, error) {
 	if err := a.requireBackend(); err != nil {
-		return host.ProviderRuntimeSession{}, err
+		return host.RuntimeStartResult{}, err
 	}
 	result, err := a.Backend.Start(ctx, agentruntime.StartInput{
 		RoomID:                  input.WorkspaceID,
@@ -132,6 +146,7 @@ func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartIn
 		Provider:                input.Provider,
 		CWD:                     input.Cwd,
 		Env:                     append([]string(nil), input.Env...),
+		MCPServers:              runtimeMCPServerBindings(input.MCPServers),
 		Title:                   input.Title,
 		InitialTitleEstablished: input.InitialTitleEstablished,
 		Visible:                 input.Visible,
@@ -149,14 +164,33 @@ func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartIn
 			Speed:                  input.Speed,
 			ConversationDetailMode: input.ConversationDetailMode,
 		}),
-		Provisional: input.Provisional,
+		Provisional:          input.Provisional,
+		CanonicalInitPending: input.CanonicalInitPending,
 	})
 	if err != nil {
-		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
+		return host.RuntimeStartResult{}, mapRuntimeError(err)
 	}
 	session := a.sessionWithState(result.Session)
 	session.Provisional = input.Provisional
-	return session, nil
+	return host.RuntimeStartResult{Session: session, Created: result.Created}, nil
+}
+
+func (a *RuntimeController) PublishSessionInitialization(
+	ctx context.Context,
+	input host.RuntimeSessionInitializationPublishInput,
+) (host.ProviderRuntimeSession, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.ProviderRuntimeSession{}, err
+	}
+	session, err := a.Backend.PublishSessionInitialization(
+		ctx,
+		input.WorkspaceID,
+		input.AgentSessionID,
+	)
+	if err != nil {
+		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
+	}
+	return a.sessionWithState(session), nil
 }
 
 func (a *RuntimeController) Resume(ctx context.Context, input host.RuntimeResumeInput) (host.ProviderRuntimeSession, error) {
@@ -164,6 +198,21 @@ func (a *RuntimeController) Resume(ctx context.Context, input host.RuntimeResume
 		return host.ProviderRuntimeSession{}, err
 	}
 	session, err := a.Backend.Resume(ctx, runtimeResumeInput(input))
+	if err != nil {
+		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
+	}
+	return a.sessionWithState(session), nil
+}
+
+func (a *RuntimeController) Reprepare(ctx context.Context, input host.RuntimeResumeInput) (host.ProviderRuntimeSession, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.ProviderRuntimeSession{}, err
+	}
+	backend, ok := a.Backend.(runtimeSessionReprepareBackend)
+	if !ok {
+		return host.ProviderRuntimeSession{}, host.ErrRuntimeSessionReprepareUnavailable
+	}
+	session, err := backend.Reprepare(ctx, runtimeResumeInput(input))
 	if err != nil {
 		return host.ProviderRuntimeSession{}, mapRuntimeError(err)
 	}
@@ -304,7 +353,10 @@ func (a *RuntimeController) SubmitInteractive(ctx context.Context, input host.Ru
 		AgentSessionID: input.AgentSessionID, TurnID: input.TurnID, RequestID: input.RequestID,
 		Action: input.Action, OptionID: input.OptionID, Payload: cloneMap(input.Payload),
 	})
-	return host.RuntimeSubmitInteractiveResult{Disposition: host.RuntimeInteractiveDisposition(result.Disposition)}, mapRuntimeError(err)
+	return host.RuntimeSubmitInteractiveResult{
+		Disposition:    host.RuntimeInteractiveDisposition(result.Disposition),
+		FollowUpPrompt: result.FollowUpPrompt,
+	}, mapRuntimeError(err)
 }
 
 func (a *RuntimeController) InteractiveDisposition(workspaceID, rootSessionID, sessionID, turnID, requestID string) host.RuntimeInteractiveDisposition {
@@ -319,6 +371,25 @@ func (a *RuntimeController) UpdateSettings(ctx context.Context, input host.Runti
 		return err
 	}
 	_, err := a.Backend.UpdateSettings(ctx, agentruntime.UpdateSettingsInput{
+		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
+		Settings: agentruntime.SessionSettingsPatch{
+			Model: input.Settings.Model, ReasoningEffort: input.Settings.ReasoningEffort, Speed: input.Settings.Speed,
+			PlanMode: input.Settings.PlanMode, BrowserUse: input.Settings.BrowserUse,
+			ComputerUse: input.Settings.ComputerUse, PermissionModeID: input.Settings.PermissionModeID,
+		},
+	})
+	return mapRuntimeError(err)
+}
+
+func (a *RuntimeController) UpdateRetainedSettings(ctx context.Context, input host.RuntimeUpdateSettingsInput) error {
+	if err := a.requireBackend(); err != nil {
+		return err
+	}
+	backend, ok := a.Backend.(runtimeRetainedSettingsBackend)
+	if !ok {
+		return host.ErrWorkspaceDisconnectUnavailable
+	}
+	_, err := backend.UpdateRetainedSettings(ctx, agentruntime.UpdateSettingsInput{
 		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
 		Settings: agentruntime.SessionSettingsPatch{
 			Model: input.Settings.Model, ReasoningEffort: input.Settings.ReasoningEffort, Speed: input.Settings.Speed,
@@ -491,7 +562,7 @@ func (a *RuntimeController) GoalControl(ctx context.Context, input host.RuntimeG
 	})
 	return host.RuntimeGoalControlResult{
 		AgentSessionID: result.AgentSessionID, Goal: cloneMap(result.Goal), Evidence: cloneMap(result.Evidence),
-		ProviderPhase: result.ProviderPhase,
+		ProviderPhase: result.ProviderPhase, ExecutionPending: result.ExecutionPending,
 	}, mapRuntimeError(err)
 }
 
@@ -548,6 +619,18 @@ func mapRuntimeError(err error) error {
 	if errors.Is(err, agentruntime.ErrSessionDisconnected) {
 		return errors.Join(host.ErrRuntimeSessionDisconnected, err)
 	}
+	if errors.Is(err, agentruntime.ErrSessionNotFound) {
+		return errors.Join(host.ErrSessionNotFound, err)
+	}
+	if errors.Is(err, agentruntime.ErrActiveTurnTargetRequired) {
+		return errors.Join(host.ErrActiveTurnTargetRequired, err)
+	}
+	if errors.Is(err, agentruntime.ErrActiveTurnTargetMismatch) {
+		return errors.Join(host.ErrActiveTurnTargetMismatch, err)
+	}
+	if errors.Is(err, agentruntime.ErrSessionActiveTurn) {
+		return errors.Join(host.ErrRuntimeSessionActive, err)
+	}
 	if errors.Is(err, agentruntime.ErrEffectiveHistoryUnsupported) {
 		return host.ErrRuntimeHistoryUnsupported
 	}
@@ -568,6 +651,13 @@ func mapRuntimeError(err error) error {
 	}
 	if errors.Is(err, agentruntime.ErrInteractiveResponseInvalid) {
 		return errors.Join(host.ErrInteractiveResponseInvalid, err)
+	}
+	if errors.Is(err, agentruntime.ErrProviderStartTimeout) {
+		var appErr *agentruntime.AppError
+		if errors.As(err, &appErr) && appErr != nil {
+			return host.NewProviderStartTimeoutError(appErr.Message, appErr.DebugMessage, err)
+		}
+		return host.NewProviderStartTimeoutError("", "", err)
 	}
 	var appErr *agentruntime.AppError
 	if errors.As(err, &appErr) && appErr != nil {
@@ -591,7 +681,7 @@ func (a *RuntimeController) fromSession(session agentruntime.Session) host.Provi
 		SourceAgentSessionID: session.SourceAgentSessionID, SideRequestID: session.SideRequestID,
 		AgentTargetID: session.AgentTargetID, Provider: session.Provider, ProviderSessionID: session.ProviderSessionID,
 		Resumable: session.Resumable,
-		Cwd:       session.CWD, Env: append([]string(nil), session.Env...), Settings: settings,
+		Cwd:       session.CWD, Env: append([]string(nil), session.Env...), MCPServers: hostMCPServerBindings(session.MCPServers), Settings: settings,
 		ProviderTargetRef: cloneMap(session.ProviderTargetRef),
 		RuntimeContext:    cloneMap(session.RuntimeContext), Status: session.Status,
 		TurnLifecycle: hostTurnLifecyclePointer(session.TurnLifecycle), SubmitAvailability: hostSubmitAvailability(session.SubmitAvailability),
@@ -611,7 +701,7 @@ func runtimeSession(session host.ProviderRuntimeSession) agentruntime.Session {
 		SourceAgentSessionID: session.SourceAgentSessionID, SideRequestID: session.SideRequestID,
 		AgentTargetID: session.AgentTargetID, Provider: session.Provider,
 		ProviderSessionID: session.ProviderSessionID, Resumable: session.Resumable,
-		CWD: session.Cwd, Env: append([]string(nil), session.Env...),
+		CWD: session.Cwd, Env: append([]string(nil), session.Env...), MCPServers: runtimeMCPServerBindings(session.MCPServers),
 		Status: session.Status, TurnLifecycle: runtimeTurnLifecyclePointer(session.TurnLifecycle),
 		SubmitAvailability: runtimeSubmitAvailability(session.SubmitAvailability),
 		Title:              session.Title, LastError: session.LastError, Visible: session.Visible,
@@ -672,11 +762,15 @@ func runtimeResumeInput(input host.RuntimeResumeInput) agentruntime.ResumeInput 
 		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID,
 		Provider: input.Provider, ProviderSessionID: input.ProviderSessionID, CWD: input.Cwd,
 		Resumable: input.Resumable,
-		Env:       append([]string(nil), input.Env...), Title: input.Title, Status: input.Status, Visible: input.Visible,
-		RuntimeContext: cloneMap(input.RuntimeContext), ProviderTargetRef: cloneMap(input.ProviderTargetRef),
-		PermissionModeID: input.Settings.PermissionModeID, Settings: runtimeSettings(input.Settings),
+		Env:       append([]string(nil), input.Env...), MCPServers: runtimeMCPServerBindings(input.MCPServers),
+		Title: input.Title, Status: input.Status, Visible: input.Visible,
+		RuntimeContext:               cloneMap(input.RuntimeContext),
+		ProviderLaunchRuntimeContext: cloneMap(input.ProviderLaunchRuntimeContext),
+		ProviderTargetRef:            cloneMap(input.ProviderTargetRef),
+		PermissionModeID:             input.Settings.PermissionModeID, Settings: runtimeSettings(input.Settings),
 		CreatedAtUnixMS: input.CreatedAtUnixMS, UpdatedAtUnixMS: input.UpdatedAtUnixMS,
-		RecreateIfMissing: input.RecreateIfMissing,
+		GoalGenerationFences: runtimeGoalGenerationFences(input.GoalGenerationFences),
+		RecreateIfMissing:    input.RecreateIfMissing,
 	}
 }
 
@@ -731,7 +825,7 @@ func runtimePromptContent(input []host.PromptContentBlock) []agentruntime.Prompt
 	for _, block := range input {
 		content = append(content, agentruntime.PromptContentBlock{
 			Type: block.Type, Text: block.Text, MimeType: block.MimeType, Data: block.Data, URL: block.URL,
-			AttachmentID: block.AttachmentID, Name: block.Name, Path: block.Path,
+			AttachmentID: block.AttachmentID, Name: block.Name, Path: block.Path, ConnectorKey: block.ConnectorKey,
 		})
 	}
 	return content
@@ -746,97 +840,4 @@ func runtimeCapabilityReferences(input []host.CapabilityReference) []agentruntim
 		})
 	}
 	return references
-}
-
-func runtimeTuttiModeSnapshot(input *host.TuttiModeTurnSnapshot) *agentruntime.TuttiModeTurnSnapshot {
-	if input == nil {
-		return nil
-	}
-	legacyOrchestrationIntensity := input.OrchestrationIntensity //nolint:staticcheck // Compatibility bridge preserves version-zero snapshots.
-	return &agentruntime.TuttiModeTurnSnapshot{
-		ActivationID: input.ActivationID, RevisionID: input.RevisionID, Revision: input.Revision,
-		State: input.State, Source: input.Source,
-		PreferenceVersion:      input.PreferenceVersion,
-		Effect:                 input.Effect,
-		Speed:                  input.Speed,
-		OrchestrationIntensity: legacyOrchestrationIntensity,
-	}
-}
-
-func runtimeSettings(settings host.ComposerSettings) *agentruntime.SessionSettings {
-	return &agentruntime.SessionSettings{
-		CodexSaverMode: settings.CodexSaverMode,
-		Model:          settings.Model, ReasoningEffort: settings.ReasoningEffort, Speed: settings.Speed,
-		PlanMode: settings.PlanMode, BrowserUse: settings.BrowserUse, ComputerUse: settings.ComputerUse,
-		PermissionModeID: settings.PermissionModeID, ConversationDetailMode: settings.ConversationDetailMode,
-	}
-}
-
-func hostSettings(settings agentruntime.SessionSettings) host.ComposerSettings {
-	return host.ComposerSettings{
-		CodexSaverMode: settings.CodexSaverMode,
-		Model:          settings.Model, ReasoningEffort: settings.ReasoningEffort, Speed: settings.Speed,
-		PlanMode: settings.PlanMode, BrowserUse: settings.BrowserUse, ComputerUse: settings.ComputerUse,
-		PermissionModeID: settings.PermissionModeID, ConversationDetailMode: settings.ConversationDetailMode,
-	}
-}
-
-func hostTurnLifecyclePointer(input *agentruntime.TurnLifecycle) *host.TurnLifecycle {
-	if input == nil {
-		return nil
-	}
-	value := hostTurnLifecycle(*input)
-	return &value
-}
-
-func hostTurnLifecycle(input agentruntime.TurnLifecycle) host.TurnLifecycle {
-	var completed *host.CompletedCommand
-	if input.CompletedCommand != nil {
-		completed = &host.CompletedCommand{Kind: input.CompletedCommand.Kind, Status: input.CompletedCommand.Status}
-	}
-	return host.TurnLifecycle{
-		ActiveTurnID: input.ActiveTurnID, Phase: input.Phase, Settling: input.Settling,
-		Outcome: input.Outcome, CompletedCommand: completed,
-	}
-}
-
-func runtimeTurnLifecyclePointer(input *host.TurnLifecycle) *agentruntime.TurnLifecycle {
-	if input == nil {
-		return nil
-	}
-	var completed *agentruntime.CompletedCommand
-	if input.CompletedCommand != nil {
-		completed = &agentruntime.CompletedCommand{
-			Kind: input.CompletedCommand.Kind, Status: input.CompletedCommand.Status,
-		}
-	}
-	return &agentruntime.TurnLifecycle{
-		ActiveTurnID: input.ActiveTurnID, Phase: input.Phase, Settling: input.Settling,
-		Outcome: input.Outcome, CompletedCommand: completed,
-	}
-}
-
-func hostSubmitAvailability(input *agentruntime.SubmitAvailability) *host.SubmitAvailability {
-	if input == nil {
-		return nil
-	}
-	return &host.SubmitAvailability{State: input.State, Reason: input.Reason}
-}
-
-func runtimeSubmitAvailability(input *host.SubmitAvailability) *agentruntime.SubmitAvailability {
-	if input == nil {
-		return nil
-	}
-	return &agentruntime.SubmitAvailability{State: input.State, Reason: input.Reason}
-}
-
-func cloneMap(input map[string]any) map[string]any {
-	if input == nil {
-		return nil
-	}
-	out := make(map[string]any, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }

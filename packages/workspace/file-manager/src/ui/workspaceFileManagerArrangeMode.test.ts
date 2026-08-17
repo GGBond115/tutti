@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WorkspaceFileEntry } from "../services/workspaceFileManagerTypes.ts";
-import {
-  readWorkspaceFileManagerArrangeMode,
-  sortWorkspaceFileEntriesForArrangeMode,
-  workspaceFileManagerArrangeModeStorageKey
-} from "./workspaceFileManagerArrangeMode.ts";
+import { sortWorkspaceFileEntriesForArrangeMode } from "./workspaceFileManagerArrangeMode.ts";
 
 function createEntry(
   overrides: Partial<WorkspaceFileEntry> = {}
@@ -22,30 +18,6 @@ function createEntry(
     ...overrides
   };
 }
-
-test("workspace file manager arrange mode ignores removed tags mode", () => {
-  const originalWindow = globalThis.window;
-
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: {
-      localStorage: {
-        getItem: (key: string) =>
-          key === workspaceFileManagerArrangeModeStorageKey ? "tags" : null,
-        setItem: () => undefined
-      }
-    }
-  });
-
-  try {
-    assert.equal(readWorkspaceFileManagerArrangeMode(), "none");
-  } finally {
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: originalWindow
-    });
-  }
-});
 
 test("workspace file manager arrange mode sorts by name with directories first", () => {
   const entries = [

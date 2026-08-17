@@ -23,6 +23,17 @@ func (s *Service) recordActivityBoundary(
 	if len(events) == 0 {
 		return nil
 	}
+	if err := r.bindActivityGoalIntroductions(events); err != nil {
+		return err
+	}
+	// The activity stream is global, but completeActivityBoundary only inspects
+	// this batch. A later complete batch must not cut the plan at a sequence
+	// that still contains an earlier unresolved intent (cancelRequested /
+	// submit/requested / …) — ValidateCheckpointPlan rejects that as
+	// "activity trigger splits an intent from its effects".
+	if len(r.pendingActivityIntents) > 0 {
+		return nil
+	}
 	kind, subject, readiness, ok := r.describeActivityEvents(events)
 	if sessionID := goalEffectSessionID(events); sessionID != "" {
 		if committed, exists := r.pendingGoals[sessionID]; exists {
@@ -96,6 +107,26 @@ func (s *Service) recordActivityBoundary(
 	return s.Workflow.RecordCheckpointPlan(ctx, snapshot.Recording.ID, r.plan)
 }
 
+func (r *checkpointRecorder) bindActivityGoalIntroductions(
+	events []ActivityEvent,
+) error {
+	for _, event := range events {
+		if event.Kind != ActivityEventKindEffect ||
+			event.Type != "session/activate" {
+			continue
+		}
+		outcome, _ := event.Payload["outcome"].(string)
+		initialGoal, _ := event.Payload["initialGoalControl"].(map[string]any)
+		if strings.TrimSpace(outcome) != "succeeded" || len(initialGoal) == 0 {
+			continue
+		}
+		if _, ok := r.ensureGoalAddress(event.AgentSessionID, event.Sequence); !ok {
+			return ErrInvalidState
+		}
+	}
+	return nil
+}
+
 func activityHasProjectBinding(events []ActivityEvent) bool {
 	for _, event := range events {
 		if event.Kind != ActivityEventKindEffect ||
@@ -160,20 +191,19 @@ func (r *checkpointRecorder) completeActivityBoundary(
 }
 
 func activityIntentRequiresEffect(eventType string) bool {
-	switch eventType {
-	case "activation/requested", "goal/controlRequested",
-		"interaction/responseRequested", "plan/decisionRequested",
-		"plan/feedbackRequested", "session/cancelRequested",
-		"session/settingsUpdateRequested", "submit/requested":
-		// Keep submit/requested requiring an effect for checkpoint boundaries:
-		// busy-queue admits have no immediate effect, but the same intent later
-		// causes queue/sendPrompt on drain — cutting submission.accepted on the
-		// bare intent fails checkpoint_plan validation (splits intent/effects).
-		// Mid-queue UI evidence stays on record-time captureEvidence.
-		return true
-	default:
+	intent, ok := PortableActivityContract.IntentContract(eventType)
+	if !ok {
 		return false
 	}
+	if intent.RequiresEffect {
+		return true
+	}
+	// Checkpoint cuts must not land between an intent and a later declared
+	// effect — ValidateCheckpointPlan rejects that as splitting intent/effects.
+	// The portable contract's requiresEffect flag is about timeline completeness,
+	// which is weaker than this recorder constraint (e.g. stopRequested /
+	// cancelRequested declare turn/cancel but set requiresEffect=false).
+	return len(intent.Effects) > 0
 }
 
 func activityEventsContainID(events []ActivityEvent, eventID string) bool {
@@ -357,22 +387,32 @@ func (r *checkpointRecorder) goalAddress(
 	if sessionID == "" {
 		sessionID = r.entities.rootSessionID
 	}
-	if sessionID == "" || event.Sequence == 0 {
-		return EntityAddress{}, false
-	}
-	sessionAddress, ok := r.entities.sessionAddress(sessionID)
-	if !ok {
+	return r.ensureGoalAddress(sessionID, event.Sequence)
+}
+
+// ensureGoalAddress returns the Goal entity for a session, binding one to the
+// Activity fact that introduced it.
+func (r *checkpointRecorder) ensureGoalAddress(
+	sessionID string,
+	activitySequence uint64,
+) (EntityAddress, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || activitySequence == 0 {
 		return EntityAddress{}, false
 	}
 	key := goalRuntimeKey(sessionID)
 	if existing, ok := r.entities.byRuntime[key]; ok {
 		return existing, true
 	}
+	sessionAddress, ok := r.entities.sessionAddress(sessionID)
+	if !ok {
+		return EntityAddress{}, false
+	}
 	return r.entities.bind(
 		key,
 		replayActivityAddress(
 			EntityKindGoal,
-			event.Sequence,
+			activitySequence,
 			entityParentDiscriminator(sessionAddress),
 		),
 		replayEntityBinding{

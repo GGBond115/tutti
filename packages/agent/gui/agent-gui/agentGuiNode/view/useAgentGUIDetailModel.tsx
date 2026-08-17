@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { isAgentGUIAgentTargetComingSoon } from "../../../agentTargets";
 import { UnavailableChatIcon } from "../../../app/renderer/components/icons/UnavailableChatIcon";
 import { useProjectedAgentConversation } from "../../../shared/agentConversation/projection/useProjectedAgentConversation";
@@ -19,6 +19,7 @@ import {
   useStableSlashStatus
 } from "./agentGUIDetailModelHelpers";
 import { useAgentGUITimelineTransition } from "./useAgentGUITimelineTransition";
+import { useBottomDockPromptDismissal } from "./useBottomDockPromptDismissal";
 import styles from "../AgentGUINode.styles";
 
 interface Input {
@@ -83,26 +84,16 @@ export function useAgentGUIDetailModel(input: Input) {
   const activePrompt =
     viewModel.interaction.pendingInteractivePrompt ??
     viewModel.interaction.pendingApproval;
+  const activePromptResponsePending =
+    activePrompt?.kind === "approval"
+      ? viewModel.interaction.isRespondingApproval
+      : viewModel.interaction.isRespondingInteractivePrompt;
   const activePromptRequestId = activePrompt?.requestId ?? null;
-  const promptIdentity = `${viewModel.rail.activeConversationId ?? ""}\x00${activePromptRequestId ?? ""}`;
-  const promptOccurrenceRef = useRef({ identity: "", occurrence: 0 });
-  if (promptOccurrenceRef.current.identity !== promptIdentity) {
-    promptOccurrenceRef.current = {
-      identity: promptIdentity,
-      occurrence: promptOccurrenceRef.current.occurrence + 1
-    };
-  }
-  const promptToken = `${promptIdentity}\x00${promptOccurrenceRef.current.occurrence}`;
-  const [bottomDockDismissedPromptToken, setBottomDockDismissedPromptToken] =
-    useState<string | null>(null);
-  const dismissBottomDockPrompt = useCallback(
-    (requestId: string) => {
-      if (requestId === activePromptRequestId) {
-        setBottomDockDismissedPromptToken(promptToken);
-      }
-    },
-    [activePromptRequestId, promptToken]
-  );
+  const { dismissPrompt: dismissBottomDockPrompt, promptVisible } =
+    useBottomDockPromptDismissal(
+      viewModel.rail.activeConversationId,
+      activePromptRequestId
+    );
   const sessionChrome = useMemo<AgentGUISessionChrome>(
     () => ({ ...viewModel.interaction.sessionChrome, approval: null }),
     [viewModel.interaction.sessionChrome]
@@ -208,9 +199,7 @@ export function useAgentGUIDetailModel(input: Input) {
     activePrompt?.kind === "exit-plan" ||
     activePrompt?.kind === "plan-implementation";
   const activePromptIsVisible =
-    activePrompt !== null &&
-    !homeStatusNoticeVisible &&
-    bottomDockDismissedPromptToken !== promptToken;
+    activePrompt !== null && !homeStatusNoticeVisible && promptVisible;
   const bottomDockReplacementPrompt =
     activePromptIsPlanDecision && activePromptIsVisible ? activePrompt : null;
   // Approval / ask-user prompts keep the original layout: they lift above the
@@ -234,6 +223,7 @@ export function useAgentGUIDetailModel(input: Input) {
   const activeConversationTurnBusy = viewModel.composer.gate.conversationBusy;
   const isComposerSending =
     activeConversationTurnBusy ||
+    viewModel.composer.gate.isAwaitingTurnStart === true ||
     (!hasActiveConversation &&
       viewModel.composer.gate.submission.status === "blocked" &&
       viewModel.composer.gate.submission.reason === "creating_conversation");
@@ -243,8 +233,6 @@ export function useAgentGUIDetailModel(input: Input) {
   const composerDisabledReason = isCollaboratorConversation
     ? labels.collaboratorSessionReadOnlyPlaceholder
     : null;
-  const runtimeCommandsBlocked =
-    viewModel.composer.gate.runtime.status === "blocked";
   const stopControl = resolveAgentGUIStopControl({
     hasPendingApproval: viewModel.interaction.pendingApproval !== null,
     hasPendingInteractivePrompt:
@@ -253,10 +241,11 @@ export function useAgentGUIDetailModel(input: Input) {
     isCancelPending: viewModel.composer.isCancelPending,
     isConversationBusy: activeConversationTurnBusy,
     isCreatingConversation: viewModel.composer.isCreatingConversation,
+    hasPendingSubmitStopTarget:
+      viewModel.composer.hasPendingSubmitStopTarget === true,
     isInterrupting: viewModel.composer.isInterrupting,
     isSubmitting: viewModel.composer.isSubmitting,
-    isUnavailable: viewModel.readiness.activeLiveState === "failed",
-    runtimeCommandsBlocked
+    isUnavailable: viewModel.readiness.activeLiveState === "failed"
   });
   const showStopButton = stopControl.visible;
   const stopDisabled = stopControl.disabled;
@@ -398,6 +387,12 @@ export function useAgentGUIDetailModel(input: Input) {
       modelTooltipVersionLabel: labels.modelTooltipVersionLabel,
       defaultModel: labels.defaultModel,
       loadingOptions: labels.loadingOptions,
+      composerOptionsLoadFailed: labels.composerOptionsLoadFailed,
+      retry: labels.composerOptionsRetry ?? labels.retryActivation,
+      retryTooltip:
+        labels.composerOptionsRetryTooltip ??
+        labels.composerOptionsRetry ??
+        labels.retryActivation,
       inheritedUnavailable: labels.inheritedUnavailable,
       loadingConversation: labels.loadingConversation,
       reasoningLabel: labels.reasoningLabel,
@@ -434,7 +429,6 @@ export function useAgentGUIDetailModel(input: Input) {
       tuttiBudgetTitle: labels.tuttiBudgetTitle,
       tuttiBudgetEffectLabel: labels.tuttiBudgetEffectLabel,
       tuttiBudgetSpeedLabel: labels.tuttiBudgetSpeedLabel,
-      tuttiBudgetPreviewTitle: labels.tuttiBudgetPreviewTitle,
       tuttiBudgetPreviewHint: labels.tuttiBudgetPreviewHint,
       tuttiBudgetPreviewCost: labels.tuttiBudgetPreviewCost,
       tuttiBudgetPreviewBalance: labels.tuttiBudgetPreviewBalance,
@@ -445,8 +439,6 @@ export function useAgentGUIDetailModel(input: Input) {
         labels.tuttiBudgetModelPreferenceBalance,
       tuttiBudgetModelPreferencePowerful:
         labels.tuttiBudgetModelPreferencePowerful,
-      tuttiBudgetModelPreferenceFastestSuitable:
-        labels.tuttiBudgetModelPreferenceFastestSuitable,
       tuttiBudgetParallelismLabel: labels.tuttiBudgetParallelismLabel,
       tuttiBudgetParallelismValue: labels.tuttiBudgetParallelismValue,
       planModeDescription: labels.planModeDescription,
@@ -470,6 +462,10 @@ export function useAgentGUIDetailModel(input: Input) {
       slashPaletteSkillsGroup: labels.slashPaletteSkillsGroup,
       slashPalettePluginsGroup: labels.slashPalettePluginsGroup,
       slashPaletteConnectorsGroup: labels.slashPaletteConnectorsGroup,
+      slashPaletteConnectorConnected: labels.slashPaletteConnectorConnected,
+      slashPaletteConnectorNotConnected:
+        labels.slashPaletteConnectorNotConnected,
+      slashPaletteConnectorUnsupported: labels.slashPaletteConnectorUnsupported,
       slashPaletteMcpGroup: labels.slashPaletteMcpGroup,
       slashCommandCompactLabel: labels.slashCommandCompactLabel,
       slashCommandContextLabel: labels.slashCommandContextLabel,
@@ -554,6 +550,14 @@ export function useAgentGUIDetailModel(input: Input) {
       removeMention: labels.removeMention,
       addReference: labels.addReference,
       addContent: labels.addContent,
+      addContentResourcePanel: labels.addContentResourcePanel,
+      addContentConnectors: labels.addContentConnectors,
+      addContentConnectorConnected: labels.addContentConnectorConnected,
+      addContentConnectorConnect: labels.addContentConnectorConnect,
+      addContentConnectorAuthorize: labels.addContentConnectorAuthorize,
+      addContentConnectorEmpty: labels.addContentConnectorEmpty,
+      addContentConnectorLoading: labels.addContentConnectorLoading,
+      addContentConnectorMore: labels.addContentConnectorMore,
       referenceWorkspaceFiles: labels.referenceWorkspaceFiles,
       handoffConversation: labels.handoffConversation,
       handoffConversationTooltip: labels.handoffConversationTooltip,
@@ -563,6 +567,9 @@ export function useAgentGUIDetailModel(input: Input) {
       handoffTargetShared: labels.handoffTargetShared,
       providerSwitchLabel: labels.providerSwitchLabel,
       projectLocked: labels.projectLocked,
+      sessionLaunchModeLabel: labels.sessionLaunchModeLabel,
+      sessionLaunchModeLocal: labels.sessionLaunchModeLocal,
+      sessionLaunchModeWorktree: labels.sessionLaunchModeWorktree,
       projectMissingDescription: labels.projectMissingDescription,
       promptTipsPrefix: labels.promptTipsPrefix,
       reviewPicker: labels.reviewPicker,
@@ -571,11 +578,22 @@ export function useAgentGUIDetailModel(input: Input) {
     }),
     [
       interactivePromptLabels,
+      labels.composerOptionsLoadFailed,
+      labels.composerOptionsRetry,
+      labels.composerOptionsRetryTooltip,
       labels.defaultModel,
       labels.tuttiModePlanSendAccept,
       labels.tuttiModePlanSendRequestChanges,
       labels.addReference,
       labels.addContent,
+      labels.addContentResourcePanel,
+      labels.addContentConnectors,
+      labels.addContentConnectorConnected,
+      labels.addContentConnectorConnect,
+      labels.addContentConnectorAuthorize,
+      labels.addContentConnectorEmpty,
+      labels.addContentConnectorLoading,
+      labels.addContentConnectorMore,
       labels.deleteQueuedPrompt,
       labels.editQueuedPrompt,
       labels.fileMentionEmpty,
@@ -613,7 +631,6 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.tuttiBudgetTitle,
       labels.tuttiBudgetEffectLabel,
       labels.tuttiBudgetSpeedLabel,
-      labels.tuttiBudgetPreviewTitle,
       labels.tuttiBudgetPreviewHint,
       labels.tuttiBudgetPreviewCost,
       labels.tuttiBudgetPreviewBalance,
@@ -622,7 +639,6 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.tuttiBudgetModelPreferenceCost,
       labels.tuttiBudgetModelPreferenceBalance,
       labels.tuttiBudgetModelPreferencePowerful,
-      labels.tuttiBudgetModelPreferenceFastestSuitable,
       labels.tuttiBudgetParallelismLabel,
       labels.tuttiBudgetParallelismValue,
       labels.planModeDescription,
@@ -631,6 +647,9 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.planUnavailable,
       labels.goalLabel,
       labels.projectLocked,
+      labels.sessionLaunchModeLabel,
+      labels.sessionLaunchModeLocal,
+      labels.sessionLaunchModeWorktree,
       labels.projectMissingDescription,
       labels.promptTipsPrefix,
       labels.reviewPicker,
@@ -677,6 +696,9 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.slashPaletteCapabilitiesGroup,
       labels.slashPaletteCapabilitiesLoading,
       labels.slashPaletteCommandsGroup,
+      labels.slashPaletteConnectorConnected,
+      labels.slashPaletteConnectorNotConnected,
+      labels.slashPaletteConnectorUnsupported,
       labels.slashPaletteConnectorsGroup,
       labels.slashCommandCompactLabel,
       labels.slashCommandContextLabel,
@@ -736,6 +758,7 @@ export function useAgentGUIDetailModel(input: Input) {
     activePrompt,
     activeConversationTurnBusy,
     activePromptRequestId,
+    activePromptResponsePending,
     bottomDockLiftedPrompt,
     bottomDockReplacementPrompt,
     chromeLabels,

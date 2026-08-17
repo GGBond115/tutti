@@ -1,6 +1,7 @@
 import {
   createAgentSessionFamilySnapshotSelector,
   selectEngineSessionIsRespondingToInteraction,
+  selectWorkspaceAgentConsumerSession,
   selectWorkspaceAgentConsumerSessions
 } from "@tutti-os/agent-activity-core";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -16,7 +17,10 @@ import {
   conversationSummaryFromAgentSession,
   type AgentGUIConversationSummary
 } from "../model/agentGuiConversationModel";
-import { normalizeAgentComposerDraftProjectPath } from "../model/agentComposerDraftScope";
+import {
+  areAgentComposerProjectPathsEqual,
+  normalizeAgentComposerDraftProjectPath
+} from "../model/agentComposerDraftScope";
 import { mergeVisibleConversations } from "./agentGuiController.conversationHelpers";
 import { reuseAgentActivityDisplayStatusesIfUnchanged } from "./agentGuiController.draftMessageHelpers";
 import {
@@ -62,6 +66,7 @@ export {
   permissionModeOptions
 } from "./agentGuiController.composerHelpers";
 import { trackAgentGUISettingsProjectChange } from "./agentGuiProjectAnalytics";
+import type { OptimisticComposerTarget } from "./agentGuiController.composerPresentation";
 export * from "./agentGuiController.conversationHelpers";
 export {
   agentGUIConversationDiagnosticDetails,
@@ -109,6 +114,8 @@ export type {
 
 export function useAgentGUINodeController({
   nodeId,
+  isSurfaceActive,
+  isSurfaceVisible,
   workspaceId,
   currentUserId,
   workspacePath,
@@ -122,6 +129,7 @@ export function useAgentGUINodeController({
   comingSoonProviders,
   providerReadinessGates = null,
   targetConnectionSource = null,
+  interactionReadinessSource = null,
   observationGapSource = null,
   defaultAgentTargetId = null,
   composerAppendRequest = null,
@@ -171,18 +179,6 @@ export function useAgentGUINodeController({
     selectedAgentTargetIsExplicit,
     setHomeComposerTargetOverride
   } = providerCatalogSelection;
-  const agentActivityDisplayStatuses = useEngineSelector(
-    sessionEngine,
-    (state) =>
-      new Map(
-        selectWorkspaceAgentConsumerSessions(state).map((item) => [
-          item.session.agentSessionId,
-          item.displayStatus
-        ])
-      ),
-    (left, right) =>
-      reuseAgentActivityDisplayStatusesIfUnchanged(left, right) === left
-  );
   const localState = useAgentGUILocalState({
     data,
     userProjectsApi: agentHostApi.userProjects
@@ -206,6 +202,32 @@ export function useAgentGUINodeController({
     setUserProjects,
     userProjects
   } = localState;
+  const agentActivityDisplayStatuses = useEngineSelector(
+    sessionEngine,
+    (state) => {
+      const statuses = new Map(
+        selectWorkspaceAgentConsumerSessions(state).map((item) => [
+          item.session.agentSessionId,
+          item.displayStatus
+        ])
+      );
+      if (activeConversationId && !statuses.has(activeConversationId)) {
+        const activeConsumer = selectWorkspaceAgentConsumerSession(
+          state,
+          activeConversationId
+        );
+        if (activeConsumer) {
+          statuses.set(activeConversationId, activeConsumer.displayStatus);
+        }
+      }
+      return statuses;
+    },
+    (left, right) =>
+      reuseAgentActivityDisplayStatusesIfUnchanged(left, right) === left
+  );
+  const activeAgentActivityDisplayStatus = activeConversationId
+    ? (agentActivityDisplayStatuses.get(activeConversationId) ?? null)
+    : null;
   const tuttiModeDraftKey = useMemo(
     () => resolveAgentGUITuttiModeDraftKey(nodeId),
     [nodeId]
@@ -231,7 +253,6 @@ export function useAgentGUINodeController({
     conversationListState,
     conversations
   } = conversationList;
-  const isNoProjectPath = agentHostApi.userProjects?.isNoProjectPath;
   const hasLoadedConversations = conversationListState?.initialized ?? false;
   const isLoadingConversations = conversationListState?.isLoading ?? false;
   const sessionEngineState = useAgentGUISessionEngineState({
@@ -266,6 +287,27 @@ export function useAgentGUINodeController({
         )
       )
   );
+  const optimisticComposerTarget =
+    useMemo<OptimisticComposerTarget | null>(() => {
+      if (
+        !isCreatingConversation ||
+        activePendingActivation?.mode !== "new" ||
+        activePendingActivation.agentSessionId !== activeConversationId ||
+        activePendingActivation.agentTargetId !==
+          selectedComposerTargetData.agentTargetId
+      ) {
+        return null;
+      }
+      return {
+        agentSessionId: activePendingActivation.agentSessionId,
+        target: selectedComposerTargetData
+      };
+    }, [
+      activeConversationId,
+      activePendingActivation,
+      isCreatingConversation,
+      selectedComposerTargetData
+    ]);
   // Bridges submitInteractivePrompt
   // updateComposerSettings (defined later); assigned right after the
   // callback's definition.
@@ -275,16 +317,17 @@ export function useAgentGUINodeController({
   // Bridges submitInteractivePrompt (defined earlier) to the client-side plan
   // decision handlers (defined later); assigned after those callbacks.
   const planActionsRef = useRef<{
-    implement: () => void;
-    feedback: (text: string) => void;
-    skip: () => void;
-  }>({ implement: () => {}, feedback: () => {}, skip: () => {} });
+    implement: () => boolean;
+    feedback: (text: string) => boolean;
+    skip: () => boolean;
+  }>({ implement: () => false, feedback: () => false, skip: () => false });
   const composerCapabilities = useAgentGUIComposerCapabilities({
     activeConversationId,
     activeEngineSession,
     activeSessionState,
     data,
     draftSettingsBySessionId,
+    optimisticComposerTarget,
     selectedComposerTargetData,
     sessionEngine
   });
@@ -308,7 +351,6 @@ export function useAgentGUINodeController({
     homeComposerTargetOverride,
     isComposerHome,
     isCreatingConversation,
-    isNoProjectPath,
     onDataChange,
     onRememberComposerDefaults,
     onShowMessage,
@@ -371,24 +413,24 @@ export function useAgentGUINodeController({
       const session = activeEngineSession;
       if (
         !session ||
-        session.visible === false ||
         conversations.some(
           (conversation) => conversation.id === session.agentSessionId
         )
       ) {
         return null;
       }
-      return conversationSummaryFromAgentSession(session, {
-        isNoProjectPath,
-        needsUserAction: activeRelatedPendingInteractions.length > 0,
-        userProjects
-      });
+      return {
+        ...conversationSummaryFromAgentSession(session, {
+          needsUserAction: activeRelatedPendingInteractions.length > 0,
+          userProjects
+        }),
+        isTransient: true
+      };
     }, [
       activeEngineSession,
       activeRelatedPendingInteractions.length,
       agentActivityDisplayStatuses,
       conversations,
-      isNoProjectPath,
       userProjects
     ]);
   // Stashes the error message from a failed first-message create so the
@@ -457,9 +499,10 @@ export function useAgentGUINodeController({
   ]);
 
   // NOTE: project metadata is intentionally NOT written back into the shared
-  // conversation store. `conversation.project` is a per-window JOIN of cwd ×
-  // userProjects; deriving it here and persisting it caused cross-window update
-  // storms. Rail membership now comes from the backend railSectionKey contract.
+  // conversation store. `conversation.project` is a per-window exact JOIN of
+  // railSectionKey × userProjects.sectionKey; deriving it here and persisting it
+  // caused cross-window update storms. Rail membership comes from the same
+  // backend railSectionKey contract.
 
   useEffect(() => {
     if (activeConversationId === null && isComposerHome) {
@@ -487,10 +530,13 @@ export function useAgentGUINodeController({
     intent,
     isComposerHomeRef,
     isMountedRef,
+    isSurfaceActive,
+    isSurfaceVisible,
     loadDraftComposerOptions: () => loadDraftComposerOptionsRef.current(),
     loadSelectedConversationMessages,
     loadSessionState,
     markSelectedConversationDetailPending,
+    nodeId,
     onDataChangeRef,
     sessionEngine,
     requestRailReveal,
@@ -513,7 +559,7 @@ export function useAgentGUINodeController({
     (
       path: string | null,
       metadata?: {
-        action: "clear" | "create_new" | "select_existing";
+        action: "clear" | "create_new" | "import_directory" | "select_existing";
         project?: {
           id: string;
           path: string;
@@ -528,7 +574,11 @@ export function useAgentGUINodeController({
     ) => {
       const normalizedPath = normalizeAgentComposerDraftProjectPath(path);
       const project = metadata?.project;
-      if (project && normalizedPath && project.path === normalizedPath) {
+      if (
+        project &&
+        normalizedPath &&
+        areAgentComposerProjectPathsEqual(project.path, normalizedPath)
+      ) {
         const nextProjects = upsertAgentGUIUserProject(
           userProjectsRef.current,
           project
@@ -556,7 +606,7 @@ export function useAgentGUINodeController({
     const nextConversationCount = mergeVisibleConversations(
       conversations,
       transientConversation
-    ).length;
+    ).filter((conversation) => !conversation.hiddenFromRail).length;
     onDataChangeRef.current((current) =>
       current.conversationCount === nextConversationCount
         ? current
@@ -600,6 +650,7 @@ export function useAgentGUINodeController({
       loadDraftComposerOptionsRef,
       loadSessionState,
       onComposerDefaultsAuthorityReloadedRef,
+      optimisticComposerTarget,
       providerComposerOptions,
       selectedComposerTargetDataRef,
       selectedProjectPath,
@@ -640,6 +691,7 @@ export function useAgentGUINodeController({
     normalizedProviderTargets,
     planActionsRef,
     planImplementationTurnIdRef,
+    interactionReadinessSource,
     prefillPromptRequest,
     reportActiveConversationCleared: reportAgentGUIActiveConversationCleared,
     sessionEngine,
@@ -687,9 +739,7 @@ export function useAgentGUINodeController({
     isRespondingToInteraction: activeRelatedIsRespondingToInteraction,
     activeConversationLiveState,
     activationState: activeConversationLiveState,
-    activityDisplayStatus: activeConversationId
-      ? (agentActivityDisplayStatuses.get(activeConversationId) ?? null)
-      : null,
+    activityDisplayStatus: activeAgentActivityDisplayStatus,
     activityDisplayStatuses: agentActivityDisplayStatuses,
     agentActivityRuntime,
     avoidGroupingEdits,
@@ -712,6 +762,7 @@ export function useAgentGUINodeController({
     providerRailMode,
     providerReadinessGates,
     targetConnectionSource,
+    interactionReadinessSource,
     observationGapSource,
     agentTargetsLoading,
     selectedComposerTargetData,

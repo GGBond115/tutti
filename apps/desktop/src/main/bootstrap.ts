@@ -50,10 +50,12 @@ import {
 import { registerIpcHandlers } from "./ipc/register";
 import { flushDesktopLogger, setupDesktopLogger } from "./logging";
 import { ensureMacosApplicationInstalled } from "./macosApplicationInstallGuard.ts";
+import { prepareDesktopCliTarget } from "./cli/cliInstaller.ts";
 import { ensureSingleInstance } from "./singleInstance";
 import {
   completeDesktopLoginCallbackUrl,
-  findDesktopLoginCallbackUrl
+  findDesktopLoginCallbackUrl,
+  isDesktopAppOpenUrl
 } from "./desktopLoginCallback";
 import { getSystemDesktopLocale } from "./desktopLocale";
 import { openDesktopWorkspaceAppFolder } from "./host/workspaceAppFolderAccess";
@@ -67,6 +69,10 @@ import { applyDesktopElectronPlatformCompatibility } from "./electronPlatformCom
 import { createAppUpdateService } from "./update/appUpdateService.ts";
 import { createTuttidDesktopUpdateAdmissionBackend } from "./update/desktopUpdateAdmissionBackend.ts";
 import { getWorkspaceWindowKind } from "./windows/workspaceWindow.ts";
+import {
+  resolveDesktopDistribution,
+  resolveDesktopManualDownloadUrl
+} from "../shared/distribution/desktopDistribution.ts";
 
 function envFlagEnabled(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/iu.test(value?.trim() ?? "");
@@ -119,11 +125,18 @@ export async function bootstrapDesktopApp(): Promise<void> {
     void completeDesktopLoginCallbackUrl(url).catch(() => undefined);
   };
   app.on("open-url", (event, url) => {
-    if (url.startsWith(loginCallbackUrl)) {
-      event.preventDefault();
-      handleLoginCallbackUrl(url);
-      focusPrimaryDesktopWindow();
+    const isLoginCallback = url.startsWith(loginCallbackUrl);
+    if (
+      !isLoginCallback &&
+      !isDesktopAppOpenUrl(url, protocolClientRegistration.scheme)
+    ) {
+      return;
     }
+    event.preventDefault();
+    if (isLoginCallback) {
+      handleLoginCallbackUrl(url);
+    }
+    focusPrimaryDesktopWindow();
   });
   const appName = app.getName();
   const userDataPath = resolveDesktopUserDataPath({
@@ -137,6 +150,10 @@ export async function bootstrapDesktopApp(): Promise<void> {
   if (developmentAppName) {
     app.setName(developmentAppName);
   }
+  // Preload cannot import Electron's main-only `app` module. Publish the
+  // already-resolved native name through the process environment so every
+  // renderer can use the same value as the Windows title bar.
+  process.env.TUTTI_DESKTOP_APP_NAME = app.getName();
   const logger = await setupDesktopLogger();
 
   // A single live desktop instance per environment. The managed tuttid daemon is
@@ -166,6 +183,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
 
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const preloadPath = join(currentDir, "../preload/index.cjs");
+  const capturePreloadPath = join(currentDir, "../preload/capture.cjs");
   const minimumVersionPreloadPath = join(
     currentDir,
     "../preload/minimum-version.cjs"
@@ -184,6 +202,12 @@ export async function bootstrapDesktopApp(): Promise<void> {
 
   await app.whenReady();
   const systemLocale = getSystemDesktopLocale();
+  const translator = createTranslator(systemLocale);
+  const desktopDistribution = resolveDesktopDistribution({
+    platform: process.platform,
+    windowsStore: (process as NodeJS.Process & { windowsStore?: boolean })
+      .windowsStore
+  });
   const canContinueStartup = await ensureMacosApplicationInstalled({
     appPath: process.execPath,
     isPackaged: app.isPackaged,
@@ -204,8 +228,13 @@ export async function bootstrapDesktopApp(): Promise<void> {
     process.arch
   );
   const managedAdmissionTarget = featureAvailabilityTarget;
+  const workspaceAppCliPath =
+    process.platform === "win32"
+      ? prepareDesktopCliTarget({ isPackaged: app.isPackaged })
+      : undefined;
   const daemonRuntime = await startDesktopDaemonRuntime({
     daemonRuntime: createDesktopDaemonRuntime({
+      ...(workspaceAppCliPath ? { workspaceAppCliPath } : {}),
       desktopUpdateAdmission: managedAdmissionTarget
         ? {
             ...managedAdmissionTarget,
@@ -264,7 +293,12 @@ export async function bootstrapDesktopApp(): Promise<void> {
     : null;
   const updateService = createAppUpdateService(undefined, {
     currentVersion: desktopUpdateAdmission.runtime.currentVersion,
-    developmentScenario: desktopUpdateAdmission.scenario
+    developmentScenario: desktopUpdateAdmission.scenario,
+    supportsUpdates: desktopDistribution === "store" ? false : undefined,
+    unsupportedMessage:
+      desktopDistribution === "store"
+        ? translator.t("updates.storeManaged")
+        : undefined
   });
   let desktopAppServices: Awaited<
     ReturnType<typeof createDesktopAppServices>
@@ -280,8 +314,11 @@ export async function bootstrapDesktopApp(): Promise<void> {
       listBusinessWindows: () => BrowserWindow.getAllWindows(),
       logger,
       manualDownloadUrl: (response) => {
-        const channel = response.channel === "rc" ? "preview" : "stable";
-        return `https://tutti.sh/desktop/download?channel=${channel}&platform=macos&arch=universal&format=dmg`;
+        return resolveDesktopManualDownloadUrl({
+          channel: response.channel === "rc" ? "rc" : "stable",
+          distribution: desktopDistribution,
+          platform: process.platform
+        });
       },
       onPolicyReleased: () => {
         if (releaseStartupGate) {
@@ -322,6 +359,8 @@ export async function bootstrapDesktopApp(): Promise<void> {
     enableDevelopmentReloadShortcut: Boolean(rendererUrl) && !app.isPackaged,
     fallbackLocale: systemLocale,
     browserNodeGuestPreloadPath,
+    capturePreloadPath,
+    captureRendererFilePath: join(currentDir, "../renderer/capture.html"),
     startedDaemonRuntime: daemonRuntime,
     isPackaged: app.isPackaged,
     logger,
@@ -447,6 +486,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
     tuttid: desktopAppServices.tuttid,
     disposables: [
       ...ipcDisposables,
+      desktopAppServices.capture,
       ...(featureAvailabilityIpc ? [featureAvailabilityIpc] : []),
       hostPreferencesEventStream,
       agentPowerSaveBlocker,

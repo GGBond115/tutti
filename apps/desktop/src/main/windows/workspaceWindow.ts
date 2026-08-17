@@ -25,6 +25,7 @@ import {
   desktopIpcChannels,
   type DesktopHostWindowCloseRequestPayload
 } from "../../shared/contracts/ipc";
+import { randomUUID } from "node:crypto";
 import { installWorkspaceWindowDevelopmentReloadShortcut } from "./workspaceWindowReload.ts";
 import { resolvePackagedWorkspaceRendererIndexPath } from "./workspaceWindowPaths.ts";
 import { createPrimaryWindowAnalyticsClaim } from "./primaryWindowAnalyticsClaim.ts";
@@ -34,6 +35,8 @@ import {
   resolveStandaloneAgentWindowWorkArea
 } from "./standaloneAgentWindowBounds.ts";
 import { WorkspaceWindowRegistry } from "./workspaceWindowRegistry.ts";
+import { resolveWorkspaceWindowChromeOptions } from "./workspaceWindowChrome.ts";
+import { supportsWorkspaceWindowCloseGuard } from "./workspaceWindowCloseGuard.ts";
 
 export const workspaceAppBrowserPartitionPrefix = "persist:tutti-app:";
 
@@ -53,6 +56,11 @@ export interface CreateWorkspaceWindowOptions {
 }
 
 const workspaceWindows = new WorkspaceWindowRegistry<BrowserWindow>();
+const workspaceWindowCloseGuardEnabled = new WeakSet<BrowserWindow>();
+const pendingWorkspaceWindowCloseRequests = new WeakMap<
+  BrowserWindow,
+  string
+>();
 // DAU/PV belongs to the first workspace renderer for the lifetime of this main
 // process. Do not derive this from current registry membership: closing the
 // owner must not let a later window report another process-level open/pageview.
@@ -124,17 +132,19 @@ export function createWorkspaceWindow(
           workArea: agentDisplay.workArea
         })
       : defaultAgentWindowBounds;
+  const windowChromeOptions = resolveWorkspaceWindowChromeOptions(
+    process.platform,
+    windowKind
+  );
   const workspaceWindow = new BrowserWindow({
     backgroundColor: resolveDesktopWindowBackgroundColor(),
-    frame: windowKind === "agent" ? false : undefined,
+    ...windowChromeOptions,
     ...(process.platform === "linux" && windowKind === "agent"
       ? { roundedCorners: false }
       : {}),
-    // The agent window's green control is a native fullscreen toggle, and its
-    // frameless chrome draws custom traffic lights. Disabling native zoom stops
-    // macOS double-click-title-bar from zooming into an ambiguous "maximized"
-    // state that the custom restore icon can't reliably track.
-    ...(windowKind === "agent" ? { maximizable: false } : {}),
+    // The frameless agent window's green control is a native fullscreen toggle.
+    // Disabling native zoom stops macOS double-click-title-bar from zooming into
+    // an ambiguous "maximized" state that the custom restore icon can't track.
     width: agentWindowBounds?.width ?? 1280,
     height: agentWindowBounds?.height ?? 840,
     minWidth: windowKind === "agent" ? agentWindowMinWidthPx : 960,
@@ -236,7 +246,29 @@ export function createWorkspaceWindow(
     kind: windowKind,
     workspaceID: options.workspaceID
   });
+  workspaceWindow.on("close", (event) => {
+    if (
+      !supportsWorkspaceWindowCloseGuard(process.platform) ||
+      !workspaceWindowCloseGuardEnabled.has(workspaceWindow)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    if (pendingWorkspaceWindowCloseRequests.has(workspaceWindow)) {
+      return;
+    }
+
+    const requestId = randomUUID();
+    pendingWorkspaceWindowCloseRequests.set(workspaceWindow, requestId);
+    sendWorkspaceWindowCloseRequest(workspaceWindow, {
+      reason: "native-window-close",
+      requestId
+    });
+  });
   workspaceWindow.once("closed", () => {
+    workspaceWindowCloseGuardEnabled.delete(workspaceWindow);
+    pendingWorkspaceWindowCloseRequests.delete(workspaceWindow);
     workspaceWindows.unregister(workspaceWindow);
   });
 
@@ -304,6 +336,35 @@ export function createWorkspaceWindow(
   }
 
   return workspaceWindow;
+}
+
+export function setWorkspaceWindowCloseGuardEnabled(
+  workspaceWindow: BrowserWindow,
+  enabled: boolean
+): void {
+  if (enabled) {
+    workspaceWindowCloseGuardEnabled.add(workspaceWindow);
+    return;
+  }
+
+  workspaceWindowCloseGuardEnabled.delete(workspaceWindow);
+  pendingWorkspaceWindowCloseRequests.delete(workspaceWindow);
+}
+
+export function resolveWorkspaceWindowCloseRequest(
+  workspaceWindow: BrowserWindow,
+  input: { outcome: "approved" | "blocked"; requestId: string }
+): void {
+  if (
+    pendingWorkspaceWindowCloseRequests.get(workspaceWindow) !== input.requestId
+  ) {
+    return;
+  }
+
+  pendingWorkspaceWindowCloseRequests.delete(workspaceWindow);
+  if (input.outcome === "approved" && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.destroy();
+  }
 }
 
 export function getWorkspaceWindowKind(

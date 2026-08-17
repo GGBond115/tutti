@@ -134,10 +134,9 @@ func (s *Service) liveModelOptionsFromRunningSessionForScope(scope composerLiveM
 	return nil, hasProviderSession
 }
 
-func (s *Service) effectiveModelFromRunningSessionForScope(
+func (s *Service) modelValuesFromRunningSessionForScope(
 	scope composerLiveModelScope,
-) string {
-	effectiveModel := ""
+) (effectiveModel string, currentModel string) {
 	selectedUnixMS := int64(-1)
 	selectedSessionID := ""
 	selectedSession := false
@@ -168,21 +167,23 @@ func (s *Service) effectiveModelFromRunningSessionForScope(
 			session.RuntimeContext,
 			scope.modelConfigOptionID,
 		)
+		currentModel = extractCurrentModelFromRuntimeContext(
+			session.RuntimeContext,
+			scope.modelConfigOptionID,
+		)
 		selectedUnixMS = sessionUnixMS
 		selectedSessionID = session.ID
 		selectedSession = true
 	}
 	if selectedSession {
-		return effectiveModel
+		return effectiveModel, currentModel
 	}
 	runtimeContext, ok := s.getComposerRuntimeContextForScope(scope, time.Now().UTC())
 	if !ok {
-		return ""
+		return "", ""
 	}
-	return extractEffectiveModelFromRuntimeContext(
-		runtimeContext,
-		scope.modelConfigOptionID,
-	)
+	return extractEffectiveModelFromRuntimeContext(runtimeContext, scope.modelConfigOptionID),
+		extractCurrentModelFromRuntimeContext(runtimeContext, scope.modelConfigOptionID)
 }
 
 func (s *Service) liveModelInvalidatedAtUnixMSForProvider(provider string) int64 {
@@ -276,7 +277,7 @@ func (s *Service) discoverLiveComposerModelsUncachedForScope(
 		if prepareErr != nil {
 			return ProviderRuntimeSession{}, prepareErr
 		}
-		runtimeSession, startErr := s.controller().Start(ctx, RuntimeStartInput{
+		startResult, startErr := s.controller().Start(ctx, RuntimeStartInput{
 			WorkspaceID:       scope.workspaceID,
 			AgentSessionID:    startInput.AgentSessionID,
 			AgentTargetID:     scope.agentTargetID,
@@ -300,7 +301,7 @@ func (s *Service) discoverLiveComposerModelsUncachedForScope(
 		if startErr != nil {
 			return ProviderRuntimeSession{}, normalizeRuntimeError(startErr)
 		}
-		return runtimeSession, nil
+		return startResult.Session, nil
 	}()
 	if err != nil {
 		s.invalidateProviderAvailability(scope.provider)
@@ -500,6 +501,7 @@ func (s *Service) mergeLiveComposerModelsForComposerOptions(
 	provider := agentprovider.NormalizeOpen(input.Provider)
 	scope := newComposerLiveModelScopeForInput(input, effectiveSettings)
 	var liveModels []ComposerConfigOptionValue
+	liveModelDiscoveryPending := false
 	modelSource := "claude-static"
 	if strings.TrimSpace(input.WorkspaceID) != "" {
 		now := time.Now().UTC()
@@ -563,6 +565,7 @@ func (s *Service) mergeLiveComposerModelsForComposerOptions(
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return ComposerOptions{}, err
 				}
+				liveModelDiscoveryPending = errors.Is(err, errLiveModelDiscoveryPending)
 				if err == nil && len(discovered) > 0 {
 					liveModels = discovered
 					modelSource = runtimeLiveModelCatalogSource
@@ -578,7 +581,7 @@ func (s *Service) mergeLiveComposerModelsForComposerOptions(
 	}
 	if len(liveModels) > 0 {
 		liveModels = s.enrichModelCapabilityOptions(ctx, provider, liveModels)
-		effectiveModel := s.effectiveModelFromRunningSessionForScope(scope)
+		effectiveModel, currentModel := s.modelValuesFromRunningSessionForScope(scope)
 		logClaudeModelCatalogInvalidationDebug("composer_options_model_source_selected", map[string]any{
 			"workspaceId":       input.WorkspaceID,
 			"cwd":               input.Cwd,
@@ -591,11 +594,16 @@ func (s *Service) mergeLiveComposerModelsForComposerOptions(
 			liveModels,
 			modelSource,
 			effectiveModel,
+			currentModel,
 		), nil
 	}
 	if !isClaudeSDKLiveModelProvider(provider) {
 		// Without a live list there is nothing trustworthy to offer beyond
 		// the currently selected model; keep the static single-entry select.
+		// Preserve a pending discovery as separate evidence so create validation
+		// does not mistake a slow extension startup for an explicit refusal to
+		// configure models.
+		options.liveModelDiscoveryPending = liveModelDiscoveryPending
 		return options, nil
 	}
 	staticModels := staticClaudeComposerModelOptions(effectiveSettings.Model)
@@ -608,7 +616,7 @@ func (s *Service) mergeLiveComposerModelsForComposerOptions(
 			"modelOptionCount":  len(staticModels),
 			"modelOptionValues": composerConfigOptionValuesDebugValues(staticModels),
 		})
-		return mergeComposerModelsIntoComposerOptions(options, staticModels, modelSource, ""), nil
+		return mergeComposerModelsIntoComposerOptions(options, staticModels, modelSource, "", ""), nil
 	}
 	return clearUnverifiedLiveComposerModel(options), nil
 }
@@ -629,7 +637,7 @@ func composerConfigOptionValuesDebugValues(options []ComposerConfigOptionValue) 
 }
 
 func mergeLiveModelsIntoComposerOptions(options ComposerOptions, liveModels []ComposerConfigOptionValue) ComposerOptions {
-	return mergeComposerModelsIntoComposerOptions(options, liveModels, runtimeLiveModelCatalogSource, "")
+	return mergeComposerModelsIntoComposerOptions(options, liveModels, runtimeLiveModelCatalogSource, "", "")
 }
 
 func mergeComposerModelsIntoComposerOptions(
@@ -637,12 +645,18 @@ func mergeComposerModelsIntoComposerOptions(
 	liveModels []ComposerConfigOptionValue,
 	modelSource string,
 	effectiveModel string,
+	currentModel string,
 ) ComposerOptions {
 	normalized := normalizeLiveComposerModelOptions(liveModels)
 	if len(normalized) == 0 {
 		return options
 	}
-	selected := liveComposerSelectedModel(options.EffectiveSettings.Model, normalized)
+	selected := liveComposerSelectedModel(
+		options.EffectiveSettings.Model,
+		currentModel,
+		effectiveModel,
+		normalized,
+	)
 	options.EffectiveSettings.Model = selected
 	options.ModelConfig = ComposerConfigOption{
 		Configurable:   true,
@@ -723,12 +737,33 @@ func normalizeLiveComposerModelOptions(options []ComposerConfigOptionValue) []Co
 	return normalized
 }
 
-func liveComposerSelectedModel(selectedModel string, liveModels []ComposerConfigOptionValue) string {
+func liveComposerSelectedModel(
+	selectedModel string,
+	currentModel string,
+	effectiveModel string,
+	liveModels []ComposerConfigOptionValue,
+) string {
 	selectedModel = strings.TrimSpace(selectedModel)
 	if selectedModel != "" {
 		for _, option := range liveModels {
 			if strings.TrimSpace(option.Value) == selectedModel {
 				return selectedModel
+			}
+		}
+	}
+	currentModel = strings.TrimSpace(currentModel)
+	if currentModel != "" {
+		for _, option := range liveModels {
+			if strings.TrimSpace(option.Value) == currentModel {
+				return currentModel
+			}
+		}
+	}
+	effectiveModel = strings.TrimSpace(effectiveModel)
+	if effectiveModel != "" {
+		for _, option := range liveModels {
+			if strings.TrimSpace(option.Value) == effectiveModel {
+				return effectiveModel
 			}
 		}
 	}

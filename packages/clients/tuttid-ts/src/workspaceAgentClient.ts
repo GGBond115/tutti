@@ -12,6 +12,7 @@ import {
   deleteAgentSessionRecording,
   deleteWorkspaceAgentSession,
   deleteWorkspaceAgentSessionsBatch,
+  deleteWorkspaceManagedWorktree,
   forkWorkspaceAgentSession,
   getWorkspaceAgentSessionForkOperation,
   editRetryWorkspaceAgentTurn,
@@ -31,14 +32,20 @@ import {
   listWorkspaceAgentSessionSectionPage,
   listWorkspaceAgentSessionSections,
   listWorkspaceAgentSessions,
+  listWorkspaceDeletedAgentSessions,
   listWorkspaceGitBranches,
+  listWorkspaceManagedWorktrees,
+  purgeWorkspaceDeletedAgentSession,
+  purgeWorkspaceDeletedAgentSessions,
   readWorkspaceAgentSessionAttachment,
   recoverWorkspaceAgentEditRetry,
   resolveWorkspaceAgentSideCapabilities,
   renameAgentSessionRecording,
+  restoreWorkspaceDeletedAgentSession,
   reconcileWorkspaceAgentSessionGoal,
   prepareAgentSessionReplayWorkspace,
   resolveWorkspaceGitPatchSupport,
+  resolveWorkspaceAgentSessionWorktreeSupport,
   scanWorkspaceExternalAgentSessionImports,
   sendWorkspaceAgentSessionInput,
   sendWorkspaceAgentSideConversationInput,
@@ -75,6 +82,7 @@ type WorkspaceAgentClient = Pick<
   | "deleteAgentSessionRecording"
   | "deleteWorkspaceAgentSession"
   | "deleteWorkspaceAgentSessionsBatch"
+  | "deleteWorkspaceManagedWorktree"
   | "forkWorkspaceAgentSession"
   | "getWorkspaceAgentSessionForkOperation"
   | "editRetry"
@@ -94,14 +102,20 @@ type WorkspaceAgentClient = Pick<
   | "listWorkspaceAgentSessionSectionPage"
   | "listWorkspaceAgentSessionSections"
   | "listWorkspaceAgentSessions"
+  | "listWorkspaceDeletedAgentSessions"
   | "listWorkspaceGitBranches"
+  | "listWorkspaceManagedWorktrees"
+  | "purgeWorkspaceDeletedAgentSession"
+  | "purgeWorkspaceDeletedAgentSessions"
   | "readWorkspaceAgentSessionAttachment"
   | "recoverEditRetry"
   | "resolveWorkspaceAgentSideCapabilities"
   | "renameAgentSessionRecording"
+  | "restoreWorkspaceDeletedAgentSession"
   | "reconcileWorkspaceAgentSessionGoal"
   | "prepareAgentSessionReplayWorkspace"
   | "resolveWorkspaceGitPatchSupport"
+  | "resolveWorkspaceAgentSessionWorktreeSupport"
   | "scanWorkspaceExternalAgentSessionImports"
   | "sendWorkspaceAgentSessionInput"
   | "sendWorkspaceAgentSideConversationInput"
@@ -407,6 +421,59 @@ export function createWorkspaceAgentClient(
       return unwrapData(
         await clearWorkspaceAgentSessions({ client, path: { workspaceID } }),
         "Clear workspace agent sessions request failed."
+      );
+    },
+    async listWorkspaceDeletedAgentSessions(
+      workspaceID,
+      request,
+      requestOptions
+    ) {
+      return unwrapData(
+        await listWorkspaceDeletedAgentSessions({
+          client,
+          path: { workspaceID },
+          query: request,
+          ...requestOptions
+        }),
+        "List workspace deleted agent sessions request failed."
+      );
+    },
+    async restoreWorkspaceDeletedAgentSession(
+      workspaceID,
+      agentSessionID,
+      requestOptions
+    ) {
+      return unwrapData(
+        await restoreWorkspaceDeletedAgentSession({
+          client,
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
+        }),
+        "Restore workspace deleted agent session request failed."
+      );
+    },
+    async purgeWorkspaceDeletedAgentSession(
+      workspaceID,
+      agentSessionID,
+      requestOptions
+    ) {
+      return unwrapData(
+        await purgeWorkspaceDeletedAgentSession({
+          client,
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
+        }),
+        "Purge workspace deleted agent session request failed."
+      );
+    },
+    async purgeWorkspaceDeletedAgentSessions(workspaceID, requestOptions) {
+      return unwrapData(
+        await purgeWorkspaceDeletedAgentSessions({
+          client,
+          path: { workspaceID },
+          ...requestOptions
+        }),
+        "Purge workspace deleted agent sessions request failed."
       );
     },
     async getWorkspaceAgentSession(
@@ -719,6 +786,38 @@ export function createWorkspaceAgentClient(
           query: { cwd }
         }),
         "Resolve workspace git patch support failed."
+      );
+    },
+    async resolveWorkspaceAgentSessionWorktreeSupport(
+      workspaceID,
+      agentTargetId,
+      cwd
+    ) {
+      return unwrapData(
+        await resolveWorkspaceAgentSessionWorktreeSupport({
+          client,
+          path: { workspaceID },
+          query: { agentTargetId, cwd }
+        }),
+        "Resolve workspace Agent Session worktree support failed."
+      );
+    },
+    async listWorkspaceManagedWorktrees(workspaceID) {
+      return unwrapData(
+        await listWorkspaceManagedWorktrees({
+          client,
+          path: { workspaceID }
+        }),
+        "List workspace managed worktrees failed."
+      );
+    },
+    async deleteWorkspaceManagedWorktree(workspaceID, worktreeID) {
+      return unwrapData(
+        await deleteWorkspaceManagedWorktree({
+          client,
+          path: { workspaceID, worktreeID }
+        }),
+        "Delete workspace managed worktree failed."
       );
     },
     async applyWorkspaceGitPatch(workspaceID, request) {

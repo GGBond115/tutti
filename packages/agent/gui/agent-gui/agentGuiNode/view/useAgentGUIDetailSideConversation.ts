@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   supportsAgentSideConversation,
   useAgentSideConversationSnapshot,
+  useAgentSideConversationSupport,
   useOptionalAgentSideConversationRuntime
 } from "../../../agentSideConversationRuntime";
 import type { AgentConversationPromptVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
@@ -67,11 +68,6 @@ export function useAgentGUIDetailSideConversation({
 }: UseAgentGUIDetailSideConversationInput) {
   const { t } = useTranslation();
   const runtime = useOptionalAgentSideConversationRuntime();
-  const [capabilityState, setCapabilityState] = useState<{
-    identity: string;
-    runtime: NonNullable<typeof runtime>;
-    supported: boolean;
-  } | null>(null);
   const [entryErrorState, setEntryErrorState] = useState<{
     identity: string;
     runtime: typeof runtime;
@@ -83,49 +79,12 @@ export function useAgentGUIDetailSideConversation({
     entryErrorState.runtime === runtime
       ? entryErrorState.code
       : null;
-  useEffect(() => {
-    let canceled = false;
-    if (runtime && sourceAgentSessionId) {
-      void runtime
-        .resolveCapabilities({
-          workspaceId,
-          sourceAgentSessionId,
-          provider,
-          cwd
-        })
-        .then((capabilities) => {
-          if (canceled) return;
-          setCapabilityState({
-            identity: capabilityIdentity,
-            runtime,
-            supported: supportsAgentSideConversation(capabilities)
-          });
-        })
-        .catch(() => {
-          if (!canceled) {
-            setCapabilityState({
-              identity: capabilityIdentity,
-              runtime,
-              supported: false
-            });
-          }
-        });
-    }
-    return () => {
-      canceled = true;
-    };
-  }, [
-    capabilityIdentity,
-    cwd,
+  const sideSupported = useAgentSideConversationSupport({
+    workspaceId,
+    sourceAgentSessionId: sourceAgentSessionId ?? "",
     provider,
-    runtime,
-    sourceAgentSessionId,
-    workspaceId
-  ]);
-  const sideSupported =
-    capabilityState?.identity === capabilityIdentity &&
-    capabilityState.runtime === runtime &&
-    capabilityState.supported;
+    cwd
+  });
   const runtimeActive = useAgentSideConversationSnapshot(workspaceId).active;
   const active = useMemo(
     () => projectAgentSideConversationViewState(runtimeActive),

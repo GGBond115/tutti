@@ -184,7 +184,7 @@ test("turn lifecycle creates an explicit synthetic turn for orphan assistant out
   assert.equal(events[0]?.payload?.synthetic, true);
 });
 
-test("turn lifecycle cancels queued turns and consumes their orphan results", () => {
+test("cancelQueued cancels queued turns and consumes their orphan results", () => {
   const { lifecycle, events } = createLifecycle();
   lifecycle.enqueue({
     turnId: "turn-1",
@@ -204,6 +204,64 @@ test("turn lifecycle cancels queued turns and consumes their orphan results", ()
   assert.equal(lifecycle.consumePendingOrphan(), false);
   assert.equal(events.at(-1)?.type, "turn_canceled");
   assert.equal(events.at(-1)?.payload?.turnId, "turn-2");
+});
+
+test("exact cancellation prepares before committing a queued terminal", () => {
+  const { lifecycle, events } = createLifecycle();
+  lifecycle.enqueue({
+    turnId: "turn-queued",
+    promptUuid: "prompt-queued",
+    settled: false
+  });
+
+  assert.equal(
+    lifecycle.prepareExactCancellation("turn-queued").disposition,
+    "queued"
+  );
+  assert.equal(events.length, 0);
+  assert.equal(lifecycle.commitExactCancellation("turn-queued"), true);
+  assert.deepEqual(events.at(-1), {
+    type: "turn_canceled",
+    payload: { turnId: "turn-queued" }
+  });
+  assert.equal(lifecycle.queue.length, 0);
+});
+
+test("exact cancellation exposes a queued turn behind a different active turn", () => {
+  const { lifecycle } = createLifecycle();
+  lifecycle.enqueue({
+    turnId: "turn-active",
+    promptUuid: "prompt-active",
+    settled: false
+  });
+  lifecycle.enqueue({
+    turnId: "turn-queued",
+    promptUuid: "prompt-queued",
+    settled: false
+  });
+  lifecycle.activateForUserMessage("prompt-active");
+
+  const queued = lifecycle.prepareExactCancellation("turn-queued");
+  assert.equal(queued.disposition, "queued");
+  assert.equal(queued.differentActiveTurn, true);
+  lifecycle.releaseExactCancellation("turn-queued");
+  assert.equal(
+    lifecycle.prepareExactCancellation("turn-other").disposition,
+    "mismatch"
+  );
+  assert.equal(
+    lifecycle.prepareExactCancellation("turn-active").disposition,
+    "active"
+  );
+});
+
+test("exact cancellation rejects an unknown turn", () => {
+  const { lifecycle } = createLifecycle();
+
+  assert.equal(
+    lifecycle.prepareExactCancellation("turn-unknown").disposition,
+    "absent"
+  );
 });
 
 test("notification-reserved synthetic turn times out and rejects late continuation", async () => {

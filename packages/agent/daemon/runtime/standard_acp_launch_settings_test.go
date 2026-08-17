@@ -2,8 +2,10 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -405,6 +407,75 @@ func TestStandardACPLaunchPermissionPlanRestartsAndLoadsSameSession(t *testing.T
 	}
 }
 
+func TestStandardACPLaunchPermissionPlanPersistsWithoutSpawnAfterReleaseFailure(t *testing.T) {
+	t.Parallel()
+
+	transport := &multiProcStandardACPTransport{
+		agentTitle:          "Grok Build",
+		sessionID:           "grok-provider-session-deferred-plan",
+		supportsLoadSession: true,
+	}
+	adapterRaw, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+		Provider:                     "acp:grok-launch-plan-deferred",
+		Name:                         "grok-launch-plan-deferred-acp",
+		DisplayName:                  "Grok Build",
+		Command:                      []string{"grok", "--permission-mode", "${permissionMode}", "agent", "stdio"},
+		PermissionModes:              map[string]string{"ask-before-write": "default", "auto": "auto", "full-access": "bypassPermissions"},
+		PlanModeRuntimeID:            "plan",
+		PlanModeDisabledRuntimeID:    "default",
+		PlanModeUsesLaunchPermission: true,
+		LaunchPermission: &StandardACPLaunchPermissionSetting{
+			Placeholder:     "${permissionMode}",
+			DefaultSemantic: "ask-before-write",
+			Values:          map[string]string{"ask-before-write": "default", "auto": "auto", "full-access": "bypassPermissions"},
+		},
+	}, transport, LegacyHostMetadata())
+	if err != nil {
+		t.Fatalf("NewStandardACPAdapter: %v", err)
+	}
+	adapter := adapterRaw.(*standardACPAdapter)
+	session := standardTestSession("acp:grok-launch-plan-deferred")
+	session.PermissionModeID = "auto"
+	session.Settings = &SessionSettings{PermissionModeID: "auto"}
+	events, err := adapter.Start(context.Background(), session)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	session.ProviderSessionID = events[0].ProviderSessionID
+	transport.mu.Lock()
+	firstConnection := transport.conns[0]
+	transport.mu.Unlock()
+	firstConnection.mu.Lock()
+	firstConnection.closeFailures = 1
+	firstConnection.mu.Unlock()
+	if err := adapter.ReleaseLiveSession(context.Background(), session); err == nil {
+		t.Fatal("ReleaseLiveSession error = nil, want injected close failure")
+	}
+
+	enabled := true
+	session.Settings.PlanMode = enabled
+	if err := adapter.ApplySessionSettings(context.Background(), session, SessionSettingsPatch{PlanMode: &enabled}); err != nil {
+		t.Fatalf("ApplySessionSettings: %v", err)
+	}
+	spawned, _ := transport.snapshot()
+	if spawned != 1 {
+		t.Fatalf("process starts after settings persistence = %d, want 1", spawned)
+	}
+	if err := adapter.Resume(context.Background(), session); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	transport.mu.Lock()
+	specs := append([]ProcessSpec(nil), transport.specs...)
+	connections := append([]*standardACPConnection(nil), transport.conns...)
+	transport.mu.Unlock()
+	if len(specs) != 2 || specs[1].Command[2] != "plan" {
+		t.Fatalf("resume command = %#v, want persisted Plan launch", specs)
+	}
+	if got := asString(connections[1].lastLoadSessionParams["sessionId"]); got != session.ProviderSessionID {
+		t.Fatalf("resumed provider session = %q, want %q", got, session.ProviderSessionID)
+	}
+}
+
 func TestStandardACPLaunchPermissionRejectsUnknownSessionSemantic(t *testing.T) {
 	t.Parallel()
 
@@ -445,11 +516,14 @@ func TestStandardACPSessionNewAndLoadPassStandardClientMCPConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStandardACPAdapter new: %v", err)
 	}
-	if _, err := newAdapterRaw.Start(context.Background(), standardTestSession("acp:mcp-new")); err != nil {
+	newSession := standardTestSession("acp:mcp-new")
+	newSession.MCPServers = []MCPServerBinding{{Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector",
+		Headers: map[string]string{"Authorization": "Bearer test-token"}}}
+	if _, err := newAdapterRaw.Start(context.Background(), newSession); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if servers, ok := newTransport.conn.lastNewSessionParams["mcpServers"].([]any); !ok || len(servers) != 0 {
-		t.Fatalf("session/new mcpServers = %#v, want standard empty client config", newTransport.conn.lastNewSessionParams["mcpServers"])
+	if servers, ok := newTransport.conn.lastNewSessionParams["mcpServers"].([]any); !ok || len(servers) != 1 {
+		t.Fatalf("session/new mcpServers = %#v, want connector binding", newTransport.conn.lastNewSessionParams["mcpServers"])
 	}
 
 	loadTransport := newStandardACPTransport("MCP ACP", "mcp-load-session")
@@ -462,11 +536,86 @@ func TestStandardACPSessionNewAndLoadPassStandardClientMCPConfig(t *testing.T) {
 	}
 	loadSession := standardTestSession("acp:mcp-load")
 	loadSession.ProviderSessionID = "mcp-load-session"
+	loadSession.MCPServers = cloneMCPServerBindings(newSession.MCPServers)
 	if err := loadAdapterRaw.Resume(context.Background(), loadSession); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	if servers, ok := loadTransport.conn.lastLoadSessionParams["mcpServers"].([]any); !ok || len(servers) != 0 {
-		t.Fatalf("session/load mcpServers = %#v, want standard empty client config", loadTransport.conn.lastLoadSessionParams["mcpServers"])
+	if servers, ok := loadTransport.conn.lastLoadSessionParams["mcpServers"].([]any); !ok || len(servers) != 1 {
+		t.Fatalf("session/load mcpServers = %#v, want connector binding", loadTransport.conn.lastLoadSessionParams["mcpServers"])
+	}
+}
+
+func TestStandardACPSessionFallsBackWithoutHTTPMCPWhenAgentDoesNotAdvertiseCapability(t *testing.T) {
+	t.Parallel()
+
+	newTransport := newStandardACPTransport("MCP Unsupported ACP", "mcp-unsupported-session")
+	newTransport.conn.supportsHTTPMCP = false
+	newAdapter, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+		Provider: "acp:mcp-unsupported", Name: "mcp-unsupported-acp", DisplayName: "MCP Unsupported ACP", Command: []string{"mcp-acp", "stdio"},
+	}, newTransport, LegacyHostMetadata())
+	if err != nil {
+		t.Fatalf("NewStandardACPAdapter: %v", err)
+	}
+	session := standardTestSession("acp:mcp-unsupported")
+	session.MCPServers = []MCPServerBinding{{Name: "connector", Type: "http", URL: "http://127.0.0.1:1234/mcp/connector"}}
+	if _, err := newAdapter.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start error = %v", err)
+	}
+	if servers, ok := newTransport.conn.lastNewSessionParams["mcpServers"].([]any); ok && len(servers) != 0 {
+		t.Fatalf("session/new mcpServers = %#v, want empty fallback", newTransport.conn.lastNewSessionParams["mcpServers"])
+	}
+
+	loadTransport := newStandardACPTransport("MCP Unsupported ACP", "mcp-unsupported-load-session")
+	loadTransport.conn.supportsHTTPMCP = false
+	loadTransport.conn.supportsLoadSession = true
+	loadAdapter, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+		Provider: "acp:mcp-unsupported", Name: "mcp-unsupported-acp", DisplayName: "MCP Unsupported ACP", Command: []string{"mcp-acp", "stdio"},
+	}, loadTransport, LegacyHostMetadata())
+	if err != nil {
+		t.Fatalf("NewStandardACPAdapter load: %v", err)
+	}
+	loadSession := standardTestSession("acp:mcp-unsupported")
+	loadSession.ProviderSessionID = "mcp-unsupported-load-session"
+	loadSession.MCPServers = cloneMCPServerBindings(session.MCPServers)
+	if err := loadAdapter.Resume(context.Background(), loadSession); err != nil {
+		t.Fatalf("Resume error = %v", err)
+	}
+	if servers, ok := loadTransport.conn.lastLoadSessionParams["mcpServers"].([]any); ok && len(servers) != 0 {
+		t.Fatalf("session/load mcpServers = %#v, want empty fallback", loadTransport.conn.lastLoadSessionParams["mcpServers"])
+	}
+}
+
+func TestStandardACPConnectorCapabilitiesRequireExplicitHTTPDeclaration(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		supported bool
+	}{
+		{name: "declared", supported: true},
+		{name: "missing", supported: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			transport := newStandardACPTransport("Capability ACP", "capability-session")
+			transport.conn.supportsHTTPMCP = test.supported
+			adapter, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+				Provider: "acp:capability", Name: "capability-acp", DisplayName: "Capability ACP", Command: []string{"capability-acp", "stdio"},
+			}, transport, LegacyHostMetadata())
+			if err != nil {
+				t.Fatalf("NewStandardACPAdapter: %v", err)
+			}
+			capabilities, err := adapter.(ConnectorCapabilityAdapter).ConnectorCapabilities(t.Context(), standardTestSession("acp:capability"))
+			if err != nil {
+				t.Fatalf("ConnectorCapabilities: %v", err)
+			}
+			if capabilities.HTTPMCP != test.supported {
+				t.Fatalf("HTTPMCP = %v, want %v", capabilities.HTTPMCP, test.supported)
+			}
+			if transport.conn.lastNewSessionParams != nil {
+				t.Fatalf("capability probe created session: %#v", transport.conn.lastNewSessionParams)
+			}
+		})
 	}
 }
 
@@ -541,5 +690,66 @@ func TestStandardACPSetModelCarriesAdvertisedPerModelReasoningMetadata(t *testin
 	}
 	if calls := transport.conn.setConfigOptionCalls(); len(calls) != 0 {
 		t.Fatalf("config option calls = %#v, want standard session/set_model only", calls)
+	}
+}
+
+func TestStandardACPStartupFailsWhenRequestedModelIsRejected(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Model ACP", "model-rejected-session")
+	transport.conn.models = map[string]any{
+		"currentModelId": "provider-default",
+		"availableModels": []any{
+			map[string]any{"modelId": "requested-model", "name": "Requested Model"},
+		},
+	}
+	transport.conn.setModelError = &acpError{
+		Code:    -32603,
+		Message: "Internal error",
+		Data:    json.RawMessage(`{"details":"requested model is unavailable"}`),
+	}
+	adapterRaw, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+		Provider: "acp:model-rejected", Name: "model-rejected-acp", DisplayName: "Model ACP", Command: []string{"model-acp", "stdio"},
+	}, transport, LegacyHostMetadata())
+	if err != nil {
+		t.Fatalf("NewStandardACPAdapter: %v", err)
+	}
+	session := standardTestSession("acp:model-rejected")
+	session.Settings = &SessionSettings{Model: "requested-model"}
+
+	if _, err := adapterRaw.Start(context.Background(), session); err == nil {
+		t.Fatal("Start error = nil, want rejected requested model to abort startup")
+	} else if !strings.Contains(err.Error(), "model configuration failed") {
+		t.Fatalf("Start error = %v, want model configuration failure", err)
+	}
+}
+
+func TestStandardACPStartupDoesNotReapplyCurrentRequestedModel(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Model ACP", "model-current-session")
+	transport.conn.models = map[string]any{
+		"currentModelId": "requested-model",
+		"availableModels": []any{
+			map[string]any{"modelId": "requested-model", "name": "Requested Model"},
+		},
+	}
+	transport.conn.setModelError = &acpError{
+		Code: -32603, Message: "duplicate model application rejected",
+	}
+	adapterRaw, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+		Provider: "acp:model-current", Name: "model-current-acp", DisplayName: "Model ACP", Command: []string{"model-acp", "stdio"},
+	}, transport, LegacyHostMetadata())
+	if err != nil {
+		t.Fatalf("NewStandardACPAdapter: %v", err)
+	}
+	session := standardTestSession("acp:model-current")
+	session.Settings = &SessionSettings{Model: "requested-model"}
+
+	if _, err := adapterRaw.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if calls := transport.conn.setModelCalls(); len(calls) != 0 {
+		t.Fatalf("set_model calls = %#v, want current model left unchanged", calls)
 	}
 }

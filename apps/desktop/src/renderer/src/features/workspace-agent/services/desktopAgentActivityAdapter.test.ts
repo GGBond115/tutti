@@ -1282,7 +1282,10 @@ test("desktop agent activity adapter normalizes provider composer options", asyn
     {
       agentTargetId: null,
       durationMs: "number",
+      modelCount: 2,
+      modelNames: "gpt-5.5,gpt-5.4",
       provider: "codex",
+      section: "full",
       status: "ready"
     }
   );
@@ -2538,6 +2541,7 @@ function createSession(
     ...canonicalOverrides,
     messageVersion: canonicalOverrides.messageVersion ?? 0,
     forkedFrom: canonicalOverrides.forkedFrom ?? null,
+    goalSyncState: canonicalOverrides.goalSyncState ?? null,
     tuttiModeActivation: canonicalOverrides.tuttiModeActivation ?? null,
     kind: canonicalOverrides.kind ?? "root",
     rootAgentSessionId: canonicalOverrides.rootAgentSessionId ?? null,

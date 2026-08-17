@@ -1,5 +1,7 @@
-import { app } from "electron";
+import { app, dialog, shell } from "electron";
 import { bootstrapDesktopApp } from "./bootstrap";
+import { resolveDesktopDefaultsFromEnv } from "./defaults.ts";
+import { showDesktopStartupFailureDialog } from "./desktopStartupFailureDialog.ts";
 import {
   ICON_WORKER_ROLE,
   ICON_WORKER_ROLE_ENV
@@ -7,7 +9,8 @@ import {
 import { recordStartupFailureEvent } from "./startupFailureAnalytics.ts";
 import {
   desktopStartupFailure,
-  desktopStartupFailurePrefix
+  desktopStartupFailurePrefix,
+  isDaemonStartupFailure
 } from "./desktopStartupFailureProtocol.ts";
 
 if (process.env[ICON_WORKER_ROLE_ENV] === ICON_WORKER_ROLE) {
@@ -21,8 +24,9 @@ if (process.env[ICON_WORKER_ROLE_ENV] === ICON_WORKER_ROLE) {
   );
 } else {
   void bootstrapDesktopApp().catch(async (error) => {
+    const failure = desktopStartupFailure(error);
     process.stderr.write(
-      `${desktopStartupFailurePrefix}${JSON.stringify(desktopStartupFailure(error))}\n`
+      `${desktopStartupFailurePrefix}${JSON.stringify(failure)}\n`
     );
     await recordStartupFailureEvent({
       error,
@@ -36,6 +40,22 @@ if (process.env[ICON_WORKER_ROLE_ENV] === ICON_WORKER_ROLE) {
     process.stderr.write(
       `[desktop] bootstrap failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`
     );
+    try {
+      await showDesktopStartupFailureDialog({
+        failureKind: isDaemonStartupFailure(failure) ? "daemon" : "general",
+        locale: app.isReady()
+          ? app.getLocale()
+          : Intl.DateTimeFormat().resolvedOptions().locale,
+        logsDirectory: resolveDesktopDefaultsFromEnv().state.logsDir,
+        platform: process.platform,
+        openPath: (path) => shell.openPath(path),
+        showMessageBox: (options) => dialog.showMessageBox(options)
+      });
+    } catch (dialogError) {
+      process.stderr.write(
+        `[desktop] show startup failure dialog failed: ${dialogError instanceof Error ? dialogError.message : String(dialogError)}\n`
+      );
+    }
     app.exit(1);
   });
 }

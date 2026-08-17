@@ -39,6 +39,7 @@ export function AgentTargetSetupGate({
   gateVisible = true
 }: AgentTargetSetupGateProps): React.JSX.Element {
   const controller = useAgentTargetSetupController();
+  const { terminalLogin } = useAgentHostApi();
   const { t } = useTranslation();
   const state = useExternalStoreSnapshot(controller);
   const {
@@ -71,6 +72,10 @@ export function AgentTargetSetupGate({
     effectiveAuthMethod?.type === "terminal"
       ? (effectiveAuthMethod.terminalCommand?.trim() ?? "") || null
       : null;
+  const terminalStartupAction =
+    effectiveAuthMethod?.type === "terminal"
+      ? (effectiveAuthMethod.terminalStartupAction ?? null)
+      : null;
 
   if (!enabled) {
     return <>{children}</>;
@@ -87,10 +92,20 @@ export function AgentTargetSetupGate({
     await controller.authenticate(effectiveAuthMethodId);
   };
   const terminalLoginLaunchAvailable =
-    terminalLoginAvailable && Boolean(terminalLoginCommand);
+    terminalLoginAvailable &&
+    Boolean(terminalLoginCommand) &&
+    (!terminalStartupAction ||
+      Boolean(
+        terminalLogin?.supportedStartupActionTypes?.includes(
+          terminalStartupAction.type
+        )
+      ));
   const handleTerminalLoginStart = async () => {
     if (!terminalLoginCommand) return;
-    await controller.startTerminalLogin(terminalLoginCommand);
+    await controller.startTerminalLogin({
+      command: terminalLoginCommand,
+      startupAction: terminalStartupAction
+    });
   };
   const handleTerminalLoginCancel = () => controller.cancelTerminalLogin();
   const actionRunning = isSetupActionRunning(snapshot?.action?.status);
@@ -141,6 +156,10 @@ export function AgentTargetSetupGate({
     account !== null ||
     snapshot?.status === "auth_required" ||
     snapshot?.status === "authenticating";
+  // Prefer setup projection over the local authenticate promise. OAuth can mark
+  // the account ready before the host login call settles.
+  const loginActionPending =
+    authenticatePending && snapshot?.status !== "ready";
 
   return (
     <>
@@ -280,10 +299,10 @@ export function AgentTargetSetupGate({
                       <Button
                         type="button"
                         size="sm"
-                        disabled={!effectiveAuthMethodId || authenticatePending}
+                        disabled={!effectiveAuthMethodId || loginActionPending}
                         onClick={() => void handleAuthenticate()}
                       >
-                        {authenticatePending
+                        {loginActionPending
                           ? t("agentHost.agentGui.targetSetupAuthStarting")
                           : snapshot?.status === "ready"
                             ? t("agentHost.agentGui.targetSetupReauthenticate")

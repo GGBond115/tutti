@@ -17,7 +17,7 @@ import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
 import { WorkspaceFeedbackGroupPopover } from "./WorkspaceFeedbackGroupPopover";
 import { WorkspaceAgentMessageCenterAction } from "./WorkspaceAgentMessageCenterAction";
 import {
-  WorkspaceExportLogsAction,
+  WorkspaceHelpMenu,
   WorkspaceMissionControlActions,
   WorkspaceSettingsTrigger
 } from "./WorkspaceChromeActions";
@@ -27,13 +27,20 @@ import type {
   WorkspaceWallpaperId
 } from "../services/workspaceWallpaper";
 
+const tuttiWindowIconUrl = new URL(
+  "../../app-update/assets/tutti.png",
+  import.meta.url
+).href;
+
 const WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_INSET_PX = 16;
 const WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_GUTTER_PX = 64;
 const WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_RESERVED_WIDTH_PX =
   WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_INSET_PX +
   WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_GUTTER_PX;
+const WORKSPACE_CHROME_TITLEBAR_HEIGHT_PX = 52;
 
 export function WorkspaceChrome({
+  appName,
   externalAgentSessionImportPromptEnabled,
   headerSlot,
   missionControl,
@@ -47,6 +54,7 @@ export function WorkspaceChrome({
   workbenchController,
   workspace
 }: {
+  appName: string;
   externalAgentSessionImportPromptEnabled: boolean;
   headerSlot?: React.ReactNode;
   missionControl: {
@@ -128,6 +136,17 @@ export function WorkspaceChrome({
         style={headerStyle}
       >
         <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
+          {isWindows && appName ? (
+            <div className="flex items-center gap-2 px-1 text-sm font-medium text-white/80 [-webkit-app-region:drag]">
+              <img
+                alt=""
+                className="size-5 shrink-0 object-contain"
+                draggable={false}
+                src={tuttiWindowIconUrl}
+              />
+              <span>{appName}</span>
+            </div>
+          ) : null}
           {isDarwin && !chromeState.useCompactTitlebar ? (
             <div
               aria-hidden="true"
@@ -153,12 +172,15 @@ export function WorkspaceChrome({
           {headerSlot ? <div className="min-w-0">{headerSlot}</div> : null}
           <WorkspaceFeedbackGroupPopover />
           <WorkspaceAgentMessageCenterAction
+            drawerTopInsetPx={
+              isWindows ? WORKSPACE_CHROME_TITLEBAR_HEIGHT_PX : undefined
+            }
             launchNode={launchNode}
             open={messageCenterOpen}
             setOpen={setMessageCenterOpen}
             workspace={workspace}
           />
-          <WorkspaceExportLogsAction platform={platform} />
+          <WorkspaceHelpMenu platform={platform} workspace={workspace} />
           <WorkspaceMissionControlActions
             missionControl={missionControl}
             platform={platform}

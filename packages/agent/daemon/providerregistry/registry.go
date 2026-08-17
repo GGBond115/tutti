@@ -158,6 +158,10 @@ func Validate(descriptor ProviderDescriptor) error {
 	if !descriptor.Desktop.Managed && (descriptor.Desktop.InstallBootstrap || descriptor.Desktop.RefreshOnAccountChange) {
 		return fmt.Errorf("provider %q desktop bootstrap and account refresh require managed status", providerID)
 	}
+	if descriptor.Desktop.AuthProbeAfterCredentialSync &&
+		(!descriptor.Desktop.Managed || len(descriptor.Status.AuthStatusCommand) == 0) {
+		return fmt.Errorf("provider %q desktop credential auth barrier requires managed auth status", providerID)
+	}
 	if descriptor.Desktop.DefaultProviderPriority < 0 {
 		return fmt.Errorf("provider %q desktop default provider priority must be non-negative", providerID)
 	}
@@ -401,6 +405,20 @@ func Validate(descriptor ProviderDescriptor) error {
 		if descriptor.Status.Install.Kind != InstallerKindOfficialScript {
 			return fmt.Errorf("provider %q Windows installer fallback requires an official script installer", providerID)
 		}
+	case InstallerWindowsFallbackManagedNPM:
+		if descriptor.Status.Install.Kind != InstallerKindOfficialScript {
+			return fmt.Errorf("provider %q Windows installer fallback requires an official script installer", providerID)
+		}
+		if strings.TrimSpace(descriptor.Status.Install.PackageName) == "" || strings.TrimSpace(descriptor.Status.Install.BinaryName) == "" {
+			return fmt.Errorf("provider %q Windows managed npm fallback package and binary are required", providerID)
+		}
+	case InstallerWindowsFallbackPowerShell:
+		if descriptor.Status.Install.Kind != InstallerKindOfficialScript {
+			return fmt.Errorf("provider %q Windows installer fallback requires an official script installer", providerID)
+		}
+		if strings.TrimSpace(descriptor.Status.Install.WindowsPowerShellCommand) == "" {
+			return fmt.Errorf("provider %q Windows PowerShell installer command is required", providerID)
+		}
 	default:
 		return fmt.Errorf("provider %q installer Windows fallback %q is unsupported", providerID, descriptor.Status.Install.WindowsFallback)
 	}
@@ -412,6 +430,9 @@ func Validate(descriptor ProviderDescriptor) error {
 	}
 	if err := validateAuthWatch(descriptor.Status.AuthWatch); err != nil {
 		return fmt.Errorf("provider %q auth watch: %w", providerID, err)
+	}
+	if err := validateRemoteAuthProbe(descriptor.Status.RemoteAuthProbe); err != nil {
+		return fmt.Errorf("provider %q remote auth probe: %w", providerID, err)
 	}
 	switch descriptor.ComposerProfile.ModelCatalog {
 	case "", ModelCatalogKindCodexCLI, ModelCatalogKindOpenCodeCLI, ModelCatalogKindTuttiCLI:

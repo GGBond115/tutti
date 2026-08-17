@@ -7,6 +7,7 @@ import type {
   AgentGUIProvider,
   AgentGUIProviderRailMode,
   AgentGUIProviderReadinessGate,
+  AgentGUIInteractionReadinessSource,
   AgentGUIObservationGapSource,
   AgentGUITargetConnectionSource
 } from "../../../types";
@@ -48,6 +49,8 @@ export interface ACPConfigOptionSelection {
 }
 export interface UseAgentGUINodeControllerInput {
   nodeId?: string;
+  isSurfaceActive: boolean;
+  isSurfaceVisible: boolean;
   workspaceId: string;
   currentUserId?: string | null;
   workspacePath: string;
@@ -63,6 +66,7 @@ export interface UseAgentGUINodeControllerInput {
     Record<AgentGUIProvider, AgentGUIProviderReadinessGate | null>
   > | null;
   targetConnectionSource?: AgentGUITargetConnectionSource | null;
+  interactionReadinessSource?: AgentGUIInteractionReadinessSource | null;
   observationGapSource?: AgentGUIObservationGapSource | null;
   defaultAgentTargetId?: string | null;
   composerAppendRequest?: AgentGUIComposerAppendRequest | null;

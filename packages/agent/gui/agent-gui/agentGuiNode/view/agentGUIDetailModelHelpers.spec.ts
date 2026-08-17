@@ -4,6 +4,7 @@ import {
   handoffProjectPathForConversation,
   isAgentGUIHomeStatusNoticeVisible,
   resolveAgentGUITuttiStopTargets,
+  resolveAgentGUIInteractionDisabledReason,
   resolveAgentGUIHomeNoticeChrome,
   resolveAgentGUIStopControl,
   shouldShowAgentGUIStopButton
@@ -53,6 +54,7 @@ describe("shouldShowAgentGUIStopButton", () => {
     isCancelPending: false,
     isConversationBusy: false,
     isCreatingConversation: false,
+    hasPendingSubmitStopTarget: false,
     isInterrupting: false,
     isSubmitting: false,
     isUnavailable: false
@@ -74,6 +76,16 @@ describe("shouldShowAgentGUIStopButton", () => {
     );
   });
 
+  it("shows Stop when Activity Core has an exact pending-submit target", () => {
+    expect(
+      shouldShowAgentGUIStopButton({
+        ...idle,
+        hasPendingSubmitStopTarget: true,
+        isSubmitting: true
+      })
+    ).toBe(true);
+  });
+
   it("keeps authentication and availability gates authoritative", () => {
     expect(
       shouldShowAgentGUIStopButton({
@@ -82,6 +94,38 @@ describe("shouldShowAgentGUIStopButton", () => {
         isCreatingConversation: true
       })
     ).toBe(false);
+  });
+});
+
+describe("resolveAgentGUIInteractionDisabledReason", () => {
+  it("uses the approval reason for approval prompts", () => {
+    expect(
+      resolveAgentGUIInteractionDisabledReason({
+        promptKind: "approval",
+        approvalReason: "The shared Agent owner is offline",
+        interactivePromptReason: "The shared Agent caller is offline"
+      })
+    ).toBe("The shared Agent owner is offline");
+  });
+
+  it("uses the interactive prompt reason for non-approval prompts", () => {
+    expect(
+      resolveAgentGUIInteractionDisabledReason({
+        promptKind: "ask-user",
+        approvalReason: "The shared Agent owner is offline",
+        interactivePromptReason: "The shared Agent caller is offline"
+      })
+    ).toBe("The shared Agent caller is offline");
+  });
+
+  it("does not expose a reason when there is no active prompt", () => {
+    expect(
+      resolveAgentGUIInteractionDisabledReason({
+        promptKind: null,
+        approvalReason: "The shared Agent owner is offline",
+        interactivePromptReason: "The shared Agent caller is offline"
+      })
+    ).toBeNull();
   });
 });
 
@@ -143,6 +187,20 @@ describe("Home status presentation", () => {
     ).toBe(false);
   });
 
+  it.each(["transport-connecting", "transport-unavailable"] as const)(
+    "keeps the pending prompt visible for interaction-scoped %s chrome",
+    (kind) => {
+      expect(
+        isAgentGUIHomeStatusNoticeVisible({
+          kind,
+          message: "Connection unavailable",
+          canRetry: false,
+          interactionScoped: true
+        })
+      ).toBe(false);
+    }
+  );
+
   it("projects target connection chrome onto the empty Home composer", () => {
     const inlineNoticeChrome = {
       auth: null,
@@ -195,7 +253,7 @@ describe("Home status presentation", () => {
     ).toBe(inlineNoticeChrome);
   });
 
-  it("keeps Stop visible but disables it while active work is disconnected", () => {
+  it("keeps Stop actionable while submission commands are blocked", () => {
     expect(
       resolveAgentGUIStopControl({
         hasPendingApproval: false,
@@ -204,12 +262,12 @@ describe("Home status presentation", () => {
         isCancelPending: false,
         isConversationBusy: true,
         isCreatingConversation: false,
+        hasPendingSubmitStopTarget: false,
         isInterrupting: false,
         isSubmitting: false,
-        isUnavailable: false,
-        runtimeCommandsBlocked: true
+        isUnavailable: false
       })
-    ).toEqual({ disabled: true, visible: true });
+    ).toEqual({ disabled: false, visible: true });
   });
 });
 

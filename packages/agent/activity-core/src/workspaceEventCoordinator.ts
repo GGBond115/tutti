@@ -36,6 +36,7 @@ export interface AgentActivityWorkspaceEventResult {
   reason:
     | "applied"
     | "deleted"
+    | "restored"
     | "identity_mismatch"
     | "invalid_delta"
     | "invalid_turn"
@@ -58,7 +59,8 @@ export interface AgentActivityWorkspaceEventCoordinator {
   }): void;
   dispose(): void;
   ingestEvent(
-    event: AgentActivityWorkspaceEventInput
+    event: AgentActivityWorkspaceEventInput,
+    options?: AgentActivityWorkspaceEventIngestOptions
   ): AgentActivityWorkspaceEventResult;
   isSessionDeleted(agentSessionId: string): boolean;
   project(canonical: AgentActivitySnapshot): AgentActivitySnapshot;
@@ -77,6 +79,15 @@ export interface AgentActivityWorkspaceEventCoordinator {
   ): void;
   removeSession(agentSessionId: string): boolean;
   subscribe(listener: () => void): () => void;
+}
+
+export interface AgentActivityWorkspaceEventIngestOptions {
+  /**
+   * Use only after the host has fenced transport identity and ordering. It
+   * makes settlement absorbing for the same immutable Turn across otherwise
+   * incomparable source version domains.
+   */
+  hostFencedSameTurnSettlement?: true;
 }
 
 export interface CreateAgentActivityWorkspaceEventCoordinatorInput {
@@ -198,6 +209,18 @@ export function createAgentActivityWorkspaceEventCoordinator({
       const recovered =
         connectionStatus === "disconnected" && input.status === "connected";
       connectionStatus = input.status;
+      if (input.status === "disconnected" && transitioned) {
+        for (const agentSessionId of Object.keys(
+          engine.getSnapshot().sessionLifecycle.operationBySessionId
+        )) {
+          engine.dispatch({
+            agentSessionId,
+            occurredAtUnixMs: 0,
+            state: "idle",
+            type: "session/runtimeActivityChanged"
+          });
+        }
+      }
       if (input.status !== "connected" || !transitioned) return;
 
       engine.dispatch({
@@ -244,7 +267,7 @@ export function createAgentActivityWorkspaceEventCoordinator({
       listeners.clear();
       snapshotCache = null;
     },
-    ingestEvent(event) {
+    ingestEvent(event, options) {
       const agentSessionId = event.agentSessionId.trim();
       const eventType = event.eventType;
       if (
@@ -325,10 +348,44 @@ export function createAgentActivityWorkspaceEventCoordinator({
         removeSession(agentSessionId);
         return eventResult(eventType, true, "deleted");
       }
+      if (event.eventType === "session_restored") {
+        engine.dispatch({
+          agentSessionId,
+          type: "session/restored"
+        });
+        overlay.reset({
+          agentSessionId,
+          workspaceId: normalizedWorkspaceId
+        });
+        overlaySessionIds.delete(agentSessionId);
+        requestSessionReconcile({
+          agentSessionId,
+          needsMessages: true,
+          needsState: true
+        });
+        markChanged();
+        return eventResult(eventType, true, "restored");
+      }
       if (
         engine.getSnapshot().sessionLifecycle.deletedSessionIds[agentSessionId]
       ) {
         return eventResult(eventType, false, "tombstoned");
+      }
+      if (event.eventType === "runtime_activity_update") {
+        if (
+          (event.data.state !== "idle" && event.data.state !== "running") ||
+          !Number.isSafeInteger(event.data.occurredAtUnixMs) ||
+          event.data.occurredAtUnixMs <= 0
+        ) {
+          return eventResult(eventType, false, "identity_mismatch");
+        }
+        engine.dispatch({
+          agentSessionId,
+          occurredAtUnixMs: event.data.occurredAtUnixMs,
+          state: event.data.state,
+          type: "session/runtimeActivityChanged"
+        });
+        return eventResult(eventType, true, "applied");
       }
       if (event.eventType === "turn_update") {
         const projection = agentActivityTurnProjectionFromEvent(event);
@@ -343,6 +400,9 @@ export function createAgentActivityWorkspaceEventCoordinator({
         }
         engine.dispatch({
           ...projection,
+          ...(options?.hostFencedSameTurnSettlement
+            ? { hostFencedSameTurnSettlement: true as const }
+            : {}),
           type: "turn/projectionReceived",
           workspaceId: normalizedWorkspaceId
         });

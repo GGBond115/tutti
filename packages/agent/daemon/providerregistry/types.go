@@ -109,6 +109,8 @@ type InstallerWindowsFallback string
 
 const (
 	InstallerWindowsFallbackManagedRuntime InstallerWindowsFallback = "managed_runtime"
+	InstallerWindowsFallbackManagedNPM     InstallerWindowsFallback = "managed_npm"
+	InstallerWindowsFallbackPowerShell     InstallerWindowsFallback = "powershell"
 )
 
 type StatusKind string
@@ -152,6 +154,32 @@ const (
 	AuthCommandRunnerKindCodexAppServerAccount AuthCommandRunnerKind = "codex_app_server_account"
 	AuthCommandRunnerKindCursor                AuthCommandRunnerKind = "cursor"
 )
+
+// RemoteAuthProbeKind identifies the provider-neutral transport used to turn
+// a locally resolved credential into provider-backed authentication evidence.
+// Credential collection remains adapter-owned so secrets never enter the
+// descriptor or a public status response.
+type RemoteAuthProbeKind string
+
+const (
+	RemoteAuthProbeKindHTTPBearer    RemoteAuthProbeKind = "http_bearer"
+	RemoteAuthProbeKindProviderUsage RemoteAuthProbeKind = "provider_usage"
+)
+
+// RemoteAuthCredentialKind identifies the provider credential grammar used by
+// a host or managed-runtime adapter before invoking RemoteAuthProbe.
+type RemoteAuthCredentialKind string
+
+const RemoteAuthCredentialKindClaudeOAuth RemoteAuthCredentialKind = "claude_oauth"
+
+type RemoteAuthProbeDescriptor struct {
+	Kind           RemoteAuthProbeKind
+	CredentialKind RemoteAuthCredentialKind
+	Endpoint       string
+	Method         string
+	Headers        map[string]string
+	TimeoutSeconds int
+}
 
 type StaticSpecResolverKind string
 
@@ -230,17 +258,18 @@ type StandardACPRuntimeDescriptor struct {
 }
 
 type InstallerDescriptor struct {
-	Kind                 InstallerKind
-	DisplayCommand       string
-	PackageName          string
-	BinaryName           string
-	RecommendedVersion   string
-	IncludeOptional      bool
-	ScriptURL            string
-	ScriptShell          string
-	WindowsFallback      InstallerWindowsFallback
-	ShellCommand         string
-	FailureReasonMarkers map[string][]string
+	Kind                     InstallerKind
+	DisplayCommand           string
+	PackageName              string
+	BinaryName               string
+	RecommendedVersion       string
+	IncludeOptional          bool
+	ScriptURL                string
+	ScriptShell              string
+	WindowsFallback          InstallerWindowsFallback
+	WindowsPowerShellCommand string
+	ShellCommand             string
+	FailureReasonMarkers     map[string][]string
 }
 
 func (d ProviderDescriptor) ManagedNPMDescriptor() (managednpm.Descriptor, bool) {
@@ -304,6 +333,7 @@ type StatusDescriptor struct {
 	AdapterBinaryNames              []string
 	AuthStatusCommand               []string
 	AuthStatusCommandTimeoutSeconds int
+	RemoteAuthProbe                 RemoteAuthProbeDescriptor
 	AuthMarkerPaths                 []string
 	APIEndpoints                    []string
 	CustomConfigEnvVars             []string
@@ -605,12 +635,16 @@ const (
 )
 
 type DesktopIntegrationDescriptor struct {
-	Managed              bool
-	ManagedOrder         int
-	StatusProbePriority  int
-	UsageProbeKind       DesktopUsageProbeKind
-	VisibilityGate       DesktopVisibilityGate
-	RuntimeProbeFallback DesktopRuntimeProbeFallback
+	Managed             bool
+	ManagedOrder        int
+	StatusProbePriority int
+	UsageProbeKind      DesktopUsageProbeKind
+	// AuthProbeAfterCredentialSync requires Desktop hosts to wait until the
+	// provider's credential projection has settled before reading auth state.
+	// Hosts map this semantic barrier to their own synchronization mechanism.
+	AuthProbeAfterCredentialSync bool
+	VisibilityGate               DesktopVisibilityGate
+	RuntimeProbeFallback         DesktopRuntimeProbeFallback
 	// CommandNetworkAccess explicitly opts a Codex-compatible app-server into
 	// command networking when it runs under the Tutti Desktop host.
 	CommandNetworkAccess       bool

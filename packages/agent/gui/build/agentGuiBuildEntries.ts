@@ -4,11 +4,14 @@ export const agentGUIBuildEntries = {
   "startup-shell": "AgentGUIStartupShell.tsx",
   "side-conversation": "side-conversation.ts",
   "side-conversation/controller": "agentSideConversationController.ts",
+  "quick-composer": "AgentGUIQuickComposer.tsx",
+  "composer-settings-core/index": "composer-settings-core/index.ts",
   agents: "agents.ts",
   "custom-mention": "custom-mention.ts",
   "dock-icons": "dockIcons.ts",
   layout: "layout.ts",
   "mention-search": "agent-gui/agentGuiNode/AgentMentionSearchController.ts",
+  "abortable-single-flight": "abortable-single-flight.ts",
   "agent-message-center/index": "agent-message-center/index.ts",
   "agent-conversation/index": "agent-conversation/index.ts",
   "agent-conversation/follow-end":
@@ -24,6 +27,7 @@ export const agentGUIBuildEntries = {
     "agent-gui/agentGuiNode/agentContextMentionProvider.ts",
   "agent-title-text": "shared/utils/agentTitleText.ts",
   "activity-list-projection": "activity-list-projection.ts",
+  "conversation-activity-projection": "conversation-activity-projection.ts",
   "provider-identity": "provider-identity.ts",
   "provider-icons": "provider-icons.ts",
   "i18n/index": "i18n/index.ts",
@@ -49,6 +53,13 @@ export const agentGUIBuildEntries = {
 
 type AgentGUIBuildEntry = keyof typeof agentGUIBuildEntries;
 
+export const agentGUIDtsBuildEntries = Object.fromEntries(
+  Object.entries(agentGUIBuildEntries).map(([name, source]) => [
+    name,
+    `dist/.dts/${source.replace(/\.tsx?$/, ".d.ts")}`
+  ])
+) as Readonly<Record<AgentGUIBuildEntry, string>>;
+
 export const agentGUIDtsEntryGroups = [
   ["index"],
   [
@@ -56,8 +67,10 @@ export const agentGUIDtsEntryGroups = [
     "startup-shell",
     "side-conversation",
     "side-conversation/controller",
+    "quick-composer",
     "agents",
     "mention-search",
+    "abortable-single-flight",
     "agent-message-center/index",
     "agent-conversation/index",
     "agent-conversation/follow-end",
@@ -76,13 +89,15 @@ export const agentGUIDtsEntryGroups = [
     "mention-file-presentation",
     "agent-title-text",
     "activity-list-projection",
+    "conversation-activity-projection",
     "workspace-agent-generated-files",
     "conversation-message-controller",
     "conversation-rail-controller",
     "conversation-rail-runtime",
     "conversation-rail-projection",
     "conversation-projection",
-    "composer-projection"
+    "composer-projection",
+    "composer-settings-core/index"
   ],
   [
     "dock-icons",

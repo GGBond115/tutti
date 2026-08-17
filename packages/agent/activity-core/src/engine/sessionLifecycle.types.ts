@@ -24,16 +24,21 @@ export interface SessionCancelState {
   expiryId: string | null;
   requestedSessionVersion: number | null;
   requestedWorkspaceId: string | null;
+  targetClientSubmitId: string | null;
   turnId: string | null;
   status: SessionCancelStatus;
 }
 
 export interface SessionOperationState {
   runtimeAvailability: SessionRuntimeAvailability;
+  runtimeActivity: SessionRuntimeActivity;
+  runtimeActivityOccurredAtUnixMs: number;
   cancel: SessionCancelState;
   operationError: string | null;
   settingsUpdate: SessionSettingsUpdateState;
 }
+
+export type SessionRuntimeActivity = "idle" | "running";
 
 /**
  * Host-projected, session-scoped availability for commands that must reach the
@@ -119,11 +124,15 @@ export interface SessionLifecycleState {
 export interface SessionSnapshotReceivedIntent {
   type: "session/snapshotReceived";
   sessions: readonly AgentActivitySessionInput[];
+  observedAtUnixMs?: number;
+  /** Session ids filtered at the Engine identity boundary for wrong scope. */
+  workspaceMismatchSessionIds?: readonly string[];
 }
 
 export interface SessionUpsertedIntent {
   type: "session/upserted";
   session: AgentActivitySessionInput;
+  observedAtUnixMs?: number;
 }
 
 export type CanonicalSessionMetadataPatch = Partial<
@@ -146,6 +155,19 @@ export interface SessionMetadataPatchedIntent {
 
 export interface TurnUpsertedIntent {
   type: "turn/upserted";
+  /**
+   * Whether this upsert is a live observation capable of creating attention.
+   * Historical detail hydration uses false while preserving the same
+   * canonical lifecycle write. Omission remains compatible with older hosts
+   * and is treated as a live observation.
+   */
+  live?: boolean;
+  /**
+   * Internal replay of an already accepted live completion after reconcile
+   * supplied Session identity. It may create attention even though canonical
+   * state already contains the settled Turn.
+   */
+  replayAcceptedLiveCompletion?: true;
   turn: AgentActivityTurn;
 }
 
@@ -156,6 +178,12 @@ export interface TurnUpsertedIntent {
 export interface TurnProjectionReceivedIntent {
   type: "turn/projectionReceived";
   activeTurnId: string | null;
+  /**
+   * The host has already fenced transport identity and ordering, so settlement
+   * of this immutable Turn may absorb a temporary projection from another
+   * version domain even when its wall-clock timestamp is lower.
+   */
+  hostFencedSameTurnSettlement?: true;
   turn: AgentActivityTurn;
   workspaceId: string;
 }
@@ -200,6 +228,11 @@ export interface SessionRemovedIntent {
   agentSessionId: string;
 }
 
+export interface SessionRestoredIntent {
+  type: "session/restored";
+  agentSessionId: string;
+}
+
 export interface SessionErrorRecordedIntent {
   type: "session/errorRecorded";
   agentSessionId: string;
@@ -216,6 +249,7 @@ export interface SessionCancelRequestedIntent {
   agentSessionId: string;
   commandId: string;
   awaitingTurnExpiresAtUnixMs: number;
+  clientSubmitId?: string;
   timeoutMs?: number;
   workspaceId: string;
 }
@@ -225,6 +259,7 @@ export interface SessionStopRequestedIntent {
   agentSessionId: string;
   commandId: string;
   awaitingTurnExpiresAtUnixMs: number;
+  clientSubmitId?: string;
   timeoutMs?: number;
   workspaceId: string;
 }
@@ -274,6 +309,14 @@ export interface SessionRuntimeAvailabilityChangedIntent {
   availability: SessionRuntimeAvailability;
 }
 
+export interface SessionRuntimeActivityChangedIntent {
+  type: "session/runtimeActivityChanged";
+  agentSessionId: string;
+  state: SessionRuntimeActivity;
+  /** Zero clears the disconnected transport's transient observation and fence. */
+  occurredAtUnixMs: number;
+}
+
 export type SessionLifecycleIntent =
   | InteractionUpsertedIntent
   | InteractionResponseRequestedIntent
@@ -284,6 +327,8 @@ export type SessionLifecycleIntent =
   | SessionHistoryAuthoritativeSnapshotReceivedIntent
   | SessionMetadataPatchedIntent
   | SessionRemovedIntent
+  | SessionRestoredIntent
+  | SessionRuntimeActivityChangedIntent
   | SessionRuntimeAvailabilityChangedIntent
   | SessionSettingsActivationRequestedIntent
   | SessionSettingsPreconditionRequestedIntent

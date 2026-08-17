@@ -88,8 +88,8 @@ func (d *sideHostConformanceDriver) SideConversationMetrics() conformance.SideCo
 func (*sideHostRuntime) Start(
 	context.Context,
 	agenthost.RuntimeStartInput,
-) (agenthost.ProviderRuntimeSession, error) {
-	return agenthost.ProviderRuntimeSession{}, nil
+) (agenthost.RuntimeStartResult, error) {
+	return agenthost.RuntimeStartResult{}, nil
 }
 
 func (*sideHostRuntime) Resume(

@@ -30,8 +30,10 @@ describe("interactiveApprovalFromInteraction", () => {
     };
 
     expect(interactiveApprovalFromInteraction(interaction)).toMatchObject({
+      agentSessionId: "session-1",
       approvalPurpose: "edit-files",
-      requestId: "request-1"
+      requestId: "request-1",
+      turnId: "turn-1"
     });
   });
 
@@ -80,6 +82,7 @@ describe("interactivePromptFromInteraction", () => {
     };
 
     expect(interactivePromptFromInteraction(interaction)).toEqual({
+      agentSessionId: "session-1",
       keepPlanningOptionId: "plan",
       kind: "exit-plan",
       options: [
@@ -91,7 +94,8 @@ describe("interactivePromptFromInteraction", () => {
         }
       ],
       requestId: "request-1",
-      title: "ExitPlanMode"
+      title: "ExitPlanMode",
+      turnId: "turn-1"
     });
   });
 });
@@ -168,6 +172,29 @@ describe("AgentGUI user-project snapshot projection", () => {
         ]
       )
     ).toBe(false);
+  });
+
+  it("treats Windows slash and case differences as the same project", () => {
+    expect(
+      areAgentGUIUserProjectsEqual(
+        [
+          {
+            id: "project",
+            label: "Project",
+            path: "C:\\Users\\Demo\\Repo",
+            pinnedAtUnixMs: 0
+          }
+        ],
+        [
+          {
+            id: "project",
+            label: "Project",
+            path: "c:/users/demo/repo/",
+            pinnedAtUnixMs: 0
+          }
+        ]
+      )
+    ).toBe(true);
   });
 
   it("treats a pin-state-only change as a new AgentGUI snapshot", () => {

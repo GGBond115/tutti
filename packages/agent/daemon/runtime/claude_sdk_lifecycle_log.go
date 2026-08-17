@@ -21,7 +21,15 @@ func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 		{logKey: "turn_id", payloadKey: "turnId"},
 		{logKey: "sdk_message_type", payloadKey: "sdkMessageType"},
 		{logKey: "sdk_message_subtype", payloadKey: "sdkMessageSubtype"},
+		{logKey: "diagnostic_marker", payloadKey: "diagnosticMarker"},
+		{logKey: "diagnostic_boundary", payloadKey: "diagnosticBoundary"},
+		{logKey: "route_decision", payloadKey: "routeDecision"},
 		{logKey: "sdk_message_origin", payloadKey: "sdkMessageOrigin"},
+		{logKey: "sdk_message_uuid", payloadKey: "sdkMessageUuid"},
+		{logKey: "attachment_type", payloadKey: "attachmentType"},
+		{logKey: "goal_met_field_type", payloadKey: "goalMetFieldType"},
+		{logKey: "goal_sentinel_field_type", payloadKey: "goalSentinelFieldType"},
+		{logKey: "active_goal_value_type", payloadKey: "activeGoalValueType"},
 		{logKey: "active_turn_id_before", payloadKey: "activeTurnIdBefore"},
 		{logKey: "task_id", payloadKey: "taskId"},
 		{logKey: "agent_id", payloadKey: "agentId"},
@@ -48,6 +56,19 @@ func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 	}
 	if payloadBoolValue(payload, "rootContinuationCandidate") {
 		args = append(args, "root_continuation_candidate", true)
+	}
+	for _, field := range []struct {
+		logKey     string
+		payloadKey string
+	}{
+		{logKey: "transcript_path_present", payloadKey: "transcriptPathPresent"},
+		{logKey: "goal_condition_present", payloadKey: "goalConditionPresent"},
+		{logKey: "goal_met_value", payloadKey: "goalMetValue"},
+		{logKey: "goal_sentinel_value", payloadKey: "goalSentinelValue"},
+	} {
+		if _, ok := payload[field.payloadKey]; ok {
+			args = append(args, field.logKey, payloadBoolValue(payload, field.payloadKey))
+		}
 	}
 	if payloadBoolValue(payload, "sdkResultIsError") {
 		args = append(args, "sdk_result_is_error", true)
@@ -80,6 +101,24 @@ func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 	} {
 		if _, ok := payload[field.payloadKey]; ok {
 			args = append(args, field.logKey, payloadInt64(payload, field.payloadKey))
+		}
+	}
+	if usage := payloadMap(payload, "usage"); len(usage) > 0 {
+		for _, field := range []struct {
+			logKey     string
+			payloadKey string
+		}{
+			{logKey: "usage_total_tokens", payloadKey: "total_tokens"},
+			{logKey: "usage_input_tokens", payloadKey: "input_tokens"},
+			{logKey: "usage_output_tokens", payloadKey: "output_tokens"},
+			{logKey: "usage_cache_read_input_tokens", payloadKey: "cache_read_input_tokens"},
+			{logKey: "usage_cache_creation_input_tokens", payloadKey: "cache_creation_input_tokens"},
+			{logKey: "usage_tool_uses", payloadKey: "tool_uses"},
+			{logKey: "usage_duration_ms", payloadKey: "duration_ms"},
+		} {
+			if _, ok := usage[field.payloadKey]; ok {
+				args = append(args, field.logKey, payloadInt64(usage, field.payloadKey))
+			}
 		}
 	}
 	return args

@@ -125,26 +125,28 @@ func (a *standardACPAdapter) applySessionConfigOptions(
 		"model_requested":      strings.TrimSpace(settings.Model) != "",
 		"effort_requested":     strings.TrimSpace(settings.ReasoningEffort) != "",
 	})
-	// Startup config options are applied best-effort: a value the agent
-	// rejects (e.g. a model alias the signed-in account cannot access) must
-	// not abort the whole session. The session stays usable on the agent's
-	// default, and the user can pick a supported value from the live list.
+	// A requested model is identity-bearing launch intent. If the agent rejects
+	// it, continuing on its default would make the visible selection disagree
+	// with the provider request. Other non-identity settings remain best-effort.
 	modelConfigID := a.effectiveModelConfigOptionID()
 	modelSet := false
 	if model := strings.TrimSpace(settings.Model); model != "" && modelConfigID != "" &&
 		(supported[modelConfigID] || (modelConfigID == "model" && modelsAPI)) {
-		var err error
-		if modelsAPI && modelConfigID == "model" {
-			err = a.setSessionModel(ctx, client, session, model)
-		} else {
-			err = a.setSessionConfigOption(ctx, client, session, modelConfigID, model)
-		}
-		if err != nil {
-			a.logStartupConfigOptionRejected(session, modelConfigID, model, err)
-		} else {
+		modelAlreadySelected := modelsAPI && modelConfigID == "model" &&
+			strings.TrimSpace(a.sessionCurrentModelID(session.AgentSessionID)) == model
+		if !modelAlreadySelected {
+			var err error
+			if modelsAPI && modelConfigID == "model" {
+				err = a.setSessionModel(ctx, client, session, model)
+			} else {
+				err = a.setSessionConfigOption(ctx, client, session, modelConfigID, model)
+			}
+			if err != nil {
+				return fmt.Errorf("agent session ACP model configuration failed: %w", err)
+			}
 			modelSet = modelsAPI && modelConfigID == "model"
-			a.updateSessionConfigOption(session.AgentSessionID, modelConfigID, model)
 		}
+		a.updateSessionConfigOption(session.AgentSessionID, modelConfigID, model)
 	}
 	if reasoning := strings.TrimSpace(settings.ReasoningEffort); reasoning != "" {
 		if a.config.setModelReasoningEffortMeta {
@@ -464,7 +466,36 @@ func (a *standardACPAdapter) ApplySessionSettings(
 	if a.RequiresNewSessionForSettings(session, patch) {
 		return ErrSessionSettingsRequireNewSession
 	}
-	acpSession := a.getSession(session.AgentSessionID)
+	if patch.PlanMode != nil && a.config.planModeUsesLaunchPermission {
+		unlockLifecycle := a.lockSessionLifecycle(session.AgentSessionID)
+		defer unlockLifecycle()
+		live := a.getUsableSession(session.AgentSessionID)
+		if live == nil || live.client == nil {
+			// The Host persists the setting. Starting a replacement process is
+			// deferred until the next user operation reconnects this session.
+			return nil
+		}
+		if strings.TrimSpace(session.ProviderSessionID) == "" {
+			session.ProviderSessionID = live.providerSessionID
+		}
+		if strings.TrimSpace(session.ProviderSessionID) == "" {
+			return errors.New("agent session ACP Plan restart requires a provider session id")
+		}
+		if err := a.admitReplacementLocked(session.AgentSessionID); err != nil {
+			return err
+		}
+		if err := a.resumeLocked(ctx, session); err != nil {
+			return fmt.Errorf("agent session ACP Plan restart failed: %w", err)
+		}
+		return nil
+	}
+
+	// Serialize every live-client settings RPC with start, resume, close, and
+	// idle release. In particular, the reaper must not close the process while
+	// an in-place config request is awaiting its provider response.
+	unlockLifecycle := a.lockSessionLifecycle(session.AgentSessionID)
+	defer unlockLifecycle()
+	acpSession := a.getUsableSession(session.AgentSessionID)
 	if acpSession == nil || acpSession.client == nil {
 		return nil
 	}
@@ -473,15 +504,6 @@ func (a *standardACPAdapter) ApplySessionSettings(
 	}
 
 	if patch.PlanMode != nil {
-		if a.config.planModeUsesLaunchPermission {
-			if strings.TrimSpace(session.ProviderSessionID) == "" {
-				return errors.New("agent session ACP Plan restart requires a provider session id")
-			}
-			if err := a.Resume(ctx, session); err != nil {
-				return fmt.Errorf("agent session ACP Plan restart failed: %w", err)
-			}
-			return nil
-		}
 		if err := a.applyACPMode(ctx, acpSession.client, session, a.effectiveModeID(session)); err != nil {
 			return err
 		}

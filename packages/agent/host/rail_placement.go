@@ -1,13 +1,15 @@
 package agenthost
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
-const railPlacementVersion = 1
+// RailPlacementVersion is the current Host rail-placement contract version.
+const RailPlacementVersion = 1
 
 func normalizeRailPlacement(placement *RailPlacement) (*RailPlacement, error) {
 	if placement == nil {
@@ -19,20 +21,27 @@ func normalizeRailPlacement(placement *RailPlacement) (*RailPlacement, error) {
 		ProjectPath: strings.TrimSpace(placement.ProjectPath),
 		SectionKey:  strings.TrimSpace(placement.SectionKey),
 	}
-	if normalized.Version != railPlacementVersion {
+	if normalized.Version != RailPlacementVersion {
 		return nil, fmt.Errorf("%w: unsupported rail placement version", ErrInvalidArgument)
 	}
 	switch normalized.Kind {
 	case RailPlacementKindConversations:
-		if normalized.ProjectPath != "" || normalized.SectionKey != storesqlite.RailSectionKeyConversations {
-			return nil, fmt.Errorf("%w: invalid conversations rail placement", ErrInvalidArgument)
-		}
+		normalized.ProjectPath = ""
+		normalized.SectionKey = storesqlite.RailSectionKeyConversations
 	case RailPlacementKindProject:
-		if normalized.ProjectPath == "" ||
-			normalized.SectionKey == "" ||
-			normalized.SectionKey == storesqlite.RailSectionKeyConversations {
+		normalized.ProjectPath = storesqlite.NormalizeProjectPath(normalized.ProjectPath)
+		if normalized.ProjectPath == "" {
+			key := storesqlite.NormalizeRailSectionKey(normalized.SectionKey)
+			if strings.HasPrefix(key, "project:") {
+				normalized.ProjectPath = storesqlite.NormalizeProjectPath(
+					strings.TrimPrefix(key, "project:"),
+				)
+			}
+		}
+		if normalized.ProjectPath == "" {
 			return nil, fmt.Errorf("%w: invalid project rail placement", ErrInvalidArgument)
 		}
+		normalized.SectionKey = storesqlite.RailSectionKeyForProject(normalized.ProjectPath)
 	default:
 		return nil, fmt.Errorf("%w: invalid rail placement kind", ErrInvalidArgument)
 	}
@@ -46,5 +55,76 @@ func railPlacementMatchesSession(placement *RailPlacement, session storesqlite.S
 	return strings.TrimSpace(session.RailSectionKind) == string(placement.Kind) &&
 		storesqlite.NormalizeProjectPath(session.RailProjectPath) ==
 			storesqlite.NormalizeProjectPath(placement.ProjectPath) &&
-		strings.TrimSpace(session.RailSectionKey) == placement.SectionKey
+		storesqlite.NormalizeRailSectionKey(session.RailSectionKey) ==
+			storesqlite.NormalizeRailSectionKey(placement.SectionKey)
+}
+
+func railPlacementFromSession(session storesqlite.Session) (*RailPlacement, error) {
+	kind := RailPlacementKind(strings.TrimSpace(session.RailSectionKind))
+	projectPath := strings.TrimSpace(session.RailProjectPath)
+	sectionKey := storesqlite.NormalizeRailSectionKey(session.RailSectionKey)
+	if kind == "" {
+		switch {
+		case sectionKey == "", sectionKey == storesqlite.RailSectionKeyConversations:
+			kind = RailPlacementKindConversations
+		case strings.HasPrefix(sectionKey, "project:"):
+			kind = RailPlacementKindProject
+		}
+	}
+	if kind == RailPlacementKindConversations && sectionKey == "" {
+		sectionKey = storesqlite.RailSectionKeyConversations
+	}
+	if kind == RailPlacementKindProject && projectPath == "" && strings.HasPrefix(sectionKey, "project:") {
+		projectPath = strings.TrimPrefix(sectionKey, "project:")
+	}
+	if kind == RailPlacementKindConversations && projectPath == "" {
+		return normalizeRailPlacement(&RailPlacement{
+			Version: RailPlacementVersion, Kind: RailPlacementKindConversations,
+			SectionKey: storesqlite.RailSectionKeyConversations,
+		})
+	}
+	return normalizeRailPlacement(&RailPlacement{
+		Version:     RailPlacementVersion,
+		Kind:        kind,
+		ProjectPath: projectPath,
+		SectionKey:  sectionKey,
+	})
+}
+
+func runtimeEnvironmentForCanonicalSession(
+	env []string,
+	cwd string,
+	session storesqlite.Session,
+) ([]string, error) {
+	placement, err := railPlacementFromSession(session)
+	if err != nil {
+		return nil, err
+	}
+	return withAgentRailPlacementEnvironment(env, cwd, placement)
+}
+
+// GetSessionWithRailPlacement reads one canonical Session only when its
+// immutable rail identity matches the caller's Host-normalized placement.
+// Recovery consumers use this boundary instead of reproducing rail
+// normalization or comparing canonical storage fields outside Agent Host.
+func (h *Host) GetSessionWithRailPlacement(
+	ctx context.Context,
+	ref SessionRef,
+	placement *RailPlacement,
+) (GetSessionResult, error) {
+	normalized, err := normalizeRailPlacement(placement)
+	if err != nil {
+		return GetSessionResult{}, err
+	}
+	if normalized == nil {
+		return GetSessionResult{}, ErrInvalidArgument
+	}
+	result, err := h.GetSession(ctx, ref)
+	if err != nil {
+		return GetSessionResult{}, err
+	}
+	if !railPlacementMatchesSession(normalized, result.Canonical) {
+		return GetSessionResult{}, ErrRailPlacementConflict
+	}
+	return result, nil
 }

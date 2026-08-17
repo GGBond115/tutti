@@ -34,6 +34,10 @@ import {
   openBrowserNodeExternal,
   resolveBrowserNodeOpenExternalUrl
 } from "./browserNodeOperations.ts";
+import {
+  resolveBrowserNodeFinalTabCloseRequest,
+  resolveBrowserNodeTabCloseIntent
+} from "./browserNodeTabClose.ts";
 import { useBrowserNodeController } from "./useBrowserNodeController.ts";
 
 export interface BrowserNodeChromeProps {
@@ -46,6 +50,7 @@ export interface BrowserNodeChromeProps {
   feature: BrowserNodeFeature;
   navigationActions?: ReactNode;
   onCloseRequest?: () => void;
+  onFinalTabCloseRequest?: () => void;
   onFocusRequest?: () => void;
   surfaceNodeId: string;
   withBorder?: boolean;
@@ -61,6 +66,7 @@ export interface BrowserNodeWorkbenchHeaderProps {
   navigationActions?: ReactNode;
   nodeId: string;
   onCloseRequest?: () => void;
+  onFinalTabCloseRequest?: () => void;
   onFocusRequest?: () => void;
 }
 
@@ -74,6 +80,7 @@ export function BrowserNodeWorkbenchHeader({
   navigationActions,
   nodeId,
   onCloseRequest,
+  onFinalTabCloseRequest,
   onFocusRequest
 }: BrowserNodeWorkbenchHeaderProps): JSX.Element {
   return (
@@ -86,6 +93,7 @@ export function BrowserNodeWorkbenchHeader({
       feature={feature}
       navigationActions={navigationActions}
       onCloseRequest={onCloseRequest}
+      onFinalTabCloseRequest={onFinalTabCloseRequest}
       onFocusRequest={onFocusRequest}
       surfaceNodeId={nodeId}
       withBorder={false}
@@ -103,6 +111,7 @@ export function BrowserNodeChrome({
   feature,
   navigationActions,
   onCloseRequest,
+  onFinalTabCloseRequest,
   onFocusRequest,
   surfaceNodeId,
   withBorder = true
@@ -111,6 +120,10 @@ export function BrowserNodeChrome({
   const activeTab =
     tabsState.tabs.find((tab) => tab.id === tabsState.activeTabId) ??
     tabsState.tabs[0];
+  const finalTabCloseRequest = resolveBrowserNodeFinalTabCloseRequest({
+    onCloseRequest,
+    onFinalTabCloseRequest
+  });
 
   if (!activeTab) {
     throw new Error(`Browser tab surface has no tabs: ${surfaceNodeId}`);
@@ -184,21 +197,31 @@ export function BrowserNodeChrome({
           className="nodrag flex min-w-0 max-w-[70%] items-center gap-1 overflow-x-auto"
           role="tablist"
         >
-          {tabsState.tabs.map((tab) => (
-            <BrowserNodeTabButton
-              active={tab.id === tabsState.activeTabId}
-              canClose={tabsState.tabs.length > 1}
-              feature={feature}
-              key={tab.id}
-              tab={tab}
-              onClose={() =>
-                closeBrowserNodeTab(feature, surfaceNodeId, tab.id)
-              }
-              onSelect={() =>
-                feature.tabsStore.selectTab(surfaceNodeId, tab.id)
-              }
-            />
-          ))}
+          {tabsState.tabs.map((tab) => {
+            const closeIntent = resolveBrowserNodeTabCloseIntent({
+              hasSurfaceCloseRequest: Boolean(finalTabCloseRequest),
+              tabCount: tabsState.tabs.length
+            });
+            return (
+              <BrowserNodeTabButton
+                active={tab.id === tabsState.activeTabId}
+                canClose={closeIntent !== null}
+                feature={feature}
+                key={tab.id}
+                tab={tab}
+                onClose={() => {
+                  if (closeIntent === "surface") {
+                    finalTabCloseRequest?.();
+                    return;
+                  }
+                  closeBrowserNodeTab(feature, surfaceNodeId, tab.id);
+                }}
+                onSelect={() =>
+                  feature.tabsStore.selectTab(surfaceNodeId, tab.id)
+                }
+              />
+            );
+          })}
         </div>
         <Button
           aria-label={feature.i18n.t("tabs.new")}

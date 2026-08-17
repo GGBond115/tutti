@@ -71,6 +71,36 @@ describe("buildAgentEnvWizardViewModel", () => {
     expect(vm.blockingStageId).toBeNull();
   });
 
+  it("keeps configured credentials usable without claiming remote authentication", () => {
+    const vm = buildAgentEnvWizardViewModel(
+      input({
+        status: status({
+          auth: { status: "configured", accountLabel: null }
+        })
+      })
+    );
+
+    expect(vm.ready).toBe(true);
+    expect(vm.displayStages.find((stage) => stage.id === "login")?.status).toBe(
+      "ok"
+    );
+    expect(vm.blockingStageId).toBeNull();
+  });
+
+  it("omits the account detail when authentication has no account label", () => {
+    const vm = buildAgentEnvWizardViewModel(
+      input({
+        status: status({
+          auth: { status: "authenticated", accountLabel: null }
+        })
+      })
+    );
+
+    expect(
+      vm.displayStages.find((stage) => stage.id === "login")?.detail
+    ).toBeNull();
+  });
+
   it("projects a discovered update and keeps the CLI stage busy while it runs", () => {
     const updateStatus = status({
       actions: [{ id: "update", kind: "daemon_action" }],

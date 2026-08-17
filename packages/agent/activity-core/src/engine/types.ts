@@ -86,6 +86,7 @@ export interface EngineCommandResultIntent {
   commandType: EngineExternalCommand["type"];
   correlationId?: string;
   outcome: EngineCommandOutcome;
+  settledAtUnixMs?: number;
   resultContract?: EngineCommandResultContract;
   value?: unknown;
   errorCode?: string;
@@ -326,12 +327,16 @@ export interface EngineEffectOptions {
 }
 
 interface AgentSessionActivateEffectInputBase {
+  activationId: string;
   agentSessionId: string;
   capabilityRefs?: readonly AgentActivityCapabilityReference[];
   cwd?: string;
   initialContent?: AgentPromptContentBlock[];
   initialDisplayPrompt?: string;
+  isolation?: "worktree";
+  modelExplicit?: boolean;
   railPlacement?: AgentActivityRailPlacement;
+  reasoningEffortExplicit?: boolean;
   settings?: AgentActivitySessionSettings;
   submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
   title?: string;
@@ -455,7 +460,9 @@ export type AgentSessionEngineIntentObserver = (intent: EngineIntent) => void;
 export interface AgentSessionLoadComposerOptionsInput {
   cwd?: string | null;
   force?: boolean;
+  waitForFreshModelCatalog?: boolean;
   provider: string;
+  section?: import("./composerOptions.types.ts").ComposerOptionsSection;
   settings?: AgentActivityComposerSettings | null;
   signal?: AbortSignal;
   targetKey: string;
@@ -481,8 +488,11 @@ interface AgentSessionActivationInputBase {
   cwd?: string;
   initialContent?: readonly AgentPromptContentBlock[];
   initialDisplayPrompt?: string;
+  isolation?: "worktree";
+  modelExplicit?: boolean;
   initialTurnExpected?: boolean;
   railPlacement?: AgentActivityRailPlacement;
+  reasoningEffortExplicit?: boolean;
   railSectionKey?: string;
   requestId: string;
   runtimeContent?: readonly AgentPromptContentBlock[];
@@ -520,6 +530,8 @@ export interface AgentSessionSubmitPromptInput {
   displayPrompt?: string;
   requiredSettingsPatch?: Readonly<AgentActivitySubmitSettingsPatch>;
   routing?: "auto" | "immediate" | "send_now";
+  /** Exact canonical active Turn targeted when routing as guidance. */
+  targetTurnId?: string;
   runtimeContent?: readonly AgentPromptContentBlock[];
   submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
 }
@@ -531,6 +543,8 @@ export interface AgentSessionSubmitPromptResult {
 
 export interface AgentSessionStopInput {
   agentSessionId: string;
+  /** Identity of the pending submit to stop while its Turn is being admitted. */
+  clientSubmitId?: string;
 }
 
 export interface AgentSessionEngine {

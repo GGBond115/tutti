@@ -128,7 +128,9 @@ func (s *Service) validateExtensionComposerSettingsForCreate(
 	workspaceID string,
 	cwd string,
 	input *CreateSessionInput,
+	modelExplicit bool,
 	permissionModeExplicit bool,
+	reasoningEffortExplicit bool,
 ) error {
 	if input == nil || providerTargetRefKind(input.ProviderTargetRef) != "agent_extension" {
 		return nil
@@ -138,6 +140,12 @@ func (s *Service) validateExtensionComposerSettingsForCreate(
 		PermissionModeID: strings.TrimSpace(value(input.PermissionModeID)),
 		ReasoningEffort:  strings.TrimSpace(value(input.ReasoningEffort)),
 		Speed:            strings.TrimSpace(value(input.Speed)),
+	}
+	if !modelExplicit {
+		// Persisted defaults may outlive an extension-owned model catalog. Let
+		// Composer Options resolve the runtime's current model rather than
+		// validating the retired preference as an explicit caller selection.
+		settings.Model = ""
 	}
 	if !permissionModeExplicit {
 		// Persisted defaults are fallback preferences, not caller selections.
@@ -156,6 +164,14 @@ func (s *Service) validateExtensionComposerSettingsForCreate(
 	if err != nil {
 		return err
 	}
+	if !modelExplicit {
+		resolved := strings.TrimSpace(options.EffectiveSettings.Model)
+		if resolved == "" {
+			input.Model = nil
+		} else {
+			input.Model = stringPointer(resolved)
+		}
+	}
 	if !permissionModeExplicit {
 		resolved := strings.TrimSpace(options.EffectiveSettings.PermissionModeID)
 		if resolved == "" {
@@ -164,11 +180,16 @@ func (s *Service) validateExtensionComposerSettingsForCreate(
 			input.PermissionModeID = stringPointer(resolved)
 		}
 	}
-	if err := validateExtensionComposerOption(
-		preferencesbiz.AgentComposerDefaultsFieldModel,
-		settings.Model,
-		options.ModelConfig,
-	); err != nil {
+	if !reasoningEffortExplicit {
+		resolved := strings.TrimSpace(options.EffectiveSettings.ReasoningEffort)
+		settings.ReasoningEffort = resolved
+		if resolved == "" {
+			input.ReasoningEffort = nil
+		} else {
+			input.ReasoningEffort = stringPointer(resolved)
+		}
+	}
+	if err := validateExtensionComposerModelForCreate(settings.Model, options); err != nil {
 		return err
 	}
 	if permissionModeExplicit && settings.PermissionModeID != "" &&
@@ -197,6 +218,31 @@ func (s *Service) validateExtensionComposerSettingsForCreate(
 		settings.Speed,
 		options.SpeedConfig,
 	)
+}
+
+func validateExtensionComposerModelForCreate(selected string, options ComposerOptions) error {
+	// A live extension model catalog can still be loading after the bounded
+	// Composer wait. In that case the target has not said model selection is
+	// unsupported; allow the already requested model through to the runtime.
+	// Once any authoritative options are available, keep the ordinary strict
+	// membership validation.
+	if options.liveModelDiscoveryPending && !composerConfigHasAdvertisedOptions(options.ModelConfig) {
+		return nil
+	}
+	return validateExtensionComposerOption(
+		preferencesbiz.AgentComposerDefaultsFieldModel,
+		selected,
+		options.ModelConfig,
+	)
+}
+
+func composerConfigHasAdvertisedOptions(config ComposerConfigOption) bool {
+	for _, option := range config.Options {
+		if !option.Requested && strings.TrimSpace(option.Value) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func composerReasoningConfigForSelectedModel(options ComposerOptions) ComposerConfigOption {

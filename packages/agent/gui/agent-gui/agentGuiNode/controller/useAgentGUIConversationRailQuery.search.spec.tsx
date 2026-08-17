@@ -32,6 +32,84 @@ import type { AgentGUIViewLabels } from "../view/AgentGUINodeView.types";
 import { createDefaultWorkspaceUserProjectI18nRuntime } from "@tutti-os/workspace-user-project/i18n";
 
 describe("useAgentGUIConversationRailQuery search", () => {
+  it("respects the runtime first-page refresh limit across Rail scopes", async () => {
+    type ConversationFilter =
+      | { agentTargetId: string; kind: "agentTarget" }
+      | { kind: "all" };
+    const engine = createTestAgentSessionEngine("workspace-1");
+    const sessions = Array.from({ length: 21 }, (_, index) =>
+      normalizeAgentActivitySession({
+        activeTurnId: null,
+        agentSessionId: `session-${index + 1}`,
+        agentTargetId: "shared:one",
+        cwd: "/workspace",
+        latestTurnInteractions: [],
+        pendingInteractions: [],
+        provider: "codex",
+        railSectionKey: "conversations",
+        title: `Session ${index + 1}`,
+        updatedAtUnixMs: index + 1,
+        workspaceId: "workspace-1"
+      })
+    );
+    const listSessionSections = vi.fn(
+      async (input: { workspaceId: string }) => ({
+        sections: [
+          {
+            hasMore: true,
+            kind: "conversations" as const,
+            sectionKey: "conversations",
+            sessions,
+            totalCount: sessions.length + 1
+          }
+        ],
+        workspaceId: input.workspaceId
+      })
+    );
+    const runtime = {
+      conversationRailQueryLimits: { sectionRefreshLimitMax: 20 },
+      getSessionEngine: () => engine,
+      listSessionSectionPage: vi.fn(),
+      listSessionSections
+    } as unknown as AgentGUIRuntime;
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <AgentGUIRuntimeProvider runtime={runtime}>
+        {children}
+      </AgentGUIRuntimeProvider>
+    );
+
+    const { rerender, unmount } = renderHook(
+      ({ conversationFilter }: { conversationFilter: ConversationFilter }) =>
+        useAgentGUIConversationRailQuery({
+          activeConversationId: null,
+          conversationFilter,
+          conversationQuery: "",
+          userProjects: [],
+          workspaceId: "workspace-1"
+        }),
+      {
+        initialProps: {
+          conversationFilter: {
+            agentTargetId: "shared:one",
+            kind: "agentTarget"
+          }
+        },
+        wrapper
+      }
+    );
+
+    await waitFor(() => expect(listSessionSections).toHaveBeenCalledTimes(1));
+    rerender({ conversationFilter: { kind: "all" } });
+    await waitFor(() => expect(listSessionSections).toHaveBeenCalledTimes(2));
+
+    expect(listSessionSections).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limitPerSection: 20 })
+    );
+
+    unmount();
+    engine.dispose();
+  });
+
   it("adds the Desktop node identity through the runtime diagnostic adapter", async () => {
     const engine = createTestAgentSessionEngine("workspace-1");
     const reportDiagnostic = vi.fn();
@@ -485,7 +563,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
         workspaceId: "workspace-1"
       })
     });
-    engine.dispatch({ type: "turn/upserted", turn: runningTurn(1) });
+    engine.dispatch({
+      live: true,
+      type: "turn/upserted",
+      turn: runningTurn(1)
+    });
     const runtime = {
       getSessionEngine: () => engine
     } as unknown as AgentGUIRuntime;
@@ -516,7 +598,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     const previousRenderCount = renderCount;
 
     act(() => {
-      engine.dispatch({ type: "turn/upserted", turn: runningTurn(2) });
+      engine.dispatch({
+        live: true,
+        type: "turn/upserted",
+        turn: runningTurn(2)
+      });
     });
 
     expect(renderCount).toBe(previousRenderCount);
@@ -541,7 +627,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
         workspaceId: "workspace-1"
       })
     });
-    engine.dispatch({ type: "turn/upserted", turn: runningTurn(1) });
+    engine.dispatch({
+      live: true,
+      type: "turn/upserted",
+      turn: runningTurn(1)
+    });
     const runtime = {
       getSessionEngine: () => engine
     } as unknown as AgentGUIRuntime;
@@ -586,11 +676,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
             workspaceUserProjectI18n={RAIL_PROJECT_I18N}
             onCancelDeleteConversation={() => {}}
             onConfirmDeleteConversation={() => {}}
-            onConfirmDeleteConversations={() => {}}
+            onConfirmDeleteConversations={async () => true}
             onConfirmDeleteProjectConversations={async () => []}
             onConversationQueryChange={() => {}}
             onCreateConversation={() => {}}
-            onRemoveProject={() => {}}
+            onRemoveProject={async () => true}
             onMoveProject={async () => {}}
             onRequestDeleteConversation={() => {}}
             onRequestRenameConversation={() => {}}
@@ -616,7 +706,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     const previousRailCommitCount = railCommitCount;
 
     act(() => {
-      engine.dispatch({ type: "turn/upserted", turn: runningTurn(2) });
+      engine.dispatch({
+        live: true,
+        type: "turn/upserted",
+        turn: runningTurn(2)
+      });
     });
 
     expect(railCommitCount).toBe(previousRailCommitCount);
@@ -702,11 +796,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
           workspaceUserProjectI18n={RAIL_PROJECT_I18N}
           onCancelDeleteConversation={() => {}}
           onConfirmDeleteConversation={() => {}}
-          onConfirmDeleteConversations={() => {}}
+          onConfirmDeleteConversations={async () => true}
           onConfirmDeleteProjectConversations={async () => []}
           onConversationQueryChange={() => {}}
           onCreateConversation={() => {}}
-          onRemoveProject={() => {}}
+          onRemoveProject={async () => true}
           onMoveProject={async () => {}}
           onRequestDeleteConversation={() => {}}
           onRequestRenameConversation={() => {}}
@@ -751,7 +845,9 @@ describe("useAgentGUIConversationRailQuery search", () => {
     expect(workspaceSection).toBeTruthy();
     const workspaceHeader = workspaceSection?.firstElementChild;
     expect(workspaceHeader).toBeTruthy();
-    expect((workspaceHeader as HTMLElement).draggable).toBe(true);
+    await waitFor(() =>
+      expect((workspaceHeader as HTMLElement).draggable).toBe(true)
+    );
     expect(screen.queryByText("Conversations")).toBeNull();
     expect(screen.queryByText("Conversation unavailable")).toBeNull();
   });
@@ -769,12 +865,28 @@ describe("useAgentGUIConversationRailQuery search", () => {
       .mockImplementation(() => {});
     const engine = createTestAgentSessionEngine("workspace-1");
     const runtime = {
+      async deleteSessionsBatch() {
+        return {
+          cleanupFailedSessionIds: [],
+          removedMessages: 0,
+          removedSessionIds: [],
+          removedSessions: 0
+        };
+      },
       getSessionEngine: () => engine,
       async listSessionSections() {
         throw new Error("section membership unavailable");
       },
       async listSessionSectionPage() {
         throw new Error("section membership unavailable");
+      },
+      async listSessionSectionDeletionCandidates() {
+        return {
+          excludePinned: false,
+          sectionKey: "project:/workspace/alpha",
+          sessionIds: [],
+          workspaceId: "workspace-1"
+        };
       }
     } as unknown as AgentGUIRuntime;
     const userProjects = ["Alpha", "Beta", "Gamma"].map((label) => ({
@@ -830,13 +942,13 @@ describe("useAgentGUIConversationRailQuery search", () => {
           workspaceUserProjectI18n={RAIL_PROJECT_I18N}
           onCancelDeleteConversation={() => {}}
           onConfirmDeleteConversation={() => {}}
-          onConfirmDeleteConversations={() => {}}
+          onConfirmDeleteConversations={async () => true}
           onConfirmDeleteProjectConversations={async () => []}
           onConversationQueryChange={() => {}}
           onCreateConversation={() => {}}
           onMarkConversationUnread={() => {}}
           onMoveProject={moveProject}
-          onRemoveProject={() => {}}
+          onRemoveProject={async () => true}
           onRequestDeleteConversation={() => {}}
           onRequestRenameConversation={() => {}}
           onSelectConversation={() => {}}
@@ -871,6 +983,8 @@ describe("useAgentGUIConversationRailQuery search", () => {
     expect(
       conversationsSection?.getAttribute("data-project-dragging")
     ).toBeNull();
+
+    await waitFor(() => expect(alphaHeader.draggable).toBe(true));
 
     const alphaToggle = alphaHeader.querySelector("button") as HTMLElement;
     const moreButton = screen.getAllByRole("button", {

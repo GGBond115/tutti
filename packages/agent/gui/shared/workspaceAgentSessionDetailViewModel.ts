@@ -22,10 +22,12 @@ export interface WorkspaceAgentSessionDetailMessage {
     phase: string | null;
     provider: string | null;
     detail: string | null;
+    detailAvailable?: boolean;
     retryable: boolean | null;
   } | null;
   systemNotice?: {
     noticeKind: string | null;
+    semanticKind?: "context-handoff-required" | null;
     severity: string | null;
     source?: string | null;
     command?: AgentActivityMessageSemantics["noticeCommand"] | null;

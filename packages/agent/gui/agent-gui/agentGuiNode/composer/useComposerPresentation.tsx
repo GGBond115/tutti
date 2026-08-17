@@ -26,30 +26,7 @@ import type {
 import { SendFilledIcon } from "./AgentComposerDraftPreview";
 import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import { reportAgentComposerDiagnostic } from "./agentComposerDiagnostics";
-
-export async function submitInteractivePromptWithAck(
-  input: {
-    requestId: string;
-    action?: string;
-    optionId?: string;
-    payload?: Record<string, unknown>;
-  },
-  options: {
-    submit: AgentComposerProps["onSubmitInteractivePrompt"];
-    isCurrent(): boolean;
-    dismiss(requestId: string): void;
-  }
-): Promise<boolean> {
-  try {
-    await options.submit(input);
-    if (options.isCurrent()) {
-      options.dismiss(input.requestId);
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { submitAgentInteractionResponseAndDismiss } from "../../../shared/agentConversation/interactionResponseAdmission";
 
 interface Input {
   draftContent: AgentComposerDraft;
@@ -276,15 +253,10 @@ export function useComposerPresentation(input: Input) {
   }, [activePromptRequestId]);
 
   const submitInteractivePromptAndDismiss = useCallback(
-    async (input: {
-      requestId: string;
-      action?: string;
-      optionId?: string;
-      payload?: Record<string, unknown>;
-    }) => {
-      await submitInteractivePromptWithAck(input, {
+    (input: Parameters<AgentComposerProps["onSubmitInteractivePrompt"]>[0]) => {
+      return submitAgentInteractionResponseAndDismiss({
+        response: input,
         submit: onSubmitInteractivePrompt,
-        isCurrent: () => activePromptRequestId === input.requestId,
         dismiss: setDismissedPromptRequestId
       });
     },

@@ -29,7 +29,11 @@ import (
 
 var safeKey = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$`)
 
-const runtimeVersionProbeTimeout = 30 * time.Second
+// Some Python-based agents perform a cold-start import of their full CLI
+// before answering --version. On Windows Hermes can exceed 30s on the first
+// launch, which caused a valid install to be rolled back as incompatible.
+// Keep the probe bounded, but allow enough time for a cold managed runtime.
+const runtimeVersionProbeTimeout = 90 * time.Second
 
 type Manager struct {
 	Sources           []tuttitypes.AgentExtensionSource
@@ -41,9 +45,14 @@ type Manager struct {
 	Preferences       workspacedata.PreferencesStore
 	Client            *http.Client
 	RuntimeResolver   runtimecmd.Resolver
+	UserPathAdapter   UserPathAdapter
 	reconcileMu       sync.Mutex
 	versionCacheOnce  sync.Once
 	runtimeVersions   *runtimeVersionCache
+}
+
+type UserPathAdapter interface {
+	Ensure(context.Context, string) error
 }
 
 type Installation = agentextensionbiz.Installation
@@ -361,19 +370,24 @@ func (m *Manager) runtimeBinding(installation Installation, command []string, ve
 		LaunchPermission:             launchPermission,
 		SetModelReasoningEffortMeta:  composerProfile.SetModelReasoningEffortMeta(), Capabilities: capabilities,
 		ExecutableIdentity: executableIdentity,
+		Env:                resolveRuntimeLaunchEnv(installation.Manifest.Runtime.Launch.Env),
 	}, nil
 }
 
-func (m *Manager) ResolveAgentTargetAvailability(ctx context.Context, target agenttargetbiz.Target) (string, string) {
+func (m *Manager) ResolveAgentTargetAvailability(ctx context.Context, target agenttargetbiz.Target) (string, string, string) {
 	launchRef, err := agenttargetbiz.RuntimeProviderTargetRef(target)
 	if err != nil || launchRef["kind"] != agenttargetbiz.LaunchRefTypeAgentExtension {
-		return "unknown", "invalid_extension_launch_ref"
+		return "unknown", "invalid_extension_launch_ref", ""
 	}
 	installationID, _ := launchRef["extensionInstallationId"].(string)
-	if _, err := m.ResolveRuntime(ctx, installationID); err != nil {
-		return "not_installed", "compatible_runtime_not_installed"
+	binding, err := m.ResolveRuntime(ctx, installationID)
+	if err != nil {
+		return "not_installed", "compatible_runtime_not_installed", ""
 	}
-	return "ready", ""
+	if len(binding.Command) == 0 {
+		return "not_installed", "compatible_runtime_not_installed", ""
+	}
+	return "ready", "", strings.TrimSpace(binding.Command[0])
 }
 
 func (m *Manager) reconcileSource(ctx context.Context, source tuttitypes.AgentExtensionSource) (Installation, error) {

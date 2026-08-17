@@ -12,8 +12,10 @@ import { resolveAgentComposerDraftScopeKey } from "../model/agentComposerDraftSc
 import {
   buildAgentConversationHandoffPrompt,
   handoffProjectPathForConversation,
+  resolveAgentGUIComposerInteractionDisabledReason,
   resolveAgentGUITuttiStopTargets
 } from "./agentGUIDetailModelHelpers";
+import { EMPTY_WORKSPACE_APP_ICONS } from "./agentGUIDetailConstants";
 import { AgentGUIBottomDockPane } from "./AgentGUIBottomDockPane";
 import {
   AgentGUIEmptyHomePane,
@@ -30,12 +32,12 @@ import { useAgentGUIDetailScroll } from "./useAgentGUIDetailScroll";
 import { useAgentGUIDetailModel } from "./useAgentGUIDetailModel";
 import { useAgentGUIComposerInputHistoryProps } from "./useAgentGUIComposerInputHistoryProps";
 import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
-import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
+import type { AgentGUIDetailPaneProps } from "./AgentGUIDetailPane.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
 import { useAgentGUIDetailSideChrome } from "./useAgentGUIDetailSideChrome";
 import type { TimelineScrollAnchor } from "./agentGUIScrollMemory";
-export const EMPTY_WORKSPACE_APP_ICONS = [] as const;
+import { useBottomDockInteractionSubmission } from "./useBottomDockInteractionSubmission";
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   shell,
   rail,
@@ -48,6 +50,9 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
   sessionForkEnabled = false,
+  sessionWorktreeEnabled = false,
+  sessionLaunchModesByProjectSectionKey,
+  onSessionLaunchModePreferenceChange,
   composerEngagement,
   actions,
   labels,
@@ -74,8 +79,10 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   onRequestWorkspaceReferences,
   resolveExternalPromptEntries = null,
   prepareExternalPromptFiles = null,
+  resolvePastedPath = null,
   promptAssetLimit = null,
   selectProjectDirectory,
+  projectSelectOptions,
   onRequestGitBranches,
   onRequestComposerFocus,
   workspaceAppIcons = EMPTY_WORKSPACE_APP_ICONS,
@@ -106,6 +113,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const virtualScrollControllerRef =
     useRef<AgentTranscriptVirtualScrollController | null>(null);
   const {
+    activePromptResponsePending,
     bottomDockLiftedPrompt,
     bottomDockReplacementPrompt,
     chromeLabels,
@@ -260,8 +268,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     setTuttiModeEffect: actions.setTuttiModeEffect,
     setTuttiModeSpeed: actions.setTuttiModeSpeed,
     updateDraftContent: actions.updateDraftContent,
-    submitPromptPassthrough: submitPromptAndScrollToBottom,
-    submitGuidancePromptPassthrough: submitGuidancePromptAndScrollToBottom
+    submitPromptPassthrough: submitPromptAndScrollToBottom
   });
   const tuttiWorkflowComposer = tuttiWorkflow.composer;
   const tuttiWorkflowDock = tuttiWorkflow.workflowDock;
@@ -295,21 +302,16 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const stableRequestGitBranches =
     useOptionalStableEventCallback(onRequestGitBranches);
   const authLogin = useOptionalStableEventCallback(onAgentProviderLogin);
-  const submitBottomDockInteractivePrompt = useCallback(
-    (input: {
-      requestId: string;
-      action?: string;
-      optionId?: string;
-      payload?: Record<string, unknown>;
-    }) => {
-      submitInteractivePrompt(input);
-      dismissBottomDockPrompt(input.requestId);
-    },
-    [dismissBottomDockPrompt, submitInteractivePrompt]
+  const submitBottomDockInteractivePrompt = useBottomDockInteractionSubmission(
+    submitInteractivePrompt,
+    dismissBottomDockPrompt
   );
-  const isInteractionPending =
-    viewModel.interaction.isRespondingApproval ||
-    composerGate.runtime.status === "blocked";
+  const isInteractionPending = activePromptResponsePending;
+  const composerActivePromptDisabledReason =
+    resolveAgentGUIComposerInteractionDisabledReason(
+      composerActivePrompt?.kind,
+      viewModel.interaction
+    );
   const homeComposerProviderTargets = homeTargetProjection.agentTargets;
   const selectedHomeComposerTarget = homeTargetProjection.selectedAgentTarget;
   const composerProviderTargets =
@@ -399,6 +401,24 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       compactSupported: viewModel.composer.compactSupported,
       availableSkills: viewModel.composer.availableSkills,
       selectedAgentTarget: composerSelectedProviderTarget,
+      sessionWorktreeEnabled:
+        sessionWorktreeEnabled &&
+        sessionLaunchModesByProjectSectionKey !== undefined,
+      sessionLaunchMode:
+        sessionLaunchModesByProjectSectionKey?.[
+          viewModel.composer.composerSettings.selectedProjectSectionKey?.trim() ??
+            ""
+        ] ?? "local",
+      onSessionLaunchModeChange:
+        onSessionLaunchModePreferenceChange &&
+        viewModel.composer.composerSettings.selectedProjectSectionKey?.trim()
+          ? (mode) =>
+              onSessionLaunchModePreferenceChange({
+                mode,
+                projectSectionKey:
+                  viewModel.composer.composerSettings.selectedProjectSectionKey!.trim()
+              })
+          : undefined,
       agentTargets: composerProviderTargets,
       handoffAgentTargets: composerHandoffProviderTargets,
       showHandoffTargetOwnershipLabels,
@@ -437,6 +457,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       referenceProvenanceFilters,
       activePrompt: composerActivePrompt,
       activePromptKeyboardShortcutsEnabled: isActive && !sideComposerFocused,
+      activePromptDisabledReason: composerActivePromptDisabledReason,
       promptTips: labels.promptTips,
       composerFocusRequestSequence,
       isActive: isActive && !sideComposerFocused,
@@ -501,8 +522,10 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       onRequestWorkspaceReferences: stableRequestWorkspaceReferences,
       resolveExternalPromptEntries,
       prepareExternalPromptFiles,
+      resolvePastedPath,
       promptAssetLimit,
       selectProjectDirectory: stableSelectProjectDirectory,
+      projectSelectOptions,
       onRequestGitBranches: stableRequestGitBranches
     }),
     [
@@ -523,13 +546,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       isActive,
       sideComposerFocused,
       isComposerSending,
-      labels.followupPlaceholder,
-      labels.handoffConversation,
-      labels.handoffConversationTooltip,
-      labels.handoffConversationMenu,
-      labels.initialPlaceholder,
-      labels.promptTips,
-      labels.providerSwitchLabel,
       labels,
       stableHandoffConversation,
       onSlashStatusOpen,
@@ -537,17 +553,23 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       onSlashStatusRefresh,
       workspaceReferencePickerOpen,
       composerActivePrompt,
+      composerActivePromptDisabledReason,
       editQueuedPrompt,
       onCapabilitySettingsRequest,
       removeQueuedPrompt,
       resolveExternalPromptEntries,
       prepareExternalPromptFiles,
+      resolvePastedPath,
       promptAssetLimit,
+      projectSelectOptions,
       sendQueuedPromptNext,
       showPromptImagesUnsupported,
       showStopButton,
       sourceActiveTurn?.turnId,
       showHandoffTargetOwnershipLabels,
+      sessionWorktreeEnabled,
+      sessionLaunchModesByProjectSectionKey,
+      onSessionLaunchModePreferenceChange,
       stopDisabled,
       slashStatus,
       setTuttiModeEffect,
@@ -591,8 +613,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       viewModel.composer.isTuttiModeUpdating,
       viewModel.composer.tuttiModeEffect,
       viewModel.composer.tuttiModeSpeed,
-      viewModel.interaction.isRespondingApproval,
-      composerGate.runtime.status,
+      isInteractionPending,
       viewModel.composer.promptImagesSupported,
       viewModel.composer.queueStatus,
       viewModel.composer.queuedPrompts,
@@ -742,6 +763,12 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
               bottomDockLiftedPrompt={bottomDockLiftedPrompt}
               bottomDockReplacementPrompt={bottomDockReplacementPrompt}
               composerProps={bottomDockComposerProps}
+              approvalDisabledReason={
+                viewModel.interaction.approvalDisabledReason
+              }
+              interactivePromptDisabledReason={
+                viewModel.interaction.interactivePromptDisabledReason
+              }
               inlineNoticeChrome={inlineNoticeChrome}
               isRespondingApproval={isInteractionPending}
               sessionChrome={sessionChrome}

@@ -28,6 +28,7 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 	default:
 		return agentsessionstore.WorkspaceAgentStatePatch{}, false
 	}
+	turnErrorCode, turnErrorMessage := turnFailureDetails(event)
 	patch := agentsessionstore.WorkspaceAgentStatePatch{
 		AgentSessionID:       sessionID,
 		Kind:                 strings.TrimSpace(event.SessionKind),
@@ -59,6 +60,12 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 	if runtimeContext := payloadMap(event.Payload.Metadata, "runtimeContext"); len(runtimeContext) > 0 {
 		patch.RuntimeContext = clonePayload(runtimeContext)
 	}
+	if event.Payload.RuntimeActivity != "" {
+		patch.RuntimeActivity = &canonical.WorkspaceAgentRuntimeActivityObservation{
+			State:            string(event.Payload.RuntimeActivity),
+			OccurredAtUnixMS: timestamp,
+		}
+	}
 	if turnID := strings.TrimSpace(event.Payload.TurnID); turnID != "" &&
 		event.Type != activityshared.EventRootProviderTurnStarted &&
 		event.Type != activityshared.EventRootProviderTurnCheckpoint &&
@@ -72,6 +79,8 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 			SourceGoalRepairEpoch: payloadInt64(event.Payload.Metadata, "sourceGoalRepairEpoch"),
 			Phase:                 strings.TrimSpace(event.Payload.TurnPhase),
 			Outcome:               strings.TrimSpace(event.Payload.TurnOutcome),
+			ErrorCode:             turnErrorCode,
+			ErrorMessage:          turnErrorMessage,
 		}
 	}
 	applyProviderInitiatedInteractionTurnToPatch(&patch, event)
@@ -153,11 +162,14 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 			started = true
 		}
 		errorMessage := activityshared.BestEffortErrorMessage(event.Payload)
-		errorCode := ""
+		errorCode := activityshared.BestEffortErrorCode(event.Payload)
 		if completed &&
 			strings.TrimSpace(event.Payload.TurnOutcome) == string(activityshared.TurnOutcomeFailed) &&
-			strings.TrimSpace(errorMessage) != "" {
-			errorCode = visibleFailureCode(errorMessage)
+			strings.TrimSpace(errorCode) == "" {
+			errorCode = providerStopFailureCode(payloadString(event.Payload.Metadata, "stopReason"))
+			if errorCode == "" {
+				errorCode = visibleFailureCode(errorMessage)
+			}
 		}
 		patch.RootProviderTurn = &canonical.WorkspaceAgentRootProviderTurnTransition{
 			RootTurnID:              strings.TrimSpace(event.Payload.TurnID),
@@ -173,6 +185,34 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 		}
 	}
 	return patch, true
+}
+
+func turnFailureDetails(event activityshared.Event) (string, string) {
+	if event.Type != activityshared.EventTurnFailed {
+		return "", ""
+	}
+	message := activityshared.BestEffortErrorMessage(event.Payload)
+	code := activityshared.BestEffortErrorCode(event.Payload)
+	if code == "" {
+		code = providerStopFailureCode(payloadString(event.Payload.Metadata, "stopReason"))
+	}
+	if code == "" {
+		code = visibleFailureCode(message)
+	}
+	return code, message
+}
+
+func providerStopFailureCode(stopReason string) string {
+	switch strings.ToLower(strings.TrimSpace(stopReason)) {
+	case "refusal":
+		return "provider_refusal"
+	case "max_tokens":
+		return "provider_max_tokens"
+	case "max_turn_requests":
+		return "provider_max_turn_requests"
+	default:
+		return ""
+	}
 }
 
 // applyProviderCreatedGoalTurnToPatch turns the provider's first authoritative

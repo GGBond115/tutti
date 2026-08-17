@@ -15,11 +15,26 @@ import {
   restoreFailedAgentGUIHomeDraft
 } from "./agentGuiController.homeDraftHelpers";
 import {
+  agentGUISubmitSettlementError,
   typedGoalControlFromComposer,
   useAgentGUISubmitInteractionActions
 } from "./useAgentGUISubmitInteractionActions";
 
 const draftKey = "node-default:codex:local:codex";
+
+it("preserves a failed submit reason for package-owned presentation", () => {
+  expect(
+    agentGUISubmitSettlementError({
+      errorCode: "workspace_operation_failed",
+      errorMessage: "agent process cleanup is still pending",
+      errorReason: "agent.process_cleanup_pending"
+    })
+  ).toMatchObject({
+    code: "workspace_operation_failed",
+    message: "agent process cleanup is still pending",
+    reason: "agent.process_cleanup_pending"
+  });
+});
 
 function draft(prompt: string): AgentComposerDraft {
   return [{ type: "text", text: prompt }];
@@ -210,6 +225,34 @@ describe("conversation stop", () => {
 });
 
 describe("interaction submissions", () => {
+  it.each([
+    ["implement", "implement"],
+    ["feedback", "feedback"],
+    ["skip", "skip"]
+  ] as const)(
+    "returns the plan %s handler admission result",
+    (action, handler) => {
+      const goalControl = vi.fn(async () => undefined);
+      const { input } = createGoalControlInput(goalControl as never);
+      input.planActionsRef.current[handler] = vi.fn(() => false);
+      const { result } = renderHook(() =>
+        useAgentGUISubmitInteractionActions(input)
+      );
+
+      let admitted = true;
+      act(() => {
+        admitted = result.current.submitInteractivePrompt({
+          action,
+          payload: action === "feedback" ? { text: "revise" } : undefined,
+          requestId: "turn-1"
+        });
+      });
+
+      expect(admitted).toBe(false);
+      expect(input.planActionsRef.current[handler]).toHaveBeenCalledOnce();
+    }
+  );
+
   it("routes the explicit answer through the Engine semantic operation", () => {
     const goalControl = vi.fn(async () => undefined);
     const { input, sessionEngine, setDetailError } = createGoalControlInput(
@@ -235,10 +278,17 @@ describe("interaction submissions", () => {
       })
     );
 
-    act(() =>
-      result.current.submitApprovalOption(" request-1 ", " allow-once ")
-    );
+    let admitted = false;
+    act(() => {
+      admitted = result.current.submitApprovalOption({
+        agentSessionId: " session-1 ",
+        optionId: " allow-once ",
+        requestId: " request-1 ",
+        turnId: " turn-1 "
+      });
+    });
 
+    expect(admitted).toBe(true);
     expect(submitInteractionResponse).toHaveBeenCalledWith({
       agentSessionId: "session-1",
       optionId: "allow-once",
@@ -247,9 +297,199 @@ describe("interaction submissions", () => {
     });
     expect(setDetailError).toHaveBeenCalledWith(null);
   });
+
+  it("rechecks exact Host readiness at the interaction boundary", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, sessionEngine } = createGoalControlInput(
+      goalControl as never
+    );
+    const submitInteractionResponse = vi
+      .spyOn(sessionEngine, "submitInteractionResponse")
+      .mockReturnValue(true);
+    let readiness: "ready" | "blocked" = "blocked";
+    const interactionReadinessSource = {
+      getInteractionReadiness: vi.fn(() =>
+        readiness === "ready"
+          ? ({ status: "ready" } as const)
+          : ({ status: "blocked", reason: "synchronizing" } as const)
+      ),
+      subscribe: vi.fn(() => () => undefined)
+    };
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions({
+        ...input,
+        interactionReadinessSource,
+        activeEnginePendingInteractions: [
+          {
+            agentSessionId: "session-1",
+            createdAtUnixMs: 1,
+            kind: "question",
+            requestId: "request-1",
+            status: "pending",
+            turnId: "turn-1",
+            updatedAtUnixMs: 1
+          }
+        ]
+      })
+    );
+
+    let admitted = true;
+    act(() => {
+      admitted = result.current.submitApprovalOption({
+        agentSessionId: "session-1",
+        optionId: "allow",
+        requestId: "request-1",
+        turnId: "turn-1"
+      });
+    });
+    expect(admitted).toBe(false);
+    expect(submitInteractionResponse).not.toHaveBeenCalled();
+
+    readiness = "ready";
+    act(() => {
+      admitted = result.current.submitApprovalOption({
+        agentSessionId: "session-1",
+        optionId: "allow",
+        requestId: "request-1",
+        turnId: "turn-1"
+      });
+    });
+
+    expect(admitted).toBe(true);
+    expect(
+      interactionReadinessSource.getInteractionReadiness
+    ).toHaveBeenLastCalledWith({
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      turnId: "turn-1",
+      requestId: "request-1"
+    });
+    expect(submitInteractionResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it("submits only the exact pending interaction when request ids repeat", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, sessionEngine } = createGoalControlInput(
+      goalControl as never
+    );
+    const submitInteractionResponse = vi
+      .spyOn(sessionEngine, "submitInteractionResponse")
+      .mockReturnValue(true);
+    const interactionReadinessSource = {
+      getInteractionReadiness: vi.fn(() => ({ status: "ready" }) as const),
+      subscribe: vi.fn(() => () => undefined)
+    };
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions({
+        ...input,
+        interactionReadinessSource,
+        activeEnginePendingInteractions: [
+          {
+            agentSessionId: "session-1",
+            createdAtUnixMs: 1,
+            kind: "question",
+            requestId: "request-1",
+            status: "pending",
+            turnId: "turn-1",
+            updatedAtUnixMs: 1
+          },
+          {
+            agentSessionId: "session-2",
+            createdAtUnixMs: 2,
+            kind: "approval",
+            requestId: "request-1",
+            status: "pending",
+            turnId: "turn-2",
+            updatedAtUnixMs: 2
+          }
+        ]
+      })
+    );
+
+    let admitted = false;
+    act(() => {
+      admitted = result.current.submitInteractivePrompt({
+        action: "allow",
+        agentSessionId: "session-1",
+        requestId: "request-1",
+        turnId: "turn-1"
+      });
+    });
+
+    expect(admitted).toBe(true);
+    expect(
+      interactionReadinessSource.getInteractionReadiness
+    ).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      requestId: "request-1",
+      turnId: "turn-1",
+      workspaceId: "workspace-1"
+    });
+    expect(submitInteractionResponse).toHaveBeenCalledWith({
+      action: "allow",
+      agentSessionId: "session-1",
+      requestId: "request-1",
+      turnId: "turn-1"
+    });
+  });
+
+  it("rejects a response without an exact pending interaction identity", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, sessionEngine } = createGoalControlInput(
+      goalControl as never
+    );
+    const submitInteractionResponse = vi.spyOn(
+      sessionEngine,
+      "submitInteractionResponse"
+    );
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions(input)
+    );
+
+    let admitted = true;
+    act(() => {
+      admitted = result.current.submitInteractivePrompt({
+        requestId: "request-1"
+      });
+    });
+
+    expect(admitted).toBe(false);
+    expect(submitInteractionResponse).not.toHaveBeenCalled();
+  });
 });
 
 describe("existing-session prompt submission", () => {
+  it("captures the exact active Turn for guidance before routing to the Engine", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, sessionEngine } = createGoalControlInput(
+      goalControl as never
+    );
+    input.activeEngineActiveTurn = { turnId: "turn-target" } as never;
+    const submitPrompt = vi
+      .spyOn(sessionEngine, "submitPrompt")
+      .mockReturnValue({ accepted: true, queued: false });
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions(input)
+    );
+
+    act(() =>
+      result.current.submitGuidancePrompt(
+        [{ type: "text", text: "steer this turn" }],
+        undefined,
+        { capabilityRefs: [{ capability: "tutti", source: "slash_command" }] }
+      )
+    );
+
+    expect(submitPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentSessionId: "session-1",
+        capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
+        routing: "send_now",
+        targetTurnId: "turn-target"
+      })
+    );
+  });
+
   it("routes submission through the Engine semantic operation", () => {
     const goalControl = vi.fn(async () => undefined);
     const { input, draftByScopeKeyRef, sessionEngine, setDraftByScopeKey } =
@@ -288,6 +528,45 @@ describe("existing-session prompt submission", () => {
       })
     });
     expect(setDraftByScopeKey).toHaveBeenCalledTimes(1);
+    expect(
+      agentComposerDraftPrompt(draftByScopeKeyRef.current["session:session-1"]!)
+    ).toBe("");
+  });
+
+  it("clears the draft captured by the Composer when the controller ref is stale", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, draftByScopeKeyRef, sessionEngine, setDraftByScopeKey } =
+      createGoalControlInput(goalControl as never);
+    const submittedDraft = draft("continue");
+    draftByScopeKeyRef.current = {
+      "session:session-1": draft("stale projection")
+    };
+    const submitPrompt = vi
+      .spyOn(sessionEngine, "submitPrompt")
+      .mockReturnValue({ accepted: true, queued: true });
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions(input)
+    );
+
+    setDraftByScopeKey.mockImplementationOnce((update) => {
+      const current = { "session:session-1": submittedDraft };
+      const next = typeof update === "function" ? update(current) : update;
+      draftByScopeKeyRef.current = next;
+    });
+
+    act(() =>
+      result.current.submitPrompt(
+        [{ type: "text", text: "continue" }],
+        undefined,
+        { submittedDraft }
+      )
+    );
+
+    expect(submitPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: [{ type: "text", text: "continue" }]
+      })
+    );
     expect(
       agentComposerDraftPrompt(draftByScopeKeyRef.current["session:session-1"]!)
     ).toBe("");

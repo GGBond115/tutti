@@ -2,6 +2,7 @@ import type * as React from "react";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore
@@ -10,7 +11,11 @@ import { createPortal } from "react-dom";
 import { useService } from "@tutti-os/infra/di";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import { INotificationService } from "@tutti-os/ui-notifications";
+import { createConnectorMarketI18nRuntime } from "@tutti-os/connector-market/i18n";
+import { ConnectorMarketPanel } from "@tutti-os/connector-market/ui";
+import { IConnectorMarketModule } from "@tutti-os/connector-market/services";
 import type {
+  DesktopComputerUseActionResult,
   DesktopComputerUsePermissionPane,
   DesktopComputerUsePermissionsStatus,
   DesktopComputerUseStatus
@@ -65,7 +70,6 @@ import {
 import {
   type DesktopDefaultAgentProvider,
   desktopAgentConversationDetailModes,
-  deletedAgentConversationRetentionDaysOptions,
   desktopBrowserUseConnectionModes,
   desktopDockPlacements,
   desktopMinimizeAnimations,
@@ -76,7 +80,6 @@ import {
   type DesktopAgentConversationDetailMode,
   type DesktopBrowserUseConnectionMode,
   type DesktopDockPlacement,
-  type DeletedAgentConversationRetentionDays,
   type DesktopFeatureFlags,
   type DesktopWorkspaceUiMode,
   type DesktopMinimizeAnimation,
@@ -89,9 +92,9 @@ import {
   EARLY_ACCESS_AGENT_INTEGRATIONS_FLAG,
   isFeatureEnabled,
   LAB_ENABLED_FLAG,
+  LAB_CONNECTORS_FLAG,
   LAB_WORKBENCH_SHORTCUTS_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
-  MOBILE_REMOTE_ACCESS_SETTINGS_FLAG,
   resolveDesktopWorkspaceUiMode
 } from "../../../../../shared/featureFlags/catalog.ts";
 import { resolveWorkspaceAgentGuiLabel } from "../services/workspaceAgentProviderCatalog";
@@ -131,6 +134,8 @@ import {
 } from "../services/workspaceWallpaper";
 import { WorkspaceModelPlansSection } from "./WorkspaceModelPlansSection";
 import { WorkspaceConnectionSettingsSection } from "./WorkspaceConnectionSettingsSection";
+import { WorkspaceDeletedConversationsSection } from "./WorkspaceDeletedConversationsSection.tsx";
+import { useAccountService } from "./useAccountService";
 import {
   workspaceSettingsInputClass,
   workspaceSettingsSelectContentClass,
@@ -172,12 +177,22 @@ export function WorkspaceSettingsPanel({
   selectedWallpaperID: WorkspaceWallpaperId;
   workspace: WorkspaceSummary;
 }) {
-  const { t } = useTranslation();
+  const { i18n: appI18n, t } = useTranslation();
+  const connectorMarketI18n = useMemo(
+    () => createConnectorMarketI18nRuntime(appI18n),
+    [appI18n]
+  );
+  const { t: translateConnectorMarket } = connectorMarketI18n;
   const notifications = useService(INotificationService);
+  const handleConnectorMarketError = useCallback(
+    (message: string) => notifications.error({ title: message }),
+    [notifications]
+  );
   const { service: desktopPreferencesService, state: desktopPreferencesState } =
     useDesktopPreferencesService();
   const { service: settingsService, state: settingsState } =
     useWorkspaceSettingsService();
+  const { state: accountState } = useAccountService();
   const versionTapCountRef = useRef(0);
   const pendingFeatureFlags =
     desktopPreferencesState.changingFeatureFlags ??
@@ -192,15 +207,14 @@ export function WorkspaceSettingsPanel({
   const agentsService = useService(IAgentsService);
   const agentProviderStatusService = useService(IAgentProviderStatusService);
   const agentEnvService = useService(IAgentEnvService);
+  const connectorMarketModule = useService(IConnectorMarketModule);
+  const connectorsVisible =
+    accountState.user !== null &&
+    isFeatureEnabled(pendingFeatureFlags, LAB_CONNECTORS_FLAG);
   const automationRulesEnabled = isFeatureEnabled(
     pendingFeatureFlags,
     LAB_AUTOMATION_RULES_FLAG
   );
-  const mobileRemoteAccessSettingsEnabled = isFeatureEnabled(
-    pendingFeatureFlags,
-    MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
-  );
-
   useEffect(() => {
     if (settingsState.open) {
       settingsService.syncWorkspace({ id: workspace.id });
@@ -214,23 +228,16 @@ export function WorkspaceSettingsPanel({
   }, [labSectionVisible, settingsService, settingsState.activeSection]);
 
   useEffect(() => {
-    if (
-      !mobileRemoteAccessSettingsEnabled &&
-      settingsState.activeSection === "connection"
-    ) {
-      settingsService.selectSection("general");
-    }
-  }, [
-    mobileRemoteAccessSettingsEnabled,
-    settingsService,
-    settingsState.activeSection
-  ]);
-
-  useEffect(() => {
     if (!automationRulesEnabled && settingsState.agentTab === "automation") {
       settingsService.selectAgentTab("general");
     }
   }, [automationRulesEnabled, settingsService, settingsState.agentTab]);
+
+  useEffect(() => {
+    if (!connectorsVisible && settingsState.agentTab === "connectors") {
+      settingsService.selectAgentTab("general");
+    }
+  }, [connectorsVisible, settingsService, settingsState.agentTab]);
 
   const handleVersionTap = () => {
     if (settingsState.developerPanelVisible) {
@@ -308,14 +315,14 @@ export function WorkspaceSettingsPanel({
               id: "appearance" as const,
               label: t("workspace.settings.nav.appearance")
             },
-            ...(mobileRemoteAccessSettingsEnabled
-              ? [
-                  {
-                    id: "connection" as const,
-                    label: t("workspace.settings.nav.connection")
-                  }
-                ]
-              : []),
+            {
+              id: "connection" as const,
+              label: t("workspace.settings.nav.connection")
+            },
+            {
+              id: "deletedConversations" as const,
+              label: t("workspace.settings.nav.deletedConversations")
+            },
             {
               id: "about" as const,
               label: t("workspace.settings.nav.about")
@@ -358,7 +365,14 @@ export function WorkspaceSettingsPanel({
         </aside>
 
         <div className="col-start-2 row-start-2 flex min-h-0 flex-col">
-          <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto px-[22px] pb-[22px] pt-0">
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col gap-0",
+              settingsState.activeSection === "deletedConversations"
+                ? "overflow-hidden"
+                : "overflow-y-auto px-[22px] pb-[22px] pt-0"
+            )}
+          >
             {settingsState.activeSection === "general" ? (
               <WorkspaceGeneralSettingsSection
                 changingFeatureFlags={
@@ -368,12 +382,6 @@ export function WorkspaceSettingsPanel({
                 changingSleepPreventionMode={
                   desktopPreferencesState.changingSleepPreventionMode
                 }
-                changingDeletedAgentConversationRetentionDays={
-                  desktopPreferencesState.changingDeletedAgentConversationRetentionDays
-                }
-                deletedAgentConversationRetentionDays={
-                  desktopPreferencesState.deletedAgentConversationRetentionDays
-                }
                 featureFlags={desktopPreferencesState.featureFlags}
                 locale={desktopPreferencesState.locale}
                 onLocaleChange={(nextLocale) => {
@@ -382,148 +390,170 @@ export function WorkspaceSettingsPanel({
                 onSleepPreventionModeChange={(mode) => {
                   void settingsService.changeSleepPreventionMode(mode);
                 }}
-                onDeletedAgentConversationRetentionDaysChange={(days) => {
-                  void settingsService.changeDeletedAgentConversationRetentionDays(
-                    days
-                  );
+                onWorkbenchShortcutsChange={(shortcuts) => {
+                  void settingsService.changeWorkbenchShortcuts(shortcuts);
                 }}
-                onPurgeDeletedConversations={() =>
-                  settingsService.purgeDeletedConversations()
-                }
-                purgingDeletedConversations={
-                  settingsState.purgingDeletedConversations
-                }
                 onWorkspaceUiModeChange={(mode) => {
                   void settingsService.changeWorkspaceUiMode(mode);
                 }}
                 sleepPreventionMode={
                   desktopPreferencesState.sleepPreventionMode
                 }
+                workbenchShortcuts={desktopPreferencesState.workbenchShortcuts}
               />
             ) : settingsState.activeSection === "agent" ? (
-              <div className="flex min-h-0 flex-col gap-5 pt-5">
-                <SectionTabs
-                  ariaLabel={t("workspace.settings.nav.agent")}
-                  className="h-8 shrink-0"
-                  tabs={[
-                    {
-                      value: "general" as const,
-                      label: t("workspace.settings.agent.tabs.general")
-                    },
-                    {
-                      value: "agents" as const,
-                      label: t("workspace.settings.agent.tabs.agents")
-                    },
-                    {
-                      value: "customAgents" as const,
-                      label: t("workspace.settings.agent.tabs.customAgents")
-                    },
-                    ...(automationRulesEnabled
-                      ? [
-                          {
-                            value: "automation" as const,
-                            label: t("workspace.settings.agent.tabs.automation")
-                          }
-                        ]
-                      : [])
-                  ]}
-                  value={settingsState.agentTab}
-                  onValueChange={(tab) => settingsService.selectAgentTab(tab)}
-                />
-                {settingsState.agentTab === "agents" ? (
-                  <WorkspaceAgentsSettingsTab
-                    autoCheckEnabled={
-                      desktopPreferencesState.agentCliUpdateCheckEnabled
-                    }
-                    autoCheckPending={
-                      desktopPreferencesState.changingAgentCliUpdateCheckEnabled !==
-                      null
-                    }
-                    agentProviderStatusService={agentProviderStatusService}
-                    agentsService={agentsService}
-                    focusProvider={settingsState.agentFocusProvider}
-                    focusRequestID={settingsState.agentFocusRequestID}
-                    earlyAccessEnabled={earlyAccessIntegrationsEnabled}
-                    featureFlags={pendingFeatureFlags}
-                    featureFlagsPending={
-                      desktopPreferencesState.changingFeatureFlags !== null
-                    }
-                    onAgentEnabledChange={(agentTargetID, enabled) =>
-                      settingsService.setAgentTargetEnabled(
-                        agentTargetID,
-                        enabled
-                      )
-                    }
-                    onAutoCheckEnabledChange={(enabled) => {
-                      void desktopPreferencesService
-                        .setAgentCliUpdateCheckEnabled(enabled)
-                        .catch((error) => {
-                          notifications.error({
-                            description:
-                              error instanceof Error && error.message.trim()
-                                ? error.message
-                                : undefined,
-                            title: t(
-                              "workspace.settings.agent.agents.autoCheckUpdatesFailed"
-                            )
+              <div className="flex min-h-0 flex-col gap-5">
+                <div className="pb-[20px]">
+                  <div className="sticky top-0 z-10 -mx-[22px] px-[22px] py-3 bg-[var(--background-fronted)]">
+                    <SectionTabs
+                      ariaLabel={t("workspace.settings.nav.agent")}
+                      className="h-8 shrink-0"
+                      tabs={[
+                        {
+                          value: "general" as const,
+                          label: t("workspace.settings.agent.tabs.general")
+                        },
+                        {
+                          value: "agents" as const,
+                          label: t("workspace.settings.agent.tabs.agents")
+                        },
+                        ...(connectorsVisible
+                          ? [
+                              {
+                                value: "connectors" as const,
+                                label: translateConnectorMarket("title")
+                              }
+                            ]
+                          : []),
+                        {
+                          value: "customAgents" as const,
+                          label: t("workspace.settings.agent.tabs.customAgents")
+                        },
+                        ...(automationRulesEnabled
+                          ? [
+                              {
+                                value: "automation" as const,
+                                label: t(
+                                  "workspace.settings.agent.tabs.automation"
+                                )
+                              }
+                            ]
+                          : [])
+                      ]}
+                      value={settingsState.agentTab}
+                      onValueChange={(tab) =>
+                        settingsService.selectAgentTab(tab)
+                      }
+                    />
+                  </div>
+                  {settingsState.agentTab === "agents" ? (
+                    <WorkspaceAgentsSettingsTab
+                      autoCheckEnabled={
+                        desktopPreferencesState.agentCliUpdateCheckEnabled
+                      }
+                      autoCheckPending={
+                        desktopPreferencesState.changingAgentCliUpdateCheckEnabled !==
+                        null
+                      }
+                      agentProviderStatusService={agentProviderStatusService}
+                      agentsService={agentsService}
+                      focusProvider={settingsState.agentFocusProvider}
+                      focusRequestID={settingsState.agentFocusRequestID}
+                      earlyAccessEnabled={earlyAccessIntegrationsEnabled}
+                      featureFlags={pendingFeatureFlags}
+                      featureFlagsPending={
+                        desktopPreferencesState.changingFeatureFlags !== null
+                      }
+                      onAgentEnabledChange={(agentTargetID, enabled) =>
+                        settingsService.setAgentTargetEnabled(
+                          agentTargetID,
+                          enabled
+                        )
+                      }
+                      onAutoCheckEnabledChange={(enabled) => {
+                        void desktopPreferencesService
+                          .setAgentCliUpdateCheckEnabled(enabled)
+                          .catch((error) => {
+                            notifications.error({
+                              description:
+                                error instanceof Error && error.message.trim()
+                                  ? error.message
+                                  : undefined,
+                              title: t(
+                                "workspace.settings.agent.agents.autoCheckUpdatesFailed"
+                              )
+                            });
                           });
+                      }}
+                      onExtensionEnabledChange={(flag, enabled) => {
+                        return settingsService.changeFeatureFlags({
+                          ...pendingFeatureFlags,
+                          [flag]: enabled
                         });
-                    }}
-                    onExtensionEnabledChange={(flag, enabled) => {
-                      return settingsService.changeFeatureFlags({
-                        ...pendingFeatureFlags,
-                        [flag]: enabled
-                      });
-                    }}
-                    onOpenEnvironment={(provider) =>
-                      agentEnvService.open({ focus: "detect", provider })
-                    }
-                  />
-                ) : settingsState.agentTab === "customAgents" ? (
-                  <SettingsRows>
-                    <WorkspaceAgentsSection />
-                  </SettingsRows>
-                ) : settingsState.agentTab === "automation" &&
-                  automationRulesEnabled ? (
-                  <SettingsRows>
-                    <WorkspaceAutomationRulesSection />
-                  </SettingsRows>
-                ) : (
-                  <WorkspaceAgentSettingsSection
-                    agentConversationDetailMode={
-                      desktopPreferencesState.agentConversationDetailMode
-                    }
-                    browserUseConnectionMode={
-                      desktopPreferencesState.browserUseConnectionMode
-                    }
-                    changingAgentConversationDetailMode={
-                      desktopPreferencesState.changingAgentConversationDetailMode
-                    }
-                    changingDefaultAgentProvider={
-                      desktopPreferencesState.changingDefaultAgentProvider
-                    }
-                    changingBrowserUseConnectionMode={
-                      desktopPreferencesState.changingBrowserUseConnectionMode
-                    }
-                    defaultAgentProvider={
-                      desktopPreferencesState.defaultAgentProvider
-                    }
-                    focusedAnchor={settingsState.generalFocusAnchor}
-                    focusRequestID={settingsState.generalFocusRequestID}
-                    onBrowserUseConnectionModeChange={(mode) => {
-                      void settingsService.changeBrowserUseConnectionMode(mode);
-                    }}
-                    onAgentConversationDetailModeChange={(mode) => {
-                      void settingsService.changeAgentConversationDetailMode(
-                        mode
-                      );
-                    }}
-                    onDefaultAgentProviderChange={(provider) => {
-                      void settingsService.changeDefaultAgentProvider(provider);
-                    }}
-                    onOpenExternalAgentImport={onOpenExternalAgentImport}
-                  />
-                )}
+                      }}
+                      onOpenEnvironment={(provider) =>
+                        agentEnvService.open({ focus: "detect", provider })
+                      }
+                    />
+                  ) : settingsState.agentTab === "connectors" &&
+                    connectorsVisible ? (
+                    <ConnectorMarketPanel
+                      i18n={connectorMarketI18n}
+                      locale={desktopPreferencesState.locale}
+                      onError={handleConnectorMarketError}
+                      onTryConnector={() => settingsService.closePanel()}
+                      root={connectorMarketModule.root}
+                    />
+                  ) : settingsState.agentTab === "customAgents" ? (
+                    <SettingsRows>
+                      <WorkspaceAgentsSection />
+                    </SettingsRows>
+                  ) : settingsState.agentTab === "automation" &&
+                    automationRulesEnabled ? (
+                    <SettingsRows>
+                      <WorkspaceAutomationRulesSection />
+                    </SettingsRows>
+                  ) : (
+                    <WorkspaceAgentSettingsSection
+                      agentConversationDetailMode={
+                        desktopPreferencesState.agentConversationDetailMode
+                      }
+                      browserUseConnectionMode={
+                        desktopPreferencesState.browserUseConnectionMode
+                      }
+                      changingAgentConversationDetailMode={
+                        desktopPreferencesState.changingAgentConversationDetailMode
+                      }
+                      changingDefaultAgentProvider={
+                        desktopPreferencesState.changingDefaultAgentProvider
+                      }
+                      changingBrowserUseConnectionMode={
+                        desktopPreferencesState.changingBrowserUseConnectionMode
+                      }
+                      defaultAgentProvider={
+                        desktopPreferencesState.defaultAgentProvider
+                      }
+                      focusedAnchor={settingsState.generalFocusAnchor}
+                      focusRequestID={settingsState.generalFocusRequestID}
+                      onBrowserUseConnectionModeChange={(mode) => {
+                        void settingsService.changeBrowserUseConnectionMode(
+                          mode
+                        );
+                      }}
+                      onAgentConversationDetailModeChange={(mode) => {
+                        void settingsService.changeAgentConversationDetailMode(
+                          mode
+                        );
+                      }}
+                      onDefaultAgentProviderChange={(provider) => {
+                        void settingsService.changeDefaultAgentProvider(
+                          provider
+                        );
+                      }}
+                      onOpenExternalAgentImport={onOpenExternalAgentImport}
+                    />
+                  )}
+                </div>
               </div>
             ) : settingsState.activeSection === "appearance" ? (
               <WorkspaceAppearanceSettingsSection
@@ -580,11 +610,22 @@ export function WorkspaceSettingsPanel({
                 }}
               />
             ) : settingsState.activeSection === "connection" ? (
-              <WorkspaceConnectionSettingsSection
-                featureFlags={
-                  desktopPreferencesState.changingFeatureFlags ??
-                  desktopPreferencesState.featureFlags
+              <WorkspaceConnectionSettingsSection />
+            ) : settingsState.activeSection === "deletedConversations" ? (
+              <WorkspaceDeletedConversationsSection
+                changingRetentionDays={
+                  desktopPreferencesState.changingDeletedAgentConversationRetentionDays
                 }
+                controller={settingsService.deletedConversations}
+                retentionDays={
+                  desktopPreferencesState.deletedAgentConversationRetentionDays
+                }
+                state={settingsState.deletedConversations}
+                onRetentionDaysChange={(days) => {
+                  void settingsService.changeDeletedAgentConversationRetentionDays(
+                    days
+                  );
+                }}
               />
             ) : settingsState.activeSection === "about" ? (
               <WorkspaceAboutSettingsSection
@@ -719,24 +760,46 @@ function WorkspaceLabSettingsSection({
 }
 
 function WorkspaceLabShortcutRow({
+  className,
+  description,
   disabled,
   label,
+  placeholder,
+  requireNonShiftModifier = false,
   value,
   onChange
 }: {
+  className?: string;
+  description?: string;
   disabled: boolean;
   label: string;
+  placeholder?: string;
+  /**
+   * Reject bindings without Meta/Ctrl/Alt. Global accelerators must not
+   * shadow plain or shift-only typing in other applications.
+   */
+  requireNonShiftModifier?: boolean;
   value: string | null;
   onChange: (binding: string | null) => void;
 }) {
   const { t } = useTranslation();
   const clearLabel = t("workspace.settings.lab.clearShortcutLabel", { label });
   return (
-    <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
+    <div
+      className={cn(
+        "flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch",
+        className
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
         <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
           {label}
         </strong>
+        {description ? (
+          <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
+            {description}
+          </p>
+        ) : null}
       </div>
       <div className="flex w-[220px] min-w-[220px] items-center gap-2 max-[560px]:w-full max-[560px]:min-w-0">
         <Input
@@ -747,7 +810,9 @@ function WorkspaceLabShortcutRow({
             disabled && "opacity-70"
           )}
           disabled={disabled}
-          placeholder={t("workspace.settings.lab.shortcutUnbound")}
+          placeholder={
+            placeholder ?? t("workspace.settings.lab.shortcutUnbound")
+          }
           readOnly
           value={value ?? ""}
           onKeyDown={(event) => {
@@ -762,6 +827,14 @@ function WorkspaceLabShortcutRow({
               event.key === "Escape"
             ) {
               onChange(null);
+              return;
+            }
+            if (
+              requireNonShiftModifier &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.altKey
+            ) {
               return;
             }
             const binding = formatDesktopShortcutBinding({
@@ -1148,7 +1221,14 @@ function ComputerUseSetupRow({
         );
         return;
       }
-      if (currentStatus.installed) {
+      // A Windows binary can be present while `cua-driver doctor` is failing
+      // (for example after a partial/UAC-blocked installation). Do not treat
+      // that state as a successful install; the repaired non-interactive
+      // installer must get a chance to reconcile it.
+      const windowsDriverReady =
+        currentStatus.platform !== "win32" ||
+        currentStatus.authorization === "authorized";
+      if (currentStatus.installed && windowsDriverReady) {
         setOperationProgress(100);
         await delay(computerUseOperationSettleMs);
         setMessage(null);
@@ -1158,6 +1238,17 @@ function ComputerUseSetupRow({
         return;
       }
       const result = await settingsService.installComputerUse();
+      logPermissionDiagnostic(
+        "computer_use.permission_install_completed",
+        {
+          success: result.success,
+          exitCode: result.exitCode ?? null,
+          failureReason: result.failureReason ?? null,
+          outputBytes: result.output.length,
+          diagnosticMessage: truncateComputerUseActionOutput(result.output)
+        },
+        result.success ? "info" : "warn"
+      );
       setOperationProgress(100);
       await delay(computerUseOperationSettleMs);
       if (result.success) {
@@ -1166,10 +1257,18 @@ function ComputerUseSetupRow({
           diagnosticTrigger: "install-completed"
         });
         setMessage(null);
-        // A fresh install has no grants yet — continue straight into the
-        // wizard's first grant step.
+        // macOS installs continue into the TCC wizard; Windows uses doctor
+        // readiness and must not open the macOS permission flow.
         if (nextStatus?.installed === true) {
-          if (isComputerUseFullyAuthorized(nextStatus)) {
+          if (nextStatus.platform === "win32") {
+            // Windows readiness comes from `cua-driver doctor`; it has no
+            // macOS-style TCC grant flow or permission panes to open.
+            if (!isComputerUseFullyAuthorized(nextStatus)) {
+              setMessage(
+                t("workspace.settings.general.computerUseStatusCheckFailed")
+              );
+            }
+          } else if (isComputerUseFullyAuthorized(nextStatus)) {
             setWizardStep("done");
           } else {
             logPermissionDiagnostic(
@@ -1182,10 +1281,31 @@ function ComputerUseSetupRow({
           }
         }
       } else {
-        setMessage(t("workspace.settings.general.computerUseInstallFailed"));
+        setMessage(
+          formatComputerUseActionFailure(
+            result,
+            t("workspace.settings.general.computerUseInstallFailed")
+          )
+        );
       }
-    } catch {
-      setMessage(t("workspace.settings.general.computerUseInstallFailed"));
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logPermissionDiagnostic(
+        "computer_use.permission_install_completed",
+        {
+          success: false,
+          failureReason: "renderer-error",
+          error: errorMessage
+        },
+        "error"
+      );
+      setMessage(
+        formatComputerUseActionFailure(
+          { output: errorMessage },
+          t("workspace.settings.general.computerUseInstallFailed")
+        )
+      );
     } finally {
       setOperation(null);
       setOperationProgress(0);
@@ -1272,6 +1392,15 @@ function ComputerUseSetupRow({
     });
     setPermissionDialogOpen(open);
     if (open) {
+      if (computerUseStatus?.platform === "win32") {
+        void checkStatus({
+          clearMessage: false,
+          diagnosticTrigger: "windows-dialog-open",
+          silent: true
+        });
+        setPermissionDialogOpen(false);
+        return;
+      }
       // Status only assists here: it picks a starting step, and the user can
       // navigate freely regardless of what it says.
       setWizardStep(resolveComputerUseWizardInitialStep(computerUseStatus));
@@ -1415,7 +1544,13 @@ function ComputerUseSetupRow({
                         logPermissionDiagnostic(
                           "computer_use.permission_manage_clicked"
                         );
-                        handlePermissionDialogOpenChange(true);
+                        if (computerUseStatus?.platform === "win32") {
+                          void checkStatus({
+                            diagnosticTrigger: "windows-manage-click"
+                          });
+                        } else {
+                          handlePermissionDialogOpenChange(true);
+                        }
                       }}
                     />
                     {computerUseNeedsAttention && (
@@ -1999,6 +2134,7 @@ function summarizeComputerUseStatusForDiagnostic(
     return null;
   }
   return {
+    platform: status.platform ?? "unknown",
     authorization: status.authorization,
     installed: status.installed,
     permissionAccessibility: status.permissions?.accessibility ?? null,
@@ -2010,6 +2146,26 @@ function summarizeComputerUseStatusForDiagnostic(
   };
 }
 
+const computerUseActionDiagnosticMaxLength = 600;
+
+function truncateComputerUseActionOutput(output: string): string | null {
+  const normalized = output.trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.length <= computerUseActionDiagnosticMaxLength
+    ? normalized
+    : `${normalized.slice(0, computerUseActionDiagnosticMaxLength)}…`;
+}
+
+function formatComputerUseActionFailure(
+  result: Pick<DesktopComputerUseActionResult, "output">,
+  fallback: string
+): string {
+  const diagnostic = truncateComputerUseActionOutput(result.output);
+  return diagnostic ? `${fallback}: ${diagnostic}` : fallback;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -2017,6 +2173,9 @@ function delay(ms: number): Promise<void> {
 function isComputerUseFullyAuthorized(
   status: DesktopComputerUseStatus | null
 ): boolean {
+  if (status?.platform === "win32" && status.authorization === "authorized") {
+    return status.installed;
+  }
   const permissions = status?.permissions;
   return (
     status?.installed === true &&
@@ -2404,37 +2563,29 @@ function WorkspaceAgentSettingsSection({
 }
 
 function WorkspaceGeneralSettingsSection({
-  changingDeletedAgentConversationRetentionDays,
   changingFeatureFlags,
   changingLocale,
   changingSleepPreventionMode,
-  deletedAgentConversationRetentionDays,
   featureFlags,
   locale,
-  onDeletedAgentConversationRetentionDaysChange,
   onLocaleChange,
-  onPurgeDeletedConversations,
   onSleepPreventionModeChange,
+  onWorkbenchShortcutsChange,
   onWorkspaceUiModeChange,
-  purgingDeletedConversations,
-  sleepPreventionMode
+  sleepPreventionMode,
+  workbenchShortcuts
 }: {
-  changingDeletedAgentConversationRetentionDays: DeletedAgentConversationRetentionDays | null;
   changingFeatureFlags: DesktopFeatureFlags | null;
   changingLocale: DesktopLocale | null;
   changingSleepPreventionMode: DesktopSleepPreventionMode | null;
-  deletedAgentConversationRetentionDays: DeletedAgentConversationRetentionDays;
   featureFlags: DesktopFeatureFlags;
   locale: DesktopLocale;
-  onDeletedAgentConversationRetentionDaysChange: (
-    days: DeletedAgentConversationRetentionDays
-  ) => void;
   onLocaleChange: (locale: DesktopLocale) => void;
-  onPurgeDeletedConversations: () => Promise<void>;
   onSleepPreventionModeChange: (mode: DesktopSleepPreventionMode) => void;
+  onWorkbenchShortcutsChange: (shortcuts: DesktopWorkbenchShortcuts) => void;
   onWorkspaceUiModeChange: (mode: DesktopWorkspaceUiMode) => void;
-  purgingDeletedConversations: boolean;
   sleepPreventionMode: DesktopSleepPreventionMode;
+  workbenchShortcuts: DesktopWorkbenchShortcuts;
 }) {
   const { t } = useTranslation();
   const agentDiagnosticsReporting = useAgentDiagnosticsConsent();
@@ -2443,14 +2594,6 @@ function WorkspaceGeneralSettingsSection({
   const isUpdatingSleepPrevention = changingSleepPreventionMode !== null;
   const pendingSleepPreventionMode =
     changingSleepPreventionMode ?? sleepPreventionMode;
-  const pendingRetentionDays =
-    changingDeletedAgentConversationRetentionDays ??
-    deletedAgentConversationRetentionDays;
-  const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
-  const [purgeConfirmation, setPurgeConfirmation] = useState("");
-  const purgeConfirmationPhrase = t(
-    "workspace.settings.general.deletedConversationPurgeConfirmationPhrase"
-  );
   const isUpdatingWorkspaceUiMode = changingFeatureFlags !== null;
   const pendingWorkspaceUiMode = resolveDesktopWorkspaceUiMode(
     changingFeatureFlags ?? featureFlags
@@ -2625,133 +2768,23 @@ function WorkspaceGeneralSettingsSection({
           onCheckedChange={setAgentDiagnosticsConsent}
         />
       </div>
-
-      <div className="order-5 flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
-        <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
-          <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
-            {t("workspace.settings.general.deletedConversationRetentionLabel")}
-          </strong>
-          <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
-            {t(
-              "workspace.settings.general.deletedConversationRetentionDescription"
-            )}
-          </p>
-        </div>
-        <div className="flex w-[220px] min-w-[220px] items-center gap-2 max-[560px]:w-full max-[560px]:min-w-0">
-          <div className="min-w-0 flex-1">
-            <Select
-              disabled={
-                changingDeletedAgentConversationRetentionDays !== null ||
-                purgingDeletedConversations
-              }
-              value={String(pendingRetentionDays)}
-              onValueChange={(value) =>
-                onDeletedAgentConversationRetentionDaysChange(
-                  Number(value) as DeletedAgentConversationRetentionDays
-                )
-              }
-            >
-              <SelectTrigger
-                aria-label={t(
-                  "workspace.settings.general.deletedConversationRetentionLabel"
-                )}
-                className={workspaceSettingsSelectTriggerClass}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent
-                className={workspaceSettingsSelectContentClass}
-                style={{ zIndex: "var(--z-panel-popover)" }}
-              >
-                {deletedAgentConversationRetentionDaysOptions.map((days) => (
-                  <SelectItem key={days} value={String(days)}>
-                    {t(
-                      "workspace.settings.general.deletedConversationRetentionDays",
-                      { count: String(days) }
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                aria-label={t(
-                  purgingDeletedConversations
-                    ? "workspace.settings.general.deletedConversationPurging"
-                    : "workspace.settings.general.deletedConversationPurgeAction"
-                )}
-                className="size-8 rounded-[6px]"
-                disabled={purgingDeletedConversations}
-                size="icon"
-                variant="destructive-secondary"
-                onClick={() => {
-                  setPurgeConfirmation("");
-                  setPurgeDialogOpen(true);
-                }}
-              >
-                {purgingDeletedConversations ? (
-                  <LoadingIcon className="size-3.5" />
-                ) : (
-                  <DeleteIcon className="size-3.5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {t(
-                purgingDeletedConversations
-                  ? "workspace.settings.general.deletedConversationPurging"
-                  : "workspace.settings.general.deletedConversationPurgeAction"
-              )}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-      <Dialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {t("workspace.settings.general.deletedConversationPurgeTitle")}
-            </DialogTitle>
-            <DialogDescription>
-              {t(
-                "workspace.settings.general.deletedConversationPurgeDescription",
-                { phrase: purgeConfirmationPhrase }
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            aria-label={t(
-              "workspace.settings.general.deletedConversationPurgeConfirmationLabel"
-            )}
-            autoComplete="off"
-            value={purgeConfirmation}
-            onChange={(event) => setPurgeConfirmation(event.target.value)}
-          />
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setPurgeDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              disabled={
-                purgeConfirmation !== purgeConfirmationPhrase ||
-                purgingDeletedConversations
-              }
-              variant="destructive"
-              onClick={() => {
-                void onPurgeDeletedConversations().finally(() => {
-                  setPurgeDialogOpen(false);
-                  setPurgeConfirmation("");
-                });
-              }}
-            >
-              {t("workspace.settings.general.deletedConversationPurgeConfirm")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <WorkspaceLabShortcutRow
+        className="order-5"
+        description={t("workspace.settings.general.captureShortcutDescription")}
+        disabled={false}
+        label={t("workspace.settings.general.captureShortcutLabel")}
+        placeholder={t(
+          "workspace.settings.general.captureShortcutDefaultPlaceholder"
+        )}
+        requireNonShiftModifier
+        value={workbenchShortcuts.captureScreenshot}
+        onChange={(binding) => {
+          onWorkbenchShortcutsChange({
+            ...workbenchShortcuts,
+            captureScreenshot: binding
+          });
+        }}
+      />
     </div>
   );
 }

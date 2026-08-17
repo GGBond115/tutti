@@ -4,9 +4,11 @@ import {
   getCommandRenderData,
   getFileChangeRenderData,
   getImageGenerationRenderData,
+  getPlanModeRenderData,
   getSearchRenderData,
   getSkillRenderData,
   getTaskRenderData,
+  getToolCallFailureText,
   getToolFallbackText,
   getWebSearchRenderData,
   getWebFetchRenderData
@@ -68,6 +70,20 @@ describe("agentToolRenderData", () => {
       imageUri: "/workspace/output/canonical.webp",
       mimeType: "image/webp"
     });
+  });
+
+  it("derives a Windows plan file name from the native path", () => {
+    const data = getPlanModeRenderData(
+      makeCall({
+        rendererKind: "plan-enter",
+        input: {
+          filePath: "C:\\Users\\demo\\workspace\\plans\\plan.md"
+        }
+      })
+    );
+
+    expect(data.filePath).toBe("C:\\Users\\demo\\workspace\\plans\\plan.md");
+    expect(data.fileName).toBe("plan.md");
   });
 
   it("extracts canonical command render data", () => {
@@ -242,6 +258,39 @@ describe("agentToolRenderData", () => {
     expect(text.error).toBe("permission denied");
   });
 
+  it("unwraps tool_use_error tags from failed write payloads", () => {
+    const failure = getToolCallFailureText(
+      makeCall({
+        toolName: "Write",
+        status: "Failed",
+        statusKind: "failed",
+        error: {
+          message:
+            "<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>"
+        }
+      })
+    );
+
+    expect(failure).toBe(
+      "File has not been read yet. Read it first before writing to it."
+    );
+  });
+
+  it("falls back to failed output text when error payload is missing", () => {
+    const failure = getToolCallFailureText(
+      makeCall({
+        toolName: "Write",
+        status: "Failed",
+        statusKind: "failed",
+        output: {
+          text: "<tool_use_error>Write blocked</tool_use_error>"
+        }
+      })
+    );
+
+    expect(failure).toBe("Write blocked");
+  });
+
   it("extracts file changes from direct file content input", () => {
     const changes = getFileChangeRenderData(
       makeCall({
@@ -352,6 +401,59 @@ describe("agentToolRenderData", () => {
         ),
         added: 1,
         removed: 1
+      })
+    ]);
+  });
+
+  it("chooses a valid later diff alias over an invalid body", () => {
+    const validDiff = "@@ -1 +1 @@\n-old\n+new";
+    const changes = getFileChangeRenderData(
+      makeCall({
+        payload: {
+          fileChanges: {
+            files: [
+              {
+                path: "src/a.ts",
+                change: "modified",
+                diff: "README\n- bullet\n",
+                unifiedDiff: validDiff
+              }
+            ]
+          }
+        }
+      })
+    );
+
+    expect(changes).toEqual([
+      expect.objectContaining({
+        path: "src/a.ts",
+        unifiedDiff: validDiff,
+        added: 1,
+        removed: 1
+      })
+    ]);
+  });
+
+  it("keeps an invalid created body as content instead of a patch", () => {
+    const body = "# README\n\n- bullet\n- another bullet\n";
+    const changes = getFileChangeRenderData(
+      makeCall({
+        payload: {
+          fileChanges: {
+            files: [{ path: "README.md", change: "created", diff: body }]
+          }
+        }
+      })
+    );
+
+    expect(changes).toEqual([
+      expect.objectContaining({
+        path: "README.md",
+        changeType: "created",
+        unifiedDiff: null,
+        content: "# README\n\n- bullet\n- another bullet",
+        added: 4,
+        removed: 0
       })
     ]);
   });

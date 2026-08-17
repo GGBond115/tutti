@@ -12,8 +12,8 @@ import {
   TooltipTrigger
 } from "@tutti-os/ui-system";
 import { cn } from "../../../app/renderer/lib/utils";
-import addLinedIconUrl from "../../../app/renderer/assets/icons/add-lined.svg";
 import atLinedIconUrl from "../../../app/renderer/assets/icons/@-lined.svg";
+import addLinedIconUrl from "../../../app/renderer/assets/icons/add-lined.svg";
 import styles from "../AgentGUINode.styles";
 import {
   AgentModelReasoningDropdown,
@@ -29,12 +29,10 @@ import {
   AgentComposerMaskIcon,
   AgentUsageChip,
   composerStyles,
-  resolveComposerProviderTargetIconUrl,
-  workspaceReferenceOptionValue,
-  workspaceReferenceSelectValue
+  resolveComposerProviderTargetIconUrl
 } from "./AgentComposerChrome";
 import { AgentHandoffMenu } from "./AgentHandoffMenu";
-import { ComposerTuttiModeChip } from "./ComposerTuttiModeChip";
+import { ComposerPrimaryCapabilityControl } from "./ComposerPrimaryCapabilityControl";
 
 interface Props {
   workspaceId: string;
@@ -50,14 +48,16 @@ interface Props {
   codexSaverModeDisabled: boolean;
   permissionModeControlsDisabled: boolean;
   isSendingTurn: boolean;
-  isHeroLayout: boolean;
+  showComposerAction: boolean;
   isGoalModeActive: boolean;
   isPlanModeActive: boolean;
   isTuttiModeActive: boolean;
   isTuttiModeUpdating: boolean;
   tuttiModeSupported: boolean;
+  connectorsVisible: boolean;
   onTuttiModeChange?: (active: boolean) => void;
-  composerActionButton: ReactNode;
+  composerAction: ReactNode;
+  projectControl?: ReactNode;
   quickPromptControl?: ReactNode;
   footerAccessory?: ReactNode;
   showHandoffSelect: boolean;
@@ -73,8 +73,12 @@ interface Props {
   providerSelectLabel: string;
   selectedProviderLabel: string;
   providerMenuTargets: readonly AgentGUIAgentTarget[];
+  menuViewportTopInset?: number;
   onProviderSelect: AgentComposerProps["onProviderSelect"];
   onLinkAction: AgentComposerProps["onLinkAction"];
+  availableSkills: AgentComposerProps["availableSkills"];
+  onRetryComposerOptions?: AgentComposerProps["onRetryComposerOptions"];
+  onCapabilitySettingsRequest: AgentComposerProps["onCapabilitySettingsRequest"];
   onRequestWorkspaceReferences: AgentComposerProps["onRequestWorkspaceReferences"];
   onWorkspaceReferencePicker: () => void;
   onMentionPaletteButton: () => void;
@@ -99,14 +103,16 @@ export function ComposerFooter({
   codexSaverModeDisabled,
   permissionModeControlsDisabled,
   isSendingTurn,
-  isHeroLayout,
+  showComposerAction,
   isGoalModeActive,
   isPlanModeActive,
   isTuttiModeActive,
   isTuttiModeUpdating,
   tuttiModeSupported,
+  connectorsVisible,
   onTuttiModeChange,
-  composerActionButton,
+  composerAction,
+  projectControl,
   quickPromptControl,
   footerAccessory,
   showHandoffSelect,
@@ -122,8 +128,12 @@ export function ComposerFooter({
   providerSelectLabel,
   selectedProviderLabel,
   providerMenuTargets,
+  menuViewportTopInset = 8,
   onProviderSelect,
   onLinkAction,
+  availableSkills,
+  onRetryComposerOptions,
+  onCapabilitySettingsRequest,
   onRequestWorkspaceReferences,
   onWorkspaceReferencePicker: handleWorkspaceReferencePicker,
   onMentionPaletteButton: handleMentionPaletteButton,
@@ -138,52 +148,37 @@ export function ComposerFooter({
     <>
       <div className={styles.composerFooter}>
         <div className={composerStyles.footerGroup}>
-          <div className="inline-flex shrink-0 items-center gap-1">
-            {
-              <Select
-                open={false}
-                value={workspaceReferenceSelectValue}
-                disabled={
-                  !onRequestWorkspaceReferences || composerControlsHardDisabled
-                }
-                onOpenChange={(isOpen) => {
-                  if (isOpen) {
-                    void handleWorkspaceReferencePicker();
-                  }
-                }}
-                onValueChange={(nextValue) => {
-                  if (nextValue === workspaceReferenceOptionValue) {
-                    void handleWorkspaceReferencePicker();
-                  }
-                }}
-              >
-                <TooltipProvider delayDuration={120}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex">
-                        <SelectTrigger
-                          size="sm"
-                          aria-label={labels.referenceWorkspaceFiles}
-                          className={cn(
-                            styles.composerMenuTrigger,
-                            styles.composerReferenceTrigger,
-                            "group w-auto justify-center text-[var(--agent-gui-text-secondary)] [&>svg:last-child]:hidden"
-                          )}
-                        >
-                          <AgentComposerMaskIcon
-                            iconUrl={addLinedIconUrl}
-                            marker="reference-add"
-                          />
-                        </SelectTrigger>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {labels.addContent}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </Select>
-            }
+          <div className="inline-flex shrink-0 items-center gap-2">
+            <TooltipProvider delayDuration={120}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={labels.addContent}
+                    className={cn(
+                      styles.composerMenuTrigger,
+                      styles.composerReferenceTrigger,
+                      "group inline-flex w-auto items-center justify-center text-[var(--agent-gui-text-secondary)] hover:text-[var(--agent-gui-text-primary)] focus-visible:text-[var(--agent-gui-text-primary)] disabled:pointer-events-none disabled:opacity-50"
+                    )}
+                    data-testid="agent-gui-composer-add-content-trigger"
+                    disabled={
+                      composerControlsHardDisabled ||
+                      !onRequestWorkspaceReferences
+                    }
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      void handleWorkspaceReferencePicker();
+                    }}
+                  >
+                    <AgentComposerMaskIcon
+                      iconUrl={addLinedIconUrl}
+                      marker="reference-add"
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">{labels.addContent}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <TooltipProvider delayDuration={120}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -222,13 +217,18 @@ export function ComposerFooter({
               </Tooltip>
             </TooltipProvider>
           </div>
-          <ComposerTuttiModeChip
-            active={isTuttiModeActive}
-            updating={isTuttiModeUpdating}
-            label={labels.tuttiModeLabel}
-            description={labels.tuttiModeDescription}
-            tuttiModeSupported={tuttiModeSupported}
+          <ComposerPrimaryCapabilityControl
+            availableSkills={availableSkills}
+            connectorsVisible={connectorsVisible}
+            disabled={composerControlsHardDisabled}
+            isTuttiModeActive={isTuttiModeActive}
+            isTuttiModeUpdating={isTuttiModeUpdating}
+            labels={labels}
+            loading={composerSettings.isConnectorOptionsLoading === true}
+            onRetryComposerOptions={onRetryComposerOptions}
+            onCapabilitySettingsRequest={onCapabilitySettingsRequest}
             onTuttiModeChange={onTuttiModeChange}
+            tuttiModeSupported={tuttiModeSupported}
           />
           {showHandoffSelect ? (
             <AgentHandoffMenu
@@ -275,7 +275,7 @@ export function ComposerFooter({
                   "w-auto max-w-[180px]"
                 )}
               >
-                <span className="flex min-w-0 items-center gap-1.5">
+                <span className="flex min-w-0 items-center gap-1">
                   <img
                     alt=""
                     aria-hidden="true"
@@ -292,6 +292,14 @@ export function ComposerFooter({
               <SelectContent
                 align="start"
                 className={cn(styles.composerMenuContent, "min-w-[190px]")}
+                collisionPadding={{
+                  top: menuViewportTopInset,
+                  right: 8,
+                  bottom: 8,
+                  left: 8
+                }}
+                side="top"
+                sideOffset={6}
               >
                 {providerMenuTargets.map((target) => (
                   <SelectItem
@@ -299,7 +307,7 @@ export function ComposerFooter({
                     value={target.targetId}
                     className={cn(styles.composerMenuItem, "gap-2")}
                   >
-                    <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="flex min-w-0 items-center gap-1">
                       <img
                         alt=""
                         aria-hidden="true"
@@ -313,6 +321,7 @@ export function ComposerFooter({
               </SelectContent>
             </Select>
           ) : null}
+          {projectControl}
           {quickPromptControl}
           {composerSettings.supportsCodexSaverMode ? (
             <TooltipProvider delayDuration={120}>
@@ -360,7 +369,7 @@ export function ComposerFooter({
               )}
               onClick={onClearPlanMode}
             >
-              <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 <RemovableBadgeIcon
                   icon={<ListChecks className="size-3.5" />}
                 />
@@ -382,7 +391,7 @@ export function ComposerFooter({
               )}
               onClick={clearGoalModeBadge}
             >
-              <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 <span className="relative flex size-3.5 shrink-0 items-center justify-center">
                   <Target
                     aria-hidden
@@ -432,8 +441,9 @@ export function ComposerFooter({
               }}
             />
           ) : null}
-          {showSettingsLoadingPlaceholders ||
-          composerSettings.supportsPermissionMode ? (
+          {!composerSettings.composerOptionsError &&
+          (showSettingsLoadingPlaceholders ||
+            composerSettings.supportsPermissionMode) ? (
             <AgentPermissionModeDropdown
               composerSettings={composerSettings}
               disabled={permissionModeControlsDisabled}
@@ -453,10 +463,12 @@ export function ComposerFooter({
           ) : null}
           {showSettingsLoadingPlaceholders ||
           composerSettings.supportsModel ||
-          composerSettings.supportsReasoningEffort ? (
+          composerSettings.supportsReasoningEffort ||
+          composerSettings.composerOptionsError ? (
             <AgentModelReasoningDropdown
               composerSettings={composerSettings}
               disabled={settingsControlsDisabled}
+              onRetryComposerOptions={onRetryComposerOptions}
               labels={{
                 modelLabel: labels.modelLabel,
                 modelSelectionLabel: labels.modelSelectionLabel,
@@ -484,12 +496,15 @@ export function ComposerFooter({
                 modelDescriptions: labels.modelDescriptions,
                 defaultModel: labels.defaultModel,
                 loadingOptions: labels.loadingOptions,
+                optionsLoadFailed: labels.composerOptionsLoadFailed,
+                retry: labels.retry,
+                retryTooltip: labels.composerOptionsRetryTooltip,
                 inheritedUnavailable: labels.inheritedUnavailable
               }}
               onSettingsChange={onSettingsChange}
             />
           ) : null}
-          {isHeroLayout ? composerActionButton : null}
+          {showComposerAction ? composerAction : null}
         </div>
         {footerAccessory ? (
           <div className={styles.composerFooterAccessory}>

@@ -123,7 +123,7 @@ func (c *Controller) runProviderAcceptanceTurn(
 			acceptProviderTurn,
 		)
 		if reportedDispatch.Disposition == DispatchDispositionRejected &&
-			!eventsContainRejectedProviderTurn(events) {
+			!eventsContainExplicitDispatchRejection(events) {
 			metadata := map[string]any{
 				"dispatchDisposition": string(DispatchDispositionRejected),
 			}
@@ -141,15 +141,20 @@ func (c *Controller) runProviderAcceptanceTurn(
 			))
 		}
 		if !reported && reportDispatch != nil {
+			// Durable submit already happened. Cancel may settle the adapter
+			// (turn_canceled) before Controller cancels runCtx, so err/ctx may
+			// not look canceled yet. Any exit without Applied/Rejected still
+			// means provider Turn identity never bound — report
+			// applied-without-provider-turn so Host does not poison delivery.
 			reportDispatch(ProviderDispatchResult{
-				Disposition: DispatchDispositionOutcomeUnknown,
+				Disposition: DispatchDispositionAppliedWithoutProviderTurn,
 			})
 		}
 		return events, err
 	})
 }
 
-func eventsContainRejectedProviderTurn(events []activityshared.Event) bool {
+func eventsContainExplicitDispatchRejection(events []activityshared.Event) bool {
 	for _, event := range events {
 		if event.Type != activityshared.EventTurnFailed {
 			continue
@@ -201,6 +206,8 @@ func (c *Controller) runBlockingExecTurn(
 ) {
 	var emitted []activityshared.Event
 	var emittedSummary agentSubmitRuntimeEventSummary
+	directCanonicalTerminalCommitted := false
+	var pendingTerminalCommit *pendingCanonicalTerminalCommit
 	metadata := execMetadataFromContext(ctx)
 	logAgentSubmitTrace("runtime.turn_goroutine_started", session, turnID, metadata, nil)
 	emit := func(events []activityshared.Event) {
@@ -212,10 +219,47 @@ func (c *Controller) runBlockingExecTurn(
 			session.UpdatedAtUnixMS = unixMS(now())
 		}
 		session = c.preserveCurrentSessionSettings(session)
-		if !c.storeTurnSession(session, turnID) {
+		accepted, ok := c.storeTurnSession(session, turnID)
+		if !ok {
 			return
 		}
+		// Publish and report the accepted snapshot, never the stale exec copy:
+		// the controller's current session is the only accepted state. Terminal
+		// facts cross a stronger commit-before-publish barrier because consumers
+		// validate them against the canonical Store immediately on receipt.
+		session = accepted
 		emitted = append(emitted, events...)
+		if eventsRequireDurablePublish(events) {
+			durableEvents := events
+			if pendingTerminalCommit != nil {
+				pendingTerminalCommit.merge(session, events)
+				durableEvents = pendingTerminalCommit.events
+			}
+			if err := c.reportSessionBeforePublish(ctx, session, durableEvents); err != nil {
+				if pendingTerminalCommit == nil {
+					pendingTerminalCommit = &pendingCanonicalTerminalCommit{}
+					pendingTerminalCommit.merge(session, events)
+				}
+				slog.Error(
+					"agent session terminal activity report failed before publish",
+					"event", "agent_session.activity_report.terminal_barrier_failed",
+					"room_id", session.RoomID,
+					"agent_session_id", session.AgentSessionID,
+					"turn_id", strings.TrimSpace(turnID),
+					"error", err,
+				)
+				return
+			}
+			pendingTerminalCommit = nil
+			if classifyRootTurnCompletion(turnID, durableEvents) == rootTurnCompletionDirectCanonical {
+				directCanonicalTerminalCommitted = true
+			}
+			if !c.isProvisionalSession(session) {
+				c.publish(session, durableEvents)
+			}
+			emittedSummary.observe(durableEvents, session)
+			return
+		}
 		if !c.isProvisionalSession(session) {
 			c.publish(session, events)
 		}
@@ -250,11 +294,11 @@ func (c *Controller) runBlockingExecTurn(
 		}
 		shouldEmitTerminalEvents = true
 	}
-	if err == nil {
+	if err == nil || shouldEmitTerminalEvents || len(emitted) == 0 {
+		// Adapters may both invoke emit and return the same terminal batch.
+		// Re-entering the durable barrier for already-observed events can make
+		// one failed attempt look like an immediate retry and publish twice.
 		emit(unemittedActivityEvents(events, emitted))
-	}
-	if shouldEmitTerminalEvents || len(emitted) == 0 {
-		emit(events)
 	}
 	statusEvents := events
 	if len(statusEvents) == 0 {
@@ -270,23 +314,20 @@ func (c *Controller) runBlockingExecTurn(
 	if shouldAdvanceSessionUpdatedAtFromEvents(statusEvents) {
 		session.UpdatedAtUnixMS = unixMS(now())
 	}
-	emittedSummary.log("runtime.events_emitted.summary", session, turnID, metadata)
-	if rootProviderLifecycle {
-		if eventsContainRejectedProviderTurn(statusEvents) {
-			// A provider rejection before identity resolution has no root-provider
-			// Turn for the durable aggregation path to settle. The direct Turn
-			// failure is authoritative, so release the in-memory active-turn fence
-			// immediately after its event has been reported.
-			c.finishTurn(session, turnID)
-			return
-		}
-		// Exec returning closes only the provider invocation. The controller's
-		// active root turn remains addressable for guidance/cancel until the
-		// daemon commits and reconciles canonical root settlement.
-		c.storeTurnSession(session, turnID)
-		return
+	if pendingTerminalCommit != nil {
+		directCanonicalTerminalCommitted = c.convergeCanonicalTerminalCommit(
+			ctx,
+			turnID,
+			pendingTerminalCommit,
+		) || directCanonicalTerminalCommitted
 	}
-	c.finishTurn(session, turnID)
+	emittedSummary.log("runtime.events_emitted.summary", session, turnID, metadata)
+	c.finalizeBlockingExecTurn(
+		session,
+		turnID,
+		rootProviderLifecycle,
+		directCanonicalTerminalCommitted,
+	)
 }
 
 func (c *Controller) isProvisionalSession(session Session) bool {
@@ -309,16 +350,17 @@ func (c *Controller) runAsyncExecTurn(ctx context.Context, session Session, adap
 	var mu sync.Mutex
 	finished := false
 	var emittedSummary agentSubmitRuntimeEventSummary
-	finish := func(next Session) bool {
+	finish := func(next Session) (Session, bool) {
 		if finished {
-			return false
+			return Session{}, false
 		}
 		finished = true
-		if !c.finishTurn(next, turnID) {
-			return false
+		accepted, ok := c.finishTurn(next, turnID)
+		if !ok {
+			return Session{}, false
 		}
-		emittedSummary.log("runtime.async_events_emitted.summary", next, turnID, metadata)
-		return true
+		emittedSummary.log("runtime.async_events_emitted.summary", accepted, turnID, metadata)
+		return accepted, true
 	}
 	emit := func(events []activityshared.Event) {
 		if len(events) == 0 {
@@ -339,22 +381,44 @@ func (c *Controller) runAsyncExecTurn(ctx context.Context, session Session, adap
 			turnLifecycleSnapshotSettledTurn(events, turnID) ||
 			turnSteeredIntoActiveTurn(events, turnID) ||
 			sideConversationProviderTurnSettled(session, events, turnID)
+		var accepted Session
+		var ok bool
 		if terminal {
 			// Remove the controller's active-turn record before publishing a
 			// terminal/ready session. Consumers must never observe a ready session
 			// while HasActiveTurn still reports the finished turn.
 			emittedSummary.observe(events, session)
-			if !finish(session) {
-				return
-			}
+			accepted, ok = finish(session)
 		} else {
-			if !c.storeTurnSession(session, turnID) {
-				return
-			}
+			accepted, ok = c.storeTurnSession(session, turnID)
+		}
+		if !ok {
+			return
+		}
+		// Publish and report the accepted snapshot, never the stale exec copy:
+		// the controller's current session is the only accepted state. Terminal
+		// facts must be committed before their stream projection is visible.
+		session = accepted
+		if !terminal {
 			emittedSummary.observe(events, session)
 		}
+		if eventsRequireDurablePublish(events) {
+			if err := c.reportSessionBeforePublish(ctx, session, events); err != nil {
+				slog.Error(
+					"agent session terminal activity report failed before publish",
+					"event", "agent_session.activity_report.terminal_barrier_failed",
+					"room_id", session.RoomID,
+					"agent_session_id", session.AgentSessionID,
+					"turn_id", strings.TrimSpace(turnID),
+					"error", err,
+				)
+				return
+			}
+		}
 		c.publish(session, events)
-		c.enqueueSessionReport(ctx, session, events)
+		if !eventsRequireDurablePublish(events) {
+			c.enqueueSessionReport(ctx, session, events)
+		}
 	}
 	emitCommands := func(snapshot AgentSessionCommandSnapshot) {
 		mu.Lock()
@@ -488,6 +552,25 @@ func turnHasTerminalEvent(events []activityshared.Event, turnID string) bool {
 			if string(event.Type) == EventTurnCanceled {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func eventsRequireDurablePublish(events []activityshared.Event) bool {
+	for _, event := range events {
+		switch event.Type {
+		case activityshared.EventSessionCompleted,
+			activityshared.EventSessionFailed,
+			activityshared.EventTurnCompleted,
+			activityshared.EventTurnFailed,
+			activityshared.EventTurnCanceled,
+			activityshared.EventRootProviderTurnCompleted:
+			return true
+		}
+		if snapshot, ok := activityshared.TurnLifecycleSnapshotFromEvent(event); ok &&
+			strings.TrimSpace(snapshot.Phase) == string(activityshared.TurnPhaseSettled) {
+			return true
 		}
 	}
 	return false

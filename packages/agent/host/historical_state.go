@@ -15,6 +15,7 @@ var (
 )
 
 type HistoricalSessionGraph = storesqlite.HistoricalSessionGraph
+type HistoricalSessionGraphRestoreInput = storesqlite.HistoricalSessionGraphRestoreInput
 type HistoricalSession = storesqlite.HistoricalSession
 type HistoricalTurn = storesqlite.HistoricalTurn
 type HistoricalMessage = storesqlite.HistoricalMessage
@@ -51,20 +52,20 @@ func (h *Host) CaptureHistoricalSessionGraph(
 // Replay Workspace before Host recovery.
 func (h *Host) RestoreHistoricalSessionGraph(
 	ctx context.Context,
-	workspaceID string,
-	graph HistoricalSessionGraph,
+	input HistoricalSessionGraphRestoreInput,
 ) error {
 	if h == nil || h.historicalState == nil {
 		return ErrHistoricalStateUnavailable
 	}
-	workspaceID = strings.TrimSpace(workspaceID)
-	if workspaceID == "" {
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.UserID = strings.TrimSpace(input.UserID)
+	if input.WorkspaceID == "" || input.UserID == "" {
 		return ErrInvalidArgument
 	}
-	if err := ValidateHistoricalSessionGraph(graph); err != nil {
+	if err := ValidateHistoricalSessionGraph(input.Graph); err != nil {
 		return err
 	}
-	return h.historicalState.RestoreHistoricalSessionGraph(ctx, workspaceID, graph)
+	return h.historicalState.RestoreHistoricalSessionGraph(ctx, input)
 }
 
 func ValidateHistoricalSessionGraph(graph HistoricalSessionGraph) error {
@@ -94,6 +95,7 @@ func ValidateHistoricalSessionGraph(graph HistoricalSessionGraph) error {
 			return fmt.Errorf("%w: duplicate Session %q", ErrHistoricalStateConflict, sessionID)
 		}
 		turns := make(map[string]struct{}, len(session.Turns))
+		turnAnchors := make(map[string]string, len(session.Turns))
 		for _, turn := range session.Turns {
 			turnID := strings.TrimSpace(turn.ID)
 			if turnID == "" {
@@ -103,6 +105,32 @@ func ValidateHistoricalSessionGraph(graph HistoricalSessionGraph) error {
 				return fmt.Errorf("%w: duplicate Turn %q", ErrHistoricalStateConflict, turnID)
 			}
 			turns[turnID] = struct{}{}
+			turnAnchors[turnID] = strings.TrimSpace(turn.IdentityAnchorTurnID)
+		}
+		for _, turn := range session.Turns {
+			anchorTurnID := strings.TrimSpace(turn.IdentityAnchorTurnID)
+			if anchorTurnID == "" {
+				continue
+			}
+			if anchorTurnID == strings.TrimSpace(turn.ID) {
+				return fmt.Errorf("%w: Turn %q anchors itself", ErrHistoricalStateConflict, turn.ID)
+			}
+			if _, exists := turns[anchorTurnID]; !exists {
+				return fmt.Errorf(
+					"%w: Turn %q references missing identity anchor %q",
+					ErrHistoricalStateConflict,
+					turn.ID,
+					anchorTurnID,
+				)
+			}
+			if turnAnchors[anchorTurnID] != "" {
+				return fmt.Errorf(
+					"%w: Turn %q identity anchor %q is not ultimate",
+					ErrHistoricalStateConflict,
+					turn.ID,
+					anchorTurnID,
+				)
+			}
 		}
 		for _, message := range session.Messages {
 			if strings.TrimSpace(message.ID) == "" {

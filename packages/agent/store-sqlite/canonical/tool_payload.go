@@ -1,9 +1,30 @@
 package canonical
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+var ErrToolCallPayloadTooLarge = errors.New("canonical tool call payload exceeds byte budget")
+
+// ToolCallPayloadBudgetError reports a canonical payload that cannot fit even
+// after every truncatable output string has been reduced to its marker.
+type ToolCallPayloadBudgetError struct {
+	EncodedBytes int
+	MaxBytes     int
+}
+
+func (e *ToolCallPayloadBudgetError) Error() string {
+	return fmt.Sprintf("%v: encoded bytes=%d max bytes=%d", ErrToolCallPayloadTooLarge, e.EncodedBytes, e.MaxBytes)
+}
+
+func (*ToolCallPayloadBudgetError) Unwrap() error { return ErrToolCallPayloadTooLarge }
+
+func IsToolCallPayloadTooLarge(err error) bool {
+	return errors.Is(err, ErrToolCallPayloadTooLarge)
+}
 
 var canonicalToolPayloadKeys = map[string]struct{}{
 	"activityKind":    {},
@@ -121,10 +142,19 @@ var canonicalToolMetadataKeys = map[string]struct{}{
 }
 
 // CompactToolCallPayload turns provider-shaped tool data into the canonical
-// stored business projection; accepted provider envelopes are never retained.
+// stored business projection. Callers that persist its result must use
+// CompactToolCallPayloadChecked so an impossible budget is not ignored.
 func CompactToolCallPayload(status string, payload map[string]any) map[string]any {
+	result, _ := CompactToolCallPayloadChecked(status, payload)
+	return result
+}
+
+// CompactToolCallPayloadChecked returns an error instead of allowing a
+// replication-unsafe payload to be persisted when required non-truncatable
+// data alone exceeds the byte budget.
+func CompactToolCallPayloadChecked(status string, payload map[string]any) (map[string]any, error) {
 	if len(payload) == 0 {
-		return payload
+		return payload, nil
 	}
 
 	result := cloneToolMap(payload)
@@ -186,7 +216,23 @@ func CompactToolCallPayload(status string, payload map[string]any) map[string]an
 	if len(projection.fileChanges) > 0 {
 		result["fileChanges"] = mergeToolFileChanges(result["fileChanges"], projection.fileChanges)
 	}
+	if fileChanges := normalizeToolFileChanges(result["fileChanges"]); fileChanges != nil {
+		result["fileChanges"] = fileChanges
+	} else {
+		delete(result, "fileChanges")
+	}
 
+	// Compare aliases before per-field truncation can make equal source
+	// strings diverge at the byte boundary.
+	if isTerminalToolStatus(status) && isTerminalCommandPayload(result, input) {
+		compactTerminalCommandBodyAlias(output)
+		compactTerminalCommandBodyAlias(toolError)
+	}
+	CompactToolStructuredContentAliases(map[string]any{
+		"output": output,
+		"error":  toolError,
+		"steps":  steps,
+	})
 	if output != nil {
 		delete(output, "content")
 		output = TruncateToolOutputBody(selectToolKeys(output, canonicalToolBodyKeys))
@@ -218,7 +264,21 @@ func CompactToolCallPayload(status string, payload map[string]any) map[string]an
 		result["steps"] = steps
 	}
 
-	return selectToolKeys(result, canonicalToolPayloadKeys)
+	result = selectToolKeys(result, canonicalToolPayloadKeys)
+	CompactTerminalCommandOutputAliases(status, result)
+	CompactToolStructuredContentAliases(result)
+	_, fits := FitToolCallPayloadOutputBudget(result, ToolCallPayloadMaxBytes)
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("encode canonical tool call payload: %w", err)
+	}
+	if !fits || len(encoded) > ToolCallPayloadMaxBytes {
+		return nil, &ToolCallPayloadBudgetError{
+			EncodedBytes: len(encoded),
+			MaxBytes:     ToolCallPayloadMaxBytes,
+		}
+	}
+	return result, nil
 }
 
 func compactToolSteps(value any) []any {
@@ -284,17 +344,23 @@ func compactToolSteps(value any) []any {
 		if len(input) > 0 {
 			step["toolInput"] = input
 		}
+		if len(metadata) > 0 {
+			step["metadata"] = metadata
+		}
+		if isTerminalToolStatus(status) && isTerminalCommandPayload(step, input) {
+			compactTerminalCommandBodyAlias(output)
+			compactTerminalCommandBodyAlias(toolError)
+		}
+		output = TruncateToolOutputBody(output)
+		toolError = TruncateToolOutputBody(toolError)
 		if len(output) > 0 {
 			step["toolResult"] = output
 		}
 		if len(toolError) > 0 && !isCompletedToolStatus(status) {
 			step["toolError"] = toolError
 		}
-		if len(metadata) > 0 {
-			step["metadata"] = metadata
-		}
-		if fileChanges := firstToolValue(rawStep["fileChanges"], payload["fileChanges"]); fileChanges != nil {
-			step["fileChanges"] = cloneToolValue(fileChanges)
+		if fileChanges := normalizeToolFileChanges(firstToolValue(rawStep["fileChanges"], payload["fileChanges"])); fileChanges != nil {
+			step["fileChanges"] = fileChanges
 		}
 		if len(step) > 0 {
 			steps = append(steps, step)
@@ -358,6 +424,11 @@ func compactToolBody(value any) map[string]any {
 	if len(projection.fileChanges) > 0 {
 		body["fileChanges"] = mergeToolFileChanges(body["fileChanges"], projection.fileChanges)
 	}
+	if fileChanges := normalizeToolFileChanges(body["fileChanges"]); fileChanges != nil {
+		body["fileChanges"] = fileChanges
+	} else {
+		delete(body, "fileChanges")
+	}
 
 	if value, exists := body["exit_code"]; exists {
 		if _, canonicalExists := body["exitCode"]; !canonicalExists {
@@ -386,7 +457,7 @@ func compactToolBody(value any) map[string]any {
 	delete(body, "content")
 	delete(body, "metadata")
 	delete(body, "toolResponse")
-	return TruncateToolOutputBody(selectToolKeys(body, canonicalToolBodyKeys))
+	return selectToolKeys(body, canonicalToolBodyKeys)
 }
 
 func compactToolMetadata(value any) map[string]any {
@@ -491,13 +562,15 @@ func toolFileChangesFromContent(value map[string]any) []map[string]any {
 
 	oldString, hasOld := firstPresentToolString(value["oldString"], value["old_string"], value["oldText"])
 	newString, hasNew := firstPresentToolString(value["newString"], value["new_string"], value["newText"])
-	diff := firstToolString(value["diff"], value["patch"], value["unifiedDiff"], value["unified_diff"])
-	change := normalizeToolChange(firstToolString(value["change"], value["status"], value["kind"]))
+	content, hasContent := firstPresentToolString(value["content"])
+	change := firstToolChange(value["change"], value["status"], value["kind"], value["type"])
 	if change == "" {
 		switch {
 		case hasOld && !hasNew:
 			change = "deleted"
-		case hasNew && (!hasOld || oldString == "") && newString != "":
+		case hasNew && (!hasOld || oldString == ""):
+			change = "added"
+		case hasContent:
 			change = "added"
 		default:
 			change = "modified"
@@ -513,9 +586,13 @@ func toolFileChangesFromContent(value map[string]any) []map[string]any {
 		if hasNew {
 			file["newString"] = newString
 		}
-		if diff != "" {
-			file["diff"] = diff
-			file["unifiedDiff"] = diff
+		if hasContent {
+			file["content"] = content
+		}
+		for _, key := range []string{"diff", "patch", "unifiedDiff", "unified_diff"} {
+			if text, ok := value[key].(string); ok {
+				file[key] = text
+			}
 		}
 		files = append(files, file)
 	}
@@ -525,26 +602,27 @@ func toolFileChangesFromContent(value map[string]any) []map[string]any {
 func mergeToolFileChanges(existing any, incoming []map[string]any) map[string]any {
 	filesByPath := map[string]map[string]any{}
 	order := make([]string, 0)
-	if existingMap := toolMap(existing); existingMap != nil {
-		if files, ok := existingMap["files"].([]any); ok {
-			for _, raw := range files {
-				file := toolMap(raw)
-				path := toolString(file["path"])
-				if path == "" {
-					continue
-				}
-				order = append(order, path)
-				filesByPath[path] = file
+	if existingMap := normalizeToolFileChanges(existing); existingMap != nil {
+		for _, raw := range toolFileChangeMaps(existingMap["files"]) {
+			path := toolString(raw["path"])
+			if path == "" {
+				continue
 			}
+			order = append(order, path)
+			filesByPath[path] = raw
 		}
 	}
-	for _, file := range incoming {
+	for _, raw := range incoming {
+		file := normalizeToolFileChange(raw)
+		if file == nil {
+			continue
+		}
 		path := toolString(file["path"])
 		if path == "" {
 			continue
 		}
 		if current, exists := filesByPath[path]; exists {
-			filesByPath[path] = mergeMissingToolValues(current, file)
+			filesByPath[path] = mergeToolFileChangeValues(current, file)
 			continue
 		}
 		order = append(order, path)
@@ -738,11 +816,11 @@ func stringsToAny(values []string) []any {
 
 func normalizeToolChange(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "add", "added", "create", "created", "new":
+	case "add", "added", "create", "created", "new", "write_file":
 		return "added"
-	case "delete", "deleted", "remove", "removed":
+	case "delete", "deleted", "remove", "removed", "delete_file":
 		return "deleted"
-	case "modify", "modified", "update", "updated", "edit", "edited", "change", "changed":
+	case "modify", "modified", "update", "updated", "edit", "edited", "change", "changed", "edit_file":
 		return "modified"
 	default:
 		return ""

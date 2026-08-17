@@ -132,6 +132,7 @@ export function applyPastedTextStagingResult(
   };
 }
 import {
+  projectLocalConnectorPrompt,
   promptForProviderSkills,
   skillTriggerForPrefix
 } from "./agentSkillOptions";
@@ -389,6 +390,13 @@ export function normalizeAgentPromptContentBlocks(
       if (name && path) {
         result.push({ type: block.type, name, path });
       }
+      continue;
+    }
+    if (block.type === "connector") {
+      const connectorKey = block.connectorKey?.trim();
+      if (connectorKey && /^[a-z][a-z0-9._-]{0,127}$/.test(connectorKey)) {
+        result.push({ type: "connector", connectorKey });
+      }
     }
   }
   return result;
@@ -501,12 +509,20 @@ export function agentComposerDraftToPromptContent(input: {
     prompt: providerPrompt,
     skills: input.skills
   });
+  const connectorProjection = projectLocalConnectorPrompt({
+    prompt,
+    skills: input.skills
+  });
   return normalizeAgentPromptContentBlocks([
-    ...textPromptContent(prompt),
+    ...textPromptContent(connectorProjection.prompt),
     ...promptItemBlocksForProviderSkills({
-      prompt,
+      prompt: connectorProjection.prompt,
       skills: input.skills
     }),
+    ...connectorProjection.connectorKeys.map((connectorKey) => ({
+      type: "connector" as const,
+      connectorKey
+    })),
     ...agentComposerDraftImages(input.draft)
       .slice(0, MAX_AGENT_COMPOSER_DRAFT_IMAGES)
       .filter((image) => !image.uploading && !image.uploadError)
@@ -539,7 +555,13 @@ export function agentComposerDraftSubmittedText(
 export function agentComposerDraftDisplayPrompt(
   draft: AgentComposerDraft
 ): string | undefined {
-  const prompt = agentComposerDraftPrompt(draft).trim();
+  const files = agentComposerDraftFiles(draft);
+  // Composer-file hrefs are draft-only. Persist the same path/URL locators the
+  // provider prompt already materializes so transcript chips stay openable.
+  const prompt = materializeAgentComposerFileMentions(
+    agentComposerDraftPrompt(draft).trim(),
+    files
+  );
   const largeTexts = agentComposerDraftLargeTexts(draft).filter(
     (item) =>
       Boolean(item.path || item.url) && !item.uploading && !item.uploadError
@@ -564,8 +586,12 @@ export function projectAgentComposerDraftSubmission(input: {
   displayPrompt?: string;
 } {
   const content = agentComposerDraftToPromptContent(input);
+  const files = agentComposerDraftFiles(input.draft);
   const explicitDisplayPrompt = agentComposerDraftDisplayPrompt(input.draft);
-  const visibleText = agentComposerDraftSubmittedText(input.draft);
+  const visibleText = materializeAgentComposerFileMentions(
+    agentComposerDraftSubmittedText(input.draft),
+    files
+  );
   const runtimeText = agentPromptContentDisplayText(content);
   const displayPrompt =
     explicitDisplayPrompt ??

@@ -30,9 +30,13 @@ export interface LegacySessionCookiePort {
   clear(): Promise<void>;
 }
 
+export type QRCodeScanResult =
+  | { kind: "manual" }
+  | { kind: "scanned"; value: string };
+
 export interface QRCodeScanOperation {
   cancel(): Promise<void>;
-  result: Promise<string>;
+  result: Promise<QRCodeScanResult>;
 }
 
 export interface QRCodeScannerPort {
@@ -64,8 +68,15 @@ export interface DeviceLinkPort {
 export type AgentLiveDelivery =
   | {
       kind: "connection";
-      reason?: string;
-      status: "connected" | "disconnected";
+      status: "connected";
+    }
+  | {
+      expectedRevision?: string;
+      kind: "connection";
+      reason: string;
+      receivedRevision?: string;
+      retryable: boolean;
+      status: "disconnected";
     }
   | {
       event: AgentActivityLiveEvent;
@@ -79,6 +90,10 @@ export type AgentLiveDelivery =
   | {
       agentSessionId: string;
       kind: "session_deleted";
+    }
+  | {
+      agentSessionId: string;
+      kind: "session_restored";
     }
   | {
       attachment: AgentLiveAttachmentControl;
@@ -141,12 +156,28 @@ export type MobileDiagnosticEvent =
   | {
       name: "device_connection.phase_changed";
       phase: "connected" | "failed" | "idle" | "reconnecting" | "synchronizing";
+      expectedRevision?: string;
+      reasonCode?: "connection_unavailable" | "protocol_revision_mismatch";
+      receivedRevision?: string;
       trigger?:
         | "background_expired"
         | "foreground_resume"
         | "initial_connect"
         | "manual_retry"
         | "transport_lost";
+    }
+  | {
+      elapsedMs: number;
+      name: "device_link.stage";
+      stage:
+        | "direct_attempt_created"
+        | "direct_attempt_ready"
+        | "direct_credentials_ready"
+        | "direct_connected"
+        | "direct_first_candidate_published"
+        | "direct_remote_candidate_received"
+        | "relay_descriptor_ready"
+        | "relay_probe_ready";
     }
   | {
       name: "device_pairing.phase_changed";

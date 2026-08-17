@@ -3,6 +3,10 @@ import test from "node:test";
 import { createAgentActivitySnapshotProjector } from "./engine/agentActivitySnapshot.projector.ts";
 import { createAgentSessionEngine } from "./engine/createAgentSessionEngine.ts";
 import { canonicalTurnKey } from "./engine/sessionEntityKeys.ts";
+import {
+  selectEngineSessionRuntimeActivity,
+  selectWorkspaceAgentConsumerSession
+} from "./engine/sessionLifecycle.selectors.ts";
 import { createTestEngineCommandPort } from "./engine/testEngineCommandPort.ts";
 import type { EngineExternalCommand } from "./engine/types.ts";
 import { normalizeAgentActivitySession } from "./sessionNormalization.ts";
@@ -37,6 +41,238 @@ function createHarness() {
   });
   return { commands, coordinator, engine, readCanonicalSnapshot };
 }
+
+test("projects provider runtime activity before a canonical Turn and clears it on disconnect", () => {
+  const harness = createHarness();
+  const running = harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 10
+    }
+  });
+
+  assert.equal(running.accepted, true);
+  assert.equal(
+    selectEngineSessionRuntimeActivity(
+      harness.engine.getSnapshot(),
+      "session-1"
+    ),
+    "running"
+  );
+
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  assert.equal(
+    selectWorkspaceAgentConsumerSession(
+      harness.engine.getSnapshot(),
+      "session-1"
+    )?.displayStatus,
+    "working"
+  );
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "idle",
+      occurredAtUnixMs: 11
+    }
+  });
+  assert.equal(
+    selectWorkspaceAgentConsumerSession(
+      harness.engine.getSnapshot(),
+      "session-1"
+    )?.displayStatus,
+    "idle"
+  );
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 12
+    }
+  });
+
+  harness.coordinator.eventStreamConnectionChanged({ status: "disconnected" });
+  assert.equal(
+    selectEngineSessionRuntimeActivity(
+      harness.engine.getSnapshot(),
+      "session-1"
+    ),
+    "idle"
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("rejects stale and tombstoned runtime activity observations", () => {
+  const harness = createHarness();
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "idle",
+      occurredAtUnixMs: 12
+    }
+  });
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 11
+    }
+  });
+  assert.equal(
+    selectEngineSessionRuntimeActivity(
+      harness.engine.getSnapshot(),
+      "session-1"
+    ),
+    "idle"
+  );
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "session_deleted",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "session_deleted",
+      deletedAtUnixMs: 13
+    }
+  });
+  const tombstoned = harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 14
+    }
+  });
+  assert.equal(tombstoned.reason, "tombstoned");
+  assert.equal(
+    harness.engine.getSnapshot().sessionLifecycle.operationBySessionId[
+      "session-1"
+    ],
+    undefined
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("rejects runtime activity whose data identity does not match the envelope", () => {
+  const harness = createHarness();
+  const result = harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-other",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 10
+    }
+  });
+
+  assert.equal(result.reason, "identity_mismatch");
+  assert.equal(
+    harness.engine.getSnapshot().sessionLifecycle.operationBySessionId[
+      "session-1"
+    ],
+    undefined
+  );
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("a stale running observation cannot override a settled canonical Turn", () => {
+  const harness = createHarness();
+  harness.engine.dispatch({
+    session: session(turn("settled", 20), 20),
+    type: "session/upserted"
+  });
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 19
+    }
+  });
+
+  assert.equal(
+    selectWorkspaceAgentConsumerSession(
+      harness.engine.getSnapshot(),
+      "session-1"
+    )?.displayStatus,
+    "completed"
+  );
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 21
+    }
+  });
+  assert.equal(
+    selectWorkspaceAgentConsumerSession(
+      harness.engine.getSnapshot(),
+      "session-1"
+    )?.displayStatus,
+    "working"
+  );
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
 
 test("projects message deltas and clears them on authoritative deletion", () => {
   const harness = createHarness();
@@ -82,6 +318,59 @@ test("projects message deltas and clears them on authoritative deletion", () => 
     harness.coordinator.project(harness.readCanonicalSnapshot())
       .sessionMessagesById["session-1"],
     undefined
+  );
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("an explicit restore event clears only its tombstone and requests authoritative hydration", () => {
+  const harness = createHarness();
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "session_deleted",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "session_deleted",
+      deletedAtUnixMs: 11
+    }
+  });
+
+  const restored = harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "session_restored",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "session_restored",
+      restoredAtUnixMs: 12
+    }
+  });
+
+  assert.equal(restored.reason, "restored");
+  assert.equal(harness.coordinator.isSessionDeleted("session-1"), false);
+  assert.ok(
+    harness.commands.some(
+      (command) =>
+        command.type === "session/reconcile" &&
+        command.agentSessionId === "session-1"
+    )
+  );
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  assert.equal(
+    harness
+      .readCanonicalSnapshot()
+      .sessions.some((candidate) => candidate.agentSessionId === "session-1"),
+    true
   );
   harness.coordinator.dispose();
   harness.engine.dispose();
@@ -177,6 +466,35 @@ test("rejects a late Turn fact without leaking completion into attention", () =>
   harness.engine.dispose();
 });
 
+test("accepts host-fenced settlement across source version domains", () => {
+  const harness = createHarness();
+  const runningTurn = turn("running", 4);
+  harness.engine.dispatch({
+    session: session(runningTurn, 4),
+    type: "session/upserted"
+  });
+
+  const result = harness.coordinator.ingestEvent(
+    turnUpdateEvent("settled", 2, "turn-1", 100),
+    { hostFencedSameTurnSettlement: true }
+  );
+  const snapshot = harness.engine.getSnapshot();
+
+  assert.equal(result.accepted, true);
+  assert.equal(
+    snapshot.sessionLifecycle.turnsById[canonicalTurnKey("session-1", "turn-1")]
+      ?.phase,
+    "settled"
+  );
+  assert.equal(
+    snapshot.sessionLifecycle.sessionsById["session-1"]?.activeTurnId,
+    null
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
 test("replays an accepted completion after live reconcile supplies identity", () => {
   const harness = createHarness();
   const settledTurn = turn("settled", 2);
@@ -238,7 +556,11 @@ test("stale historical snapshot cannot leak completion into attention", () => {
 test("rejected historical snapshot cannot replace newer attention", () => {
   const harness = createHarness();
   const oldTurn = turn("settled", 2, "turn-a");
-  harness.engine.dispatch({ turn: oldTurn, type: "turn/upserted" });
+  harness.engine.dispatch({
+    live: true,
+    turn: oldTurn,
+    type: "turn/upserted"
+  });
   harness.engine.dispatch({
     session: session(null, 10),
     type: "session/upserted"
@@ -264,7 +586,9 @@ test("rejected historical snapshot cannot replace newer attention", () => {
       completionKey: "turn:session-1:turn-b:completed",
       isUnread: true,
       kind: "completed",
-      markedUnreadByUser: false
+      markedUnreadByUser: false,
+      observationProvenance: "live",
+      readStateProvenance: "live"
     }
   );
 

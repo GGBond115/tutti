@@ -44,7 +44,11 @@ func codexDescriptor() ProviderDescriptor {
 			MinVersion:             CodexMinVersion,
 			BinaryNames:            []string{"codex"},
 			AuthStatusCommand:      []string{"-c", `service_tier="fast"`, "app-server"},
-			AuthMarkerPaths:        []string{"~/.codex/auth.json"},
+			RemoteAuthProbe: RemoteAuthProbeDescriptor{
+				Kind:           RemoteAuthProbeKindProviderUsage,
+				TimeoutSeconds: 30,
+			},
+			AuthMarkerPaths: []string{"~/.codex/auth.json"},
 			APIEndpoints: []string{
 				"https://chatgpt.com/backend-api/codex",
 				"https://api.openai.com/v1",
@@ -81,6 +85,10 @@ func codexDescriptor() ProviderDescriptor {
 						Paths:          []string{"auth.json", "config.toml"},
 					},
 				},
+				// Codex and external credential switchers commonly rewrite these
+				// files atomically. Compare content so an identical rewrite does
+				// not evict the warm model catalog or its app-server process.
+				ContentFingerprint: AuthWatchContentFingerprintFullFile,
 			},
 		},
 
