@@ -155,7 +155,6 @@ type ackClaudeSDKConnection struct {
 	cancelProviderTurnID string
 	cancelTurnID         string
 	cancelDispatchPhase  string
-	stopTaskResult       *bool
 }
 
 func (c *ackClaudeSDKConnection) Send(data []byte) error {
@@ -189,13 +188,6 @@ func (c *ackClaudeSDKConnection) Send(data []byte) error {
 			"providerTurnId": strings.TrimSpace(c.cancelProviderTurnID),
 			"dispatchPhase":  dispatchPhase,
 		}
-	}
-	if request.Type == "stop_task" {
-		stopped := false
-		if c.stopTaskResult != nil {
-			stopped = *c.stopTaskResult
-		}
-		payload = map[string]any{"stopped": stopped}
 	}
 	response, err := json.Marshal(claudeSDKSidecarEvent{Version: claudeSDKSidecarProtocolVersion, ID: request.ID, Type: "ok", Payload: payload})
 	if err != nil {

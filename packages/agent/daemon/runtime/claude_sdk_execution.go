@@ -694,12 +694,6 @@ func (a *ClaudeCodeSDKAdapter) cancelClaudeSDKTurn(
 }
 
 func (a *ClaudeCodeSDKAdapter) CancelTargets(ctx context.Context, rootSession Session, targets []CancelTarget, reason string) (TargetedCancelResult, error) {
-	childTargets := make([]CancelTarget, 0, len(targets))
-	for _, target := range targets {
-		if strings.TrimSpace(target.AgentSessionID) != strings.TrimSpace(rootSession.AgentSessionID) {
-			childTargets = append(childTargets, target)
-		}
-	}
 	for _, target := range targets {
 		if strings.TrimSpace(target.AgentSessionID) == strings.TrimSpace(rootSession.AgentSessionID) {
 			adapterSession := a.getSession(rootSession.AgentSessionID)
@@ -712,22 +706,6 @@ func (a *ClaudeCodeSDKAdapter) CancelTargets(ctx context.Context, rootSession Se
 			// query; services/tuttid supplied the exact durable target set.
 			events, err := a.cancelClaudeSDKTurn(ctx, rootSession, rootTurnID, reason)
 			if err != nil {
-				// The controller snapshots the root and child targets before the
-				// provider call. If the root settles in that race window, Claude's
-				// exact cancel returns absent/mismatch and the old path discarded
-				// the still-live child targets. Preserve group-cancel semantics by
-				// stopping those children explicitly, while retaining the exact
-				// root error when no child stop was confirmed.
-				if len(childTargets) > 0 &&
-					(errors.Is(err, ErrSessionNoActiveTurn) || errors.Is(err, ErrCancelTargetMismatch)) {
-					childResult, childErr := a.stopClaudeSDKChildTargets(ctx, rootSession, childTargets)
-					if childErr != nil {
-						return TargetedCancelResult{}, childErr
-					}
-					if len(childResult.ConfirmedTargets) > 0 {
-						return childResult, nil
-					}
-				}
 				return TargetedCancelResult{}, err
 			}
 			// Commit projection fences only after the sidecar has confirmed its
