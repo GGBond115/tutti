@@ -25,6 +25,30 @@ export function normalizeWorkspaceFilePath(
   return normalizeWorkspaceFileAbsolutePath(raw);
 }
 
+export function formatWorkspaceFilePathForDisplay(
+  value?: string | null,
+  platform?: string | null
+): string {
+  const raw = String(value ?? "").trim();
+  if (!raw || platform !== "win32") {
+    return raw;
+  }
+
+  const normalizedInput = raw.replaceAll("\\", "/");
+  const gitBashDrive = /^\/([A-Za-z])(?=\/|$)/.exec(normalizedInput)?.[1];
+  const logicalInput = gitBashDrive
+    ? `/${gitBashDrive.toUpperCase()}:${normalizedInput.slice(2)}`
+    : normalizedInput;
+  const normalized = normalizeWorkspaceFilePath(logicalInput);
+  const drive = readWindowsDrive(normalized);
+  if (!drive) {
+    return raw;
+  }
+
+  const body = stripWindowsDrivePrefix(normalized, drive);
+  return `${drive}\\${body.replaceAll("/", "\\")}`;
+}
+
 function normalizeWorkspaceFileAbsolutePath(value?: string | null): string {
   const raw = String(value ?? "")
     .trim()

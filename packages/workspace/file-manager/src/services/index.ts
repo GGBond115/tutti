@@ -47,6 +47,7 @@ export {
   resolveWorkspaceFileLocationDefaultId
 } from "./workspaceFileManagerLocations.ts";
 export {
+  formatWorkspaceFilePathForDisplay,
   normalizeWorkspaceFilePath,
   workspaceFileName
 } from "./internal/model/paths.ts";

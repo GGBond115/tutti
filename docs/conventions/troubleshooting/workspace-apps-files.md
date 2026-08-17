@@ -364,8 +364,10 @@
   Reuse the shared FileManager path model and canonicalize drive-qualified
   paths to `/C:/...` at the AgentGUI and daemon boundaries. Treat `/c/...` as
   a Windows drive alias only when the active workspace root is Windows-shaped.
-  Strip the transport slash only at a native Electron or operating-system
-  file API boundary.
+  Keep `/C:/...` for API and state values. Convert it to `C:\\Users\\...`
+  only at native Electron/operating-system adapters or Windows user-facing
+  display boundaries; POSIX and daemon-facing values keep their logical
+  separators.
 - Validation:
   Cover native and Git Bash-shaped Windows inputs against daemon-shaped
   `/C:/...` responses in projection, existence, directory navigation, and
