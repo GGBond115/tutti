@@ -34,6 +34,12 @@ func (a *standardACPAdapter) handleACPMessage(
 		"message_method", message.Method,
 		"message_id", rawMessageLogValue(message.ID),
 	)
+	if a.config.provider == ProviderCursor {
+		switch message.Method {
+		case cursorACPMethodAskQuestion, cursorACPMethodCreatePlan:
+			return a.handleCursorInteractiveMessage(ctx, client, session, turnID, message, normalizer, emit)
+		}
+	}
 	if diagnostics := a.config.messageDiagnostics; diagnostics != nil &&
 		message.Method == diagnostics.method {
 		if diagnostics.observeMessage != nil {
