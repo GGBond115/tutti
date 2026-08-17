@@ -24,18 +24,13 @@ const (
 )
 
 type ListMarketItemsRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	ItemType           string                 `protobuf:"bytes,1,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`
-	SectionId          string                 `protobuf:"bytes,2,opt,name=section_id,json=sectionId,proto3" json:"section_id,omitempty"`
-	PageSize           int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken          string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	HostProduct        string                 `protobuf:"bytes,5,opt,name=host_product,json=hostProduct,proto3" json:"host_product,omitempty"`
-	HostVersion        string                 `protobuf:"bytes,6,opt,name=host_version,json=hostVersion,proto3" json:"host_version,omitempty"`
-	ExecutionTarget    string                 `protobuf:"bytes,7,opt,name=execution_target,json=executionTarget,proto3" json:"execution_target,omitempty"`
-	MaxConnectorSchema int32                  `protobuf:"varint,8,opt,name=max_connector_schema,json=maxConnectorSchema,proto3" json:"max_connector_schema,omitempty"`
-	HostCapabilities   []string               `protobuf:"bytes,9,rep,name=host_capabilities,json=hostCapabilities,proto3" json:"host_capabilities,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemType      string                 `protobuf:"bytes,1,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`
+	SectionId     string                 `protobuf:"bytes,2,opt,name=section_id,json=sectionId,proto3" json:"section_id,omitempty"`
+	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListMarketItemsRequest) Reset() {
@@ -94,41 +89,6 @@ func (x *ListMarketItemsRequest) GetPageToken() string {
 		return x.PageToken
 	}
 	return ""
-}
-
-func (x *ListMarketItemsRequest) GetHostProduct() string {
-	if x != nil {
-		return x.HostProduct
-	}
-	return ""
-}
-
-func (x *ListMarketItemsRequest) GetHostVersion() string {
-	if x != nil {
-		return x.HostVersion
-	}
-	return ""
-}
-
-func (x *ListMarketItemsRequest) GetExecutionTarget() string {
-	if x != nil {
-		return x.ExecutionTarget
-	}
-	return ""
-}
-
-func (x *ListMarketItemsRequest) GetMaxConnectorSchema() int32 {
-	if x != nil {
-		return x.MaxConnectorSchema
-	}
-	return 0
-}
-
-func (x *ListMarketItemsRequest) GetHostCapabilities() []string {
-	if x != nil {
-		return x.HostCapabilities
-	}
-	return nil
 }
 
 type ListMarketItemsReply struct {
@@ -192,15 +152,10 @@ func (x *ListMarketItemsReply) GetNextPageToken() string {
 }
 
 type ListMarketCategoriesRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	ItemType           string                 `protobuf:"bytes,1,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`
-	HostProduct        string                 `protobuf:"bytes,2,opt,name=host_product,json=hostProduct,proto3" json:"host_product,omitempty"`
-	HostVersion        string                 `protobuf:"bytes,3,opt,name=host_version,json=hostVersion,proto3" json:"host_version,omitempty"`
-	ExecutionTarget    string                 `protobuf:"bytes,4,opt,name=execution_target,json=executionTarget,proto3" json:"execution_target,omitempty"`
-	MaxConnectorSchema int32                  `protobuf:"varint,5,opt,name=max_connector_schema,json=maxConnectorSchema,proto3" json:"max_connector_schema,omitempty"`
-	HostCapabilities   []string               `protobuf:"bytes,6,rep,name=host_capabilities,json=hostCapabilities,proto3" json:"host_capabilities,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemType      string                 `protobuf:"bytes,1,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListMarketCategoriesRequest) Reset() {
@@ -238,41 +193,6 @@ func (x *ListMarketCategoriesRequest) GetItemType() string {
 		return x.ItemType
 	}
 	return ""
-}
-
-func (x *ListMarketCategoriesRequest) GetHostProduct() string {
-	if x != nil {
-		return x.HostProduct
-	}
-	return ""
-}
-
-func (x *ListMarketCategoriesRequest) GetHostVersion() string {
-	if x != nil {
-		return x.HostVersion
-	}
-	return ""
-}
-
-func (x *ListMarketCategoriesRequest) GetExecutionTarget() string {
-	if x != nil {
-		return x.ExecutionTarget
-	}
-	return ""
-}
-
-func (x *ListMarketCategoriesRequest) GetMaxConnectorSchema() int32 {
-	if x != nil {
-		return x.MaxConnectorSchema
-	}
-	return 0
-}
-
-func (x *ListMarketCategoriesRequest) GetHostCapabilities() []string {
-	if x != nil {
-		return x.HostCapabilities
-	}
-	return nil
 }
 
 type ListMarketCategoriesReply struct {
@@ -412,16 +332,11 @@ func (x *MarketCategory) GetDisplayNameEn() string {
 }
 
 type GetMarketItemRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	ItemType           string                 `protobuf:"bytes,1,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`
-	ItemKey            string                 `protobuf:"bytes,2,opt,name=item_key,json=itemKey,proto3" json:"item_key,omitempty"`
-	HostProduct        string                 `protobuf:"bytes,3,opt,name=host_product,json=hostProduct,proto3" json:"host_product,omitempty"`
-	HostVersion        string                 `protobuf:"bytes,4,opt,name=host_version,json=hostVersion,proto3" json:"host_version,omitempty"`
-	ExecutionTarget    string                 `protobuf:"bytes,5,opt,name=execution_target,json=executionTarget,proto3" json:"execution_target,omitempty"`
-	MaxConnectorSchema int32                  `protobuf:"varint,6,opt,name=max_connector_schema,json=maxConnectorSchema,proto3" json:"max_connector_schema,omitempty"`
-	HostCapabilities   []string               `protobuf:"bytes,7,rep,name=host_capabilities,json=hostCapabilities,proto3" json:"host_capabilities,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemType      string                 `protobuf:"bytes,1,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`
+	ItemKey       string                 `protobuf:"bytes,2,opt,name=item_key,json=itemKey,proto3" json:"item_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetMarketItemRequest) Reset() {
@@ -466,41 +381,6 @@ func (x *GetMarketItemRequest) GetItemKey() string {
 		return x.ItemKey
 	}
 	return ""
-}
-
-func (x *GetMarketItemRequest) GetHostProduct() string {
-	if x != nil {
-		return x.HostProduct
-	}
-	return ""
-}
-
-func (x *GetMarketItemRequest) GetHostVersion() string {
-	if x != nil {
-		return x.HostVersion
-	}
-	return ""
-}
-
-func (x *GetMarketItemRequest) GetExecutionTarget() string {
-	if x != nil {
-		return x.ExecutionTarget
-	}
-	return ""
-}
-
-func (x *GetMarketItemRequest) GetMaxConnectorSchema() int32 {
-	if x != nil {
-		return x.MaxConnectorSchema
-	}
-	return 0
-}
-
-func (x *GetMarketItemRequest) GetHostCapabilities() []string {
-	if x != nil {
-		return x.HostCapabilities
-	}
-	return nil
 }
 
 type GetMarketItemReply struct {
@@ -728,31 +608,21 @@ var File_sandbox_v1_market_proto protoreflect.FileDescriptor
 const file_sandbox_v1_market_proto_rawDesc = "" +
 	"\n" +
 	"\x17sandbox/v1/market.proto\x12\n" +
-	"sandbox.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xe0\x02\n" +
+	"sandbox.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x90\x01\n" +
 	"\x16ListMarketItemsRequest\x12\x1b\n" +
 	"\titem_type\x18\x01 \x01(\tR\bitemType\x12\x1d\n" +
 	"\n" +
 	"section_id\x18\x02 \x01(\tR\tsectionId\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tR\tpageToken\x12!\n" +
-	"\fhost_product\x18\x05 \x01(\tR\vhostProduct\x12!\n" +
-	"\fhost_version\x18\x06 \x01(\tR\vhostVersion\x12)\n" +
-	"\x10execution_target\x18\a \x01(\tR\x0fexecutionTarget\x120\n" +
-	"\x14max_connector_schema\x18\b \x01(\x05R\x12maxConnectorSchema\x12+\n" +
-	"\x11host_capabilities\x18\t \x03(\tR\x10hostCapabilities\"\x93\x01\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\"\x93\x01\n" +
 	"\x14ListMarketItemsReply\x12\x1f\n" +
 	"\vmarket_type\x18\x01 \x01(\tR\n" +
 	"marketType\x122\n" +
 	"\x05items\x18\x02 \x03(\v2\x1c.sandbox.v1.PublicMarketItemR\x05items\x12&\n" +
-	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\"\x8a\x02\n" +
+	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\":\n" +
 	"\x1bListMarketCategoriesRequest\x12\x1b\n" +
-	"\titem_type\x18\x01 \x01(\tR\bitemType\x12!\n" +
-	"\fhost_product\x18\x02 \x01(\tR\vhostProduct\x12!\n" +
-	"\fhost_version\x18\x03 \x01(\tR\vhostVersion\x12)\n" +
-	"\x10execution_target\x18\x04 \x01(\tR\x0fexecutionTarget\x120\n" +
-	"\x14max_connector_schema\x18\x05 \x01(\x05R\x12maxConnectorSchema\x12+\n" +
-	"\x11host_capabilities\x18\x06 \x03(\tR\x10hostCapabilities\"x\n" +
+	"\titem_type\x18\x01 \x01(\tR\bitemType\"x\n" +
 	"\x19ListMarketCategoriesReply\x12\x1f\n" +
 	"\vmarket_type\x18\x01 \x01(\tR\n" +
 	"marketType\x12:\n" +
@@ -768,15 +638,10 @@ const file_sandbox_v1_market_proto_rawDesc = "" +
 	"\n" +
 	"item_count\x18\x04 \x01(\x03R\titemCount\x12&\n" +
 	"\x0fdisplay_name_zh\x18\x05 \x01(\tR\rdisplayNameZh\x12&\n" +
-	"\x0fdisplay_name_en\x18\x06 \x01(\tR\rdisplayNameEn\"\x9e\x02\n" +
+	"\x0fdisplay_name_en\x18\x06 \x01(\tR\rdisplayNameEn\"N\n" +
 	"\x14GetMarketItemRequest\x12\x1b\n" +
 	"\titem_type\x18\x01 \x01(\tR\bitemType\x12\x19\n" +
-	"\bitem_key\x18\x02 \x01(\tR\aitemKey\x12!\n" +
-	"\fhost_product\x18\x03 \x01(\tR\vhostProduct\x12!\n" +
-	"\fhost_version\x18\x04 \x01(\tR\vhostVersion\x12)\n" +
-	"\x10execution_target\x18\x05 \x01(\tR\x0fexecutionTarget\x120\n" +
-	"\x14max_connector_schema\x18\x06 \x01(\x05R\x12maxConnectorSchema\x12+\n" +
-	"\x11host_capabilities\x18\a \x03(\tR\x10hostCapabilities\"g\n" +
+	"\bitem_key\x18\x02 \x01(\tR\aitemKey\"g\n" +
 	"\x12GetMarketItemReply\x12\x1f\n" +
 	"\vmarket_type\x18\x01 \x01(\tR\n" +
 	"marketType\x120\n" +

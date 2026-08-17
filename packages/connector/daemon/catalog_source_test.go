@@ -22,11 +22,6 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
 		if request.URL.Query().Get("itemType") != "connector" {
 			t.Fatalf("request path=%q query=%q", request.URL.Path, request.URL.RawQuery)
 		}
-		query := request.URL.Query()
-		if query.Get("hostProduct") != "tutti" || query.Get("hostVersion") != "0.2.27" || query.Get("executionTarget") != "darwin-arm64" ||
-			query.Get("maxConnectorSchema") != "4" || strings.Join(query["hostCapabilities"], ",") != "connector.install.remote-archive.v1" {
-			t.Fatalf("request path=%q cohort query=%q", request.URL.Path, request.URL.RawQuery)
-		}
 		writer.Header().Set("Content-Type", "application/json")
 		if request.URL.Path == "/v1/market/categories" {
 			_, _ = writer.Write([]byte(`{
@@ -98,8 +93,6 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
 			request.Header.Set("Authorization", "Bearer catalog-token")
 			return nil
 		},
-		ExecutionTarget: "darwin-arm64", HostProduct: "tutti", HostVersion: "0.2.27", MaxConnectorSchema: 4,
-		HostCapabilities: []string{"connector.install.remote-archive.v1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -277,11 +270,6 @@ func TestCatalogSourcePreservesGatewayBasePath(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/desktop/v1/market/categories" {
 			t.Fatalf("request path = %q", request.URL.Path)
-		}
-		for _, field := range []string{"hostProduct", "hostVersion", "executionTarget", "maxConnectorSchema", "hostCapabilities"} {
-			if request.URL.Query().Has(field) {
-				t.Fatalf("incomplete host cohort included %q in query %q", field, request.URL.RawQuery)
-			}
 		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(`{"marketType":"overseas","categories":[]}`))
