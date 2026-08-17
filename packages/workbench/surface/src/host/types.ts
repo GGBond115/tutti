@@ -679,7 +679,6 @@ export interface WorkbenchHostProps {
   className?: string;
   contributions?: readonly WorkbenchContribution[];
   debugDiagnostics?: WorkbenchDebugDiagnostics;
-  dockAutoHide?: boolean;
   dockPreviewCache?: WorkbenchDockPreviewCache;
   dockPlacement?: WorkbenchDockPlacement;
   dockEntries?: readonly WorkbenchHostDockEntry[];

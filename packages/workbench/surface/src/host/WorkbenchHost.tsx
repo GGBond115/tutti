@@ -22,7 +22,6 @@ export function WorkbenchHost({
   className,
   contributions,
   debugDiagnostics,
-  dockAutoHide,
   dockPreviewCache,
   dockPlacement,
   dockEntryPresentationOverrides,
@@ -141,7 +140,6 @@ export function WorkbenchHost({
       captureNodePreviewImages={surfaceRenderers.captureNodePreviewImages}
       controller={hostSession.controller}
       debugDiagnostics={debugDiagnostics}
-      dockAutoHide={dockAutoHide}
       dockPreviewCache={dockPreviewCache}
       dockPlacement={dockPlacement}
       interactive={!isHydrating}

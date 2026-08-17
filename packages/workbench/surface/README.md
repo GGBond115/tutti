@@ -93,13 +93,6 @@ order without changing contribution nodes or rebuilding the host session. Use
 this seam for host-owned visibility and retention presentation; keep product
 preference persistence in the consuming host.
 
-Hosts may opt into Dock auto-hide with `dockAutoHide`. The hidden Dock leaves a
-visible handle inside a 16 px hover zone that stays 8 px away from the native
-screen edge. A short pointer pause reveals the Dock without claiming the
-operating system's outer-edge activation area. The package does not change host
-layout constraints automatically; hosts that keep arranged windows clear of the
-handle should reserve a 24 px safe area on the active Dock edge.
-
 Dock, shortcut, and command opens flow through `launchNode(...)` and the
 optional `onLaunchRequest(...)` callback. The host may create a business
 instance asynchronously, then return the shell identity, title, default frame,
