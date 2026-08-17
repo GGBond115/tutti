@@ -3,7 +3,21 @@ import test from "node:test";
 import type { AppUpdateState } from "@shared/contracts/ipc";
 import type { ReporterEventInput } from "../../../analytics/services/reporterService.interface.ts";
 import type { DesktopAppUpdateClient } from "./adapters/desktopAppUpdateClient.ts";
-import { AppUpdateService } from "./appUpdateService.ts";
+import {
+  AppUpdateService,
+  resolveOfficialChangelogUrl
+} from "./appUpdateService.ts";
+
+test("AppUpdateService maps each desktop language to the official changelog", () => {
+  assert.equal(
+    resolveOfficialChangelogUrl("zh-CN"),
+    "https://tutti.sh/zh/changelog"
+  );
+  assert.equal(
+    resolveOfficialChangelogUrl("en"),
+    "https://tutti.sh/en/changelog"
+  );
+});
 
 test("AppUpdateService does not report status changes from initial state hydration", async () => {
   const reporterCalls: ReporterEventInput[][] = [];
@@ -85,7 +99,7 @@ test("AppUpdateService opens the release notes exposed by the update state", asy
 
   await service.openReleaseNotes();
 
-  assert.deepEqual(opened, [releaseNotesUrl]);
+  assert.deepEqual(opened, ["https://tutti.sh/en/changelog"]);
 });
 
 test("AppUpdateService keeps install action pending after IPC succeeds", async () => {
