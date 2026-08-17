@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type CSSProperties } from "react";
-import { MessageCirclePlus, X } from "lucide-react";
+import { MessageCirclePlus } from "lucide-react";
+import { PanelIcon } from "@tutti-os/ui-system";
 import { ScrollArea } from "@tutti-os/ui-system/components";
 import type { AgentSideConversationViewState } from "../../../agentSideConversationViewProjection";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
@@ -122,12 +123,12 @@ export function AgentGUISideConversationPane({
       <button
         type="button"
         className={styles.sideCloseButton}
-        aria-label={t("agentHost.agentGui.sideClose")}
-        title={t("agentHost.agentGui.sideClose")}
+        aria-label={t("agentHost.agentGui.sideCollapse")}
+        title={t("agentHost.agentGui.sideCollapse")}
         onClick={onClose}
         disabled={active.status === "closing"}
       >
-        <X aria-hidden="true" size={16} />
+        <PanelIcon aria-hidden="true" className="size-[18px]" />
       </button>
       <ScrollArea
         scrollbarMode="native"

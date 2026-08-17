@@ -7,7 +7,7 @@ export const enAgentGuiSide = {
     "Side conversations are temporary and disappear when you close the app.",
   sideInputPlaceholder: "Ask a related question",
   sideResize: "Resize Side conversation",
-  sideClose: "Close",
+  sideCollapse: "Collapse Side conversation",
   sideInteractionTitle: "Side needs your response",
   sideContentUnsupported:
     "This attachment type is not supported in a Side conversation yet.",
