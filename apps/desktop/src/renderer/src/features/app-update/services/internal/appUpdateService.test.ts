@@ -102,6 +102,31 @@ test("AppUpdateService opens the release notes exposed by the update state", asy
   assert.deepEqual(opened, ["https://tutti.sh/en/changelog"]);
 });
 
+test("AppUpdateService keeps the release-notes action unavailable without the IPC pointer", async () => {
+  const opened: string[] = [];
+  const service = new AppUpdateService(
+    createClient({
+      getState: async () =>
+        createState({ releaseNotesUrl: null, status: "available" })
+    }),
+    null,
+    undefined,
+    undefined,
+    {
+      hostFilesApi: {
+        async openExternal(url) {
+          opened.push(url);
+        }
+      }
+    }
+  );
+  await service.load();
+
+  await service.openReleaseNotes();
+
+  assert.deepEqual(opened, []);
+});
+
 test("AppUpdateService keeps install action pending after IPC succeeds", async () => {
   let installCalls = 0;
   const service = new AppUpdateService(

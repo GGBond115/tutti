@@ -17,6 +17,7 @@ function formatError(error: unknown): string {
   return resolveDesktopErrorMessage(error, getActiveLocale());
 }
 
+/** Map the desktop locale to the public changelog; new locales intentionally fall back to English. */
 export function resolveOfficialChangelogUrl(locale: DesktopLocale): string {
   return locale === "zh-CN"
     ? "https://tutti.sh/zh/changelog"
