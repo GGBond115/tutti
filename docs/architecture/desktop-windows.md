@@ -113,6 +113,16 @@ Desktop startup currently follows this sequence:
    selection or the legacy absent preference creates the OS workspace window
 6. otherwise open the dashboard window
 
+For every workspace or Agent window open, main resolves the current global
+workspace UI mode once and includes it as the narrow `workspaceUiMode` URL
+bootstrap. This value is separate from `view`, which selects the native window
+content: for example, a secondary Agent window can use `view=agent` while the
+global preference remains `workspaceUiMode=os`. The renderer seeds its
+in-memory preference state from this bootstrap until an initialized daemon row
+is available. An initialized row always overrides the bootstrap; an absent row
+or hydration failure retains it so an unrelated full preference write cannot
+silently invert the mode already selected by main.
+
 An initial preference read failure does not prove that the identity is fresh,
 so startup keeps the legacy OS fallback and does not initialize. If a confirmed
 fresh identity's initialization response is lost, Desktop reads the preference

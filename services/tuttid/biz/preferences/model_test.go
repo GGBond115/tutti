@@ -31,6 +31,9 @@ func TestDefaultDesktopPreferencesStartsNewProfilesInAgentMode(t *testing.T) {
 	if !d.FeatureFlags[DesktopStandaloneAgentModeFeatureFlag] {
 		t.Fatalf("want standalone Agent mode enabled, got %v", d.FeatureFlags)
 	}
+	if d.UpdateChannel != "stable" {
+		t.Fatalf("want stable desktop updates by default, got %q", d.UpdateChannel)
+	}
 }
 
 func TestNormalizeDeletedAgentConversationRetentionDays(t *testing.T) {

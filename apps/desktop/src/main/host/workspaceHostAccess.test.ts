@@ -642,7 +642,10 @@ test("workspace host access delegates workspace window handoff", async () => {
           events.push(`workspace:${workspaceID}`);
         }
       }),
-      getPrimaryWorkspaceWindowKind: () => "workspace",
+      getPrimaryWorkspaceWindowOptions: () => ({
+        windowKind: "workspace",
+        workspaceUiMode: "os"
+      }),
       tuttidClient: createTransportClient()
     })
   });
@@ -660,7 +663,10 @@ test("workspace host access delegates open workspace app folder without exposing
     },
     workspaceLaunch: createWorkspaceLaunch({
       adapters: createAdapters(),
-      getPrimaryWorkspaceWindowKind: () => "workspace",
+      getPrimaryWorkspaceWindowOptions: () => ({
+        windowKind: "workspace",
+        workspaceUiMode: "os"
+      }),
       tuttidClient: createTransportClient()
     })
   });

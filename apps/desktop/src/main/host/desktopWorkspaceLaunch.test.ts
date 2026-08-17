@@ -42,7 +42,7 @@ test("desktop startup opens the Agent window after fresh profile initialization"
   assert.equal(putRequests.length, 1);
   assert.equal(putRequests[0]?.writeMode, "initializeIfAbsent");
   assert.deepEqual(opened, {
-    options: { windowKind: "agent" },
+    options: { windowKind: "agent", workspaceUiMode: "agent" },
     workspaceID: "workspace-1"
   });
 });
@@ -78,7 +78,35 @@ test("desktop startup honors an existing OS preference returned by successful in
   );
   assert.equal(getCalls, 1);
   assert.deepEqual(opened, {
-    options: { windowKind: "workspace" },
+    options: { windowKind: "workspace", workspaceUiMode: "os" },
+    workspaceID: "workspace-1"
+  });
+});
+
+test("desktop startup carries the fresh Agent fallback when initialization and reconciliation do not commit", async () => {
+  let getCalls = 0;
+  const client = createClient({
+    async getDesktopPreferences() {
+      getCalls += 1;
+      return createPreferencesState(false, {
+        [standaloneAgentModeFlag]: true
+      });
+    },
+    async putDesktopPreferences() {
+      throw new Error("preferences write unavailable");
+    }
+  });
+  const preferences = await createDesktopHostPreferencesState({
+    fallbackLocale: "en",
+    logger: createLogger(),
+    tuttidClient: client
+  });
+
+  const opened = await openStartupWindow(preferences, client);
+
+  assert.equal(getCalls, 2);
+  assert.deepEqual(opened, {
+    options: { windowKind: "agent", workspaceUiMode: "agent" },
     workspaceID: "workspace-1"
   });
 });
@@ -141,6 +169,10 @@ test("desktop startup maps persisted and unavailable preference states to the ex
       const opened = await openStartupWindow(preferences, client);
 
       assert.equal(opened.options.windowKind, testCase.want);
+      assert.equal(
+        opened.options.workspaceUiMode,
+        testCase.want === "agent" ? "agent" : "os"
+      );
       assert.equal(putCalls, 0);
     });
   }

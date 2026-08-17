@@ -1,5 +1,6 @@
 import type { DesktopLocale } from "@shared/i18n";
 import type { DesktopThemeSource, DesktopThemeState } from "@shared/theme";
+import { withDesktopWorkspaceUiMode } from "../../../../../../shared/featureFlags/catalog.ts";
 import type { IDesktopPreferencesService } from "../desktopPreferencesService.interface.ts";
 import type { DesktopAgentComposerDefaultsPatchResult } from "../desktopPreferencesService.interface.ts";
 import type { DesktopPreferencesClient } from "./adapters/desktopPreferencesClient.ts";
@@ -57,6 +58,7 @@ import {
   type DesktopDockPlacement,
   type DeletedAgentConversationRetentionDays,
   type DesktopFeatureFlags,
+  type DesktopWorkspaceUiMode,
   type DesktopFileDefaultOpenersByExtension,
   type DesktopMinimizeAnimation,
   type DesktopSleepPreventionMode,
@@ -73,6 +75,7 @@ export interface DesktopPreferencesServiceDependencies {
   initialDockPlacement?: DesktopDockPlacement;
   initialLocale: DesktopLocale;
   initialTheme: DesktopThemeState;
+  initialWorkspaceUiMode?: DesktopWorkspaceUiMode;
   resolveTheme: (source: DesktopThemeSource) => DesktopThemeState;
 }
 
@@ -109,7 +112,12 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
         this.dependencies.initialDockPlacement ?? defaultDesktopDockPlacement,
       deletedAgentConversationRetentionDays:
         defaultDeletedAgentConversationRetentionDays,
-      featureFlags: defaultDesktopFeatureFlags,
+      featureFlags: this.dependencies.initialWorkspaceUiMode
+        ? withDesktopWorkspaceUiMode(
+            defaultDesktopFeatureFlags,
+            this.dependencies.initialWorkspaceUiMode
+          )
+        : defaultDesktopFeatureFlags,
       fileDefaultOpenersByExtension:
         defaultDesktopFileDefaultOpenersByExtension,
       locale: this.dependencies.initialLocale,

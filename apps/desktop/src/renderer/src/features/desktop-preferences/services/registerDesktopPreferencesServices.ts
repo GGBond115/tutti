@@ -10,6 +10,7 @@ import {
   resolveDesktopThemeState
 } from "@renderer/theme/runtime";
 import { readInitialDockPlacementFromLocation } from "@shared/preferences";
+import type { DesktopWorkspaceUiMode } from "@shared/preferences";
 import { IDesktopPreferencesService } from "./desktopPreferencesService.interface.ts";
 import { createDesktopPreferencesClient } from "./internal/adapters/desktopPreferencesClient.ts";
 import { DesktopPreferencesService } from "./internal/desktopPreferencesService.ts";
@@ -17,7 +18,8 @@ import { DesktopPreferencesService } from "./internal/desktopPreferencesService.
 export async function registerDesktopPreferencesServices(
   registry: ServiceRegistry,
   tuttidClient: TuttidClient,
-  eventStreamClient: TuttidEventStreamClient
+  eventStreamClient: TuttidEventStreamClient,
+  options: { initialWorkspaceUiMode?: DesktopWorkspaceUiMode } = {}
 ): Promise<IDesktopPreferencesService> {
   const service = new DesktopPreferencesService({
     applyLocale,
@@ -26,6 +28,9 @@ export async function registerDesktopPreferencesServices(
     initialDockPlacement: readInitialDockPlacementFromLocation(),
     initialLocale: getActiveLocale(),
     initialTheme: getActiveTheme(),
+    ...(options.initialWorkspaceUiMode
+      ? { initialWorkspaceUiMode: options.initialWorkspaceUiMode }
+      : {}),
     resolveTheme: resolveDesktopThemeState
   });
   await service.whenInitialPreferencesHydrated();

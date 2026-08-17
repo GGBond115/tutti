@@ -174,7 +174,7 @@ func TestServicePutNotifiesChangeObserversWithPreviousAndCurrentPreferences(t *t
 	}
 }
 
-func TestServicePutInitializeIfAbsentUsesAtomicStoreOperation(t *testing.T) {
+func TestServicePutInitializeIfAbsentPublishesOnlyCreatedInitialization(t *testing.T) {
 	stored := preferencesbiz.DefaultDesktopPreferences()
 	initialized := stored
 	initialized.Initialized = true
@@ -229,7 +229,7 @@ func TestServicePutInitializeIfAbsentUsesAtomicStoreOperation(t *testing.T) {
 	}
 }
 
-func TestServicePutInitializeIfAbsentPreservesConcurrentExistingPreferences(t *testing.T) {
+func TestServicePutInitializeIfAbsentReturnsExistingPreferencesWithoutPublishing(t *testing.T) {
 	existing := preferencesbiz.DefaultDesktopPreferences()
 	existing.Initialized = true
 	existing.FeatureFlags = map[string]bool{preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: false}

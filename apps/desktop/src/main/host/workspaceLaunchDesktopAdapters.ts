@@ -8,7 +8,8 @@ import {
 import { getDesktopLogger } from "../logging";
 import type {
   WorkspaceLaunchAdapters,
-  WorkspaceLaunchAgentWindowInput
+  WorkspaceLaunchResolvedAgentWindowInput,
+  WorkspaceLaunchWorkspaceWindowOptions
 } from "./workspaceLaunch";
 import {
   createWorkspaceWindow,
@@ -37,13 +38,16 @@ export function createWorkspaceLaunchDesktopAdapters(
 ): WorkspaceLaunchAdapters {
   const pendingAgentBrowserHosts = new Map<string, Promise<void>>();
   const performanceHeadless = resolveDesktopPerformanceHeadless();
-  const durableWorkspaceWindows = createDurableWorkspaceWindowCoordinator({
+  const durableWorkspaceWindows = createDurableWorkspaceWindowCoordinator<
+    Electron.BrowserWindow,
+    [WorkspaceLaunchWorkspaceWindowOptions]
+  >({
     activate: (workspaceWindow) =>
       activateWorkspaceWindow(workspaceWindow, performanceHeadless),
     find: (workspaceID: string) =>
       findWorkspaceWindow(workspaceID, "workspace"),
-    open: (workspaceID: string) =>
-      createAndShowWorkspaceWindow(options, workspaceID)
+    open: (workspaceID, windowOptions) =>
+      createAndShowWorkspaceWindow(options, workspaceID, windowOptions)
   });
   return {
     async ensureAgentBrowserHost(input) {
@@ -70,9 +74,12 @@ export function createWorkspaceLaunchDesktopAdapters(
       const windowKind: WorkspaceLaunchWindowKind = input.windowKind;
       try {
         if (windowKind === "agent") {
-          return await showStandaloneAgentWindow(options, { workspaceID });
+          return await showStandaloneAgentWindow(options, {
+            workspaceID,
+            workspaceUiMode: input.workspaceUiMode
+          });
         }
-        return await durableWorkspaceWindows.show(workspaceID);
+        return await durableWorkspaceWindows.show(workspaceID, input);
       } catch (error) {
         getDesktopLogger().warn("failed to show workspace window", {
           error: formatErrorMessage(error),
@@ -95,7 +102,8 @@ export function createWorkspaceLaunchDesktopAdapters(
 
 async function createAndShowWorkspaceWindow(
   options: WorkspaceLaunchDesktopAdapterOptions,
-  workspaceID: string
+  workspaceID: string,
+  windowOptions: WorkspaceLaunchWorkspaceWindowOptions
 ): Promise<Electron.BrowserWindow> {
   const workspaceWindow = createWorkspaceWindow({
     browserNodeGuestPreloadPath: options.browserNodeGuestPreloadPath,
@@ -116,6 +124,7 @@ async function createAndShowWorkspaceWindow(
         locale: options.getLocale(),
         rendererUrl: options.rendererUrl,
         theme: options.getTheme(),
+        workspaceUiMode: windowOptions.workspaceUiMode,
         workspaceID
       });
     },
@@ -145,7 +154,7 @@ function activateWorkspaceWindow(
 
 async function showStandaloneAgentWindow(
   options: WorkspaceLaunchDesktopAdapterOptions,
-  input: WorkspaceLaunchAgentWindowInput,
+  input: WorkspaceLaunchResolvedAgentWindowInput,
   readyOptions: { showOnReady?: boolean } = {}
 ): Promise<Electron.BrowserWindow> {
   const agentWindow = createWorkspaceWindow({
@@ -179,6 +188,7 @@ async function showStandaloneAgentWindow(
         rendererUrl: options.rendererUrl,
         theme: options.getTheme(),
         userProjectPath: input.userProjectPath,
+        workspaceUiMode: input.workspaceUiMode,
         workspaceID: input.workspaceID
       });
     },

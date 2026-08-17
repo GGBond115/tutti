@@ -28,7 +28,7 @@ const (
 	DefaultDesktopSleepPreventionMode            = "never"
 	DefaultDesktopShowAppDeveloperSources        = false
 	DefaultDesktopThemeSource                    = "dark"
-	DefaultDesktopUpdateChannel                  = "rc"
+	DefaultDesktopUpdateChannel                  = "stable"
 	DefaultDesktopUpdatePolicy                   = "prompt"
 	DefaultDesktopWindowSnappingEnabled          = false
 	DefaultDesktopWindowSnappingShortcut         = "commandArrows"

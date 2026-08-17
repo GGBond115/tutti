@@ -8,7 +8,8 @@ import type {
 import type { DesktopLocale } from "@shared/i18n";
 import {
   defaultDesktopWorkbenchShortcuts,
-  desktopFeatureFlagsEqual
+  desktopFeatureFlagsEqual,
+  type DesktopWorkspaceUiMode
 } from "../../../../../../shared/preferences/index.ts";
 import type { DesktopThemeSource, DesktopThemeState } from "@shared/theme";
 import type { DesktopPreferencesClient } from "./adapters/desktopPreferencesClient.ts";
@@ -20,6 +21,7 @@ type PublishedPreferences = Omit<
   Preferences,
   "agentComposerDefaultsByAgentTarget"
 >;
+const standaloneAgentModeFlag = "workspace.standaloneAgentMode";
 
 test("DesktopPreferencesService bootstraps persisted preferences before connecting the event stream", async () => {
   const appliedLocales: DesktopLocale[] = [];
@@ -139,7 +141,7 @@ test("initial preference hydration failure releases startup with defaults", asyn
   service.dispose();
 });
 
-test("DesktopPreferencesService keeps in-memory defaults when preferences are not initialized", async () => {
+test("DesktopPreferencesService carries the Agent bootstrap through a full write while preferences are uninitialized", async () => {
   const updatedRequests: Preferences[] = [];
   const client = createDesktopPreferencesClient({
     getDesktopPreferences: async () => ({
@@ -154,15 +156,36 @@ test("DesktopPreferencesService keeps in-memory defaults when preferences are no
   const { service, cleanup } = await createServiceHarness({
     client,
     initialLocale: "zh-CN",
-    initialTheme: { appearance: "dark", source: "dark" }
+    initialTheme: { appearance: "dark", source: "dark" },
+    initialWorkspaceUiMode: "agent"
   });
 
-  assert.deepEqual(updatedRequests, []);
+  assert.equal(service.store.featureFlags[standaloneAgentModeFlag], true);
   assert.equal(service.store.locale, "zh-CN");
   assert.deepEqual(service.store.theme, {
     appearance: "dark",
     source: "dark"
   });
+  await service.setLocale("en");
+  assert.equal(updatedRequests[0]?.featureFlags[standaloneAgentModeFlag], true);
+  cleanup();
+});
+
+test("DesktopPreferencesService lets initialized OS preferences override an Agent bootstrap", async () => {
+  const client = createDesktopPreferencesClient({
+    getDesktopPreferences: async () => ({
+      initialized: true,
+      preferences: createPreferences({
+        featureFlags: { [standaloneAgentModeFlag]: false }
+      })
+    })
+  });
+  const { service, cleanup } = await createServiceHarness({
+    client,
+    initialWorkspaceUiMode: "agent"
+  });
+
+  assert.equal(service.store.featureFlags[standaloneAgentModeFlag], false);
   cleanup();
 });
 
@@ -809,6 +832,7 @@ async function createServiceHarness(
     client?: DesktopPreferencesClient;
     initialLocale?: DesktopLocale;
     initialTheme?: DesktopThemeState;
+    initialWorkspaceUiMode?: DesktopWorkspaceUiMode;
   } = {}
 ) {
   const client = options.client ?? createDesktopPreferencesClient({});
@@ -825,6 +849,9 @@ async function createServiceHarness(
       appearance: "light",
       source: "system"
     },
+    ...(options.initialWorkspaceUiMode
+      ? { initialWorkspaceUiMode: options.initialWorkspaceUiMode }
+      : {}),
     resolveTheme
   });
   await settle();

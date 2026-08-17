@@ -2,8 +2,11 @@ package workspace
 
 import (
 	"context"
+	"reflect"
+	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 )
@@ -65,8 +68,8 @@ func TestSQLiteStoreGetDesktopPreferencesDefaultsWhenUnset(t *testing.T) {
 	if preferences.UpdatePolicy != "prompt" {
 		t.Fatalf("GetDesktopPreferences() updatePolicy = %q, want prompt", preferences.UpdatePolicy)
 	}
-	if preferences.UpdateChannel != "rc" {
-		t.Fatalf("GetDesktopPreferences() updateChannel = %q, want rc", preferences.UpdateChannel)
+	if preferences.UpdateChannel != "stable" {
+		t.Fatalf("GetDesktopPreferences() updateChannel = %q, want stable", preferences.UpdateChannel)
 	}
 }
 
@@ -243,6 +246,112 @@ func TestSQLiteStoreInitializeDesktopPreferencesPreservesExistingLegacyRow(t *te
 	}
 	if len(stored.FeatureFlags) != 0 {
 		t.Fatalf("stored feature flags = %#v, want legacy empty flags", stored.FeatureFlags)
+	}
+}
+
+func TestSQLiteStoreInitializeDesktopPreferencesCommitsExactlyOneCompleteCandidateUnderConcurrentWriters(t *testing.T) {
+	t.Parallel()
+
+	store := openTestSQLiteStore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writerGate, err := store.writeDB.Conn(ctx)
+	if err != nil {
+		t.Fatalf("hold SQLite writer connection: %v", err)
+	}
+	gateReleased := false
+	releaseGate := func() {
+		if gateReleased {
+			return
+		}
+		gateReleased = true
+		if err := writerGate.Close(); err != nil {
+			t.Errorf("release SQLite writer connection: %v", err)
+		}
+	}
+	defer releaseGate()
+
+	candidateA := preferencesbiz.DefaultDesktopPreferences()
+	candidateA.Initialized = true
+	candidateA.Locale = "zh-CN"
+	candidateA.ThemeSource = "dark"
+	candidateA.FeatureFlags = map[string]bool{
+		preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: true,
+		"test.candidate-a": true,
+	}
+	candidateB := preferencesbiz.DefaultDesktopPreferences()
+	candidateB.Initialized = true
+	candidateB.DockPlacement = "left"
+	candidateB.Locale = "en"
+	candidateB.ThemeSource = "light"
+	candidateB.FeatureFlags = map[string]bool{
+		preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: false,
+		"test.candidate-b": true,
+	}
+	candidates := []preferencesbiz.DesktopPreferences{candidateA, candidateB}
+
+	type initializationResult struct {
+		created     bool
+		err         error
+		preferences preferencesbiz.DesktopPreferences
+	}
+	results := make(chan initializationResult, len(candidates))
+	var writers sync.WaitGroup
+	baselineWaitCount := store.writeDB.Stats().WaitCount
+	for _, candidate := range candidates {
+		candidate := candidate
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			stored, created, err := store.InitializeDesktopPreferences(ctx, candidate)
+			results <- initializationResult{
+				created:     created,
+				err:         err,
+				preferences: stored,
+			}
+		}()
+	}
+
+	wantWaitCount := baselineWaitCount + int64(len(candidates))
+	for store.writeDB.Stats().WaitCount < wantWaitCount && ctx.Err() == nil {
+		runtime.Gosched()
+	}
+	queuedWaitCount := store.writeDB.Stats().WaitCount
+	releaseGate()
+	writers.Wait()
+	close(results)
+	if queuedWaitCount < wantWaitCount {
+		t.Fatalf("SQLite writer wait count = %d, want at least %d before gate release: %v", queuedWaitCount, wantWaitCount, ctx.Err())
+	}
+
+	createdCount := 0
+	var returned []preferencesbiz.DesktopPreferences
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("InitializeDesktopPreferences() error = %v", result.err)
+		}
+		if result.created {
+			createdCount++
+		}
+		returned = append(returned, result.preferences)
+	}
+	if createdCount != 1 {
+		t.Fatalf("created results = %d, want exactly 1", createdCount)
+	}
+	if len(returned) != len(candidates) || !reflect.DeepEqual(returned[0], returned[1]) {
+		t.Fatalf("returned preferences = %#v, want both writers to observe one canonical row", returned)
+	}
+
+	final, err := store.GetDesktopPreferences(context.Background())
+	if err != nil {
+		t.Fatalf("GetDesktopPreferences() error = %v", err)
+	}
+	if !reflect.DeepEqual(returned[0], final) {
+		t.Fatalf("returned preferences = %#v, final = %#v", returned[0], final)
+	}
+	if !reflect.DeepEqual(final, candidateA) && !reflect.DeepEqual(final, candidateB) {
+		t.Fatalf("final preferences = %#v, want one complete candidate without merging", final)
 	}
 }
 
@@ -501,6 +610,9 @@ func TestSQLiteStorePatchAgentComposerDefaultsForTargetInitializesMissingPrefere
 	if !got.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
 		t.Fatalf("feature flags = %#v, want standalone Agent mode enabled", got.FeatureFlags)
 	}
+	if got.UpdateChannel != "stable" {
+		t.Fatalf("update channel = %q, want stable", got.UpdateChannel)
+	}
 }
 
 func TestSQLiteStorePatchAgentComposerDefaultsForTargetPersistsCodexSaverMode(t *testing.T) {
@@ -643,6 +755,9 @@ func TestSQLiteStorePatchAgentSessionLaunchModeInitializesMissingRowInAgentMode(
 	}
 	if !stored.Initialized || !stored.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
 		t.Fatalf("stored preferences = %#v, want initialized Agent mode", stored)
+	}
+	if stored.UpdateChannel != "stable" {
+		t.Fatalf("stored update channel = %q, want stable", stored.UpdateChannel)
 	}
 	if stored.AgentSessionLaunchModesByWorkspace["workspace-a"]["project:/alpha"] != "worktree" {
 		t.Fatalf("stored launch modes = %#v", stored.AgentSessionLaunchModesByWorkspace)

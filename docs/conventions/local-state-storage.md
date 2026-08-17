@@ -139,7 +139,9 @@ authoritative stored row. A concurrent initializer or field-specific preference
 writer therefore wins without being overwritten. Field-specific writers that
 encounter a missing row create the same complete default row before applying
 their patch. The normal omitted/`replace` write mode remains the full preference
-update. Existing rows are never backfilled by initialization.
+update. The daemon-owned complete default uses the stable desktop update
+channel; packaged RC builds may subsequently align that preference from their
+installed version. Existing rows are never backfilled by initialization.
 
 `agent_cli_update_check_enabled` stores the
 `agentCliUpdateCheckEnabled` preference as a non-null SQLite boolean and

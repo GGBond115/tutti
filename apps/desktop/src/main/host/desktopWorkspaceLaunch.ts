@@ -6,7 +6,7 @@ import {
   type WorkspaceLaunch,
   type WorkspaceLaunchAdapters
 } from "./workspaceLaunch.ts";
-import { resolveWorkspaceLaunchWindowKind } from "./workspaceLaunchMode.ts";
+import { resolveWorkspaceLaunchWindowOptions } from "./workspaceLaunchMode.ts";
 
 export interface CreateDesktopWorkspaceLaunchOptions {
   adapters: WorkspaceLaunchAdapters;
@@ -20,8 +20,10 @@ export function createDesktopWorkspaceLaunch(
 ): WorkspaceLaunch {
   return createWorkspaceLaunch({
     adapters: options.adapters,
-    getPrimaryWorkspaceWindowKind: () =>
-      resolveWorkspaceLaunchWindowKind(options.preferences.getFeatureFlags()),
+    getPrimaryWorkspaceWindowOptions: () =>
+      resolveWorkspaceLaunchWindowOptions(
+        options.preferences.getFeatureFlags()
+      ),
     onAnalyticsError(error) {
       options.logger.warn("failed to record workspace UI mode analytics", {
         error: error instanceof Error ? error.message : String(error)
