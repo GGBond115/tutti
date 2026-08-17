@@ -1874,6 +1874,10 @@ ensuring that only installed and authorized connectors can be invoked. AgentGUI
 does not scan external MCP, plugin, or package-manager configuration and does not
 infer installation from a remote market response.
 
+Authorization and draft selection are separate facts. Selected connectors are
+stored as semantic draft blocks, rendered as removable chips, and submitted as
+structured prompt content without synthesizing slash text.
+
 The device-global `lab.connectors` UI-preference flag controls whether that
 projection is returned. The daemon fails closed when the preference is absent
 or unreadable and removes Provider-reported connector entries as well as local
@@ -2417,9 +2421,10 @@ pass draggable-header semantics through `dragHandleProps`, and use
 `navigationActions` for address-row actions. A host must not wrap the panel in
 a second visible title bar or recreate the browser header outside the panel.
 
-Host-issued `runtimeRequests.composerAppend` values are one-shot requests.
+Host-issued `runtimeRequests.composerAppend` values are one-shot requests. An
+append may carry prompt text, prepared files, or one semantic connector key.
 AgentGUI waits until the exact requested Session is the active conversation,
-applies the append once, and then calls
+applies the append once to the structured draft, and then calls
 `hostActions.onComposerAppendHandled(sequence)`. A Host that retains routed
 requests must clear only the acknowledged sequence; it must not let an older
 open-Session append mask a newer request.
