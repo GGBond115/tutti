@@ -443,6 +443,12 @@ manual promotion cannot bypass this ordering.
 
 It then extracts the human-reviewed summary, copies stable candidate objects from `candidates/<candidate-id>/` to the immutable `<tag>/` path, creates the formal stable tag, updates release notes and assets, publishes the GitHub Release, writes the channel pointer and changelog, refreshes the stable alias, verifies the public pointer, and sends the published card. Promotion never rebuilds installers or calls the summary model. Editing notes or replacing assets after submission changes the approval digest and forces a new approval run. Promotion is serialized because channel pointers are shared mutable state.
 
+The internal candidate manifest remains attached until every fallible promotion
+check succeeds. If a run stops after the stable GitHub Release becomes public,
+the next Promotion run may select that same published release, revalidate the
+candidate and reviewed notes, and resume the idempotent remaining steps. The
+manifest is removed only as the final successful promotion action.
+
 RC and beta promotions preserve the existing GitHub policy: their GitHub Releases remain drafts while their AWS channel pointers become available. Stable promotion changes the GitHub Release from draft to public and marks it Latest.
 
 ## Release Summaries

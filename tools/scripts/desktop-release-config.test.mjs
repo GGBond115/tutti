@@ -854,6 +854,41 @@ test("stable candidates require environment approval and bind the reviewed notes
   assert.match(promoteWorkflow, /\.promotion-candidate\.json/);
 });
 
+test("stable promotion can resume after the GitHub release becomes public", async () => {
+  const promoteWorkflow = await readFile(promoteWorkflowPath, "utf8");
+  const publishIndex = promoteWorkflow.indexOf(
+    "name: Publish stable GitHub release"
+  );
+  const verifyPointerIndex = promoteWorkflow.indexOf(
+    "name: Verify public release pointer"
+  );
+  const cleanupIndex = promoteWorkflow.indexOf(
+    "name: Remove internal candidate manifest from published release"
+  );
+
+  assert.match(
+    promoteWorkflow,
+    /\(\.draft \| not\) and \.tag_name == \\"\$\{release_tag\}\\" and \(\.prerelease \| not\)/
+  );
+  assert.match(
+    promoteWorkflow,
+    /release_already_published=true[\s\S]*release_already_published=\$\{release_already_published\}/
+  );
+  assert.match(
+    promoteWorkflow,
+    /Attach approved draft to the stable tag[\s\S]*release_already_published != 'true'/
+  );
+  assert.ok(publishIndex >= 0, "stable publish step should exist");
+  assert.ok(
+    verifyPointerIndex > publishIndex,
+    "public pointer verification should remain retryable after publication"
+  );
+  assert.ok(
+    cleanupIndex > verifyPointerIndex,
+    "candidate recovery metadata should be removed only after all fallible promotion checks"
+  );
+});
+
 test("desktop release workflow refreshes the stable alias without taking Latest", async () => {
   const promoteWorkflow = await readFile(promoteWorkflowPath, "utf8");
   const stableAliasStep = promoteWorkflow.match(
