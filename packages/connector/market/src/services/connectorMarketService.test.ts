@@ -1638,6 +1638,74 @@ test("keeps QR authorization in app state without opening its payload", async ()
   service.dispose();
 });
 
+test("opens a device-code verification page once while keeping the code visible", async () => {
+  const continueAuthorization = deferred<void>();
+  const openedUrls: string[] = [];
+  let step = 0;
+  const initial = connector("github-cli", 1);
+  initial.authorization = { state: "disconnected" };
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, [initial]),
+      beginAuthorization: async () => {
+        step += 1;
+        if (step > 1) {
+          await continueAuthorization.promise;
+        }
+        const next = connector("github-cli", step + 1);
+        next.authorization = { state: step === 1 ? "pending" : "connected" };
+        return {
+          connector: next,
+          operation: {
+            ...operation("start_authorization", step + 1),
+            connectorKey: "github-cli",
+            state: "completed" as const
+          },
+          ...(step === 1
+            ? {
+                authorizationView: {
+                  protocol: "tutti.connector.authorization.view.v1" as const,
+                  viewId: "github-device-code-1",
+                  view: {
+                    type: "device_code" as const,
+                    verificationUrl: "https://github.com/login/device",
+                    userCode: "ABCD-EFGH"
+                  }
+                }
+              }
+            : {}),
+          revision: step + 1
+        };
+      }
+    }),
+    openAuthorizationUrl: async (url) => {
+      openedUrls.push(url);
+    }
+  });
+  await service.ensureLoaded();
+
+  const authorization = service.beginAuthorization("github-cli");
+  await waitFor(
+    () =>
+      service.dataStore.authorizationViewsByConnectorKey["github-cli"]?.view
+        .type === "device_code"
+  );
+  assert.deepEqual(openedUrls, ["https://github.com/login/device"]);
+  assert.equal(
+    service.dataStore.authorizationViewsByConnectorKey["github-cli"]?.view
+      .type === "device_code"
+      ? service.dataStore.authorizationViewsByConnectorKey["github-cli"]?.view
+          .userCode
+      : undefined,
+    "ABCD-EFGH"
+  );
+
+  continueAuthorization.resolve();
+  await authorization;
+  assert.deepEqual(openedUrls, ["https://github.com/login/device"]);
+  service.dispose();
+});
+
 test("fails closed when the host returns an invalid authorization view", async () => {
   const initial = connector("wecom-cli", 1);
   initial.authorization = { state: "disconnected" };
