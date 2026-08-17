@@ -250,7 +250,8 @@ local-versus-remote deployment policy or import Relay transport lifecycle code.
 for TSH Market. It pins the provider-generated protobuf and HTTP artifacts to an
 exact `tsh-server` commit and SHA-256 values without importing the server
 application module or copying the remote schema into Tutti's local OpenAPI.
-Product adapters inject the HTTP transport, gateway base path, and request
+The update tool verifies the source checkout commit before copying digest-matched
+files. Product adapters inject the HTTP transport, gateway base path, and request
 authorization. Connector consumers pass `itemType=connector`; future Skill
 consumers reuse the same client with `itemType=skill`.
 

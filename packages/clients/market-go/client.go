@@ -45,8 +45,11 @@ func New(config Config) (marketv1.MarketServiceHTTPClient, error) {
 	if roundTripper == nil {
 		roundTripper = http.DefaultTransport
 	}
+	httpClient := *config.HTTPClient
+	httpClient.Transport = roundTripper
+	httpClient.CheckRedirect = sameOriginRedirectPolicy(baseURL, config.HTTPClient.CheckRedirect)
 	roundTripper = &marketRoundTripper{
-		base:           roundTripper,
+		client:         &httpClient,
 		basePath:       strings.TrimRight(baseURL.Path, "/"),
 		prepareRequest: config.PrepareRequest,
 	}
@@ -82,7 +85,7 @@ func isLoopbackHost(host string) bool {
 }
 
 type marketRoundTripper struct {
-	base           http.RoundTripper
+	client         *http.Client
 	basePath       string
 	prepareRequest PrepareRequestFunc
 }
@@ -98,7 +101,26 @@ func (transport *marketRoundTripper) RoundTrip(request *http.Request) (*http.Res
 			return nil, err
 		}
 	}
-	return transport.base.RoundTrip(cloned)
+	response, err := transport.client.Do(cloned)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func sameOriginRedirectPolicy(baseURL *url.URL, hostPolicy func(*http.Request, []*http.Request) error) func(*http.Request, []*http.Request) error {
+	return func(request *http.Request, via []*http.Request) error {
+		if !strings.EqualFold(request.URL.Scheme, baseURL.Scheme) || !strings.EqualFold(request.URL.Host, baseURL.Host) {
+			return errors.New("market redirect must remain on the configured origin")
+		}
+		if hostPolicy != nil {
+			return hostPolicy(request, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
 }
 
 func joinURLPath(prefix, suffix string) string {

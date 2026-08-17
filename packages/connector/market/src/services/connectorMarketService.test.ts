@@ -165,6 +165,48 @@ test("loads server categories and appends cursor pages", async () => {
   service.dispose();
 });
 
+test("orders opaque dynamic categories by server sort order", async () => {
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      listCategories: async () => [
+        {
+          categoryId: "business-operations",
+          kind: "category",
+          sortOrder: 60,
+          itemCount: 0,
+          displayNameZh: "商业与运营",
+          displayNameEn: "Business & Operations"
+        },
+        {
+          categoryId: "communication",
+          kind: "category",
+          sortOrder: 30,
+          itemCount: 0,
+          displayNameZh: "沟通协作",
+          displayNameEn: "Communication"
+        }
+      ]
+    })
+  });
+
+  await service.ensureLoaded();
+
+  assert.deepEqual(
+    service.dataStore.catalogSections.map((section) => ({
+      categoryId: section.categoryId,
+      displayNameEn: section.displayNameEn
+    })),
+    [
+      { categoryId: "communication", displayNameEn: "Communication" },
+      {
+        categoryId: "business-operations",
+        displayNameEn: "Business & Operations"
+      }
+    ]
+  );
+  service.dispose();
+});
+
 test("automatically updates an installed connector when catalog discovery observes a new release", async () => {
   const installed = connector("github", 1);
   installed.release.releaseDigest =

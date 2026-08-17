@@ -19,13 +19,20 @@ The remote market service owns its versioned API schema and generated
 protobuf/HTTP artifacts. Tutti pins those artifacts by provider commit and
 SHA-256 under `packages/clients/market-go`; it does not import the
 `tsh-server` application module or redefine the remote schema in the local
-daemon OpenAPI. The client exposes the reusable `/v1/market/categories`, `/v1/market/items`, and
+daemon OpenAPI. Updates require a source checkout at the exact pinned commit and
+digest-match every copied file. The client exposes the reusable
+`/v1/market/categories`, `/v1/market/items`, and
 `/v1/market/items/{item_type}/{item_key}` read boundary for both connectors and
 Skills. Connector catalog requests always use `itemType=connector`; Skill
 consumers use `itemType=skill`. The shared connector package may provide a
 default `CatalogSource` adapter over that generated client, but must not copy or
 redefine the remote schema. Remote transport DTOs and local daemon DTOs remain
 separate.
+
+The generated client adapter applies host authorization only to the initial
+Market request. It preserves the host redirect policy and rejects any redirect
+that leaves the configured scheme and host, including HTTPS downgrades, before
+another credential-bearing request can be sent.
 
 Published connectors use the remote market manifest v2 envelope: one
 market-neutral `payload.implementation` and no `supportedMarkets` field. The

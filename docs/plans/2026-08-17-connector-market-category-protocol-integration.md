@@ -1,8 +1,8 @@
 # Connector Market Dynamic Category Protocol Integration
 
-> Status: implemented; pending pull request. Scope: the Tutti Connector Market
-> consumer path. The `tsh-server` protocol and runtime are already on main and
-> are not changed by this plan.
+> Status: implemented; under review in PR #2441. Scope: the Tutti Connector
+> Market consumer path. The `tsh-server` protocol and runtime are already on main
+> and are not changed by this plan.
 >
 > Baselines: `tutti` `origin/main` at `33c5182ad`; provider artifacts pinned to
 > `tsh-server` commit `d257868a661af964835b3ac2263252128f731b25`.
@@ -112,8 +112,9 @@ Update from an authorized checkout of the matching provider commit:
 pnpm generate:market-go-client -- --source-root /path/to/tsh-server
 ```
 
-The sync command deliberately requires a local provider checkout. It does not
-fetch a private repository anonymously or import the `tsh-server` root Go
+The sync command deliberately requires a local provider checkout and verifies
+that its HEAD matches the pinned provider commit before copying files. It does
+not fetch a private repository anonymously or import the `tsh-server` root Go
 module.
 
 ## Compatibility window

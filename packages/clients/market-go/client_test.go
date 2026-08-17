@@ -2,9 +2,11 @@ package marketclient
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	marketv1 "github.com/tutti-os/tutti/packages/clients/market-go/generated/sandbox/v1"
@@ -98,6 +100,132 @@ func TestGeneratedClientRejectsOversizedResponse(t *testing.T) {
 	_, err = client.ListMarketCategories(context.Background(), &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
 	if err == nil || !strings.Contains(err.Error(), "size limit") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestGeneratedClientRejectsRedirectOutsideConfiguredOriginBeforeReauthorizing(t *testing.T) {
+	var authorizationCalls atomic.Int32
+	var redirectedCalls atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirectedCalls.Add(1)
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Location", target.URL)
+		response.WriteHeader(http.StatusFound)
+	}))
+	defer source.Close()
+
+	client, err := New(Config{
+		BaseURL:    source.URL,
+		HTTPClient: source.Client(),
+		PrepareRequest: func(request *http.Request) error {
+			authorizationCalls.Add(1)
+			request.Header.Set("Cookie", "session=market-secret")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListMarketCategories(context.Background(), &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
+	if err == nil || !strings.Contains(err.Error(), "configured origin") {
+		t.Fatalf("error = %v", err)
+	}
+	if authorizationCalls.Load() != 1 {
+		t.Fatalf("authorization calls = %d", authorizationCalls.Load())
+	}
+	if redirectedCalls.Load() != 0 {
+		t.Fatalf("redirected calls = %d", redirectedCalls.Load())
+	}
+}
+
+func TestGeneratedClientPreservesHostRedirectPolicy(t *testing.T) {
+	policyError := errors.New("redirect blocked by host")
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Location", "/redirected")
+		response.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+	httpClient := server.Client()
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return policyError
+	}
+
+	client, err := New(Config{BaseURL: server.URL, HTTPClient: httpClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListMarketCategories(context.Background(), &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
+	if !errors.Is(err, policyError) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestGeneratedClientFollowsSameOriginRedirectWithoutReauthorizing(t *testing.T) {
+	var authorizationCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/market/categories" {
+			response.Header().Set("Location", "/redirected")
+			response.WriteHeader(http.StatusFound)
+			return
+		}
+		if request.URL.Path != "/redirected" || request.Header.Get("Cookie") != "session=market-secret" {
+			t.Fatalf("redirected request = %s cookie %q", request.URL.Path, request.Header.Get("Cookie"))
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"marketType":"overseas","categories":[]}`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		PrepareRequest: func(request *http.Request) error {
+			authorizationCalls.Add(1)
+			request.Header.Set("Cookie", "session=market-secret")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListMarketCategories(context.Background(), &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorizationCalls.Load() != 1 {
+		t.Fatalf("authorization calls = %d", authorizationCalls.Load())
+	}
+}
+
+func TestGeneratedClientRejectsHTTPSDowngradeBeforeReauthorizing(t *testing.T) {
+	var authorizationCalls atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Location", "http"+strings.TrimPrefix(server.URL, "https")+"/redirected")
+		response.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+
+	client, err := New(Config{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		PrepareRequest: func(request *http.Request) error {
+			authorizationCalls.Add(1)
+			request.Header.Set("Cookie", "session=market-secret")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListMarketCategories(context.Background(), &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
+	if err == nil || !strings.Contains(err.Error(), "configured origin") {
+		t.Fatalf("error = %v", err)
+	}
+	if authorizationCalls.Load() != 1 {
+		t.Fatalf("authorization calls = %d", authorizationCalls.Load())
 	}
 }
 
