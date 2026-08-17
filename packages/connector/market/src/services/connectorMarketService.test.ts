@@ -112,10 +112,12 @@ test("loads server categories and appends cursor pages", async () => {
     backend: backendWith({
       listCategories: async () => [
         {
-          categoryId: "development",
+          categoryId: "developer-tools",
           kind: "category",
-          sortOrder: 20,
-          itemCount: 2
+          sortOrder: 40,
+          itemCount: 2,
+          displayNameZh: "开发者工具",
+          displayNameEn: "Developer Tools"
         }
       ],
       listCatalogPage: async ({ installation, pageToken }) => {
@@ -126,9 +128,13 @@ test("loads server categories and appends cursor pages", async () => {
           pageToken ? 2 : 1
         );
         return {
-          sectionId: "development",
+          sectionId: "developer-tools",
           items: [
-            { categoryId: "development", featured: false, connector: item }
+            {
+              categoryId: "developer-tools",
+              featured: false,
+              connector: item
+            }
           ],
           ...(pageToken ? {} : { nextPageToken: "page-2" }),
           revision: pageToken ? 2 : 1
@@ -141,9 +147,13 @@ test("loads server categories and appends cursor pages", async () => {
   assert.deepEqual(service.dataStore.catalogSections[0]?.connectorKeys, [
     "github"
   ]);
+  assert.equal(
+    service.dataStore.catalogSections[0]?.displayNameEn,
+    "Developer Tools"
+  );
   assert.equal(service.dataStore.catalogSections[0]?.nextPageToken, "page-2");
 
-  await service.loadMore("development");
+  await service.loadMore("developer-tools");
   assert.deepEqual(service.dataStore.catalogSections[0]?.connectorKeys, [
     "github",
     "linear"
