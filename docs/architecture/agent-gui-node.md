@@ -357,7 +357,10 @@ The Composer also hands the exact draft used to build a submission to the
 AgentGUI controller. The controller snapshots that handoff for conditional
 post-submit clearing; it must clear only when the current draft still matches
 the submitted snapshot, so a queue admission or accepted send cannot erase a
-newer edit made while the request is in flight.
+newer edit made while the request is in flight. For image blocks, provider
+locators and preview/upload-progress metadata may settle asynchronously and do
+not count as user edits; upload errors and unknown fields remain part of the
+comparison.
 
 ### 2.6 On-demand status
 
