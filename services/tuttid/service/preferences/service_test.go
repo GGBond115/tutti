@@ -197,8 +197,11 @@ func TestServicePutInitializeIfAbsentUsesAtomicStoreOperation(t *testing.T) {
 	})
 
 	preferences, err := service.Put(context.Background(), PutInput{
-		WriteMode:    DesktopPreferencesWriteModeInitializeIfAbsent,
-		FeatureFlags: map[string]bool{preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: true},
+		WriteMode: DesktopPreferencesWriteModeInitializeIfAbsent,
+		FeatureFlags: map[string]bool{
+			preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: false,
+			"agent.extension.gemini":                             true,
+		},
 	})
 	if err != nil {
 		t.Fatalf("Put() error = %v", err)
@@ -211,6 +214,9 @@ func TestServicePutInitializeIfAbsentUsesAtomicStoreOperation(t *testing.T) {
 	}
 	if !store.initializeInput.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
 		t.Fatalf("InitializeDesktopPreferences() feature flags = %#v, want Agent mode", store.initializeInput.FeatureFlags)
+	}
+	if !store.initializeInput.FeatureFlags["agent.extension.gemini"] {
+		t.Fatalf("InitializeDesktopPreferences() feature flags = %#v, want unrelated flags preserved", store.initializeInput.FeatureFlags)
 	}
 	if store.putInput.Initialized {
 		t.Fatal("PutDesktopPreferences() was called for initialize-if-absent write")

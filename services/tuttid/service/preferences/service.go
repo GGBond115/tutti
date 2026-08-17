@@ -256,6 +256,11 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 
 	var preferences preferencesbiz.DesktopPreferences
 	if writeMode == DesktopPreferencesWriteModeInitializeIfAbsent {
+		// Callers provide the complete candidate row, but tuttid owns the
+		// workspace-mode policy for a freshly created profile.
+		freshDefaults := preferencesbiz.DefaultDesktopPreferences()
+		candidate.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] =
+			freshDefaults.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag]
 		initializer, ok := s.Store.(workspacedata.DesktopPreferencesInitializer)
 		if !ok {
 			return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences initializer is not configured")

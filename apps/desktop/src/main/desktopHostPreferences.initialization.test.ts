@@ -38,7 +38,9 @@ test("desktop preferences keep a fresh Agent default when initialization fails b
         getCalls++;
         return {
           initialized: false,
-          preferences: createPreferences({})
+          preferences: createPreferences({
+            [standaloneAgentModeFlag]: true
+          })
         };
       },
       async putDesktopPreferences(request) {
@@ -64,7 +66,9 @@ test("desktop preferences reconcile a lost initialization response with the comm
         return getCalls === 1
           ? {
               initialized: false,
-              preferences: createPreferences({})
+              preferences: createPreferences({
+                [standaloneAgentModeFlag]: true
+              })
             }
           : {
               initialized: true,
@@ -94,7 +98,9 @@ test("desktop preferences preserve a concurrent existing OS preference after an 
         return getCalls === 1
           ? {
               initialized: false,
-              preferences: createPreferences({})
+              preferences: createPreferences({
+                [standaloneAgentModeFlag]: true
+              })
             }
           : {
               initialized: true,

@@ -6955,7 +6955,7 @@ type DesktopPreferencesStateResponse struct {
 	Preferences DesktopPreferences `json:"preferences"`
 }
 
-// DesktopPreferencesWriteMode replace performs the normal full preference update. initializeIfAbsent atomically creates the preference row only when it does not exist and otherwise returns the authoritative stored preferences unchanged.
+// DesktopPreferencesWriteMode replace performs the normal full preference update, and omitting writeMode is equivalent to replace. initializeIfAbsent atomically creates the preference row only when it does not exist after applying the daemon-owned Agent workspace-mode default to the supplied preferences. If the row already exists, it returns the authoritative stored preferences unchanged.
 type DesktopPreferencesWriteMode string
 
 // DesktopSleepPreventionMode defines model for DesktopSleepPreventionMode.
@@ -8044,7 +8044,7 @@ type PutAutomationRuleRequest struct {
 type PutDesktopPreferencesRequest struct {
 	Preferences DesktopPreferences `json:"preferences"`
 
-	// WriteMode replace performs the normal full preference update. initializeIfAbsent atomically creates the preference row only when it does not exist and otherwise returns the authoritative stored preferences unchanged.
+	// WriteMode replace performs the normal full preference update, and omitting writeMode is equivalent to replace. initializeIfAbsent atomically creates the preference row only when it does not exist after applying the daemon-owned Agent workspace-mode default to the supplied preferences. If the row already exists, it returns the authoritative stored preferences unchanged.
 	WriteMode *DesktopPreferencesWriteMode `json:"writeMode,omitempty"`
 }
 

@@ -624,7 +624,7 @@ export type PutDesktopPreferencesRequest = {
 };
 
 /**
- * replace performs the normal full preference update. initializeIfAbsent atomically creates the preference row only when it does not exist and otherwise returns the authoritative stored preferences unchanged.
+ * replace performs the normal full preference update, and omitting writeMode is equivalent to replace. initializeIfAbsent atomically creates the preference row only when it does not exist after applying the daemon-owned Agent workspace-mode default to the supplied preferences. If the row already exists, it returns the authoritative stored preferences unchanged.
  */
 export type DesktopPreferencesWriteMode = "replace" | "initializeIfAbsent";
 

@@ -8,7 +8,7 @@ import { defaultDesktopWorkbenchShortcuts } from "../shared/preferences/index.ts
 import { createDesktopHostPreferencesState } from "./desktopHostPreferences.ts";
 import type { DesktopLogger } from "./logging.ts";
 
-test("createDesktopHostPreferencesState initializes a new profile in Agent mode with desktop defaults", async () => {
+test("createDesktopHostPreferencesState initializes a new profile with daemon feature defaults and desktop defaults", async () => {
   const putRequests: PutDesktopPreferencesRequest[] = [];
   const state = await createDesktopHostPreferencesState({
     fallbackLocale: "zh-CN",
@@ -27,7 +27,10 @@ test("createDesktopHostPreferencesState initializes a new profile in Agent mode 
             appCatalogChannel: "production",
             browserUseConnectionMode: "isolated",
             defaultAgentProvider: "codex",
-            featureFlags: {},
+            featureFlags: {
+              "agent.extension.gemini": true,
+              "workspace.standaloneAgentMode": true
+            },
             workbenchShortcuts: defaultDesktopWorkbenchShortcuts,
             dockIconStyle: "flat",
             dockPlacement: "bottom",
@@ -66,6 +69,7 @@ test("createDesktopHostPreferencesState initializes a new profile in Agent mode 
         browserUseConnectionMode: "isolated",
         defaultAgentProvider: "tutti-agent",
         featureFlags: {
+          "agent.extension.gemini": true,
           "workspace.standaloneAgentMode": true
         },
         workbenchShortcuts: defaultDesktopWorkbenchShortcuts,
@@ -92,6 +96,7 @@ test("createDesktopHostPreferencesState initializes a new profile in Agent mode 
   assert.equal(state.getLocale(), "zh-CN");
   assert.equal(state.getDefaultAgentProvider(), "tutti-agent");
   assert.deepEqual(state.getFeatureFlags(), {
+    "agent.extension.gemini": true,
     "workspace.standaloneAgentMode": true
   });
   assert.deepEqual(state.getAgentGUIConversationRailCollapsedByProvider(), {});
@@ -122,7 +127,9 @@ test("createDesktopHostPreferencesState defaults missing rc package preferences 
             appCatalogChannel: "production",
             browserUseConnectionMode: "isolated",
             defaultAgentProvider: "codex",
-            featureFlags: {},
+            featureFlags: {
+              "workspace.standaloneAgentMode": true
+            },
             workbenchShortcuts: defaultDesktopWorkbenchShortcuts,
             dockIconStyle: "flat",
             dockPlacement: "bottom",
@@ -171,7 +178,9 @@ test("createDesktopHostPreferencesState keeps missing beta package preferences o
             appCatalogChannel: "production",
             browserUseConnectionMode: "isolated",
             defaultAgentProvider: "codex",
-            featureFlags: {},
+            featureFlags: {
+              "workspace.standaloneAgentMode": true
+            },
             workbenchShortcuts: defaultDesktopWorkbenchShortcuts,
             dockIconStyle: "flat",
             dockPlacement: "bottom",

@@ -4,7 +4,6 @@ import type {
   TuttidClient,
   PutDesktopPreferencesRequest
 } from "@tutti-os/client-tuttid-ts";
-import { withDesktopWorkspaceUiMode } from "../shared/featureFlags/catalog.ts";
 import {
   defaultDesktopBrowserUseConnectionMode,
   defaultDesktopAgentCliUpdateCheckEnabled,
@@ -471,7 +470,7 @@ async function resolveInitialDesktopPreferences(
   const freshPreferences = createDefaultDesktopPreferences(
     options,
     defaultUpdateChannel,
-    withDesktopWorkspaceUiMode(defaultDesktopFeatureFlags, "agent")
+    normalizeDesktopFeatureFlags(response.preferences.featureFlags)
   );
   try {
     const initialized = await options.tuttidClient.putDesktopPreferences({

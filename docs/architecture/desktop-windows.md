@@ -103,12 +103,12 @@ It is not responsible for:
 Desktop startup currently follows this sequence:
 
 1. start or reconnect to `tuttid`
-2. ask `tuttid` for the daemon-selected startup workspace
-3. if a startup workspace exists, read the desktop startup-interface preference
-4. when no preference row exists, atomically initialize a complete row with
+2. read the desktop startup-interface preference
+3. when no preference row exists, atomically initialize a complete row with
    Agent mode; if another writer already created the row, use that stored value
    unchanged
-5. create the Agent-only window for a freshly initialized desktop profile or an
+4. ask `tuttid` for the daemon-selected startup workspace
+5. when a startup workspace exists, create the Agent-only window for a freshly initialized desktop profile or an
    explicit Agent selection; an initialized profile with an explicit OS
    selection or the legacy absent preference creates the OS workspace window
 6. otherwise open the dashboard window

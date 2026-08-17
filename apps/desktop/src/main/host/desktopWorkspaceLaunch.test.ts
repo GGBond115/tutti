@@ -20,7 +20,9 @@ test("desktop startup opens the Agent window after fresh profile initialization"
   const putRequests: PutDesktopPreferencesRequest[] = [];
   const client = createClient({
     async getDesktopPreferences() {
-      return createPreferencesState(false, {});
+      return createPreferencesState(false, {
+        [standaloneAgentModeFlag]: true
+      });
     },
     async putDesktopPreferences(request) {
       putRequests.push(request);
