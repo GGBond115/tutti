@@ -214,7 +214,14 @@ export function useAgentGUIDetailSideConversation({
         return;
       }
       if (!sideSupported) {
-        submitPrompt(content, displayPrompt, options);
+        // /side is an isolation boundary, not an ordinary provider command.
+        // Match Codex App's fail-closed behavior: if the exact live source
+        // cannot open Side, never leak the intended Side prompt into main.
+        setEntryErrorState({
+          identity: capabilityIdentity,
+          runtime,
+          code: "operation_failed"
+        });
         return;
       }
       if (!invocation.contentSupported) {

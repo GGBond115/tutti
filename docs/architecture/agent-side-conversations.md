@@ -64,7 +64,10 @@ it probes the selected live session and exposes `/side` only when the runtime
 reports support. The Side pane and its messages live in a separate external
 store; they are never dispatched to
 `AgentSessionEngine`, never appear in the conversation rail, and are discarded
-on close, source-session switch, or event-stream disconnect.
+on explicit close, owning-surface disposal, or event-stream disconnect. A
+typed `/side` remains an isolated Side intent even while capability resolution
+is pending or unsupported; it must never fall through to the canonical main
+conversation submit path.
 
 The service boundary is generated from OpenAPI and exposes resolve, open,
 send, exact-turn cancel, interactive response, and close operations. Live

@@ -348,7 +348,10 @@ entry inserts `/side`; submitting it ensures the source runtime is available,
 then opens Side; `/side <prompt>` opens it and sends the prompt in one action.
 Capability resolution is fail-closed: pending, unavailable, and unsupported
 providers do not show `/side`, including when a provider advertises a command
-with that name. A released canonical provider connection may be resumed from
+with that name. A typed `/side` invocation remains a Side-only intent in those
+states: AgentGUI reports the unavailable operation and never forwards its text
+through the main conversation submit path.
+A released canonical provider connection may be resumed from
 the source Session before capability resolution; the runtime remains the final
 authority for whether the operation can open.
 

@@ -153,6 +153,64 @@ describe("useAgentGUIDetailSideConversation lifecycle", () => {
     runtime.dispose();
   });
 
+  it("never sends an unavailable /side invocation to the main conversation", async () => {
+    const submitPrompt = vi.fn();
+    const clearMainDraft = vi.fn();
+    const transport: AgentSideConversationTransport = {
+      resolveCapabilities: vi.fn(async () => ({
+        supported: false,
+        activeSourceTurn: false,
+        ephemeral: false,
+        hideInheritedTurns: false,
+        modelBoundaryInjected: false
+      })),
+      open: vi.fn(async () => ({ status: "idle" })),
+      send: vi.fn(async () => {}),
+      cancel: vi.fn(async () => {}),
+      respond: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      subscribe: vi.fn(() => () => {}),
+      subscribeConnectionState: vi.fn(() => () => {}),
+      getConnectionState: vi.fn(() => "connected" as const)
+    };
+    const runtime = createAgentSideConversationRuntime(transport);
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(
+        AgentSideConversationRuntimeProvider,
+        { runtime },
+        children
+      );
+    const rendered = renderHook(
+      () =>
+        useAgentGUIDetailSideConversation({
+          workspaceId: "workspace-1",
+          sourceAgentSessionId: "source-1",
+          provider: "codex",
+          cwd: null,
+          availableCommands: [],
+          clearMainDraft,
+          submitPrompt
+        }),
+      { wrapper }
+    );
+
+    await act(async () => undefined);
+    act(() => {
+      rendered.result.current.submitMain(
+        [{ type: "text", text: "/side keep this isolated" }],
+        "/side keep this isolated"
+      );
+    });
+
+    expect(submitPrompt).not.toHaveBeenCalled();
+    expect(transport.open).not.toHaveBeenCalled();
+    expect(clearMainDraft).not.toHaveBeenCalled();
+    expect(rendered.result.current.entryError).toBe("operation_failed");
+
+    rendered.unmount();
+    runtime.dispose();
+  });
+
   it("keeps a Side alive while the selected source Session changes", async () => {
     let connectionListener:
       | ((
