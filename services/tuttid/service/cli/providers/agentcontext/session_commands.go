@@ -609,6 +609,7 @@ func sessionActionOutputSpec() framework.OutputSpec {
 					"launchRequested": action.LaunchRequested,
 					"session":         sessionActionValue(action.WorkspaceID, action.Session),
 				}
+				addAgentSessionReference(value, action.WorkspaceID, action.Session.ID)
 				if turnID := strings.TrimSpace(action.TurnID); turnID != "" {
 					value["turnId"] = turnID
 				}

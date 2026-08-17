@@ -553,6 +553,7 @@ func TestSessionSummaryCommandUsesLimitAndAfterVersion(t *testing.T) {
 	if !ok || session["agentSessionId"] != "SESSION-1" {
 		t.Fatalf("output = %#v", output.Value)
 	}
+	requireAgentSessionReference(t, output.Value, "workspace-1", "SESSION-1")
 	requireAgentSessionReference(t, session, "workspace-1", "SESSION-1")
 	messages := output.Value["messages"].([]any)
 	if len(messages) != 1 {
@@ -808,6 +809,7 @@ func TestWaitCommandReturnsStopPointWithoutMessages(t *testing.T) {
 		t.Fatalf("output = %#v", output.Value)
 	}
 	session := output.Value["session"].(map[string]any)
+	requireAgentSessionReference(t, output.Value, "workspace-1", "SESSION-1")
 	requireAgentSessionReference(t, session, "workspace-1", "SESSION-1")
 	if _, ok := session["settings"]; ok {
 		t.Fatalf("wait session should stay compact: %#v", session)
@@ -1087,6 +1089,7 @@ func TestStartCommandPassesDisplayPrompt(t *testing.T) {
 		t.Fatalf("output turnId = %#v, want turn-new", output.Value["turnId"])
 	}
 	requireAgentSessionReference(t, output.Value["session"].(map[string]any), "workspace-1", "SESSION-NEW")
+	requireAgentSessionReference(t, output.Value, "workspace-1", "SESSION-NEW")
 }
 
 func TestStartCommandRequiresOneSelectorAndPrompt(t *testing.T) {
@@ -2053,6 +2056,7 @@ func TestGetCommandReturnsEmptyConversationWithSession(t *testing.T) {
 	if session["agentSessionId"] != "SESSION-1" || sessions.workspaceID != "workspace-1" {
 		t.Fatalf("output = %#v sessions = %#v", output.Value, sessions)
 	}
+	requireAgentSessionReference(t, output.Value, "workspace-1", "SESSION-1")
 	requireAgentSessionReference(t, session, "workspace-1", "SESSION-1")
 	if output.Value["view"] != getViewConversation || output.Value["hasMoreTurns"] != false {
 		t.Fatalf("output = %#v", output.Value)

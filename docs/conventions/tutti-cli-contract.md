@@ -81,9 +81,11 @@ compatibility alias. It resolves the currently active Turn, emits a
 
 ## Agent Session References
 
-Session objects returned by the builtin `agent sessions`, `agent get`,
-`agent start`, `agent send`, `agent open`, and `agent wait` JSON commands carry
-the raw `agentSessionId` plus `workspaceId` and a canonical `mentionUri`:
+Each item returned by `agent sessions` carries the raw `agentSessionId` plus
+`workspaceId` and a canonical `mentionUri`. Singleton `agent get`, `agent
+start`, `agent send`, `agent open`, and `agent wait` JSON results expose the
+same three fields at the top level so consumers do not need command-specific
+nested lookup:
 
 ```json
 {
@@ -96,7 +98,8 @@ the raw `agentSessionId` plus `workspaceId` and a canonical `mentionUri`:
 Agents should use `mentionUri` as the destination of a descriptive Markdown
 link when returning a session reference. Consumers must treat it as internal
 data for Tutti mention routing, not as a web URL, filesystem path, or command.
-The raw ids remain available for CLI continuation and automation.
+Nested session objects retain the same reference fields for compatibility, and
+raw ids remain available for CLI continuation and automation.
 
 ## Boundaries
 

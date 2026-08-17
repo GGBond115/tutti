@@ -24,10 +24,12 @@ func agentSessionMentionURI(workspaceID string, sessionID string) string {
 
 func addAgentSessionReference(value map[string]any, workspaceID string, sessionID string) {
 	workspaceID = strings.TrimSpace(workspaceID)
+	sessionID = strings.TrimSpace(sessionID)
 	mentionURI := agentSessionMentionURI(workspaceID, sessionID)
 	if mentionURI == "" {
 		return
 	}
+	value["agentSessionId"] = sessionID
 	value["workspaceId"] = workspaceID
 	value["mentionUri"] = mentionURI
 }

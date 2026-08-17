@@ -291,6 +291,7 @@ func sessionGetJSONValue(result any) map[string]any {
 		"view":    got.View,
 		"session": sessionInspectValue(got.WorkspaceID, got.Session),
 	}
+	addAgentSessionReference(value, got.WorkspaceID, got.Session.ID)
 	switch got.View {
 	case getViewTurns:
 		value["turns"] = sessionGetTurnSummaryValues(got.TurnSummaries)

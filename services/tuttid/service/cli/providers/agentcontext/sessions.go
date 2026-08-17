@@ -273,13 +273,15 @@ func (p Provider) imageLocalPathResolver(ctx context.Context, workspaceID string
 
 func sessionSummaryJSONValue(result any) map[string]any {
 	summary := result.(sessionSummaryResult)
-	return map[string]any{
+	value := map[string]any{
 		"agentSessionId": summary.Page.AgentSessionID,
 		"session":        sessionInspectValue(summary.WorkspaceID, summary.Session),
 		"messages":       messageCompactValues(summary.Page.Messages, summary.ImageLocalPath),
 		"latestVersion":  summary.Page.LatestVersion,
 		"hasMore":        summary.Page.HasMore,
 	}
+	addAgentSessionReference(value, summary.WorkspaceID, summary.Page.AgentSessionID)
+	return value
 }
 
 func turnResourcesJSONValue(result any) map[string]any {
@@ -304,6 +306,7 @@ func waitJSONValue(result any) map[string]any {
 		"timedOut":       waited.Result.TimedOut,
 		"reason":         string(waited.Result.Reason),
 	}
+	addAgentSessionReference(value, waited.WorkspaceID, waited.Result.Session.ID)
 	if turnID := strings.TrimSpace(waited.Result.TurnID); turnID != "" {
 		value["turnId"] = turnID
 	}
