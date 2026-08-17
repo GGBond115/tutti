@@ -206,7 +206,7 @@ test("desktop release submits only stable builds to an isolated Store workflow",
     workflow,
     /vars\.TUTTI_WINDOWS_STORE_SUBMISSION_ENABLED == 'true'/
   );
-  assert.match(workflow, /publication_mode == 'publish'/);
+  assert.doesNotMatch(workflow, /publication_mode|draft_only/);
   assert.match(workflow, /needs:\s*\[resolve, promote\]/);
   assert.match(
     workflow,
@@ -531,11 +531,11 @@ test("desktop release post-stage jobs tolerate skipped optional dependencies", a
     /promote:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
   )?.[0];
   const notifyJob = workflow.match(
-    /notify-draft-feishu:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
+    /notify-candidate-feishu:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
   )?.[0];
 
   assert.ok(promoteJob, "promote job should exist");
-  assert.ok(notifyJob, "draft notify job should exist");
+  assert.ok(notifyJob, "candidate notify job should exist");
   assert.match(promoteJob, /if:\s+\${{\s*always\(\)\s*&&/);
   assert.match(promoteJob, /needs\.stage\.result\s*==\s*'success'/);
   assert.match(notifyJob, /if:\s+\${{\s*always\(\)\s*&&/);
@@ -545,16 +545,16 @@ test("desktop release post-stage jobs tolerate skipped optional dependencies", a
 test("desktop release workflow does not redownload release assets for Feishu", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const notifyJobMatch = workflow.match(
-    /notify-draft-feishu:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
+    /notify-candidate-feishu:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
   );
 
-  assert.ok(notifyJobMatch, "draft notify job should exist");
+  assert.ok(notifyJobMatch, "candidate notify job should exist");
 
   const notifyJob = notifyJobMatch[0];
   const checkoutIndex = notifyJob.indexOf("name: Checkout notification script");
   const setupNodeIndex = notifyJob.indexOf("name: Setup Node.js");
   const summaryIndex = notifyJob.indexOf("name: Download release summary");
-  const sendIndex = notifyJob.indexOf("name: Send draft release card");
+  const sendIndex = notifyJob.indexOf("name: Send candidate release card");
 
   assert.notEqual(checkoutIndex, -1, "notify job should checkout the script");
   assert.notEqual(setupNodeIndex, -1, "notify job should setup Node.js");
@@ -615,13 +615,10 @@ test("desktop release workflow only publishes root latest metadata for stable re
   const workflow = await readFile(workflowPath, "utf8");
   const promoteWorkflow = await readFile(promoteWorkflowPath, "utf8");
 
+  assert.doesNotMatch(workflow, /publication_mode|draft_only/);
   assert.match(
     workflow,
-    /publication_mode:[\s\S]*?- publish\r?\n\s*- draft_only/
-  );
-  assert.match(
-    workflow,
-    /needs\.resolve\.outputs\.publication_mode\s*==\s*'publish'/
+    /needs\.stage\.result == 'success' && needs\.resolve\.outputs\.release_candidate != 'true'/
   );
   assert.doesNotMatch(workflow, /channels\/rc\/latest\.json/);
   assert.doesNotMatch(workflow, /aws s3 cp release-latest\.json/);
@@ -783,10 +780,7 @@ test("desktop release workflow keeps prereleases as drafts and reserves the publ
     workflow,
     /uses:\s+\.\/\.github\/workflows\/desktop-release-promote\.yml/
   );
-  assert.match(
-    workflow,
-    /needs\.resolve\.outputs\.publication_mode\s*==\s*'publish'/
-  );
+  assert.doesNotMatch(workflow, /publication_mode|draft_only/);
   assert.match(
     promoteWorkflow,
     /if:\s*\$\{\{\s*needs\.resolve\.outputs\.release_channel\s*==\s*'stable'\s*\}\}/
@@ -949,11 +943,11 @@ test("desktop release workflow always builds Windows and stages unsigned assets"
     /stage:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
   );
   const notifyJobMatch = workflow.match(
-    /notify-draft-feishu:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
+    /notify-candidate-feishu:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
   );
 
   assert.ok(stageJobMatch, "stage job should exist");
-  assert.ok(notifyJobMatch, "draft notify job should exist");
+  assert.ok(notifyJobMatch, "candidate notify job should exist");
   assert.doesNotMatch(workflow, /include_windows/);
   assert.match(workflow, /\r?\n\s{2}build-windows:\r?\n/);
   assert.doesNotMatch(workflow, /\r?\n\s{2}build-linux:\r?\n/);

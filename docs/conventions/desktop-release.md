@@ -76,17 +76,14 @@ Supported manual modes:
 - `explicit_version_release`: publish an explicit release semver such as `0.1.0`, `0.1.0-beta.0`, `0.1.0-rc.0`, `1.13.0-rc.0`, or `2.0.0`
 - `unsigned_dry_run`: build unsigned artifacts without publishing a GitHub Release
 
-Manual runs also expose `publication_mode`:
+RC and beta releases promote automatically after staging. Stable releases
+always stop as a candidate and require the separate Promotion workflow and its
+protected Environment approval before publication. There is no manual
+publication-mode switch.
 
-- For RC and beta releases, `publish` keeps the existing automatic promotion behavior and `draft_only` stops at the Draft Release.
-- Stable releases always stop as a candidate, regardless of this compatibility input. They require the separate Promotion workflow and its protected Environment approval before publication.
-
-For an RC draft, dispatch `patch_rc_release` from `main` or `release/*` and
-select `draft_only`; Windows is included by default. Windows is intentionally
-unsigned for now. A Windows build or artifact validation failure blocks staging
-so an RC or stable release cannot silently publish only macOS assets.
-
-Draft-only assets are unlisted, not private. Anyone who knows the immutable CloudFront URL can download them. This is intentional so internal release notifications can carry working QA download links. Do not use the desktop release asset prefix for confidential artifacts.
+Windows is included by default and is intentionally unsigned for now. A
+Windows build or artifact validation failure blocks staging so an RC or stable
+release cannot silently publish only macOS assets.
 
 Manual RC and stable release modes (`patch_rc_release`, `patch_release`, `minor_release`, and `major_release`) are branch-gated before tag resolution or artifact builds:
 
@@ -227,11 +224,11 @@ TUTTI_WINDOWS_STORE_SUBMISSION_ENABLED=true
 ```
 
 It always selects the protected `microsoft-store-production` Environment and
-accepts only plain stable tags. It runs only for `publication_mode=publish` and
-starts after Direct promotion succeeds. RC, beta, and draft-only runs continue
-through the existing Direct NSIS/CDN flow without a production Store
-submission. The Store job is downstream from Direct promotion, so Store
-certification delay or failure cannot block or roll back Direct promotion.
+accepts only plain stable tags and starts after Direct promotion succeeds. RC
+and beta runs continue through the existing Direct NSIS/CDN flow without a
+production Store submission. The Store job is downstream from Direct
+promotion, so Store certification delay or failure cannot block or roll back
+Direct promotion.
 
 The release workflow builds macOS x64, arm64, and universal packages as a
 three-entry GitHub Actions matrix. Each architecture uploads an isolated

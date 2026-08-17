@@ -48,22 +48,22 @@ function resolveDisplayValue(value, fallback = "unknown") {
 
 function resolveReleaseKind(tag, publicationStatus = "published") {
   if (/-rc\.(0|[1-9]\d*)$/i.test(tag)) {
-    return publicationStatus === "candidate" || publicationStatus === "draft"
+    return publicationStatus === "candidate"
       ? "Draft release candidate prerelease"
       : "Release candidate prerelease";
   }
   if (/-beta\.(0|[1-9]\d*)$/i.test(tag)) {
-    return publicationStatus === "candidate" || publicationStatus === "draft"
+    return publicationStatus === "candidate"
       ? "Draft beta prerelease"
       : "Beta prerelease";
   }
-  return publicationStatus === "candidate" || publicationStatus === "draft"
+  return publicationStatus === "candidate"
     ? "Stable candidate"
     : "Stable latest release";
 }
 
 function resolveIntroText(tag, publicationStatus = "published") {
-  if (publicationStatus === "candidate" || publicationStatus === "draft") {
+  if (publicationStatus === "candidate") {
     return `**${tag}** 候选版本已构建完成，请体验安装包并确认更新说明；当前尚未向用户开放更新。`;
   }
   if (/-rc\.(0|[1-9]\d*)$/i.test(tag)) {
@@ -300,8 +300,7 @@ function buildCardPayload({
   tag
 }) {
   const deployActor = resolveDisplayValue(actor);
-  const candidate =
-    publicationStatus === "candidate" || publicationStatus === "draft";
+  const candidate = publicationStatus === "candidate";
   const actions = [
     { label: candidate ? "下载 macOS 体验版" : "下载 macOS", url: macUrl },
     {
@@ -417,11 +416,7 @@ async function main() {
     "RELEASE_PUBLICATION_STATUS",
     "published"
   );
-  if (
-    publicationStatus !== "candidate" &&
-    publicationStatus !== "draft" &&
-    publicationStatus !== "published"
-  ) {
+  if (publicationStatus !== "candidate" && publicationStatus !== "published") {
     throw new Error(
       "RELEASE_PUBLICATION_STATUS must be candidate or published"
     );

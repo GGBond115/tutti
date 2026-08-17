@@ -2,7 +2,7 @@ name: Desktop Release
 
 run-name: >-
   ${{ github.event_name == 'workflow_dispatch'
-      && format('Desktop Release · {0} · {1} · {2}', inputs.release_mode, inputs.publication_mode, github.ref_name)
+      && format('Desktop Release · {0} · {1}', inputs.release_mode, github.ref_name)
       || format('Desktop Release · {0} · {1}', github.event_name, github.ref_name) }}
 
 on:
@@ -34,14 +34,6 @@ on:
         description: Optional commit-ish override
         required: false
         type: string
-      publication_mode:
-        description: Prerelease publication mode; stable builds always stop for approval
-        required: true
-        type: choice
-        default: publish
-        options:
-          - publish
-          - draft_only
       notify_feishu:
         description: Send a Feishu card after publishing
         required: false
@@ -75,7 +67,6 @@ jobs:
       release_candidate_id: ${{ steps.release.outputs.release_candidate_id }}
       release_candidate_tag: ${{ steps.release.outputs.release_candidate_tag }}
       source_ref: ${{ steps.target.outputs.source_ref }}
-      publication_mode: ${{ steps.publication.outputs.publication_mode }}
       notify_feishu: ${{ steps.notify.outputs.notify_feishu }}
 
     steps:
@@ -280,27 +271,6 @@ jobs:
         id: notify
         shell: bash
         run: echo "notify_feishu=${{ github.event_name != 'workflow_dispatch' || inputs.notify_feishu != false }}" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve publication mode
-        id: publication
-        shell: bash
-        env:
-          INPUT_PUBLICATION_MODE: ${{ inputs.publication_mode }}
-          RELEASE_EVENT_NAME: ${{ github.event_name }}
-        run: |
-          publication_mode=publish
-          if [[ "${RELEASE_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            publication_mode="${INPUT_PUBLICATION_MODE:-publish}"
-          fi
-          case "${publication_mode}" in
-            publish|draft_only)
-              ;;
-            *)
-              echo "Unknown publication_mode: ${publication_mode}" >&2
-              exit 1
-              ;;
-          esac
-          echo "publication_mode=${publication_mode}" >> "$GITHUB_OUTPUT"
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
@@ -546,7 +516,6 @@ jobs:
       ${{ needs.resolve.outputs.release_channel == 'stable' &&
           needs.resolve.outputs.release_dry_run != 'true' &&
           needs.resolve.outputs.release_candidate != 'true' &&
-          needs.resolve.outputs.publication_mode == 'publish' &&
           vars.TUTTI_WINDOWS_STORE_SUBMISSION_ENABLED == 'true' }}
     uses: ./.github/workflows/desktop-store-submit.yml
     with:
@@ -817,7 +786,7 @@ jobs:
   promote:
     name: Promote Release
     needs: [resolve, stage]
-    if: ${{ always() && needs.stage.result == 'success' && needs.resolve.outputs.release_candidate != 'true' && needs.resolve.outputs.publication_mode == 'publish' }}
+    if: ${{ always() && needs.stage.result == 'success' && needs.resolve.outputs.release_candidate != 'true' }}
     uses: ./.github/workflows/desktop-release-promote.yml
     with:
       release_tag: ${{ needs.resolve.outputs.release_tag }}
@@ -828,10 +797,10 @@ jobs:
     secrets:
       FEISHU_RELEASE_WEBHOOK_URL: ${{ secrets.FEISHU_RELEASE_WEBHOOK_URL }}
 
-  notify-draft-feishu:
+  notify-candidate-feishu:
     name: Notify Release Candidate
     needs: [resolve, stage]
-    if: ${{ always() && needs.stage.result == 'success' && needs.resolve.outputs.notify_feishu == 'true' && (needs.resolve.outputs.release_candidate == 'true' || needs.resolve.outputs.publication_mode == 'draft_only') }}
+    if: ${{ always() && needs.stage.result == 'success' && needs.resolve.outputs.notify_feishu == 'true' && needs.resolve.outputs.release_candidate == 'true' }}
     runs-on: ubuntu-latest
     env:
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_RELEASE_WEBHOOK_URL }}
@@ -841,10 +810,10 @@ jobs:
       TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX: ${{ vars.TUTTI_DESKTOP_RELEASE_ASSETS_S3_PREFIX }}
       RELEASE_ACTOR: ${{ github.actor }}
       RELEASE_BRANCH: ${{ github.ref_type == 'branch' && github.ref_name || '' }}
-      RELEASE_ASSET_PATH: ${{ needs.resolve.outputs.release_candidate == 'true' && format('candidates/{0}', needs.resolve.outputs.release_candidate_id) || needs.resolve.outputs.release_tag }}
+      RELEASE_ASSET_PATH: candidates/${{ needs.resolve.outputs.release_candidate_id }}
       RELEASE_CANDIDATE_ID: ${{ needs.resolve.outputs.release_candidate_id }}
-      RELEASE_LOOKUP_TAG: ${{ needs.resolve.outputs.release_candidate == 'true' && needs.resolve.outputs.release_candidate_tag || needs.resolve.outputs.release_tag }}
-      RELEASE_PUBLICATION_STATUS: ${{ needs.resolve.outputs.release_candidate == 'true' && 'candidate' || 'draft' }}
+      RELEASE_LOOKUP_TAG: ${{ needs.resolve.outputs.release_candidate_tag }}
+      RELEASE_PUBLICATION_STATUS: candidate
       RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
       RELEASE_TARGET: ${{ needs.resolve.outputs.release_target }}
       RELEASE_URL: ${{ needs.stage.outputs.release_url }}
@@ -871,7 +840,7 @@ jobs:
           name: tutti-desktop-release-summary
           path: release-summary
 
-      - name: Send draft release card
+      - name: Send candidate release card
         if: env.FEISHU_WEBHOOK_URL != ''
         env:
           RELEASE_SUMMARY_PATH: release-summary/release-summary.json
@@ -879,4 +848,4 @@ jobs:
 
       - name: Skip Feishu card
         if: env.FEISHU_WEBHOOK_URL == ''
-        run: echo "FEISHU_RELEASE_WEBHOOK_URL is not configured; skipping draft notification."
+        run: echo "FEISHU_RELEASE_WEBHOOK_URL is not configured; skipping candidate notification."
