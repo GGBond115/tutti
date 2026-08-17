@@ -69,6 +69,8 @@ export interface AgentGUIConversationRailLayout {
 // Provider-gate labels live on AgentGUIProviderReadinessLabels; extend it
 // rather than restating every key here.
 export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
+  selectionAddToConversation: string;
+  selectionAskInSide: string;
   initialPlaceholder: string;
   followupPlaceholder: string;
   installRequiredPlaceholder: string;

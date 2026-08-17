@@ -35,7 +35,7 @@ import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
 import type { AgentGUIDetailPaneProps } from "./AgentGUIDetailPane.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
-import { useAgentGUIDetailSideChrome } from "./useAgentGUIDetailSideChrome";
+import { useAgentGUIDetailSideChrome as useSideChrome } from "./useAgentGUIDetailSideChrome";
 import type { TimelineScrollAnchor } from "./agentGUIScrollMemory";
 import { useBottomDockInteractionSubmission } from "./useBottomDockInteractionSubmission";
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
@@ -98,8 +98,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     readiness,
     operations
   };
-  // Keep Hook calls at component level: React Compiler may cache an object
-  // returned by a custom Hook and skip nested useRef calls on later renders.
+  // Keep refs here: React Compiler may cache a custom Hook's returned object.
   const bottomDockRef = useRef<HTMLDivElement | null>(null);
   const pendingPrependScrollAnchorRef = useRef<{
     conversationId: string;
@@ -377,7 +376,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     submitPrompt: tuttiWorkflowComposer.submitPromptOrDecidePlan
   });
   const sideComposerFocused = sideConversation.focused;
-
   const baseComposerProps = useMemo<AgentComposerProps>(
     () => ({
       workspaceId: viewModel.shell.workspaceId,
@@ -626,13 +624,13 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       selectHomeComposerAgentTargetAndFocus
     ]
   );
-  const { bottomDockComposerProps, sidePane } = useAgentGUIDetailSideChrome({
+  const { bottomDockComposerProps, selectionProps, sidePane } = useSideChrome({
     availableSkills: viewModel.composer.availableSkills,
     baseComposerProps,
     controller: sideConversation,
     conversationFlowLabels,
     isVisible,
-    loadingLabel: labels.loadingConversation,
+    onRequestComposerFocus,
     renderComposerFooterAccessory
   });
   const emptyHeroComposerProps = useMemo<AgentComposerProps>(
@@ -747,6 +745,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
               viewModel.operations.forkThroughTurnPendingTurnIds
             }
             onLinkAction={stableLinkAction}
+            {...selectionProps}
             showTimelineSkeleton={showTimelineSkeleton}
             showUnavailableChatEmpty={showUnavailableChatEmpty}
             timelineContentRef={timelineContentRef}

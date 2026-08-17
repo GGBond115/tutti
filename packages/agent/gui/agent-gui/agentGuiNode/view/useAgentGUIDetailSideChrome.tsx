@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import type { AgentComposerProps } from "../AgentComposer";
 import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
 import type { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
@@ -12,6 +12,7 @@ import {
   AgentGUISideConversationPane,
   type AgentGUISideConversationPaneProps
 } from "./AgentGUISideConversationPane";
+import { appendAgentGUIComposerPrompt } from "../controller/useAgentGUIComposerAppendRequest";
 
 const EMPTY_WORKSPACE_APP_ICONS: NonNullable<
   AgentComposerProps["workspaceAppIcons"]
@@ -23,7 +24,7 @@ interface UseAgentGUIDetailSideChromeInput {
   controller: ReturnType<typeof useAgentGUIDetailSideConversation>;
   conversationFlowLabels: AgentGUISideConversationPaneProps["conversationFlowLabels"];
   isVisible: boolean;
-  loadingLabel: string;
+  onRequestComposerFocus: () => void;
   renderComposerFooterAccessory: AgentGUIDetailPaneProps["renderComposerFooterAccessory"];
 }
 
@@ -33,10 +34,14 @@ export function useAgentGUIDetailSideChrome({
   controller,
   conversationFlowLabels,
   isVisible,
-  loadingLabel,
+  onRequestComposerFocus,
   renderComposerFooterAccessory
 }: UseAgentGUIDetailSideChromeInput): {
   bottomDockComposerProps: AgentComposerProps;
+  selectionProps: {
+    onAddSelectionToConversation: (text: string) => void;
+    onAskSelectionInSide?: (text: string) => void;
+  };
   sidePane: ReactNode;
 } {
   const { t } = useTranslation();
@@ -93,6 +98,28 @@ export function useAgentGUIDetailSideChrome({
   const bottomDockComposerProps = useMemo<AgentComposerProps>(
     () => ({ ...baseComposerProps, footerAccessory }),
     [baseComposerProps, footerAccessory]
+  );
+  const addSelectionToConversation = useCallback(
+    (text: string) => {
+      baseComposerProps.onDraftContentChange(
+        appendAgentGUIComposerPrompt(baseComposerProps.draftContent, text)
+      );
+      onRequestComposerFocus();
+    },
+    [baseComposerProps, onRequestComposerFocus]
+  );
+  const askSelectionInSide = useCallback(
+    (text: string) => {
+      void controller.open(text).catch(() => {});
+    },
+    [controller]
+  );
+  const selectionProps = useMemo(
+    () => ({
+      onAddSelectionToConversation: addSelectionToConversation,
+      onAskSelectionInSide: controller.canOpen ? askSelectionInSide : undefined
+    }),
+    [addSelectionToConversation, askSelectionInSide, controller.canOpen]
   );
   const sideComposerProps = useMemo<AgentComposerProps | null>(() => {
     if (!active) return null;
@@ -184,7 +211,7 @@ export function useAgentGUIDetailSideChrome({
         composerProps={sideComposerProps}
         conversationFlowLabels={conversationFlowLabels}
         isVisible={isVisible}
-        loadingLabel={loadingLabel}
+        loadingLabel={t("agentHost.agentGui.loadingConversation")}
         workspaceAppIcons={
           baseComposerProps.workspaceAppIcons ?? EMPTY_WORKSPACE_APP_ICONS
         }
@@ -193,5 +220,5 @@ export function useAgentGUIDetailSideChrome({
         onLinkAction={baseComposerProps.onLinkAction}
       />
     ) : null;
-  return { bottomDockComposerProps, sidePane };
+  return { bottomDockComposerProps, selectionProps, sidePane };
 }

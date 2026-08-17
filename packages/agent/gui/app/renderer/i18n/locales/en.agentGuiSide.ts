@@ -8,6 +8,8 @@ export const enAgentGuiSide = {
   sideInputPlaceholder: "Ask a related question",
   sideResize: "Resize Side conversation",
   sideCollapse: "Collapse Side conversation",
+  selectionAddToConversation: "Add to conversation",
+  selectionAskInSide: "Ask in Side chat",
   sideInteractionTitle: "Side needs your response",
   sideContentUnsupported:
     "This attachment type is not supported in a Side conversation yet.",
