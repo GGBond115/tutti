@@ -47,6 +47,42 @@ test("desktop startup opens the Agent window after fresh profile initialization"
   });
 });
 
+test("desktop startup honors an existing OS preference returned by successful initialization", async () => {
+  let getCalls = 0;
+  let capturedRequest: PutDesktopPreferencesRequest | undefined;
+  const client = createClient({
+    async getDesktopPreferences() {
+      getCalls++;
+      return createPreferencesState(false, {
+        [standaloneAgentModeFlag]: true
+      });
+    },
+    async putDesktopPreferences(request) {
+      capturedRequest = request;
+      return createPreferencesState(true, {
+        [standaloneAgentModeFlag]: false
+      });
+    }
+  });
+  const preferences = await createDesktopHostPreferencesState({
+    fallbackLocale: "en",
+    logger: createLogger(),
+    tuttidClient: client
+  });
+  const opened = await openStartupWindow(preferences, client);
+
+  assert.equal(capturedRequest?.writeMode, "initializeIfAbsent");
+  assert.equal(
+    capturedRequest?.preferences.featureFlags[standaloneAgentModeFlag],
+    true
+  );
+  assert.equal(getCalls, 1);
+  assert.deepEqual(opened, {
+    options: { windowKind: "workspace" },
+    workspaceID: "workspace-1"
+  });
+});
+
 test("desktop startup maps persisted and unavailable preference states to the expected window kind", async (t) => {
   const cases: Array<{
     getDesktopPreferences: () => Promise<DesktopPreferencesStateResponse>;
