@@ -37,6 +37,20 @@ test("normalizes Windows drive paths without treating them as relative", () => {
     "/C:/tmp/report.txt"
   );
   assert.equal(
+    normalizeWorkspaceFilePath(
+      "c:\\Users\\demo\\project\\src\\main.ts",
+      "C:\\Users\\demo\\project"
+    ),
+    "/C:/Users/demo/project/src/main.ts"
+  );
+  assert.equal(
+    normalizeWorkspaceFilePath(
+      "/c/Users/demo/project/src/main.ts",
+      "C:\\Users\\demo\\project"
+    ),
+    "/C:/Users/demo/project/src/main.ts"
+  );
+  assert.equal(
     normalizeWorkspaceFilePath("/C:/tmp/report.txt"),
     "/C:/tmp/report.txt"
   );

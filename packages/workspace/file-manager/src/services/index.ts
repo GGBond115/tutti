@@ -46,7 +46,10 @@ export {
   isWorkspaceFileRecentLocation,
   resolveWorkspaceFileLocationDefaultId
 } from "./workspaceFileManagerLocations.ts";
-export { workspaceFileName } from "./internal/model/paths.ts";
+export {
+  normalizeWorkspaceFilePath,
+  workspaceFileName
+} from "./internal/model/paths.ts";
 export {
   type WorkspaceFileActivationTarget,
   type WorkspaceFileDirectoryListing,
