@@ -4808,6 +4808,14 @@ export type ConnectorMarketCategory = {
   kind: "category" | "featured";
   sortOrder: number;
   itemCount: number;
+  /**
+   * Server-managed Simplified Chinese category name.
+   */
+  displayNameZh?: string;
+  /**
+   * Server-managed English category name.
+   */
+  displayNameEn?: string;
 };
 
 export type ConnectorMarketCategoriesResponse = {

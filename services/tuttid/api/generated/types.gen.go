@@ -6317,10 +6317,16 @@ type ConnectorMarketCategoriesResponse struct {
 
 // ConnectorMarketCategory defines model for ConnectorMarketCategory.
 type ConnectorMarketCategory struct {
-	CategoryId string                      `json:"categoryId"`
-	ItemCount  int64                       `json:"itemCount"`
-	Kind       ConnectorMarketCategoryKind `json:"kind"`
-	SortOrder  int32                       `json:"sortOrder"`
+	CategoryId string `json:"categoryId"`
+
+	// DisplayNameEn Server-managed English category name.
+	DisplayNameEn *string `json:"displayNameEn,omitempty"`
+
+	// DisplayNameZh Server-managed Simplified Chinese category name.
+	DisplayNameZh *string                     `json:"displayNameZh,omitempty"`
+	ItemCount     int64                       `json:"itemCount"`
+	Kind          ConnectorMarketCategoryKind `json:"kind"`
+	SortOrder     int32                       `json:"sortOrder"`
 }
 
 // ConnectorMarketCategoryKind defines model for ConnectorMarketCategory.Kind.
