@@ -160,7 +160,11 @@ func (h *Host) processRuntimeOperation(ctx context.Context, operation storesqlit
 	if operation.Kind == storesqlite.RuntimeOperationKindPlanDecision {
 		var result storesqlite.RuntimeOperation
 		var processErr error
-		err := h.withWorkspaceRuntimeOperation(ctx, operation.WorkspaceID, func(operationCtx context.Context) error {
+		err := h.withWorkspaceRuntimeOperationInfo(ctx, WorkspaceRuntimeOperationInfo{
+			WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID,
+			Kind: operation.Kind, AgentSessionID: operation.AgentSessionID,
+			Source: "host.runtime_operation_worker",
+		}, func(operationCtx context.Context) error {
 			result, processErr = h.processRuntimeOperationAdmitted(operationCtx, operation, recovering)
 			return processErr
 		})

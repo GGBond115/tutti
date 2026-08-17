@@ -22,7 +22,10 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		operationID: operationID, requestID: activationID, clientSubmitID: clientSubmitID, turnID: input.TurnID,
 	})
 	var result CreateSessionResult
-	err := h.withWorkspaceRuntimeOperation(ctx, workspaceID, func(operationCtx context.Context) error {
+	err := h.withWorkspaceRuntimeOperationInfo(ctx, WorkspaceRuntimeOperationInfo{
+		WorkspaceID: workspaceID, OperationID: operationID, Kind: "session_create",
+		AgentSessionID: input.AgentSessionID, Source: "host.CreateSession",
+	}, func(operationCtx context.Context) error {
 		var createErr error
 		result, createErr = h.createSession(operationCtx, workspaceID, input)
 		return createErr
@@ -359,7 +362,10 @@ func (h *Host) EnsureRuntimeSession(ctx context.Context, ref SessionRef) (Provid
 		return ProviderRuntimeSession{}, ErrSessionNotFound
 	}
 	var result ProviderRuntimeSession
-	err := h.withWorkspaceRuntimeOperation(ctx, ref.WorkspaceID, func(operationCtx context.Context) error {
+	err := h.withWorkspaceRuntimeOperationInfo(ctx, WorkspaceRuntimeOperationInfo{
+		WorkspaceID: ref.WorkspaceID, Kind: "ensure_runtime_session",
+		AgentSessionID: ref.AgentSessionID, Source: "host.EnsureRuntimeSession",
+	}, func(operationCtx context.Context) error {
 		var ensureErr error
 		result, ensureErr = h.ensureRuntimeSession(operationCtx, ref)
 		return ensureErr
