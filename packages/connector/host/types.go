@@ -189,8 +189,18 @@ type ManagedCLIInterface struct {
 	Arguments      []string           `json:"arguments,omitempty"`
 	TimeoutMS      int                `json:"timeoutMs,omitempty"`
 	ReadinessProbe *CLIReadinessProbe `json:"readinessProbe,omitempty"`
+	Launch         *CLIArtifactLaunch `json:"launch,omitempty"`
 	Install        *CLIInstallation   `json:"install,omitempty"`
 	Commands       []CLICommand       `json:"commands,omitempty"`
+}
+
+// CLIArtifactLaunch identifies a native executable already contained in the
+// signed Connector artifact. Upstream acquisition is a publication concern;
+// runtime hosts only execute the prepared artifact after checking this identity.
+type CLIArtifactLaunch struct {
+	Kind      string `json:"kind"`
+	SHA256    string `json:"sha256"`
+	SizeBytes int64  `json:"sizeBytes"`
 }
 
 // CLIReadinessProbe is an optional bounded health check for an already

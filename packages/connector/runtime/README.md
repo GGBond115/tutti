@@ -96,9 +96,9 @@ calibrate connected, disconnected, expired, and failed state after restart.
 Tutti validates
 every authorization URL against the manifest's exact HTTPS host allowlist and
 keeps one broker session alive while the provider emits multiple steps. CLI
-credentials remain user-global in the real user home, while the CLI itself is
-installed only in Tutti's private managed directory and is never added to the
-system `PATH`.
+credentials and configuration remain in the Connector-private state directory;
+the CLI itself is installed only in Tutti's private managed directory and is
+never added to the system `PATH`.
 
 Credential-broker sessions are owned by the durable authorization operation,
 not only by the Connector route. Repeating that operation may resume its

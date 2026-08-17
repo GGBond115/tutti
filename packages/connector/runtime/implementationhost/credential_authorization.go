@@ -461,7 +461,7 @@ func (host *Host) buildAuthorizationRoute(ctx context.Context, connectionID stri
 		return nil, fmt.Errorf("resolve prepared connector artifact for authorization: %w", err)
 	}
 	installedRoot := prepared.PreparedPath
-	executionRoot, err := host.snapshots.Create(prepared)
+	executionRoot, err := host.snapshots.Create(prepared, artifactNativeEntrypoints(connector.Release)...)
 	if err != nil {
 		return nil, fmt.Errorf("create connector authorization snapshot: %w", err)
 	}
