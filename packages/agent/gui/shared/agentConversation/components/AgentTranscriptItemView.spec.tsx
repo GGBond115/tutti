@@ -859,6 +859,9 @@ describe("AgentTranscriptItemView render stability", () => {
       await screen.findByTestId("agent-gui-message-image-failed")
     ).toBeInTheDocument();
     expect(
+      screen.getByText("agentHost.agentGui.imageLoadFailed")
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: "agentHost.agentGui.retryImage" })
     ).toBeInTheDocument();
 
@@ -877,6 +880,46 @@ describe("AgentTranscriptItemView render stability", () => {
 
     expect(screen.queryByTestId("agent-gui-message-image-failed")).toBeNull();
     expect(screen.queryByTestId("agent-gui-message-image-loading")).toBeNull();
+  });
+
+  it("does not offer retry when a prompt image is unavailable in this host", async () => {
+    delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
+
+    render(
+      <AgentMessageBlock
+        workspaceRoot="/workspace/demo"
+        basePath="/workspace/demo"
+        row={userMessageRow({
+          kind: "message-content",
+          id: "user-images-unavailable",
+          turnId: "turn-1",
+          body: "",
+          contentKind: "image-grid",
+          images: [
+            {
+              id: "unavailable-image",
+              workspaceId: "room-1",
+              agentSessionId: "session-1",
+              attachmentId: "attachment-from-another-host",
+              mimeType: "image/png",
+              name: "screen.png"
+            }
+          ],
+          occurredAtUnixMs: 1
+        })}
+        thinkingLabel="Thought process"
+      />
+    );
+
+    expect(
+      await screen.findByTestId("agent-gui-message-image-failed")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentHost.agentGui.imageTemporarilyUnavailable")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "agentHost.agentGui.retryImage" })
+    ).toBeNull();
   });
 
   it("starts a fresh load when a failed remote image URL changes", async () => {

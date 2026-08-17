@@ -71,16 +71,18 @@ export function AgentUserImageGrid({
           failedSources.get(image.id),
           failureSource
         );
+        const canRetry = canRetryImageFailure(failureSource);
         const attempt = retryCounts.get(image.id) ?? 0;
         return (
           <AgentUserImageTile
             key={image.id}
+            canRetry={canRetry}
             image={image}
             src={src}
             failed={failed}
             sourceLoading={!src && loadingIds.has(image.id)}
             attempt={attempt}
-            failureLabel={t("agentHost.agentGui.imageLoadFailed")}
+            failureLabel={t(imageFailureLabelKey(failureSource))}
             retryLabel={t("agentHost.agentGui.retryImage")}
             onFailed={() => {
               markFailed(image.id, failureSource);
@@ -96,6 +98,7 @@ export function AgentUserImageGrid({
 
 function AgentUserImageTile({
   attempt,
+  canRetry,
   failed,
   failureLabel,
   image,
@@ -106,6 +109,7 @@ function AgentUserImageTile({
   src
 }: {
   attempt: number;
+  canRetry: boolean;
   failed: boolean;
   failureLabel: string;
   image: AgentMessageImageVM;
@@ -134,6 +138,7 @@ function AgentUserImageTile({
     >
       {showingFailure ? (
         <ImageLoadFailurePlaceholder
+          canRetry={canRetry}
           label={failureLabel}
           retryLabel={retryLabel}
           icon={AlertCircle}
@@ -353,11 +358,13 @@ function ImageLoadingPlaceholder(): JSX.Element {
 }
 
 function ImageLoadFailurePlaceholder({
+  canRetry,
   icon: Icon,
   label,
   onRetry,
   retryLabel
 }: {
+  canRetry: boolean;
   icon: LucideIcon;
   label: string;
   onRetry: () => void;
@@ -374,10 +381,12 @@ function ImageLoadFailurePlaceholder({
       <span className="max-w-full truncate text-xs" title={label}>
         {label}
       </span>
-      <Button type="button" variant="ghost" size="xs" onClick={onRetry}>
-        <RotateCcw aria-hidden="true" />
-        {retryLabel}
-      </Button>
+      {canRetry ? (
+        <Button type="button" variant="ghost" size="xs" onClick={onRetry}>
+          <RotateCcw aria-hidden="true" />
+          {retryLabel}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -465,6 +474,20 @@ function imageFailureSource(
       attachmentId ? runtime?.readSessionAttachment : runtime?.readPromptAsset
     )
   };
+}
+
+function canRetryImageFailure(source: ImageFailureSource): boolean {
+  return source.kind === "resolved" || source.readerAvailable;
+}
+
+function imageFailureLabelKey(
+  source: ImageFailureSource
+):
+  | "agentHost.agentGui.imageLoadFailed"
+  | "agentHost.agentGui.imageTemporarilyUnavailable" {
+  return source.kind === "locator" && !source.readerAvailable
+    ? "agentHost.agentGui.imageTemporarilyUnavailable"
+    : "agentHost.agentGui.imageLoadFailed";
 }
 
 function isMatchingImageFailure(
