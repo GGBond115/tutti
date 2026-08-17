@@ -78,6 +78,7 @@ export const zhCN = {
     errorTitle: "无法检查更新",
     restartAction: "重启安装",
     retryAction: "重试",
+    releaseNotesAction: "更新内容",
     storeManaged: "更新由 Microsoft Store 管理"
   },
   desktop: {

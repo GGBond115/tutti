@@ -442,15 +442,16 @@ test("desktop release workflow keeps less common rc bumps behind explicit versio
   assert.doesNotMatch(workflow, /tag_name:\s*\n/);
 });
 
-test("desktop release workflow reserves unique tags instead of serializing whole runs", async () => {
+test("desktop release workflow defers stable tags but still reserves prerelease tags", async () => {
   const workflow = await readFile(workflowPath, "utf8");
 
-  assert.doesNotMatch(workflow, /^concurrency:/m);
+  assert.match(workflow, /^concurrency:\s*$/m);
+  assert.match(workflow, /cancel-in-progress:\s+false/);
   assert.match(workflow, /apps\/desktop\/scripts\/reserve-release-tag\.mjs/);
-  assert.match(
-    workflow,
-    /args\+=\(--target "\${{\s*steps\.target\.outputs\.release_target\s*}}"\)/
-  );
+  assert.match(workflow, /release_candidate=true/);
+  assert.match(workflow, /release_channel.*stable/);
+  assert.match(workflow, /reserve_args=.*--strategy explicit_tag/);
+  assert.match(workflow, /release_candidate != 'true'/);
 });
 
 test("desktop release workflow passes tsh-aligned Feishu card context", async () => {
@@ -471,7 +472,7 @@ test("desktop release workflow passes tsh-aligned Feishu card context", async ()
   );
   assert.match(
     workflow,
-    /outputs:\s*\n\s*release_url:\s*\${{\s*github\.server_url\s*}}\/\${{\s*github\.repository\s*}}\/releases\/tag\/\${{\s*needs\.resolve\.outputs\.release_tag\s*}}/
+    /release_url:\s*\${{\s*needs\.resolve\.outputs\.release_candidate\s*==\s*'true'[\s\S]*steps\.stage-candidate-release\.outputs\.release_url/
   );
   assert.match(
     workflow,
@@ -819,7 +820,7 @@ test("desktop promotion validates draft identity, checksums, and channel orderin
   assert.match(promoteWorkflow, /group:\s+desktop-release-promotion/);
   assert.match(
     promoteWorkflow,
-    /gh release view "\$\{release_tag\}"[\s\S]*assets,isDraft,isPrerelease,tagName,targetCommitish,url/
+    /\.tag_name == \\"\$\{release_tag\}\\" or \.tag_name == \\"\$\{release_candidate_tag\}\\"/
   );
   assert.match(
     promoteWorkflow,
@@ -829,6 +830,34 @@ test("desktop promotion validates draft identity, checksums, and channel orderin
   assert.match(promoteWorkflow, /name:\s+Prevent release channel rollback/);
   assert.match(promoteWorkflow, /Refusing to move/);
   assert.match(promoteWorkflow, /name:\s+Verify public release pointer/);
+});
+
+test("stable candidates require environment approval and bind the reviewed notes", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const promoteWorkflow = await readFile(promoteWorkflowPath, "utf8");
+
+  assert.match(workflow, /build-release-candidate-manifest\.mjs/);
+  assert.match(workflow, /release_candidate_tag="candidate-\$\{release_tag\}"/);
+  assert.match(workflow, /releases\/assets\/\$\{asset_id\}/);
+  assert.match(
+    workflow,
+    /candidates\/\$\{TUTTI_DESKTOP_RELEASE_CANDIDATE_ID\}/
+  );
+  assert.match(workflow, /PROMOTION_URL:/);
+  assert.match(promoteWorkflow, /environment:\s+desktop-stable-release/);
+  assert.match(promoteWorkflow, /extract-approved-release-summary\.mjs/);
+  assert.match(promoteWorkflow, /verify-release-candidate\.mjs/);
+  assert.match(
+    promoteWorkflow,
+    /RELEASE_TAG="\$\{release_tag\}" RELEASE_TARGET="\$\{draft_target_sha\}"/
+  );
+  assert.match(
+    promoteWorkflow,
+    /Release notes or candidate assets changed after approval/
+  );
+  assert.match(promoteWorkflow, /Create stable release tag after approval/);
+  assert.match(promoteWorkflow, /Protect immutable stable asset path/);
+  assert.match(promoteWorkflow, /\.promotion-candidate\.json/);
 });
 
 test("desktop release workflow refreshes the stable alias without taking Latest", async () => {

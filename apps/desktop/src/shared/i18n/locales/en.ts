@@ -78,6 +78,7 @@ export const en = {
     errorTitle: "Unable to check for updates",
     restartAction: "Restart & install",
     retryAction: "Retry",
+    releaseNotesAction: "What's new",
     storeManaged: "Updates are managed by Microsoft Store."
   },
   desktop: {
