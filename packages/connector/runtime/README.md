@@ -100,6 +100,13 @@ credentials remain user-global in the real user home, while the CLI itself is
 installed only in Tutti's private managed directory and is never added to the
 system `PATH`.
 
+Credential-broker sessions are owned by the durable authorization operation,
+not only by the Connector route. Repeating that operation may resume its
+session; a different operation must first cancel the previous session and wait
+for its process to exit. This exit confirmation is required before another
+broker can use the same Connector state directory, including on Windows where
+process-tree termination remains inside the injected process transport.
+
 Connector installation, MCP, CLI, and credential-broker processes intentionally
 do not use an OS process sandbox. `NewConnectorProcessTransport()` preserves
 the security boundary through pinned packages, verified artifact receipts,

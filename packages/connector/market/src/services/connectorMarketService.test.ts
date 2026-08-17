@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type {
   Connector,
+  ConnectorAuthorizationInput,
   ConnectorAuthorizationResult,
   ConnectorMarketBackend,
   ConnectorMarketChangedEvent,
@@ -1107,21 +1108,29 @@ test("forwards a user-provided secret only to the authorization mutation", async
   service.dispose();
 });
 
-test("shares one authorization command across concurrent callers", async () => {
-  const authorization =
+test("a new authorization command supersedes the previous caller", async () => {
+  const firstAuthorization =
+    deferred<
+      Awaited<ReturnType<ConnectorMarketBackend["beginAuthorization"]>>
+    >();
+  const secondAuthorization =
     deferred<
       Awaited<ReturnType<ConnectorMarketBackend["beginAuthorization"]>>
     >();
   let authorizationAttempts = 0;
   let requestIds = 0;
+  const requests: ConnectorAuthorizationInput[] = [];
   const initial = connector("notion", 1);
   initial.authorization = { state: "disconnected" };
   const service = new ConnectorMarketService({
     backend: backendWith({
       getSnapshot: async () => snapshot(1, [initial]),
-      beginAuthorization: async () => {
+      beginAuthorization: async (request) => {
+        requests.push(request);
         authorizationAttempts += 1;
-        return authorization.promise;
+        return authorizationAttempts === 1
+          ? firstAuthorization.promise
+          : secondAuthorization.promise;
       }
     }),
     createRequestId: () => `authorization-${++requestIds}`
@@ -1132,7 +1141,7 @@ test("shares one authorization command across concurrent callers", async () => {
   const second = service.beginAuthorization("notion");
   const connected = connector("notion", 2);
   connected.authorization = { state: "connected" };
-  authorization.resolve({
+  secondAuthorization.resolve({
     connector: connected,
     operation: {
       ...operation("start_authorization", 2),
@@ -1141,10 +1150,43 @@ test("shares one authorization command across concurrent callers", async () => {
     },
     revision: 2
   });
-  await Promise.all([first, second]);
+  await second;
+  firstAuthorization.resolve({
+    connector: connected,
+    operation: {
+      ...operation("start_authorization", 2),
+      connectorKey: "notion",
+      state: "completed"
+    },
+    revision: 2
+  });
+  await assert.rejects(first, (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "connector_authorization_canceled"
+    )
+  );
 
-  assert.equal(authorizationAttempts, 1);
-  assert.equal(requestIds, 1);
+  assert.equal(authorizationAttempts, 2);
+  assert.equal(requestIds, 2);
+  assert.deepEqual(
+    requests.map(({ clientRequestId, replacementPolicy }) => ({
+      clientRequestId,
+      replacementPolicy
+    })),
+    [
+      {
+        clientRequestId: "authorization-1",
+        replacementPolicy: "replace_active"
+      },
+      {
+        clientRequestId: "authorization-2",
+        replacementPolicy: "replace_active"
+      }
+    ]
+  );
   assert.deepEqual(service.dataStore.authorizingConnectorKeys, {});
   service.dispose();
 });
@@ -1205,12 +1247,14 @@ test("converges a busy authorization continuation from a connected snapshot", as
     {
       connectorKey: "notion",
       clientRequestId: "one-notion-authorization",
+      replacementPolicy: "replace_active",
       expectedRevision: 1,
       expectedConnectorRevision: 1
     },
     {
       connectorKey: "notion",
       clientRequestId: "one-notion-authorization",
+      replacementPolicy: "replace_active",
       expectedRevision: 1,
       expectedConnectorRevision: 2
     }
@@ -1280,6 +1324,7 @@ test("recovers one stale authorization revision without dropping the secret", as
     {
       connectorKey: "token-mail",
       clientRequestId: "one-secret-request",
+      replacementPolicy: "replace_active",
       expectedRevision: 1,
       expectedConnectorRevision: 1,
       secret: "secret-value"
@@ -1287,6 +1332,7 @@ test("recovers one stale authorization revision without dropping the secret", as
     {
       connectorKey: "token-mail",
       clientRequestId: "one-secret-request",
+      replacementPolicy: "replace_active",
       expectedRevision: 4,
       expectedConnectorRevision: 4,
       secret: "secret-value"
@@ -1381,18 +1427,21 @@ test("continues one authorization session, opens each URL once, and clears loadi
     {
       connectorKey: "lark-cli",
       clientRequestId: "one-authorization-request",
+      replacementPolicy: "replace_active",
       expectedRevision: 1,
       expectedConnectorRevision: 1
     },
     {
       connectorKey: "lark-cli",
       clientRequestId: "one-authorization-request",
+      replacementPolicy: "replace_active",
       expectedRevision: 1,
       expectedConnectorRevision: 2
     },
     {
       connectorKey: "lark-cli",
       clientRequestId: "one-authorization-request",
+      replacementPolicy: "replace_active",
       expectedRevision: 1,
       expectedConnectorRevision: 3
     }

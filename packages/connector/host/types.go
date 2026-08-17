@@ -527,6 +527,7 @@ type AuthorizationSessionResolution string
 
 const (
 	AuthorizationSessionResolutionUnresolved            AuthorizationSessionResolution = "unresolved"
+	AuthorizationSessionResolutionCanceling             AuthorizationSessionResolution = "canceling"
 	AuthorizationSessionResolutionProviderConnected     AuthorizationSessionResolution = "provider_connected"
 	AuthorizationSessionResolutionProviderFailed        AuthorizationSessionResolution = "provider_failed"
 	AuthorizationSessionResolutionAccountStateConverged AuthorizationSessionResolution = "account_state_converged"
@@ -543,7 +544,12 @@ type AuthorizationReconcileIntent struct {
 }
 
 func (session AuthorizationSession) IsResolved() bool {
-	return session.Resolution != "" && session.Resolution != AuthorizationSessionResolutionUnresolved
+	switch session.Resolution {
+	case "", AuthorizationSessionResolutionUnresolved, AuthorizationSessionResolutionCanceling:
+		return false
+	default:
+		return true
+	}
 }
 
 type AuthorizationObservationState string
@@ -592,10 +598,17 @@ type Mutation struct {
 
 type ConnectorMutation struct {
 	Mutation
-	ConnectorKey              string  `json:"connectorKey"`
-	AccountID                 string  `json:"accountId,omitempty"`
-	ExpectedConnectorRevision *uint64 `json:"expectedConnectorRevision,omitempty"`
+	ConnectorKey              string                         `json:"connectorKey"`
+	AccountID                 string                         `json:"accountId,omitempty"`
+	ExpectedConnectorRevision *uint64                        `json:"expectedConnectorRevision,omitempty"`
+	ReplacementPolicy         AuthorizationReplacementPolicy `json:"replacementPolicy,omitempty"`
 }
+
+type AuthorizationReplacementPolicy string
+
+const (
+	AuthorizationReplacementPolicyReplaceActive AuthorizationReplacementPolicy = "replace_active"
+)
 
 // EnsureRuntimeReconcileResult reports whether a level-triggered repair
 // created work from the caller's current desired state or joined older work

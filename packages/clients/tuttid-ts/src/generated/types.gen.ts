@@ -4953,7 +4953,13 @@ export type ConnectorMarketAuthorizationRequest = {
   clientRequestId: string;
   expectedRevision: number;
   expectedConnectorRevision?: number;
+  replacementPolicy?: ConnectorMarketAuthorizationReplacementPolicy;
 };
+
+/**
+ * When set to replace_active, the Host fences and terminates a different unresolved authorization attempt before starting this request. Omission preserves the legacy resume-or-conflict behavior.
+ */
+export type ConnectorMarketAuthorizationReplacementPolicy = "replace_active";
 
 export type ConnectorMarketMutationResponse = {
   connector?: ConnectorMarketConnector;
@@ -5114,6 +5120,7 @@ export type ConnectorMarketAuthorizationRequestWritable = {
   clientRequestId: string;
   expectedRevision: number;
   expectedConnectorRevision?: number;
+  replacementPolicy?: ConnectorMarketAuthorizationReplacementPolicy;
   secret?: string;
 };
 

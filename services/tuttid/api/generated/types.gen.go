@@ -1348,6 +1348,21 @@ func (e CollaborationRunTriggerSource) Valid() bool {
 	}
 }
 
+// Defines values for ConnectorMarketAuthorizationReplacementPolicy.
+const (
+	ReplaceActive ConnectorMarketAuthorizationReplacementPolicy = "replace_active"
+)
+
+// Valid indicates whether the value is a known member of the ConnectorMarketAuthorizationReplacementPolicy enum.
+func (e ConnectorMarketAuthorizationReplacementPolicy) Valid() bool {
+	switch e {
+	case ReplaceActive:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectorMarketAuthorizationState.
 const (
 	ConnectorMarketAuthorizationStateConnected    ConnectorMarketAuthorizationState = "connected"
@@ -6226,12 +6241,18 @@ type ConnectorMarketAuthorization struct {
 	State       ConnectorMarketAuthorizationState `json:"state"`
 }
 
+// ConnectorMarketAuthorizationReplacementPolicy When set to replace_active, the Host fences and terminates a different unresolved authorization attempt before starting this request. Omission preserves the legacy resume-or-conflict behavior.
+type ConnectorMarketAuthorizationReplacementPolicy string
+
 // ConnectorMarketAuthorizationRequest defines model for ConnectorMarketAuthorizationRequest.
 type ConnectorMarketAuthorizationRequest struct {
-	ClientRequestId           string  `json:"clientRequestId"`
-	ExpectedConnectorRevision *int64  `json:"expectedConnectorRevision,omitempty"`
-	ExpectedRevision          int64   `json:"expectedRevision"`
-	Secret                    *string `json:"secret,omitempty"`
+	ClientRequestId           string `json:"clientRequestId"`
+	ExpectedConnectorRevision *int64 `json:"expectedConnectorRevision,omitempty"`
+	ExpectedRevision          int64  `json:"expectedRevision"`
+
+	// ReplacementPolicy When set to replace_active, the Host fences and terminates a different unresolved authorization attempt before starting this request. Omission preserves the legacy resume-or-conflict behavior.
+	ReplacementPolicy *ConnectorMarketAuthorizationReplacementPolicy `json:"replacementPolicy,omitempty"`
+	Secret            *string                                        `json:"secret,omitempty"`
 }
 
 // ConnectorMarketAuthorizationResponse defines model for ConnectorMarketAuthorizationResponse.

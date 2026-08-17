@@ -364,12 +364,19 @@ preserves the projection. Runtime reconcile then performs interface readiness
 checks before any route is published.
 
 Authorization operations follow the same recovery rule. Authorization creation
-is serialized per account and Connector, and an unresolved durable session
-receipt rejects a different request identity, so renderer reload cannot create
-a second external session. Managed runtimes are inspected during convergence;
-restart no longer fabricates a permanently pending observation. Disconnect is
-completed only after the disconnected projection and exact disabled Runtime
-Observed state are durable.
+is serialized per account and Connector. A repeated `clientRequestId` resumes
+the same external session. A different request retains the compatibility
+conflict unless it explicitly sends `replacementPolicy=replace_active`. Replace
+is Host-owned: it interrupts an in-progress initial Begin, moves an existing
+receipt through durable `canceling`, asks the provider to terminate the exact
+attempt, waits until that attempt can no longer publish credentials or events,
+then resolves it as `superseded` before accepting the new operation. A provider
+without confirmed attempt cancellation rejects replacement rather than running
+two sessions against shared credential state. Managed runtimes are inspected
+during convergence; restart finishes `canceling` receipts and no longer
+fabricates a permanently pending observation. Disconnect is completed only
+after the disconnected projection and exact disabled Runtime Observed state are
+durable.
 
 For account-scoped runtimes, `AccountRuntimeBindingResolver` maps `none`
 authorization to an always-active device connection. OAuth/API-key connectors
@@ -425,6 +432,10 @@ authentication only through a host-supplied request authorizer. Neither an API
 key submitted by the user nor the product account session is copied into the
 runtime VM. Remote MCP execution follows the product host's authenticated
 relay, while the VM receives only the non-credential runtime route identity.
+Remote authorization replacement propagates the explicit replacement policy to
+Start and uses the session-scoped control-plane Cancel endpoint when a receipt
+already exists. This covers both a returned session and an interrupted initial
+Begin without relying on a device-local process handle.
 
 ## Event Consistency
 
@@ -512,6 +523,10 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
   host keeps the mutation request open until runtime work completes; the local
   projection is cleared on both success and failure and never replaces daemon
   installation truth
+- every new user authorization action creates a new `clientRequestId` and sends
+  `replacementPolicy=replace_active`; continuation polling within that action
+  reuses the same identity, while a superseded renderer Promise cannot retain
+  the Connector mutation token
 - event refreshes are coalesced, daemon reconnect performs a full reload, and
   accepted commands are followed through the operation endpoint or events
 - hosts gate connector-market transport through `canRequest`; Tutti binds it to
@@ -558,6 +573,11 @@ authorized connector opens the management dialog. Blocked releases open the
 blocked-state dialog. Only one dialog host is mounted at a time, so
 the catalog keeps the full settings content width and never leaves an empty
 right column.
+
+Closing an authorization dialog only dismisses presentation. The explicit
+Cancel action calls the Host cancellation command. Reopening an unconnected
+Connector starts a new replace-active attempt, so a hidden or stuck renderer
+request cannot lock later authorization actions.
 
 ## Local OpenAPI Reuse
 

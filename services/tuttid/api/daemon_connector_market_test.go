@@ -20,7 +20,16 @@ type stubConnectorMarketService struct {
 	refreshFn    func(context.Context, market.Mutation) (market.MutationResult, error)
 	operationFn  func(context.Context, market.OperationScope, string) (market.Operation, error)
 	cancelFn     func(context.Context, market.OperationScope, string) error
+	beginFn      func(context.Context, market.ConnectorMutation, []byte) (market.AuthorizationResult, error)
 	projectionFn func(context.Context, string, string) (market.AuthorizationProjection, error)
+}
+
+func (service stubConnectorMarketService) BeginAuthorization(
+	ctx context.Context,
+	mutation market.ConnectorMutation,
+	secret []byte,
+) (market.AuthorizationResult, error) {
+	return service.beginFn(ctx, mutation, secret)
 }
 
 func (service stubConnectorMarketService) CancelAuthorization(ctx context.Context, scope market.OperationScope, connectorKey string) error {
@@ -157,6 +166,48 @@ func TestDaemonAPICancelsConnectorAuthorizationForActiveAccount(t *testing.T) {
 	}
 	if gotScope.AccountID != "account-1" || gotConnectorKey != "supabase" {
 		t.Fatalf("cancel scope=%#v connector=%q", gotScope, gotConnectorKey)
+	}
+}
+
+func TestDaemonAPIForwardsReplaceActiveAuthorizationPolicy(t *testing.T) {
+	var received market.ConnectorMutation
+	service := stubConnectorMarketService{beginFn: func(
+		_ context.Context,
+		mutation market.ConnectorMutation,
+		_ []byte,
+	) (market.AuthorizationResult, error) {
+		received = mutation
+		connector := connectorMarketTestConnector()
+		connector.Authorization = market.Authorization{State: market.AuthorizationStatePending}
+		return market.AuthorizationResult{
+			Connector: connector,
+			Operation: market.Operation{
+				OperationID: "operation-b", ClientRequestID: mutation.ClientRequestID,
+				ConnectorKey: connector.Key, Kind: market.OperationKindStartAuthorization,
+				State: market.OperationStateCompleted, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			},
+			AuthorizationURL:       "https://accounts.example.com/oauth",
+			AuthorizationExpiresAt: time.Now().Add(time.Minute),
+			Revision:               2,
+		}, nil
+	}}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		ConnectorMarketService: service,
+		ConnectorMarketScope:   func() market.OperationScope { return market.OperationScope{AccountID: "account-1"} },
+	}))
+
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost,
+		"/v1/connector-market/connectors/notion/authorization:start", map[string]any{
+			"clientRequestId": "authorization-b", "expectedRevision": 1,
+			"replacementPolicy": "replace_active",
+		})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if received.AccountID != "account-1" || received.ClientRequestID != "authorization-b" ||
+		received.ReplacementPolicy != market.AuthorizationReplacementPolicyReplaceActive {
+		t.Fatalf("authorization mutation = %#v", received)
 	}
 }
 

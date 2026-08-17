@@ -212,7 +212,7 @@ test("preserves the connector authorization interaction for the dialog", () => {
   );
 });
 
-test("marks managed credential brokers for automatic authorization start", () => {
+test("marks managed credential brokers for managed authorization handling", () => {
   const market = createConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
