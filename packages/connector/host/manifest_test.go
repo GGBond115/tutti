@@ -123,11 +123,6 @@ func TestManagedCredentialBrokerRequiresConnectorOwnedEntrypointAndAllowedHosts(
 	if err := ValidateManifestShape(manifest); err != nil {
 		t.Fatal(err)
 	}
-	manifest.Implementation.ManagedStdio.CredentialBroker.Protocol = CredentialBrokerProtocolV2
-	if err := ValidateManifestShape(manifest); err != nil {
-		t.Fatal(err)
-	}
-	manifest.Implementation.ManagedStdio.CredentialBroker.Protocol = CredentialBrokerProtocolV1
 	manifest.Implementation.ManagedStdio.CredentialBroker.Presentation = CredentialBrokerPresentationQRCode
 	if err := ValidateManifestShape(manifest); err != nil {
 		t.Fatal(err)
@@ -274,7 +269,7 @@ func TestManagedCLIAllowsArtifactNativeLaunch(t *testing.T) {
 				VersionRange: ">=22.0.0 <23.0.0"},
 			CLI: &ManagedCLIInterface{Entrypoint: "runtime/windows-amd64/gh.exe", Command: "gh", TimeoutMS: 120_000,
 				Launch: &CLIArtifactLaunch{Kind: CLIArtifactLaunchKindNative, SHA256: strings.Repeat("a", 64), SizeBytes: 1024}},
-			CredentialBroker: &ManagedCredentialBroker{Protocol: CredentialBrokerProtocolV2,
+			CredentialBroker: &ManagedCredentialBroker{Protocol: CredentialBrokerProtocolV1,
 				Entrypoint: "implementation/credential-broker.mjs", TimeoutMS: 300_000, AllowedHosts: []string{"github.com"}},
 		}}}
 	if err := ValidateManifestShape(manifest); err != nil {

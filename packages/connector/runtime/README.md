@@ -90,12 +90,9 @@ orphan staging and ready execution snapshots left by an unclean shutdown.
 
 Authorized `managed_stdio` Connectors declare a connector-owned
 credential broker entrypoint. The broker translates its provider-specific
-flow into a declared, versioned credential-broker event protocol. Protocol v1
-includes typed `inspect` alongside `begin` and `disconnect`, so a runtime owner can
-calibrate connected, disconnected, expired, and failed state after restart. Protocol v2
-preserves those operations and adds a bounded `device_code` event so the trusted
-authorization renderer can display a verification URL and one-time code without
-provider-specific parsing in the host.
+flow into the `tutti.connector.credentials.v1` event protocol. The final v1
+contract includes typed `inspect` alongside `begin` and `disconnect`, so a runtime owner can
+calibrate connected, disconnected, expired, and failed state after restart.
 Tutti validates
 every authorization URL against the manifest's exact HTTPS host allowlist and
 keeps one broker session alive while the provider emits multiple steps. CLI

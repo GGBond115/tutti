@@ -519,16 +519,15 @@ type RuntimeConvergence struct {
 }
 
 type AuthorizationSession struct {
-	OperationID       string                         `json:"operationId"`
-	ConnectorKey      string                         `json:"connectorKey"`
-	ConnectionID      string                         `json:"-"`
-	SessionID         string                         `json:"sessionId"`
-	ActionType        string                         `json:"actionType"`
-	AuthorizationURL  string                         `json:"-"`
-	AuthorizationCode string                         `json:"-"`
-	ExpiresAt         time.Time                      `json:"expiresAt"`
-	State             AuthorizationState             `json:"-"`
-	Resolution        AuthorizationSessionResolution `json:"resolution"`
+	OperationID      string                         `json:"operationId"`
+	ConnectorKey     string                         `json:"connectorKey"`
+	ConnectionID     string                         `json:"-"`
+	SessionID        string                         `json:"sessionId"`
+	ActionType       string                         `json:"actionType"`
+	AuthorizationURL string                         `json:"-"`
+	ExpiresAt        time.Time                      `json:"expiresAt"`
+	State            AuthorizationState             `json:"-"`
+	Resolution       AuthorizationSessionResolution `json:"resolution"`
 }
 
 // AuthorizationSessionResolution records why a private, durable start receipt

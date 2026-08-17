@@ -111,7 +111,7 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 	connection := newCredentialBrokerConnection()
 	host := &credentialAuthorizationHostStub{
 		route: &connectorRoute{id: "default\x00lark-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
-			protocol: market.CredentialBrokerProtocolV1, timeout: 5 * time.Minute,
+			timeout: 5 * time.Minute,
 			allowedHosts: map[string]struct{}{
 				"open.feishu.cn":     {},
 				"accounts.feishu.cn": {},
@@ -159,46 +159,12 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 	}
 }
 
-func TestManagedCredentialAuthorizationPreservesDeviceCode(t *testing.T) {
-	connection := newCredentialBrokerConnection()
-	host := &credentialAuthorizationHostStub{
-		route: &connectorRoute{id: "default\x00github-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
-			protocol: market.CredentialBrokerProtocolV2, timeout: 5 * time.Minute,
-			allowedHosts: map[string]struct{}{"github.com": {}},
-		}},
-		connections: []agentruntime.ProcessConnection{connection},
-	}
-	provider := newManagedCredentialAuthorizationProvider(host)
-	result := make(chan market.AuthorizationSession, 1)
-	failure := make(chan error, 1)
-	go func() {
-		session, err := provider.Begin(context.Background(), market.AuthorizationStartRequest{
-			OperationID: "authorize-github", Connector: market.Connector{Key: "github-cli"},
-		})
-		result <- session
-		failure <- err
-	}()
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(
-		`{"type":"device_code","url":"https://github.com/login/device","code":"ABCD-1234"}` + "\n")}
-	if err := <-failure; err != nil {
-		t.Fatal(err)
-	}
-	session := <-result
-	if session.State != market.AuthorizationStatePending || session.AuthorizationURL != "https://github.com/login/device" ||
-		session.AuthorizationCode != "ABCD-1234" {
-		t.Fatalf("device authorization session = %#v", session)
-	}
-	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: market.CredentialBrokerProtocolV2, Operation: "begin"}}) {
-		t.Fatalf("broker requests = %#v", host.requests)
-	}
-}
-
 func TestManagedCredentialAuthorizationDisconnectUsesBrokerProtocol(t *testing.T) {
 	exitCode := 0
 	connection := newCredentialBrokerConnection()
 	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"disconnected"}` + "\n"), ExitCode: &exitCode}
 	host := &credentialAuthorizationHostStub{
-		route:       &connectorRoute{id: "default\x00lark-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{protocol: market.CredentialBrokerProtocolV1, timeout: 5 * time.Minute}},
+		route:       &connectorRoute{id: "default\x00lark-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{timeout: 5 * time.Minute}},
 		connections: []agentruntime.ProcessConnection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
@@ -221,7 +187,7 @@ func TestManagedCredentialAuthorizationInspectReturnsFencedObservation(t *testin
 	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"expired","code":"token_expired","message":"login expired"}` + "\n"), ExitCode: &exitCode}
 	host := &credentialAuthorizationHostStub{
 		route: &connectorRoute{id: "account-1\x00lark-cli", connectorKey: "lark-cli", connectionID: "account-1",
-			releaseDigest: strings.Repeat("a", 64), credentialBrokerLaunch: &managedCredentialBrokerLaunch{protocol: market.CredentialBrokerProtocolV1, timeout: 5 * time.Minute}},
+			releaseDigest: strings.Repeat("a", 64), credentialBrokerLaunch: &managedCredentialBrokerLaunch{timeout: 5 * time.Minute}},
 		connections: []agentruntime.ProcessConnection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
@@ -321,7 +287,7 @@ func TestManagedCredentialAuthorizationSharesOneBrokerAcrossConcurrentBegins(t *
 	connection := newCredentialBrokerConnection()
 	host := &credentialAuthorizationHostStub{
 		route: &connectorRoute{id: "default\x00example", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
-			protocol: market.CredentialBrokerProtocolV1, timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
+			timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
 		}},
 		connections: []agentruntime.ProcessConnection{connection},
 	}
@@ -355,7 +321,7 @@ func TestManagedCredentialAuthorizationRestartsFailedBrokerOnFirstRetry(t *testi
 	failedConnection := newCredentialBrokerConnection()
 	retryConnection := newCredentialBrokerConnection()
 	route := &connectorRoute{id: "default\x00example", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
-		protocol: market.CredentialBrokerProtocolV1, timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
+		timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
 	}}
 	host := &credentialAuthorizationHostStub{
 		route: route, connections: []agentruntime.ProcessConnection{failedConnection, retryConnection},
@@ -398,7 +364,7 @@ func TestManagedCredentialAuthorizationRestartsFailedBrokerOnFirstRetry(t *testi
 func TestManagedCredentialAuthorizationCancelWaitsForBrokerExit(t *testing.T) {
 	connection := newCredentialBrokerConnection()
 	route := &connectorRoute{id: "default\x00dingtalk-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
-		protocol: market.CredentialBrokerProtocolV1, timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"login.dingtalk.com": {}},
+		timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"login.dingtalk.com": {}},
 	}}
 	host := &credentialAuthorizationHostStub{route: route, connections: []agentruntime.ProcessConnection{connection}}
 	provider := newManagedCredentialAuthorizationProvider(host)
@@ -451,7 +417,7 @@ func awaitCachedAuthorizationFailure(t *testing.T, provider *managedCredentialAu
 		session := provider.sessions[operationID]
 		provider.mu.Unlock()
 		if session != nil {
-			_, _, _, err := session.snapshot()
+			_, _, err := session.snapshot()
 			if err != nil {
 				return
 			}
@@ -467,7 +433,7 @@ func TestManagedCredentialAuthorizationRejectsUntrustedURL(t *testing.T) {
 	connection := newCredentialBrokerConnection()
 	host := &credentialAuthorizationHostStub{
 		route: &connectorRoute{id: "default\x00example", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
-			protocol: market.CredentialBrokerProtocolV1, timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
+			timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
 		}},
 		connections: []agentruntime.ProcessConnection{connection},
 	}

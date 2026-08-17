@@ -498,7 +498,7 @@ func (*Host) attachCredentialBroker(route *connectorRoute, broker *market.Manage
 		allowedHosts[strings.ToLower(strings.TrimSpace(allowedHost))] = struct{}{}
 	}
 	route.credentialBrokerLaunch = &managedCredentialBrokerLaunch{
-		protocol: broker.Protocol, entrypoint: entrypoint, timeout: time.Duration(broker.TimeoutMS) * time.Millisecond, allowedHosts: allowedHosts,
+		entrypoint: entrypoint, timeout: time.Duration(broker.TimeoutMS) * time.Millisecond, allowedHosts: allowedHosts,
 		cliLaunch: credentialBrokerCLILaunch{Executable: route.cliLaunch.executable.Path,
 			// Native CLIs legitimately have no argv; preserve [] instead of encoding null for the broker protocol.
 			Arguments: append([]string{}, route.cliLaunch.arguments...), CWD: route.cliLaunch.cwd},
