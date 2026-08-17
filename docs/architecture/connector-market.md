@@ -121,6 +121,21 @@ artifact contains connector metadata and skills, not the CLI npm package. CLI
 installation remains part of the physical release install receipt, while route
 reconciliation is a separate operation:
 
+A CLI may instead declare `artifact_native` when its platform executable was
+acquired and verified by the Connector publication pipeline and is already
+inside the signed install artifact. The host does not receive an upstream URL
+or add another installer. It verifies the prepared artifact inventory, copies
+the declared entrypoint into the read-only execution snapshot with executable
+permission only for that entry, then verifies its exact size and SHA-256 at
+every launch. Windows executes the declared `.exe` directly; `.cmd` remains a
+user-facing PATH projection rather than the native launch boundary.
+
+One portable install artifact may contain binaries for multiple exact targets.
+The signed v3 manifest selects one target implementation without OS or
+architecture fallback; unused target files remain inert data in that release.
+Per-target artifacts are a distribution-size optimization and do not change
+the runtime trust or launch contract.
+
 The local daemon connector-manifest v1 contract includes required icons, typed
 package installation, explicit Node ranges, and mapping-free generic CLI. It is
 an internal host projection of the remote market v2 publication rather than a

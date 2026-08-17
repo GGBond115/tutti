@@ -335,6 +335,7 @@ func (application *Application) beginAuthorizationSession(
 		operation.Execution.AuthorizationSession.IsResolved() {
 		session := *operation.Execution.AuthorizationSession
 		session.AuthorizationURL = ""
+		session.AuthorizationCode = ""
 		switch session.Resolution {
 		case AuthorizationSessionResolutionProviderConnected, AuthorizationSessionResolutionAccountStateConverged:
 			session.State = AuthorizationStateConnected

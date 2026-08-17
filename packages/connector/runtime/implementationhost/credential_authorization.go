@@ -35,6 +35,7 @@ type credentialBrokerCLILaunch struct {
 }
 
 type managedCredentialBrokerLaunch struct {
+	protocol      string
 	entrypoint    string
 	timeout       time.Duration
 	allowedHosts  map[string]struct{}
@@ -84,6 +85,7 @@ type credentialBrokerSession struct {
 	mu      sync.Mutex
 	state   market.AuthorizationState
 	url     string
+	code    string
 	err     error
 	version uint64
 	changed chan struct{}
@@ -143,19 +145,20 @@ func (provider *managedCredentialAuthorizationProvider) Begin(
 		cancelCleanup()
 		return market.AuthorizationSession{}, errors.Join(err, cleanupErr)
 	}
-	state, authorizationURL, sessionErr := session.snapshot()
+	state, authorizationURL, authorizationCode, sessionErr := session.snapshot()
 	if sessionErr != nil {
 		provider.clearAuthorizationSession(request.OperationID, session)
 		provider.host.releaseAuthorizationRoute(route)
 		return market.AuthorizationSession{}, sessionErr
 	}
 	result := market.AuthorizationSession{
-		OperationID:      request.OperationID,
-		ConnectorKey:     request.Connector.Key,
-		ConnectionID:     route.connectionID,
-		SessionID:        request.OperationID + "/credential-broker",
-		AuthorizationURL: authorizationURL,
-		State:            state,
+		OperationID:       request.OperationID,
+		ConnectorKey:      request.Connector.Key,
+		ConnectionID:      route.connectionID,
+		SessionID:         request.OperationID + "/credential-broker",
+		AuthorizationURL:  authorizationURL,
+		AuthorizationCode: authorizationCode,
+		State:             state,
 	}
 	if state == market.AuthorizationStateConnected {
 		provider.clearAuthorizationSession(request.OperationID, session)
@@ -196,7 +199,7 @@ func (provider *managedCredentialAuthorizationProvider) Disconnect(
 	operationContext, cancel := context.WithTimeout(ctx, route.credentialBrokerLaunch.timeout)
 	defer cancel()
 	connection, processID, err := provider.host.startCredentialBroker(operationContext, route, credentialBrokerRequest{
-		Protocol: market.CredentialBrokerProtocolV1, Operation: "disconnect",
+		Protocol: route.credentialBrokerLaunch.protocol, Operation: "disconnect",
 	})
 	if err != nil {
 		return fmt.Errorf("start connector credential broker disconnect: %w", err)
@@ -225,7 +228,7 @@ func (provider *managedCredentialAuthorizationProvider) Inspect(
 	operationContext, cancel := context.WithTimeout(ctx, route.credentialBrokerLaunch.timeout)
 	defer cancel()
 	connection, processID, err := provider.host.startCredentialBroker(operationContext, route, credentialBrokerRequest{
-		Protocol: market.CredentialBrokerProtocolV1, Operation: "inspect",
+		Protocol: route.credentialBrokerLaunch.protocol, Operation: "inspect",
 	})
 	if err != nil {
 		return market.AuthorizationObservation{}, fmt.Errorf("start connector credential broker inspect: %w", err)
@@ -266,7 +269,7 @@ func (provider *managedCredentialAuthorizationProvider) authorizationSessionOrSt
 	operationID = strings.TrimSpace(operationID)
 	provider.mu.Lock()
 	if session := provider.sessions[operationID]; session != nil {
-		_, _, sessionErr := session.snapshot()
+		_, _, _, sessionErr := session.snapshot()
 		if sessionErr == nil {
 			provider.mu.Unlock()
 			return session, nil
@@ -282,7 +285,7 @@ func (provider *managedCredentialAuthorizationProvider) authorizationSessionOrSt
 	if activeOperationID := provider.activeByRoute[route.id]; activeOperationID != "" {
 		active := provider.sessions[activeOperationID]
 		if active != nil {
-			_, _, activeErr := active.snapshot()
+			_, _, _, activeErr := active.snapshot()
 			if activeErr != nil {
 				select {
 				case <-active.done:
@@ -302,7 +305,7 @@ func (provider *managedCredentialAuthorizationProvider) authorizationSessionOrSt
 	}
 	processContext, cancel := context.WithTimeout(context.Background(), route.credentialBrokerLaunch.timeout)
 	connection, processID, err := provider.host.startCredentialBroker(processContext, route, credentialBrokerRequest{
-		Protocol: market.CredentialBrokerProtocolV1, Operation: "begin",
+		Protocol: route.credentialBrokerLaunch.protocol, Operation: "begin",
 	})
 	if err != nil {
 		cancel()
@@ -388,10 +391,18 @@ func applyCredentialBrokerEvent(host managedCredentialAuthorizationHost, route *
 		if !safeCredentialBrokerURL(event.URL, route.credentialBrokerLaunch.allowedHosts) {
 			return errors.New("connector credential broker returned an unauthorized URL")
 		}
-		session.update(market.AuthorizationStatePending, event.URL, nil)
+		session.update(market.AuthorizationStatePending, event.URL, "", nil)
+		host.observeAuthorization(route, market.AuthorizationStatePending)
+	case "device_code":
+		code := strings.TrimSpace(event.Code)
+		if route.credentialBrokerLaunch.protocol != market.CredentialBrokerProtocolV2 ||
+			!safeCredentialBrokerURL(event.URL, route.credentialBrokerLaunch.allowedHosts) || !safeCredentialBrokerCode(code) {
+			return errors.New("connector credential broker returned an invalid device code")
+		}
+		session.update(market.AuthorizationStatePending, event.URL, code, nil)
 		host.observeAuthorization(route, market.AuthorizationStatePending)
 	case "connected":
-		session.update(market.AuthorizationStateConnected, "", nil)
+		session.update(market.AuthorizationStateConnected, "", "", nil)
 		host.observeAuthorization(route, market.AuthorizationStateConnected)
 	case "error":
 		return credentialBrokerEventError(event, "authorize")
@@ -461,7 +472,7 @@ func (host *Host) buildAuthorizationRoute(ctx context.Context, connectionID stri
 		return nil, fmt.Errorf("resolve prepared connector artifact for authorization: %w", err)
 	}
 	installedRoot := prepared.PreparedPath
-	executionRoot, err := host.snapshots.Create(prepared)
+	executionRoot, err := host.snapshots.Create(prepared, artifactNativeEntrypoints(connector.Release)...)
 	if err != nil {
 		return nil, fmt.Errorf("create connector authorization snapshot: %w", err)
 	}
@@ -550,7 +561,8 @@ func (host *Host) startCredentialBroker(
 	request credentialBrokerRequest,
 ) (agentruntime.ProcessConnection, uint64, error) {
 	launch := route.credentialBrokerLaunch
-	if launch == nil || request.Protocol != market.CredentialBrokerProtocolV1 ||
+	if launch == nil || request.Protocol != launch.protocol ||
+		(request.Protocol != market.CredentialBrokerProtocolV1 && request.Protocol != market.CredentialBrokerProtocolV2) ||
 		(request.Operation != "begin" && request.Operation != "inspect" && request.Operation != "disconnect") {
 		return nil, 0, errors.New("connector credential broker request is invalid")
 	}
@@ -561,7 +573,7 @@ func (host *Host) startCredentialBroker(
 		return nil, 0, err
 	}
 	spec.Env = append(spec.Env,
-		"TUTTI_CONNECTOR_CREDENTIAL_BROKER_PROTOCOL="+market.CredentialBrokerProtocolV1,
+		"TUTTI_CONNECTOR_CREDENTIAL_BROKER_PROTOCOL="+launch.protocol,
 		"TUTTI_CONNECTOR_CLI_LAUNCH_JSON="+string(cliLaunch),
 	)
 	connection, processID, err := host.startProcess(ctx, route, spec, false)
@@ -690,6 +702,18 @@ func safeCredentialBrokerURL(value string, allowedHosts map[string]struct{}) boo
 	return allowed
 }
 
+func safeCredentialBrokerCode(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x21 || character > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 func credentialBrokerEventError(event credentialBrokerEvent, operation string) error {
 	message := boundedBrokerMessage(event.Message)
 	if message == "" {
@@ -729,10 +753,11 @@ func (session *credentialBrokerSession) awaitInitialEvent(ctx context.Context) e
 	}
 }
 
-func (session *credentialBrokerSession) update(state market.AuthorizationState, authorizationURL string, err error) {
+func (session *credentialBrokerSession) update(state market.AuthorizationState, authorizationURL, authorizationCode string, err error) {
 	session.mu.Lock()
 	session.state = state
 	session.url = authorizationURL
+	session.code = authorizationCode
 	session.err = err
 	session.version++
 	close(session.changed)
@@ -741,13 +766,13 @@ func (session *credentialBrokerSession) update(state market.AuthorizationState, 
 }
 
 func (session *credentialBrokerSession) fail(err error) {
-	session.update(market.AuthorizationStateFailed, "", err)
+	session.update(market.AuthorizationStateFailed, "", "", err)
 }
 
-func (session *credentialBrokerSession) snapshot() (market.AuthorizationState, string, error) {
+func (session *credentialBrokerSession) snapshot() (market.AuthorizationState, string, string, error) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	return session.state, session.url, session.err
+	return session.state, session.url, session.code, session.err
 }
 
 func (session *credentialBrokerSession) terminal() bool {

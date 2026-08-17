@@ -9,6 +9,7 @@ import (
 const (
 	AuthorizationViewProtocolV1       = "tutti.connector.authorization.view.v1"
 	AuthorizationViewTypeExternalLink = "external_link"
+	AuthorizationViewTypeDeviceCode   = "device_code"
 	AuthorizationViewTypeQRCode       = "qr_code"
 	AuthorizationQRCodeSourcePayload  = "payload"
 )
@@ -22,10 +23,12 @@ type AuthorizationViewEnvelope struct {
 }
 
 type AuthorizationView struct {
-	Type      string                     `json:"type"`
-	URL       string                     `json:"url,omitempty"`
-	Source    *AuthorizationQRCodeSource `json:"source,omitempty"`
-	ExpiresAt string                     `json:"expiresAt,omitempty"`
+	Type            string                     `json:"type"`
+	URL             string                     `json:"url,omitempty"`
+	VerificationURL string                     `json:"verificationUrl,omitempty"`
+	UserCode        string                     `json:"userCode,omitempty"`
+	Source          *AuthorizationQRCodeSource `json:"source,omitempty"`
+	ExpiresAt       string                     `json:"expiresAt,omitempty"`
 }
 
 type AuthorizationQRCodeSource struct {
@@ -39,8 +42,12 @@ func authorizationViewForSession(release Release, session AuthorizationSession) 
 	}
 
 	view := AuthorizationView{Type: AuthorizationViewTypeExternalLink, URL: session.AuthorizationURL}
+	if strings.TrimSpace(session.AuthorizationCode) != "" {
+		view = AuthorizationView{Type: AuthorizationViewTypeDeviceCode,
+			VerificationURL: session.AuthorizationURL, UserCode: session.AuthorizationCode}
+	}
 	managed := release.Manifest.Implementation.ManagedStdio
-	if managed != nil && managed.CredentialBroker != nil &&
+	if strings.TrimSpace(session.AuthorizationCode) == "" && managed != nil && managed.CredentialBroker != nil &&
 		managed.CredentialBroker.Presentation == CredentialBrokerPresentationQRCode {
 		view = AuthorizationView{
 			Type: AuthorizationViewTypeQRCode,
@@ -53,7 +60,7 @@ func authorizationViewForSession(release Release, session AuthorizationSession) 
 	if !session.ExpiresAt.IsZero() {
 		view.ExpiresAt = session.ExpiresAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	}
-	viewDigest := sha256.Sum256([]byte(session.SessionID + "\x00" + session.AuthorizationURL))
+	viewDigest := sha256.Sum256([]byte(session.SessionID + "\x00" + session.AuthorizationURL + "\x00" + session.AuthorizationCode))
 	return &AuthorizationViewEnvelope{
 		Protocol: AuthorizationViewProtocolV1,
 		ViewID:   "authorization-" + hex.EncodeToString(viewDigest[:16]),

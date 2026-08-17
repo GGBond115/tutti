@@ -49,3 +49,20 @@ func TestAuthorizationViewForSessionDoesNotEmbedLegacyPagePresentation(t *testin
 		t.Fatalf("legacy authorization view = %#v, want external link", view)
 	}
 }
+
+func TestAuthorizationViewForSessionProjectsDeviceCode(t *testing.T) {
+	release := Release{Manifest: Manifest{Implementation: Implementation{Kind: ImplementationKindManagedStdio,
+		ManagedStdio: &ManagedStdioImplementation{CredentialBroker: &ManagedCredentialBroker{
+			Presentation: CredentialBrokerPresentationQRCode,
+		}},
+	}}}
+	session := AuthorizationSession{SessionID: "session-device", AuthorizationURL: "https://github.com/login/device",
+		AuthorizationCode: "ABCD-EFGH", State: AuthorizationStatePending}
+
+	view := authorizationViewForSession(release, session)
+	if view == nil || view.View.Type != AuthorizationViewTypeDeviceCode ||
+		view.View.VerificationURL != session.AuthorizationURL || view.View.UserCode != session.AuthorizationCode ||
+		view.View.URL != "" || view.View.Source != nil {
+		t.Fatalf("device-code authorization view = %#v", view)
+	}
+}
