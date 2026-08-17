@@ -8,7 +8,7 @@ export const enAgentGuiHomeSuggestions = {
     cloneGithubRepository: {
       title: "Clone GitHub repository",
       prompt:
-        "Help me clone a GitHub repository. First ask for the repository URL and destination directory. If it is private, help me verify GitHub authentication or access before cloning. Proceed only after you have the required information."
+        "Help me clone the GitHub repository { repository URL }, then tell me its local directory"
     },
     breakdown: {
       title: "Task breakdown",
