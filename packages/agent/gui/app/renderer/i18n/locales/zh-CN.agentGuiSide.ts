@@ -1,6 +1,8 @@
 export const zhCNAgentGuiSide = {
   sideCommandDescription: "从当前实时上下文打开一个临时会话",
   sidePanelTitle: "Side 临时会话",
+  sideEmptyTitle: "Side 临时会话",
+  sideEmptyDescription: "Side 会话为临时内容，关闭应用后将消失",
   sideInputPlaceholder: "追问一个相关问题",
   sideResize: "调整 Side 会话宽度",
   sideClose: "关闭",

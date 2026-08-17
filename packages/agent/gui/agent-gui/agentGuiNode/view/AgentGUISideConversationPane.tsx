@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type CSSProperties } from "react";
-import { X } from "lucide-react";
+import { MessageCirclePlus, X } from "lucide-react";
 import { ScrollArea } from "@tutti-os/ui-system/components";
 import type { AgentSideConversationViewState } from "../../../agentSideConversationViewProjection";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
@@ -14,6 +14,7 @@ import styles from "../AgentGUINode.styles";
 const SIDE_TIMELINE_CONTENT_STYLE: CSSProperties = {
   width: "100%",
   minWidth: "100%",
+  minHeight: "100%",
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
   gap: "24px"
@@ -154,7 +155,25 @@ export function AgentGUISideConversationPane({
           isLoadingOlderMessages={false}
           isVisible={isVisible}
           loadingLabel={loadingLabel}
-          empty={<></>}
+          empty={
+            <div
+              className={styles.sideEmptyState}
+              data-testid="agent-gui-side-empty-state"
+            >
+              <MessageCirclePlus
+                aria-hidden="true"
+                className={styles.sideEmptyStateIcon}
+                size={30}
+                strokeWidth={1.75}
+              />
+              <strong className={styles.sideEmptyStateTitle}>
+                {t("agentHost.agentGui.sideEmptyTitle")}
+              </strong>
+              <p className={styles.sideEmptyStateDescription}>
+                {t("agentHost.agentGui.sideEmptyDescription")}
+              </p>
+            </div>
+          }
           onLinkAction={onLinkAction}
           availableSkills={availableSkills}
           workspaceAppIcons={workspaceAppIcons}

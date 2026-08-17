@@ -346,6 +346,11 @@ provider-neutral `/side` entry into the slash command palette only after the
 exact source Session reports every required Side capability. Selecting the
 entry inserts `/side`; submitting it ensures the source runtime is available,
 then opens Side; `/side <prompt>` opens it and sends the prompt in one action.
+After capability discovery has enabled `/side`, submission creates the local
+`opening` projection immediately and renders the Side shell plus its empty
+temporary-conversation explanation before the provider fork finishes. It does
+not perform another renderer capability request on the open path; Host and
+Runtime remain the authoritative live-source validators.
 Capability resolution is fail-closed: pending, unavailable, and unsupported
 providers do not show `/side`, including when a provider advertises a command
 with that name. A typed `/side` invocation remains a Side-only intent in those

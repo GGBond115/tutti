@@ -2,6 +2,9 @@ export const enAgentGuiSide = {
   sideCommandDescription:
     "Open a temporary conversation from the current live context",
   sidePanelTitle: "Side conversation",
+  sideEmptyTitle: "Side conversation",
+  sideEmptyDescription:
+    "Side conversations are temporary and disappear when you close the app.",
   sideInputPlaceholder: "Ask a related question",
   sideResize: "Resize Side conversation",
   sideClose: "Close",

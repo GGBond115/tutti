@@ -211,6 +211,74 @@ describe("useAgentGUIDetailSideConversation lifecycle", () => {
     runtime.dispose();
   });
 
+  it("shows the opening Side immediately without repeating capability discovery", async () => {
+    let finishOpen: (() => void) | null = null;
+    const resolveCapabilities = vi.fn(async () => ({
+      supported: true,
+      activeSourceTurn: true,
+      ephemeral: true,
+      hideInheritedTurns: true,
+      modelBoundaryInjected: true
+    }));
+    const transport: AgentSideConversationTransport = {
+      resolveCapabilities,
+      open: vi.fn(
+        () =>
+          new Promise<{ status: string }>((resolve) => {
+            finishOpen = () => resolve({ status: "idle" });
+          })
+      ),
+      send: vi.fn(async () => {}),
+      cancel: vi.fn(async () => {}),
+      respond: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      subscribe: vi.fn(() => () => {}),
+      subscribeConnectionState: vi.fn(() => () => {}),
+      getConnectionState: vi.fn(() => "connected" as const)
+    };
+    const runtime = createAgentSideConversationRuntime(transport);
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(
+        AgentSideConversationRuntimeProvider,
+        { runtime },
+        children
+      );
+    const rendered = renderHook(
+      () =>
+        useAgentGUIDetailSideConversation({
+          workspaceId: "workspace-1",
+          sourceAgentSessionId: "source-1",
+          provider: "codex",
+          cwd: null,
+          availableCommands: [],
+          clearMainDraft: vi.fn(),
+          submitPrompt: vi.fn()
+        }),
+      { wrapper }
+    );
+
+    await vi.waitFor(() => expect(rendered.result.current.canOpen).toBe(true));
+    act(() => {
+      rendered.result.current.submitMain(
+        [{ type: "text", text: "/side" }],
+        "/side"
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(rendered.result.current.active?.status).toBe("opening")
+    );
+    expect(resolveCapabilities).toHaveBeenCalledOnce();
+    expect(transport.open).toHaveBeenCalledOnce();
+
+    await act(async () => finishOpen?.());
+    await vi.waitFor(() =>
+      expect(rendered.result.current.active?.status).toBe("idle")
+    );
+    rendered.unmount();
+    runtime.dispose();
+  });
+
   it("keeps a Side alive while the selected source Session changes", async () => {
     let connectionListener:
       | ((

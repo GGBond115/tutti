@@ -290,9 +290,13 @@ type codexAppServerSession struct {
 	planModeMask    map[string]any
 	defaultModeMask map[string]any
 	defaultModel    string
-	authState       string
-	authMessage     string
-	activeTurnID    string
+	// tuttiModeHostContext is the latest Tutti-owned developer context applied
+	// to this thread. A Side fork preserves it alongside the provider mode so
+	// the fork cannot silently lose session and workspace context.
+	tuttiModeHostContext string
+	authState            string
+	authMessage          string
+	activeTurnID         string
 	// activeTurnStartConfirmed reports whether a turn/started notification
 	// confirmed activeTurnID. A turn/start issued while another turn is
 	// already running responds with a stub turn id that codex never starts

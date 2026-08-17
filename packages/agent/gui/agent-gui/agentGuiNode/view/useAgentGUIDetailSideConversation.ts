@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  supportsAgentSideConversation,
   useAgentSideConversationSnapshot,
   useAgentSideConversationSupport,
   useOptionalAgentSideConversationRuntime
@@ -163,15 +162,11 @@ export function useAgentGUIDetailSideConversation({
             return existing;
           }
         }
-        const capabilities = await runtime.resolveCapabilities({
-          workspaceId,
-          sourceAgentSessionId,
-          provider,
-          cwd
-        });
-        if (!supportsAgentSideConversation(capabilities)) {
-          throw new Error("side_conversation_unsupported");
-        }
+        // Capability discovery already gates the /side command. Enter the
+        // local opening state immediately so the Side shell does not wait on
+        // another daemon round trip before it becomes visible. The Host and
+        // Runtime still perform the authoritative live-source validation as
+        // part of open.
         const opened = await runtime.open({
           workspaceId,
           sourceAgentSessionId,

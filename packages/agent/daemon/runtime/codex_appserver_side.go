@@ -27,6 +27,7 @@ func codexSideInstructions(
 	source Session,
 	planModeMask map[string]any,
 	defaultModeMask map[string]any,
+	tuttiModeHostContext string,
 ) string {
 	modeMask := defaultModeMask
 	if source.SettingsValue().PlanMode {
@@ -34,6 +35,13 @@ func codexSideInstructions(
 	}
 	base, _ := appServerCollaborationModeDeveloperInstructions(modeMask).(string)
 	base = strings.TrimSpace(base)
+	if hostContext := strings.TrimSpace(tuttiModeHostContext); hostContext != "" {
+		if base == "" {
+			base = hostContext
+		} else {
+			base += "\n\n" + hostContext
+		}
+	}
 	if base == "" {
 		return codexSideDeveloperInstructions
 	}
@@ -115,6 +123,7 @@ func (a *CodexAppServerAdapter) OpenSide(
 	planModeMask := sourceAppSession.planModeMask
 	defaultModeMask := sourceAppSession.defaultModeMask
 	defaultModel := sourceAppSession.defaultModel
+	tuttiModeHostContext := sourceAppSession.tuttiModeHostContext
 	a.mu.Unlock()
 	version, ok := appServerForkVersion(strategy, serverInfo)
 	if !ok || !versionAtLeast(version, strategy.throughTurnMinimumVersion) {
@@ -142,6 +151,7 @@ func (a *CodexAppServerAdapter) OpenSide(
 			source,
 			planModeMask,
 			defaultModeMask,
+			tuttiModeHostContext,
 		),
 	}
 	raw, err := trace.TypedCall(
@@ -245,6 +255,7 @@ func (a *CodexAppServerAdapter) OpenSide(
 		planModeMask:           planModeMask,
 		defaultModeMask:        defaultModeMask,
 		defaultModel:           defaultModel,
+		tuttiModeHostContext:   tuttiModeHostContext,
 		authState:              "authenticated",
 		acpLiveState:           liveState,
 		pendingRequests:        make(map[string]*pendingInteractiveRequest),

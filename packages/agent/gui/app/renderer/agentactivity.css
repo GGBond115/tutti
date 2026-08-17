@@ -7582,6 +7582,36 @@ button.agent-gui-node__conversation-section-toggle:hover
   scroll-padding-bottom: 112px;
 }
 
+.agent-gui-node__side-empty-state {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 20px;
+  color: var(--text-secondary, var(--tutti-text-secondary));
+  text-align: center;
+}
+
+.agent-gui-node__side-empty-state-icon {
+  margin-bottom: 18px;
+  color: var(--text-secondary, var(--tutti-text-secondary));
+}
+
+.agent-gui-node__side-empty-state-title {
+  color: var(--text-primary, var(--tutti-text-primary));
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.agent-gui-node__side-empty-state-description {
+  max-width: 360px;
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+
 .agent-gui-node__side-error {
   margin: 0 12px 12px;
   color: var(--destructive, var(--tutti-destructive));

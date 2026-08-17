@@ -77,8 +77,9 @@ func TestCodexAppServerSideUsesEphemeralForkAndInjectedBoundary(t *testing.T) {
 	}
 	if _, err := controller.Exec(t.Context(), ExecInput{
 		RoomID: "workspace-side-codex", AgentSessionID: "parent",
-		TurnID:  "parent-turn",
-		Content: []PromptContentBlock{{Type: "text", Text: "continue parent"}},
+		TurnID:            "parent-turn",
+		Content:           []PromptContentBlock{{Type: "text", Text: "continue parent"}},
+		TuttiModeSnapshot: testActiveTuttiModeSnapshot(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +131,10 @@ func TestCodexAppServerSideUsesEphemeralForkAndInjectedBoundary(t *testing.T) {
 		!strings.Contains(
 			asString(fork["developerInstructions"]),
 			"Do not create or delegate to sub-agents",
+		) ||
+		!strings.Contains(
+			asString(fork["developerInstructions"]),
+			"<tutti-host-context",
 		) {
 		t.Fatalf("thread/fork params = %#v", fork)
 	}
@@ -190,6 +195,23 @@ func TestCodexAppServerSideUsesEphemeralForkAndInjectedBoundary(t *testing.T) {
 		asString(turnStarts[len(turnStarts)-1]["threadId"]) !=
 			"codex-thread-fork" {
 		t.Fatalf("Side turn/start requests = %#v", turnStarts)
+	}
+	sideCollaboration := payloadObject(
+		turnStarts[len(turnStarts)-1]["collaborationMode"],
+	)
+	sideSettings := payloadObject(sideCollaboration["settings"])
+	sideDeveloperInstructions := asString(
+		sideSettings["developer_instructions"],
+	)
+	if !strings.Contains(sideDeveloperInstructions, "<tutti-host-context") ||
+		!strings.Contains(
+			sideDeveloperInstructions,
+			"You are operating in a Side conversation",
+		) {
+		t.Fatalf(
+			"Side turn developer instructions lost inherited context: %q",
+			sideDeveloperInstructions,
+		)
 	}
 	if !controller.HasActiveTurn("workspace-side-codex", "parent") {
 		t.Fatal("Side turn completion disturbed the active parent")
@@ -411,8 +433,10 @@ func TestCodexSideInstructionsPreserveEffectiveCollaborationPolicy(t *testing.T)
 				Session{Settings: &SessionSettings{PlanMode: test.planMode}},
 				test.planModeMask,
 				test.defaultModeMask,
+				"parent workspace context marker",
 			)
 			if !strings.HasPrefix(got, test.wantBasePolicy+"\n\n") ||
+				!strings.Contains(got, "parent workspace context marker") ||
 				!strings.Contains(got, codexSideDeveloperInstructions) ||
 				strings.Contains(got, test.unwantedBaseMode) {
 				t.Fatalf("Side instructions = %q", got)

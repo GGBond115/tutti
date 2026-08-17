@@ -68,6 +68,11 @@ on explicit close, owning-surface disposal, or event-stream disconnect. A
 typed `/side` remains an isolated Side intent even while capability resolution
 is pending or unsupported; it must never fall through to the canonical main
 conversation submit path.
+Once capability discovery has enabled the command, AgentGUI enters the local
+`opening` state and renders the Side shell immediately; it does not repeat the
+capability RPC before opening. An empty Side renders a dedicated temporary-
+conversation explanation while the provider fork completes and before the
+first local Turn.
 
 The service boundary is generated from OpenAPI and exposes resolve, open,
 send, exact-turn cancel, interactive response, and close operations. Live
@@ -82,9 +87,15 @@ current connection state plus connection-state subscription. The canonical
 Codex uses the source-owned app-server connection and sends:
 
 1. `thread/fork` with `ephemeral: true`, `excludeTurns: true`, no
-   `lastTurnId`, and Side-specific developer instructions.
+   `lastTurnId`, and Side-specific developer instructions composed with the
+   source thread's latest Tutti-owned host context.
 2. `thread/inject_items` on the returned child thread to insert a model-visible
    Side boundary.
+
+`excludeTurns` hides inherited Turns from the Side-local response and UI; it
+does not remove them from the provider fork's model context. Subsequent Side
+Turns keep both the inherited Tutti host context and the Side-specific
+instructions in their collaboration settings.
 
 The connection has a thread-aware router and is referenced by both runtime
 sessions. Notifications for a new child that arrive before `thread/fork`
