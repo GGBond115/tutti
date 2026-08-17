@@ -120,16 +120,18 @@ export function AgentGUISideConversationPane({
           );
         }}
       />
-      <button
-        type="button"
-        className={styles.sideCloseButton}
-        aria-label={t("agentHost.agentGui.sideCollapse")}
-        title={t("agentHost.agentGui.sideCollapse")}
-        onClick={onClose}
-        disabled={active.status === "closing"}
-      >
-        <PanelIcon aria-hidden="true" className="size-[18px]" />
-      </button>
+      <header className={styles.sideHeader}>
+        <button
+          type="button"
+          className={styles.sideCloseButton}
+          aria-label={t("agentHost.agentGui.sideCollapse")}
+          title={t("agentHost.agentGui.sideCollapse")}
+          onClick={onClose}
+          disabled={active.status === "closing"}
+        >
+          <PanelIcon aria-hidden="true" className="size-[18px]" />
+        </button>
+      </header>
       <ScrollArea
         scrollbarMode="native"
         className={styles.sideTimelineFrame}

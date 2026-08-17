@@ -212,6 +212,7 @@ const styles = {
   sideEmptyStateIcon: "agent-gui-node__side-empty-state-icon",
   sideEmptyStateTitle: "agent-gui-node__side-empty-state-title",
   sideError: "agent-gui-node__side-error",
+  sideHeader: "agent-gui-node__side-header",
   sidePane: "agent-gui-node__side-pane",
   sideResizeHandle: "agent-gui-node__side-resize-handle",
   sideTimeline: "agent-gui-node__side-timeline",

@@ -3,6 +3,7 @@ import type { AgentComposerProps } from "../AgentComposer";
 import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
 import type { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
 import {
+  projectAgentSideCapabilityMenuState,
   projectAgentSideComposerGate,
   projectAgentSideComposerSettings
 } from "../model/agentGuiSideComposerPolicy";
@@ -140,6 +141,9 @@ export function useAgentGUIDetailSideChrome({
       canUploadAttachment: false,
       labels: baseComposerProps.labels,
       workspaceUserProjectI18n: baseComposerProps.workspaceUserProjectI18n,
+      capabilityMenuState: projectAgentSideCapabilityMenuState(
+        baseComposerProps.capabilityMenuState
+      ),
       capabilityControlsReadOnly: true,
       onDraftContentChange: setDraftContent,
       onSettingsChange: () => {},

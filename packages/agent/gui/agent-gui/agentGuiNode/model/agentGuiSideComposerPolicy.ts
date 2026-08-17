@@ -3,6 +3,13 @@ import type {
   AgentGUIComposerGate,
   AgentGUIComposerSettingsVM
 } from "./agentGuiNodeTypes";
+import type { AgentComposerCapabilityMenuState } from "../composer/AgentComposer.types";
+
+export function projectAgentSideCapabilityMenuState(
+  parent: AgentComposerCapabilityMenuState | undefined
+): AgentComposerCapabilityMenuState | undefined {
+  return parent?.connectors ? { connectors: parent.connectors } : undefined;
+}
 
 export function projectAgentSideComposerGate(
   active: AgentSideConversationState

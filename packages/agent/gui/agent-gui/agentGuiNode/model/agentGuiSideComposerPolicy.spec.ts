@@ -3,6 +3,7 @@ import { createAgentActivityEphemeralConversationProjector } from "@tutti-os/age
 import type { AgentSideConversationState } from "../../../agentSideConversationRuntime";
 import type { AgentGUIComposerSettingsVM } from "./agentGuiNodeTypes";
 import {
+  projectAgentSideCapabilityMenuState,
   projectAgentSideComposerGate,
   projectAgentSideComposerSettings
 } from "./agentGuiSideComposerPolicy";
@@ -68,6 +69,17 @@ function parentSettings(): AgentGUIComposerSettingsVM {
 }
 
 describe("Agent Side composer policy", () => {
+  it("inherits only the host-owned connector visibility gate", () => {
+    expect(
+      projectAgentSideCapabilityMenuState({
+        connectors: { enabled: false },
+        tuttiMode: { enabled: true },
+        computerUse: { installed: true }
+      })
+    ).toEqual({ connectors: { enabled: false } });
+    expect(projectAgentSideCapabilityMenuState(undefined)).toBeUndefined();
+  });
+
   it("keeps Side submit state independent from the parent composer", () => {
     expect(projectAgentSideComposerGate(sideState()).submission.status).toBe(
       "ready"

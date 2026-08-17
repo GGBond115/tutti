@@ -7541,10 +7541,6 @@ button.agent-gui-node__conversation-section-toggle:hover
 }
 
 .agent-gui-node__side-close-button {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 4;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -7556,6 +7552,14 @@ button.agent-gui-node__conversation-section-toggle:hover
   background: transparent;
   color: var(--text-secondary, var(--tutti-text-secondary));
   cursor: pointer;
+}
+
+.agent-gui-node__side-header {
+  display: flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px 10px 4px;
 }
 
 .agent-gui-node__side-close-button:hover {
@@ -7578,7 +7582,7 @@ button.agent-gui-node__conversation-section-toggle:hover
   display: grid;
   align-content: start;
   min-height: 0;
-  padding: 20px 18px 112px;
+  padding: 8px 18px 112px;
   scroll-padding-bottom: 112px;
 }
 
