@@ -36,8 +36,12 @@ func (r *reentrantQueueReporter) Report(_ context.Context, report agentsessionst
 	return nil
 }
 
-func (r *reentrantQueueReporter) ReportSubmitProvenance(ctx context.Context, report agentsessionstore.ReportActivityInput) error {
-	return r.Report(ctx, report)
+func (r *reentrantQueueReporter) AdmitSubmitIntent(ctx context.Context, input agentsessionstore.SubmitIntentInput) error {
+	return r.Report(ctx, reportFromSubmitIntentInput(input))
+}
+
+func (*reentrantQueueReporter) UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error {
+	return nil
 }
 
 func (r *reentrantQueueReporter) snapshot() []string {

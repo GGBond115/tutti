@@ -197,6 +197,7 @@ type RuntimeController interface {
 	Start(context.Context, RuntimeStartInput) (RuntimeStartResult, error)
 	SubmitInteractive(context.Context, RuntimeSubmitInteractiveInput) (RuntimeSubmitInteractiveResult, error)
 	InteractiveDisposition(workspaceID string, rootAgentSessionID string, agentSessionID string, turnID string, requestID string) RuntimeInteractiveDisposition
+	UpdateSubmitProvenance(context.Context, RuntimeSubmitProvenanceInput) error
 	Subscribe(workspaceID string, agentSessionID string) (<-chan RuntimeStreamEvent, func(), bool)
 	UpdateSettings(context.Context, RuntimeUpdateSettingsInput) error
 	ValidatePromptContent(context.Context, RuntimeExecInput) error

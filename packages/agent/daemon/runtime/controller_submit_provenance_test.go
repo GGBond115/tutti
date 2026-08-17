@@ -3,7 +3,6 @@ package agentruntime
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -61,7 +60,7 @@ func (a *canonicalSubmitSequenceAdapter) ExecAsync(
 				explicitDisplayPrompt,
 				visibleText,
 				turnID,
-				nil,
+				map[string]any{messageOriginMetadataKey: string(messageOriginProviderEcho)},
 			),
 		})
 	}
@@ -113,13 +112,15 @@ func TestCanonicalSubmitSequenceIsStableAcrossRuntimeAndProvenanceOrder(t *testi
 				waitForCanonicalSubmitEmission(t, adapter.emitted)
 				waitForCanonicalSubmitMessageReports(t, reporter, clientSubmitID, 1)
 			}
-			if err := controller.DurablyReportSubmitProvenance(t.Context(), SubmitProvenanceInput{
-				RoomID:                          started.Session.RoomID,
-				AgentSessionID:                  started.Session.AgentSessionID,
-				TurnID:                          execResult.TurnID,
-				ClientSubmitID:                  clientSubmitID,
-				CanonicalSubmitOccurredAtUnixMS: occurredAtUnixMS,
-				Content:                         content,
+			if err := controller.UpdateSubmitProvenance(t.Context(), SubmitProvenanceInput{
+				RoomID:             started.Session.RoomID,
+				AgentSessionID:     started.Session.AgentSessionID,
+				TurnID:             execResult.TurnID,
+				ClientSubmitID:     clientSubmitID,
+				CanonicalMessageID: userPromptActivityMessageIDFromClientSubmitID(clientSubmitID),
+				OccurredAtUnixMS:   occurredAtUnixMS,
+				DispatchStatus:     "accepted",
+				DeliveryStatus:     "accepted",
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -128,16 +129,38 @@ func TestCanonicalSubmitSequenceIsStableAcrossRuntimeAndProvenanceOrder(t *testi
 				waitForCanonicalSubmitEmission(t, adapter.emitted)
 			}
 
-			updates := waitForCanonicalSubmitMessageReports(t, reporter, clientSubmitID, 2)
-			if !reflect.DeepEqual(updates[0], updates[1]) {
-				t.Fatalf("canonical submit updates differ:\nfirst=%#v\nsecond=%#v", updates[0], updates[1])
+			updates := waitForCanonicalSubmitMessageReports(t, reporter, clientSubmitID, 1)
+			if updates[0].MessageID != userPromptActivityMessageIDFromClientSubmitID(clientSubmitID) ||
+				updates[0].TurnID != execResult.TurnID {
+				t.Fatalf("canonical submit identity = %#v", updates[0])
 			}
 			if updates[0].Seq != uint64(occurredAtUnixMS) || updates[0].OccurredAtUnixMS != occurredAtUnixMS {
-				t.Fatalf("canonical submit sequence = %d occurredAt=%d", updates[0].Seq, updates[0].OccurredAtUnixMS)
+				t.Fatalf("canonical submit sequence/occurrence = seq:%d occurred:%d", updates[0].Seq, updates[0].OccurredAtUnixMS)
 			}
 			projected := agentsessionstore.SessionMessageUpdateFromActivityUpdate(updates[0])
 			if projected.Payload["seq"] != uint64(occurredAtUnixMS) {
 				t.Fatalf("canonical payload seq = %#v", projected.Payload["seq"])
+			}
+			reporter.waitForReports(t, "provider echo activity", func(calls []reportCall) bool {
+				count := 0
+				for _, call := range calls {
+					for _, item := range call.report.TimelineItems {
+						if item.ItemType == "provider.echo" && item.EventID == "provider-echo:"+userPromptActivityMessageIDFromClientSubmitID(clientSubmitID) {
+							count++
+						}
+					}
+				}
+				return count == 1
+			})
+			provenance := reporter.provenanceSnapshot()
+			if len(provenance) != 1 {
+				t.Fatalf("submit provenance updates = %#v, want one status-only update", provenance)
+			}
+			if provenance[0].ClientSubmitID != clientSubmitID ||
+				provenance[0].CanonicalMessageID != userPromptActivityMessageIDFromClientSubmitID(clientSubmitID) ||
+				provenance[0].DispatchStatus != "accepted" ||
+				provenance[0].DeliveryStatus != "accepted" {
+				t.Fatalf("submit provenance update = %#v, want identity and status only", provenance[0])
 			}
 		})
 	}
@@ -195,9 +218,13 @@ func (r *submittedTurnBarrierReporter) Report(ctx context.Context, input agentse
 	}
 }
 
-func (r *submittedTurnBarrierReporter) ReportSubmitProvenance(ctx context.Context, report agentsessionstore.ReportActivityInput) error {
+func (r *submittedTurnBarrierReporter) AdmitSubmitIntent(ctx context.Context, input agentsessionstore.SubmitIntentInput) error {
 	r.provenanceCalls++
-	return r.Report(ctx, report)
+	return r.Report(ctx, reportFromSubmitIntentInput(input))
+}
+
+func (*submittedTurnBarrierReporter) UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error {
+	return nil
 }
 
 type executionSignalAdapter struct {

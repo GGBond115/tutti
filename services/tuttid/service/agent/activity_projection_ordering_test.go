@@ -155,27 +155,26 @@ func TestActivityProjectionSubmitProvenanceAllowsGeneratedPromptIdentity(t *test
 	projection := NewActivityProjection(store)
 	turnID := "turn-generated-prompt"
 	messageID := "turn-user:generated-message"
-	if err := projection.ReportSubmitProvenance(ctx, agentsessionstore.ReportActivityInput{
-		WorkspaceID: "ws-generated-prompt",
-		Source: canonical.EventSource{
-			AgentID: "session-generated-prompt", Provider: "codex",
-			SessionOrigin: agentsessionstore.WorkspaceAgentSessionOriginRuntime,
+	clientSubmitID := "submit-generated-prompt"
+	if err := projection.AdmitSubmitIntent(ctx, agentsessionstore.SubmitIntentInput{
+		WorkspaceID: "ws-generated-prompt", AgentSessionID: "session-generated-prompt",
+		ClientSubmitID: clientSubmitID, CanonicalTurnID: turnID, CanonicalMessageID: messageID,
+		State: canonical.ReportSessionStateInput{
+			WorkspaceID: "ws-generated-prompt", AgentSessionID: "session-generated-prompt",
+			Source: canonical.EventSource{AgentID: "session-generated-prompt", Provider: "codex", SessionOrigin: agentsessionstore.WorkspaceAgentSessionOriginRuntime},
+			State: canonical.WorkspaceAgentSessionStateUpdate{
+				Kind: agentactivitybiz.SessionKindRoot, Provider: "codex", LifecycleStatus: "active", CurrentPhase: "working", OccurredAtUnixMS: 1,
+				Turn: &canonical.WorkspaceAgentTurnStateUpdate{TurnID: turnID, Origin: agentactivitybiz.TurnOriginUserPrompt, ActiveTurnID: &turnID, Phase: agentactivitybiz.TurnPhaseSubmitted},
+			},
 		},
-		StatePatches: []agentsessionstore.WorkspaceAgentStatePatch{{
-			AgentSessionID: "session-generated-prompt", Kind: agentactivitybiz.SessionKindRoot,
-			Provider: "codex", LifecycleStatus: "active", CurrentPhase: "working", OccurredAtUnixMS: 1,
-			Turn: &agentsessionstore.WorkspaceAgentTurnPatch{
-				TurnID: turnID, Origin: agentactivitybiz.TurnOriginUserPrompt,
-				ActiveTurnID: &turnID, Phase: agentactivitybiz.TurnPhaseSubmitted,
-			},
-		}},
-		MessageUpdates: []agentsessionstore.WorkspaceAgentMessageUpdate{{
-			AgentSessionID: "session-generated-prompt", TurnID: turnID, MessageID: messageID,
-			Role: "user", Kind: "text", Status: "completed", OccurredAtUnixMS: 1,
-			Payload: map[string]any{
-				"content": []map[string]any{{"type": "text", "text": "hello"}},
-			},
-		}},
+		Messages: canonical.ReportSessionMessagesInput{
+			WorkspaceID: "ws-generated-prompt", AgentSessionID: "session-generated-prompt",
+			Source: canonical.EventSource{AgentID: "session-generated-prompt", Provider: "codex", SessionOrigin: agentsessionstore.WorkspaceAgentSessionOriginRuntime},
+			Updates: []canonical.WorkspaceAgentSessionMessageUpdate{{
+				TurnID: turnID, MessageID: messageID, Role: "user", Kind: "text", Status: "completed", OccurredAtUnixMS: 1,
+				Payload: map[string]any{"clientSubmitId": clientSubmitID, "content": []map[string]any{{"type": "text", "text": "hello"}}},
+			}},
+		},
 	}); err != nil {
 		t.Fatalf("generated prompt admission error = %v", err)
 	}

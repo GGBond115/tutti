@@ -3,6 +3,7 @@ import type {
   EngineClock,
   EngineIntent
 } from "./types.ts";
+import { createPromptQueueId } from "./promptQueue.identity.ts";
 
 export function withEngineObservationTime(
   intent: EngineIntent,
@@ -15,6 +16,13 @@ export function withEngineObservationTime(
     intent.observedAtUnixMs === undefined
   ) {
     return { ...intent, observedAtUnixMs: clock.nowUnixMs() };
+  }
+  if (
+    (intent.type === "submit/requested" ||
+      intent.type === "plan/feedbackRequested") &&
+    !intent.promptId?.trim()
+  ) {
+    return { ...intent, promptId: createPromptQueueId() };
   }
   return intent;
 }

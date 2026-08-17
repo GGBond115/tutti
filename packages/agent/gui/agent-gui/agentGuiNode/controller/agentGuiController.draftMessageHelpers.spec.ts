@@ -5,6 +5,7 @@ import {
 } from "../../../shared/agentCustomMentionKinds";
 import {
   buildAgentComposerDraft,
+  updateAgentComposerDraft,
   snapshotAgentComposerDraft
 } from "../model/agentComposerDraft";
 import type { SubmittedDraftSnapshot } from "../model/agentGuiNodeTypes";
@@ -179,8 +180,7 @@ describe("submitted composer draft cleanup", () => {
         }
       ]
     });
-    const currentDraft = buildAgentComposerDraft({
-      prompt: "Review this",
+    const currentDraft = updateAgentComposerDraft(submittedDraft, {
       images: [
         {
           id: "image-1",
@@ -207,22 +207,26 @@ describe("submitted composer draft cleanup", () => {
     expect(result[sourceScopeKey]).toEqual([{ type: "text", text: "" }]);
   });
 
-  it("retains an image when its upload reports an error", () => {
+  it("clears when an upload reports an error without changing intent", () => {
     const current = snapshotAgentComposerDraft(submittedDraft);
     const image = current.find((block) => block.type === "image");
     if (image) image.uploadError = "upload failed";
     const drafts = { [sourceScopeKey]: current };
 
-    expect(clearSubmittedDraftIfUnchanged({ drafts, snapshot })).toBe(drafts);
+    expect(
+      clearSubmittedDraftIfUnchanged({ drafts, snapshot })[sourceScopeKey]
+    ).toEqual([{ type: "text", text: "" }]);
   });
 
-  it("keeps detecting unknown image metadata as a draft change", () => {
+  it("clears when unknown image metadata changes without changing intent", () => {
     const current = snapshotAgentComposerDraft(submittedDraft);
     const image = current.find((block) => block.type === "image");
     Object.assign(image ?? {}, { futureMetadata: "edited" });
     const drafts = { [sourceScopeKey]: current };
 
-    expect(clearSubmittedDraftIfUnchanged({ drafts, snapshot })).toBe(drafts);
+    expect(
+      clearSubmittedDraftIfUnchanged({ drafts, snapshot })[sourceScopeKey]
+    ).toEqual([{ type: "text", text: "" }]);
   });
 
   it("compares newly-added block metadata without maintaining a field list", () => {

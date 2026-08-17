@@ -55,6 +55,50 @@ type ReportActivityReply struct {
 	RequestBodyBytes                  int `json:"-"`
 }
 
+// SubmitIntentInput is the only activity input that may carry the canonical
+// user message. The state and message are committed together by the
+// admission endpoint; subsequent provenance updates must use
+// SubmitProvenanceInput instead.
+type SubmitIntentInput struct {
+	WorkspaceID                     string                     `json:"workspaceId"`
+	AgentSessionID                  string                     `json:"agentSessionId"`
+	ClientSubmitID                  string                     `json:"clientSubmitId"`
+	CanonicalTurnID                 string                     `json:"canonicalTurnId"`
+	CanonicalMessageID              string                     `json:"canonicalMessageId"`
+	CanonicalSubmitOccurredAtUnixMS int64                      `json:"canonicalSubmitOccurredAtUnixMs,omitempty"`
+	State                           ReportSessionStateInput    `json:"state"`
+	Messages                        ReportSessionMessagesInput `json:"messages"`
+}
+
+type SubmitIntentReply struct {
+	Accepted             bool `json:"accepted"`
+	AcceptedMessageCount int  `json:"acceptedMessageCount"`
+	RequestBodyBytes     int  `json:"-"`
+}
+
+// SubmitProvenanceInput deliberately contains no canonical message payload.
+// It is safe for Provider and Host retries because it can only advance the
+// submit's identity and delivery state.
+type SubmitProvenanceInput struct {
+	WorkspaceID        string `json:"workspaceId"`
+	AgentSessionID     string `json:"agentSessionId"`
+	ClientSubmitID     string `json:"clientSubmitId"`
+	CanonicalTurnID    string `json:"canonicalTurnId"`
+	CanonicalMessageID string `json:"canonicalMessageId,omitempty"`
+	ProviderSessionID  string `json:"providerSessionId,omitempty"`
+	ProviderTurnID     string `json:"providerTurnId,omitempty"`
+	DispatchStatus     string `json:"dispatchStatus,omitempty"`
+	DeliveryStatus     string `json:"deliveryStatus,omitempty"`
+	FailureReason      string `json:"failureReason,omitempty"`
+	OccurredAtUnixMS   int64  `json:"occurredAtUnixMs,omitempty"`
+	Guidance           bool   `json:"guidance,omitempty"`
+}
+
+type SubmitProvenanceReply struct {
+	Accepted         bool `json:"accepted"`
+	RequestBodyBytes int  `json:"-"`
+}
+
 type WorkspaceAgentGoalReconcileRequest struct {
 	RequestID           string `json:"requestId"`
 	Phase               string `json:"phase"`

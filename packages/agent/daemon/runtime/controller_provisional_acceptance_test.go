@@ -166,9 +166,13 @@ func TestControllerProvisionalSessionPublishesPromptAndSettlesRejectedFirstTurn(
 	}
 
 	result, err := controller.Exec(t.Context(), ExecInput{
-		RoomID: "room-1", AgentSessionID: "session-rejected",
-		TurnID: "turn-rejected", Content: textPrompt("hello"),
-		RequireProviderAcceptance: true,
+		RoomID:                          "room-1",
+		AgentSessionID:                  "session-rejected",
+		TurnID:                          "turn-rejected",
+		ClientSubmitID:                  "submit-rejected",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("hello"),
+		RequireProviderAcceptance:       true,
 	})
 	var appErr *AppError
 	if !errors.As(err, &appErr) || appErr.Code != "auth_required" {
@@ -228,9 +232,13 @@ func TestControllerProviderlessCanonicalTerminalSettlesRootTurn(t *testing.T) {
 	}
 
 	result, err := controller.Exec(t.Context(), ExecInput{
-		RoomID: "room-1", AgentSessionID: "session-providerless-terminal",
-		TurnID: "turn-providerless-terminal", Content: textPrompt("hello"),
-		RequireProviderAcceptance: true,
+		RoomID:                          "room-1",
+		AgentSessionID:                  "session-providerless-terminal",
+		TurnID:                          "turn-providerless-terminal",
+		ClientSubmitID:                  "submit-providerless-terminal",
+		CanonicalSubmitOccurredAtUnixMS: 1_002,
+		Content:                         textPrompt("hello"),
+		RequireProviderAcceptance:       true,
 	})
 	if err != nil {
 		t.Fatalf("Exec() error = %v, want canonical submit retained", err)
@@ -308,9 +316,13 @@ func TestControllerProviderlessCanonicalTerminalCommitRetryConverges(t *testing.
 			}
 
 			result, err := controller.Exec(t.Context(), ExecInput{
-				RoomID: "room-1", AgentSessionID: sessionID,
-				TurnID: turnID, Content: textPrompt("hello"),
-				RequireProviderAcceptance: true,
+				RoomID:                          "room-1",
+				AgentSessionID:                  sessionID,
+				TurnID:                          turnID,
+				ClientSubmitID:                  "submit-providerless-terminal-retry",
+				CanonicalSubmitOccurredAtUnixMS: 1_003,
+				Content:                         textPrompt("hello"),
+				RequireProviderAcceptance:       true,
 			})
 			if err != nil {
 				t.Fatalf("Exec() error = %v, want canonical submit retained", err)

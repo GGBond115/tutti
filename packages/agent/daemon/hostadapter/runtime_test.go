@@ -210,7 +210,7 @@ func TestRuntimeControllerBridgesGoalLifecycleToHostSink(t *testing.T) {
 	}
 }
 
-func (b *provenanceRuntimeBackend) DurablyReportSubmitProvenance(_ context.Context, input agentruntime.SubmitProvenanceInput) error {
+func (b *provenanceRuntimeBackend) UpdateSubmitProvenance(_ context.Context, input agentruntime.SubmitProvenanceInput) error {
 	b.input = input
 	return b.err
 }
@@ -476,27 +476,29 @@ func TestRuntimeControllerFailsClosedWithoutBackend(t *testing.T) {
 	}
 }
 
-func TestRuntimeControllerDelegatesDurableSubmitProvenance(t *testing.T) {
+func TestRuntimeControllerDelegatesSubmitProvenance(t *testing.T) {
 	backend := &provenanceRuntimeBackend{}
 	controller := &RuntimeController{Backend: backend}
 	input := host.RuntimeSubmitProvenanceInput{
 		WorkspaceID: " workspace-1 ", AgentSessionID: "session-1", TurnID: "turn-1",
-		ClientSubmitID: "submit-1", DisplayPrompt: "display", Guidance: true,
+		ClientSubmitID: "submit-1", CanonicalMessageID: "message-1", Guidance: true,
+		ProviderSessionID: "provider-session-1", ProviderTurnID: "provider-turn-1",
+		DispatchStatus: "accepted", DeliveryStatus: "accepted", FailureReason: "",
 		CanonicalSubmitOccurredAtUnixMS: 1_234,
-		Content:                         []host.PromptContentBlock{{Type: "text", Text: "hello"}},
 	}
 
-	if err := controller.DurablyReportSubmitProvenance(t.Context(), input); err != nil {
+	if err := controller.UpdateSubmitProvenance(t.Context(), input); err != nil {
 		t.Fatal(err)
 	}
 	if backend.input.RoomID != input.WorkspaceID || backend.input.AgentSessionID != input.AgentSessionID ||
 		backend.input.TurnID != input.TurnID || backend.input.ClientSubmitID != input.ClientSubmitID ||
-		backend.input.CanonicalSubmitOccurredAtUnixMS != input.CanonicalSubmitOccurredAtUnixMS ||
-		backend.input.DisplayPrompt != input.DisplayPrompt || !backend.input.Guidance {
+		backend.input.CanonicalMessageID != input.CanonicalMessageID ||
+		backend.input.ProviderSessionID != input.ProviderSessionID ||
+		backend.input.ProviderTurnID != input.ProviderTurnID ||
+		backend.input.DispatchStatus != input.DispatchStatus ||
+		backend.input.DeliveryStatus != input.DeliveryStatus ||
+		backend.input.OccurredAtUnixMS != input.CanonicalSubmitOccurredAtUnixMS || !backend.input.Guidance {
 		t.Fatalf("delegated provenance = %#v", backend.input)
-	}
-	if len(backend.input.Content) != 1 || backend.input.Content[0].Text != "hello" {
-		t.Fatalf("delegated content = %#v", backend.input.Content)
 	}
 }
 

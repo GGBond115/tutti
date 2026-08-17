@@ -344,8 +344,8 @@ type RuntimeProviderTurnAcceptanceReconciler interface {
 	ReconcileProviderTurnAcceptance(context.Context, RuntimeProviderTurnAcceptanceInput) error
 }
 
-type RuntimeSubmitProvenanceReporter interface {
-	DurablyReportSubmitProvenance(context.Context, RuntimeSubmitProvenanceInput) error
+type RuntimeSubmitProvenanceUpdater interface {
+	UpdateSubmitProvenance(context.Context, RuntimeSubmitProvenanceInput) error
 }
 
 // RuntimeOperationStore is the complete durable coordinator boundary. Keeping

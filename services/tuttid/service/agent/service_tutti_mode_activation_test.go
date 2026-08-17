@@ -634,37 +634,12 @@ func TestSubmitClaimRejectedReplayReusesFailedTurnWithoutProviderRedispatch(t *t
 		}, wantErr
 	}
 	runtime.provenanceHook = func(input RuntimeSubmitProvenanceInput) error {
-		content := "hello"
-		if len(input.Content) > 0 && input.Content[0].Text != "" {
-			content = input.Content[0].Text
-		}
-		return projection.ReportSubmitProvenance(ctx, agentsessionstore.ReportActivityInput{
-			WorkspaceID: input.WorkspaceID,
-			Source: canonical.EventSource{
-				AgentID: input.AgentSessionID, Provider: "codex",
-				SessionOrigin: agentsessionstore.WorkspaceAgentSessionOriginRuntime,
-			},
-			StatePatches: []agentsessionstore.WorkspaceAgentStatePatch{{
-				AgentSessionID: input.AgentSessionID, Kind: agentactivitybiz.SessionKindRoot,
-				Provider: "codex", LifecycleStatus: "failed", CurrentPhase: "failed",
-				LastError: wantErr.Error(), OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS + 1,
-				RuntimeContext: map[string]any{"visible": true, "provisional": false},
-				Turn: &agentsessionstore.WorkspaceAgentTurnPatch{
-					TurnID: input.TurnID, Origin: agentactivitybiz.TurnOriginUserPrompt,
-					Phase: agentactivitybiz.TurnPhaseSettled, Outcome: agentactivitybiz.TurnOutcomeFailed,
-				},
-			}},
-			MessageUpdates: []agentsessionstore.WorkspaceAgentMessageUpdate{{
-				AgentSessionID: input.AgentSessionID,
-				MessageID:      "client-submit:user:" + input.ClientSubmitID,
-				TurnID:         input.TurnID, Role: "user", Kind: "text", Status: "completed",
-				OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS,
-				Payload: map[string]any{
-					"clientSubmitId": input.ClientSubmitID,
-					"content":        []map[string]any{{"type": "text", "text": content}},
-					"contentMode":    "snapshot", "source": "host", "text": content,
-				},
-			}},
+		return projection.UpdateSubmitProvenance(ctx, agentsessionstore.SubmitProvenanceInput{
+			WorkspaceID: input.WorkspaceID, AgentSessionID: input.AgentSessionID, ClientSubmitID: input.ClientSubmitID,
+			CanonicalTurnID: input.TurnID, CanonicalMessageID: "client-submit:user:" + input.ClientSubmitID,
+			ProviderSessionID: input.ProviderSessionID, ProviderTurnID: input.ProviderTurnID,
+			DispatchStatus: "failed", DeliveryStatus: "failed", FailureReason: wantErr.Error(),
+			OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS + 1,
 		})
 	}
 	service := newTestService(runtime)

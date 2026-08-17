@@ -23,7 +23,7 @@ export function pendingSendNowFromSubmit(
         awaitingTurnExpiresAtUnixMs:
           intent.requestedAtUnixMs + TURN_CANCEL_TIMEOUT_MS,
         cancelCommandId: `submit:cancel:${intent.clientSubmitId}`,
-        promptId: intent.clientSubmitId,
+        promptId: intent.promptId?.trim() || intent.clientSubmitId,
         targetTurnId: target,
         timeoutMs: TURN_CANCEL_TIMEOUT_MS
       }

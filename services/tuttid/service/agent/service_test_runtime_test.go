@@ -665,7 +665,7 @@ func (f *fakeRuntime) Exec(_ context.Context, input RuntimeExecInput) (RuntimeEx
 	}, nil
 }
 
-func (f *fakeRuntime) DurablyReportSubmitProvenance(_ context.Context, input RuntimeSubmitProvenanceInput) error {
+func (f *fakeRuntime) UpdateSubmitProvenance(_ context.Context, input RuntimeSubmitProvenanceInput) error {
 	f.provenanceCalls = append(f.provenanceCalls, input)
 	if f.provenanceHook != nil {
 		return f.provenanceHook(input)

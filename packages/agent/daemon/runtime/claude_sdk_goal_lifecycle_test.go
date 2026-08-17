@@ -67,8 +67,12 @@ func (r *blockingFirstClaudeGoalReporter) Report(ctx context.Context, report age
 	return nil
 }
 
-func (r *blockingFirstClaudeGoalReporter) ReportSubmitProvenance(ctx context.Context, report agentsessionstore.ReportActivityInput) error {
-	return r.Report(ctx, report)
+func (r *blockingFirstClaudeGoalReporter) AdmitSubmitIntent(ctx context.Context, input agentsessionstore.SubmitIntentInput) error {
+	return r.Report(ctx, reportFromSubmitIntentInput(input))
+}
+
+func (*blockingFirstClaudeGoalReporter) UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error {
+	return nil
 }
 
 func (r *blockingFirstClaudeGoalReporter) snapshot() []agentsessionstore.ReportActivityInput {

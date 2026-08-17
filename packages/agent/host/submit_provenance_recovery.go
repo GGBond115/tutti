@@ -52,6 +52,7 @@ func (h *Host) persistRuntimeSubmitOutcome(
 	ref SessionRef,
 	result RuntimeExecResult,
 	clientSubmitID string,
+	failureReason string,
 	occurredAtUnixMS int64,
 	prepared preparedPromptContent,
 	displayPrompt string,
@@ -63,10 +64,11 @@ func (h *Host) persistRuntimeSubmitOutcome(
 		ctx,
 		ref.WorkspaceID,
 		ref.AgentSessionID,
+		result,
 		result.TurnID,
 		clientSubmitID,
+		failureReason,
 		occurredAtUnixMS,
-		prepared.Hydrated,
 		prepared.Persisted,
 		displayPrompt,
 		false,
@@ -84,10 +86,11 @@ func (h *Host) persistSubmitAfterRuntimeOutcome(
 	ctx context.Context,
 	workspaceID string,
 	agentSessionID string,
+	execResult RuntimeExecResult,
 	turnID string,
 	clientSubmitID string,
+	failureReason string,
 	occurredAtUnixMS int64,
-	hydratedContent []PromptContentBlock,
 	persistedContent []PromptContentBlock,
 	displayPrompt string,
 	guidance bool,
@@ -107,17 +110,11 @@ func (h *Host) persistSubmitAfterRuntimeOutcome(
 	)
 	defer cancel()
 
-	if reporter, ok := h.runtime.(RuntimeSubmitProvenanceReporter); ok {
-		if err := reporter.DurablyReportSubmitProvenance(persistCtx, RuntimeSubmitProvenanceInput{
-			WorkspaceID:                     workspaceID,
-			AgentSessionID:                  agentSessionID,
-			TurnID:                          turnID,
-			ClientSubmitID:                  clientSubmitID,
-			CanonicalSubmitOccurredAtUnixMS: occurredAtUnixMS,
-			Content:                         hydratedContent,
-			DisplayPrompt:                   displayPrompt,
-			Guidance:                        guidance,
-		}); err != nil {
+	if reporter, ok := h.runtime.(RuntimeSubmitProvenanceUpdater); ok {
+		if err := reporter.UpdateSubmitProvenance(persistCtx, runtimeSubmitProvenanceInput(
+			workspaceID, agentSessionID, turnID, clientSubmitID, occurredAtUnixMS,
+			"", execResult, failureReason, guidance,
+		)); err != nil {
 			return err
 		}
 	}

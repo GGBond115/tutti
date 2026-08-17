@@ -194,9 +194,11 @@ func TestControllerGoalControl(t *testing.T) {
 	}
 	// Resume and edit the objective while a turn is running.
 	if _, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: agentSessionID,
-		Content:        textPrompt("long task"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  agentSessionID,
+		ClientSubmitID:                  "goal-long-task-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("long task"),
 	}); err != nil {
 		t.Fatalf("Exec long task: %v", err)
 	}

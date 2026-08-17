@@ -498,17 +498,6 @@ type RuntimeProviderTurnAcceptanceInput struct {
 	ClientUserMessageID string
 }
 
-type RuntimeSubmitProvenanceInput struct {
-	WorkspaceID                     string
-	AgentSessionID                  string
-	TurnID                          string
-	ClientSubmitID                  string
-	CanonicalSubmitOccurredAtUnixMS int64
-	Content                         []PromptContentBlock
-	DisplayPrompt                   string
-	Guidance                        bool
-}
-
 type CompletedCommand struct {
 	Kind   string
 	Status string

@@ -1,4 +1,3 @@
-import { flushSync } from "react-dom";
 import {
   startTransition,
   useCallback,
@@ -7,7 +6,6 @@ import {
   type RefObject,
   type SetStateAction
 } from "react";
-import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import { useOptionalAgentHostApi } from "../../../agentActivityHost";
 import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
@@ -52,19 +50,17 @@ import {
 } from "./composerDraftUtils";
 import { reportAgentComposerDiagnostic } from "./agentComposerDiagnostics";
 import type { AgentGUIComposerContentType } from "../engagement/agentGUIEngagement.types";
+import {
+  useComposerDraftReferencePicker,
+  type WorkspaceReferencePickResult
+} from "./useComposerDraftReferencePicker";
+import {
+  useComposerDraftAttachmentEpochs,
+  useStableEventCallback
+} from "./useComposerDraftAttachmentEpochs";
 
-export interface WorkspaceReferencePickResult {
-  files: readonly WorkspaceFileReference[];
-  mentionItems: readonly AgentContextMentionItem[];
-}
+export type { WorkspaceReferencePickResult } from "./useComposerDraftReferencePicker";
 
-function useStableEventCallback<Args extends unknown[], Result>(
-  callback: (...args: Args) => Result
-): (...args: Args) => Result {
-  const callbackRef = useRef(callback);
-  callbackRef.current = callback;
-  return useCallback((...args: Args) => callbackRef.current(...args), []);
-}
 export interface UseComposerDraftAttachmentsInput {
   workspaceId: string;
   workspacePath?: string | null;
@@ -128,8 +124,13 @@ export function useComposerDraftAttachments({
 }: UseComposerDraftAttachmentsInput) {
   const agentHostApi = useOptionalAgentHostApi();
   const agentActivityRuntime = useOptionalAgentGUIRuntime();
-  const activeDraftScopeKeyRef = useRef(draftScopeKey);
-  activeDraftScopeKeyRef.current = draftScopeKey;
+  const {
+    invalidateAttachmentEpoch,
+    invalidateRemovedAttachmentEpochs,
+    isActiveDraftScope,
+    isCurrentAttachmentEpoch,
+    registerAttachmentEpoch
+  } = useComposerDraftAttachmentEpochs({ draftScopeKey, draftByScopeKeyRef });
   const reportContentEntered = useStableEventCallback(
     (contentType: AgentGUIComposerContentType): void => {
       onContentEntered?.(contentType);
@@ -143,6 +144,11 @@ export function useComposerDraftAttachments({
   });
   const publishScopedDraft = useStableEventCallback(
     (sourceScopeKey: string, nextDraft: AgentComposerDraft): void => {
+      invalidateRemovedAttachmentEpochs(
+        sourceScopeKey,
+        draftByScopeKeyRef.current[sourceScopeKey],
+        nextDraft
+      );
       draftByScopeKeyRef.current[sourceScopeKey] = nextDraft;
       if (sourceScopeKey === draftScopeKey) {
         draftPromptRef.current = agentComposerDraftPrompt(nextDraft);
@@ -170,6 +176,12 @@ export function useComposerDraftAttachments({
   const openReferencesForEntityRef = useRef<
     ((entity: AgentContextMentionItem) => void) | null
   >(null);
+  const { handleOpenReferencesForEntity, handleWorkspaceReferencePicker } =
+    useComposerDraftReferencePicker({
+      clearActiveFileMentionTrigger,
+      editorHandleRef,
+      onRequestWorkspaceReferences
+    });
   const handleDraftChange = useStableEventCallback(
     (nextDraft: string): void => {
       if (isGoalModeActive) {
@@ -272,6 +284,12 @@ export function useComposerDraftAttachments({
         previewUrl: `data:${image.mimeType};base64,${image.data}`,
         uploading: Boolean(uploadPromptContent)
       }));
+      const uploadEpochByImageId = new Map(
+        nextImages.map((image) => [
+          image.id,
+          registerAttachmentEpoch(draftScopeKey, image.id)
+        ])
+      );
       const nextDraftImages = [...currentDraftImages, ...nextImages];
       draftImagesRef.current = nextDraftImages;
       reportContentEntered("image");
@@ -294,6 +312,17 @@ export function useComposerDraftAttachments({
           ]
         })
           .then((result) => {
+            const uploadEpoch = uploadEpochByImageId.get(draftImage.id);
+            if (
+              !uploadEpoch ||
+              !isCurrentAttachmentEpoch(
+                draftScopeKey,
+                draftImage.id,
+                uploadEpoch
+              )
+            ) {
+              return;
+            }
             const uploadedImage = result.content.find(
               (block) => block.type === "image"
             );
@@ -351,6 +380,17 @@ export function useComposerDraftAttachments({
             );
           })
           .catch((error: unknown) => {
+            const uploadEpoch = uploadEpochByImageId.get(draftImage.id);
+            if (
+              !uploadEpoch ||
+              !isCurrentAttachmentEpoch(
+                draftScopeKey,
+                draftImage.id,
+                uploadEpoch
+              )
+            ) {
+              return;
+            }
             const message =
               error instanceof Error ? error.message : String(error);
             reportAgentComposerDiagnostic(agentActivityRuntime, {
@@ -386,6 +426,8 @@ export function useComposerDraftAttachments({
       promptImagesSupported,
       promptAssetLimit,
       reportContentEntered,
+      isCurrentAttachmentEpoch,
+      registerAttachmentEpoch,
       updateScopedDraft,
       workspaceId
     ]
@@ -393,6 +435,7 @@ export function useComposerDraftAttachments({
 
   const removeDraftImage = useCallback(
     (id: string): void => {
+      invalidateAttachmentEpoch(draftScopeKey, id);
       const nextDraftImages = draftImagesRef.current.filter(
         (image) => image.id !== id
       );
@@ -401,7 +444,7 @@ export function useComposerDraftAttachments({
         updateAgentComposerDraft(currentDraft, { images: nextDraftImages })
       );
     },
-    [draftScopeKey, updateScopedDraft]
+    [draftScopeKey, invalidateAttachmentEpoch, publishScopedDraft]
   );
 
   const addDraftFiles = useCallback(
@@ -467,7 +510,7 @@ export function useComposerDraftAttachments({
           referencedIds.has(file.id)
         );
         const editorUpdated =
-          activeDraftScopeKeyRef.current === sourceScopeKey &&
+          isActiveDraftScope(sourceScopeKey) &&
           editorHandleRef.current?.updateComposerFiles(
             visibleSettled.map((file) => ({
               errorCode: file.uploadErrorCode,
@@ -531,6 +574,7 @@ export function useComposerDraftAttachments({
     [
       agentActivityRuntime,
       draftScopeKey,
+      isActiveDraftScope,
       prepareExternalPromptFiles,
       promptAssetLimit,
       promptFilesSupported,
@@ -555,10 +599,7 @@ export function useComposerDraftAttachments({
     [draftScopeKey, updateScopedDraft]
   );
 
-  // "Show in text field": dissolve a pasted-text chip back into the composer as
-  // inline prompt text and drop the attachment. Only possible while the full
-  // body is still in memory (a fresh paste); a chip restored from a queued
-  // message carries only the landed path, so expansion is unavailable there.
+  // Dissolve a fresh pasted-text chip back into inline prompt text.
   const expandDraftLargeTextToPrompt = useCallback(
     (id: string): void => {
       const item = draftLargeTextsRef.current.find((entry) => entry.id === id);
@@ -679,46 +720,6 @@ export function useComposerDraftAttachments({
     ]
   );
 
-  const applyReferencePickResult = useCallback(
-    async (result: WorkspaceReferencePickResult) => {
-      if (result.files.length > 0) {
-        editorHandleRef.current?.insertWorkspaceReferences(result.files);
-      }
-      if (result.mentionItems.length > 0) {
-        editorHandleRef.current?.insertMentionItems(result.mentionItems);
-      }
-    },
-    []
-  );
-
-  const handleWorkspaceReferencePicker = useCallback(async () => {
-    if (!onRequestWorkspaceReferences) {
-      return;
-    }
-    await applyReferencePickResult(await onRequestWorkspaceReferences());
-  }, [applyReferencePickResult, onRequestWorkspaceReferences]);
-
-  // @ 面板里点任务/应用行的「查看产物」入口:保留面板,打开引用 picker 并定位到该实体;
-  // 选中的文件仍按常规插入,但不会把该任务/应用本身作为 mention 插入。
-  const handleOpenReferencesForEntity = useCallback(
-    (entity: AgentContextMentionItem): void => {
-      if (!onRequestWorkspaceReferences) {
-        return;
-      }
-      void onRequestWorkspaceReferences(entity).then((result) => {
-        if (result.files.length > 0 || result.mentionItems.length > 0) {
-          flushSync(clearActiveFileMentionTrigger);
-        }
-        return applyReferencePickResult(result);
-      });
-    },
-    [
-      clearActiveFileMentionTrigger,
-      applyReferencePickResult,
-      onRequestWorkspaceReferences
-    ]
-  );
-  // 让 handleLinkClick(定义在前)能转发到此处:点击 workspace-reference chip 即定位打开 picker。
   openReferencesForEntityRef.current = handleOpenReferencesForEntity;
 
   const handleLinkClick = useCallback(

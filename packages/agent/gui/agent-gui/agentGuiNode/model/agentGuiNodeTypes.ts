@@ -245,8 +245,27 @@ export type AgentComposerDraftContent = [
 /** One atomic, unsent composer message. */
 export type AgentComposerDraft = AgentComposerDraftContent;
 
+/**
+ * Immutable identity captured for one composer submission attempt.
+ *
+ * The draft content is kept separately as the payload snapshot needed by the
+ * current submission adapter. It must not participate in the clear decision.
+ */
+export interface AgentComposerSubmissionToken {
+  scopeKey: string;
+  revision: number;
+  clientSubmitId: string;
+}
+
 export interface SubmittedDraftSnapshot {
   sourceScopeKey: string;
+  /**
+   * Revision captured at admission. Optional for snapshots created by older
+   * activation paths; those fall back to the revision carried by `content`.
+   */
+  revision?: number;
+  /** External correlation id for the submission attempt. */
+  clientSubmitId?: string;
   content: AgentComposerDraftContent;
   /** Existing-session destination; may differ from source after recovery. */
   targetAgentSessionId?: string;

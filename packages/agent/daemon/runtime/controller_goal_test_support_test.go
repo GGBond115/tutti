@@ -22,8 +22,12 @@ func (blockingGoalReconcileReporter) Report(ctx context.Context, _ agentsessions
 	return ctx.Err()
 }
 
-func (r blockingGoalReconcileReporter) ReportSubmitProvenance(ctx context.Context, report agentsessionstore.ReportActivityInput) error {
-	return r.Report(ctx, report)
+func (blockingGoalReconcileReporter) AdmitSubmitIntent(_ context.Context, _ agentsessionstore.SubmitIntentInput) error {
+	return nil
+}
+
+func (blockingGoalReconcileReporter) UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error {
+	return nil
 }
 
 func (r *goalPrepareBarrierReporter) Report(ctx context.Context, report agentsessionstore.ReportActivityInput) error {
@@ -43,8 +47,12 @@ func (r *goalPrepareBarrierReporter) Report(ctx context.Context, report agentses
 	return nil
 }
 
-func (r *goalPrepareBarrierReporter) ReportSubmitProvenance(ctx context.Context, report agentsessionstore.ReportActivityInput) error {
-	return r.Report(ctx, report)
+func (*goalPrepareBarrierReporter) AdmitSubmitIntent(_ context.Context, _ agentsessionstore.SubmitIntentInput) error {
+	return nil
+}
+
+func (*goalPrepareBarrierReporter) UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error {
+	return nil
 }
 
 func (r *goalPrepareBarrierReporter) phaseSnapshot() []string {

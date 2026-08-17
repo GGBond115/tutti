@@ -272,6 +272,8 @@ export interface SubmitRequestedIntent {
   type: "submit/requested";
   agentSessionId: string;
   clientSubmitId: string;
+  /** Queue-owned identity; absent only for older replayed intents. */
+  promptId?: string;
   capabilityRefs?: readonly AgentActivityCapabilityReference[];
   content: readonly AgentPromptContentBlock[];
   displayPrompt?: string;

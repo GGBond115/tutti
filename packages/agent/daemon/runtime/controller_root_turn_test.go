@@ -34,9 +34,11 @@ func TestReconcileRootTurnSettlementPublishesFailureDetail(t *testing.T) {
 	defer unsubscribe()
 
 	execResult, err := controller.Exec(ctx, ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("hello"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "root-turn-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("hello"),
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)

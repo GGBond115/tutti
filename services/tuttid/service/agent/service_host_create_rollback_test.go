@@ -131,11 +131,7 @@ func TestHostCreateRetainsVisibleFailedTurnAfterExplicitProviderRejection(t *tes
 		}, execErr
 	}
 	runtime.provenanceHook = func(input RuntimeSubmitProvenanceInput) error {
-		content := "start atomically"
-		if len(input.Content) > 0 && input.Content[0].Text != "" {
-			content = input.Content[0].Text
-		}
-		return projection.ReportSubmitProvenance(ctx, agentsessionstore.ReportActivityInput{
+		if err := projection.Report(ctx, agentsessionstore.ReportActivityInput{
 			WorkspaceID: input.WorkspaceID,
 			Source: canonical.EventSource{
 				AgentID: input.AgentSessionID, Provider: "claude-code",
@@ -143,26 +139,23 @@ func TestHostCreateRetainsVisibleFailedTurnAfterExplicitProviderRejection(t *tes
 			},
 			StatePatches: []agentsessionstore.WorkspaceAgentStatePatch{{
 				AgentSessionID: input.AgentSessionID, Kind: storesqlite.SessionKindRoot,
-				Provider: "claude-code", LifecycleStatus: "failed", CurrentPhase: "failed",
-				LastError: execErr.Error(), OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS + 1,
+				Provider: "claude-code", CurrentPhase: "failed", OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS + 1,
 				RuntimeContext: map[string]any{"visible": true, "provisional": false},
 				Turn: &agentsessionstore.WorkspaceAgentTurnPatch{
 					TurnID: input.TurnID, Origin: storesqlite.TurnOriginUserPrompt,
 					Phase: storesqlite.TurnPhaseSettled, Outcome: storesqlite.TurnOutcomeFailed,
+					ErrorCode: execErr.Code, ErrorMessage: execErr.Message,
 				},
 			}},
-			MessageUpdates: []agentsessionstore.WorkspaceAgentMessageUpdate{{
-				AgentSessionID: input.AgentSessionID,
-				MessageID:      "client-submit:user:" + input.ClientSubmitID,
-				TurnID:         input.TurnID, Role: "user", Kind: "text", Status: "completed",
-				OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS,
-				Payload: map[string]any{
-					"clientSubmitId":          input.ClientSubmitID,
-					"clientSubmittedAtUnixMs": input.CanonicalSubmitOccurredAtUnixMS,
-					"content":                 []map[string]any{{"type": "text", "text": content}},
-					"contentMode":             "snapshot", "source": "host", "text": content,
-				},
-			}},
+		}); err != nil {
+			return err
+		}
+		return projection.UpdateSubmitProvenance(ctx, agentsessionstore.SubmitProvenanceInput{
+			WorkspaceID: input.WorkspaceID, AgentSessionID: input.AgentSessionID, ClientSubmitID: input.ClientSubmitID,
+			CanonicalTurnID: input.TurnID, CanonicalMessageID: "client-submit:user:" + input.ClientSubmitID,
+			ProviderSessionID: input.ProviderSessionID, ProviderTurnID: input.ProviderTurnID,
+			DispatchStatus: "failed", DeliveryStatus: "failed", FailureReason: execErr.Error(),
+			OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS + 1,
 		})
 	}
 	service := newTestService(runtime)
@@ -197,11 +190,8 @@ func TestHostCreateRetainsVisibleFailedTurnAfterExplicitProviderRejection(t *tes
 	page, ok, err := store.ListSessionMessages(ctx, storesqlite.ListSessionMessagesInput{
 		WorkspaceID: "ws-rejected", AgentSessionID: "session-rejected", Order: storesqlite.MessageOrderAsc, Limit: 10,
 	})
-	if err != nil || !ok || len(page.Messages) != 1 {
-		t.Fatalf("canonical messages after rejection page=%#v ok=%v error=%v session=%#v provenance=%#v", page, ok, err, session, runtime.provenanceCalls)
-	}
-	if page.Messages[0].Payload["text"] != "start atomically" {
-		t.Fatalf("canonical prompt after rejection payload=%#v", page.Messages[0].Payload)
+	if err != nil || !ok || len(page.Messages) != 0 {
+		t.Fatalf("canonical messages after rejection page=%#v ok=%v error=%v session=%#v provenance=%#v, want no hook replay", page, ok, err, session, runtime.provenanceCalls)
 	}
 	if len(runtime.provenanceCalls) != 1 {
 		t.Fatalf("submit provenance calls=%d, want 1", len(runtime.provenanceCalls))

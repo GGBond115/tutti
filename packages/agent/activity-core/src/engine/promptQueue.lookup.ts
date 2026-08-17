@@ -12,6 +12,48 @@ export function promptQueuePromptIdForClientSubmit(
   );
 }
 
+export function promptQueueHasClientSubmitInFlight(
+  state: PromptQueueState,
+  agentSessionId: string,
+  clientSubmitId: string
+): boolean {
+  const sessionId = agentSessionId.trim();
+  const submitId = clientSubmitId.trim();
+  const record = state.recordsBySessionId[sessionId];
+  if (!record || !submitId) return false;
+  const promptId = promptQueuePromptIdForClientSubmit(
+    state,
+    sessionId,
+    submitId
+  );
+  return Boolean(
+    record.inFlight &&
+    (record.inFlight.clientSubmitId === submitId ||
+      record.inFlight.promptId === promptId)
+  );
+}
+
+export function promptQueueHasClientSubmitUncertainDelivery(
+  state: PromptQueueState,
+  agentSessionId: string,
+  clientSubmitId: string
+): boolean {
+  const sessionId = agentSessionId.trim();
+  const submitId = clientSubmitId.trim();
+  const record = state.recordsBySessionId[sessionId];
+  if (!record || !submitId) return false;
+  const promptId = promptQueuePromptIdForClientSubmit(
+    state,
+    sessionId,
+    submitId
+  );
+  return Boolean(
+    record.uncertainDelivery &&
+    (record.uncertainDelivery.clientSubmitId === submitId ||
+      record.uncertainDelivery.promptId === promptId)
+  );
+}
+
 export function canCancelQueuedSubmit(
   state: PromptQueueState,
   agentSessionId: string,

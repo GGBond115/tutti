@@ -258,25 +258,25 @@ and must not introduce a second mapping in between.
 `ActivityReporter` and `SessionActivityReporterAdapter` are compatibility
 projection contracts; they are not sufficient to host a runtime controller
 because their state and message writes may use separate transactions.
-`agentdaemon.Config.Reporter` requires `DurableActivityReporter`, whose
-`ReportSubmitProvenance` method must atomically persist the canonical
-client-submit message and the submitted Turn admission before provider
-dispatch, and return only after that message can be queried by
-`clientSubmitId`. A host decorator embeds or otherwise preserves this required
+`agentdaemon.Config.Reporter` requires `DurableActivityReporter`, which exposes
+two separate durable operations. `AdmitSubmitIntent` is the Controller's
+pre-dispatch barrier and the sole operation that creates the canonical user
+message and the submitted Turn. It must complete before the Controller
+dispatches to the provider and is keyed by the stable `ClientSubmitID`.
+`UpdateSubmitProvenance` records only submit identity, provider, and delivery
+facts; it carries no canonical message payload. Provider and Host retries are
+therefore idempotent provenance updates and must never rewrite the canonical
+message. A host decorator embeds or otherwise preserves this required
 interface; there is no optional capability probe to forward manually.
 
 The daemon service passes `ClientSubmitID` through typed create/send and runtime
-inputs. `Exec` uses `ReportSubmitProvenance` as the pre-dispatch admission
-barrier. After `Exec` returns, the service explicitly calls the required
-`RuntimeController.DurablyReportSubmitProvenance` method as an idempotent
-reconciliation barrier before it accepts any submit claim; this second call
-does not represent a second provider admission. The runtime adapter delegates
-that call to the controller after `Exec` has released the session lifecycle
-lock; the controller places the uncoalesced barrier behind earlier reports in
-the same FIFO. A barrier failure is delivery-unknown, and provider work is
-never blindly replayed. Host-owned user submissions, including follow-up
-submissions, carry a stable `ClientSubmitID`; standalone internal runtime
-calls may retain their generated prompt-message identity.
+inputs. The Controller calls `AdmitSubmitIntent` before provider dispatch, then
+uses `UpdateSubmitProvenance` to record acceptance, failure, or
+delivery-unknown outcomes after execution. The runtime adapter and Host use
+the same provenance operation for reconciliation; they do not replay the
+canonical payload or create another user message. Host-owned user submissions,
+including follow-up submissions, carry a stable `ClientSubmitID`; standalone
+internal runtime calls may retain their generated prompt-message identity.
 
 ```go
 client := agentsessionstore.NewClient(agentsessionstore.Config{

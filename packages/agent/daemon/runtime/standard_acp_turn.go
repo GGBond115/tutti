@@ -56,7 +56,9 @@ func (a *standardACPAdapter) Exec(
 	}
 
 	startEvents := []activityshared.Event{
-		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, nil),
+		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, map[string]any{
+			messageOriginMetadataKey: string(messageOriginProviderEcho),
+		}),
 		newTurnActivityEvent(session, EventTurnStarted, turnID, SessionStatusWorking, "", "", nil),
 		standardACPRootProviderTurnStartedEvent(session, turnID),
 	}

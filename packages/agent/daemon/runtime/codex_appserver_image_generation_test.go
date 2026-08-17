@@ -74,6 +74,7 @@ func TestAppServerImageGenerationPublishesFileBackedContentWithoutBase64(t *test
 	}
 
 	messageUpdate, ok := messageUpdateFromSessionEvent(
+		messageProjectionDurable,
 		canonical.EventSource{Provider: string(ProviderCodex)},
 		event,
 		session.AgentSessionID,

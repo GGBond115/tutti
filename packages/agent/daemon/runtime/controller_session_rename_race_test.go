@@ -193,9 +193,11 @@ func TestControllerSetTitleDuringActiveTurnSurvivesCompletion(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	execResult, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("hello"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "rename-active-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("hello"),
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -257,9 +259,11 @@ func TestControllerLateProviderTitleCannotOverwriteUserRename(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	execResult, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("hello"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "rename-provider-title-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_002,
+		Content:                         textPrompt("hello"),
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -320,9 +324,11 @@ func TestControllerSetTitleDuringActiveAsyncTurnSurvivesCompletion(t *testing.T)
 		t.Fatalf("Start: %v", err)
 	}
 	if _, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("hello"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "rename-async-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_003,
+		Content:                         textPrompt("hello"),
 	}); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}

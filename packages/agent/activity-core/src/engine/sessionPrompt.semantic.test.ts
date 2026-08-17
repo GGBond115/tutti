@@ -63,7 +63,16 @@ test("semantic prompt submission owns scope, confirmation window, and send proje
   });
 
   assert.deepEqual(result, { accepted: true, queued: false });
-  assert.deepEqual(harness.observedIntents.at(-1), {
+  const observed = harness.observedIntents.at(-1);
+  if (!observed || observed.type !== "submit/requested") {
+    throw new Error("submit intent was not observed");
+  }
+  const { promptId: observedPromptId, ...observedWithoutQueueId } = observed;
+  if (!observedPromptId) {
+    throw new Error("submit intent did not allocate a queue prompt id");
+  }
+  assert.match(observedPromptId, /^prompt:/);
+  assert.deepEqual(observedWithoutQueueId, {
     agentSessionId: "session-1",
     capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
     clientSubmitId: "submit-1",
@@ -86,7 +95,7 @@ test("semantic prompt submission owns scope, confirmation window, and send proje
       content: [{ text: "runtime text", type: "text" }],
       correlationId: "submit-1",
       displayPrompt: "Display text",
-      promptId: "submit-1",
+      promptId: observedPromptId,
       submitDiagnostics: {
         blockCount: 1,
         queued: false,
@@ -142,6 +151,10 @@ test("send-now retains the prompt until authoritative guidance capabilities arri
 
   assert.deepEqual(result, { accepted: true, queued: true });
   assert.equal(harness.commands.length, 0);
+  const promptId =
+    harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
+      ?.prompts[0]?.id;
+  assert.ok(promptId);
 
   const capabilitySnapshot = {
     sessions: [
@@ -163,7 +176,7 @@ test("send-now retains the prompt until authoritative guidance capabilities arri
       content: [{ text: "steer when ready", type: "text" }],
       correlationId: "submit-guidance",
       guidance: true,
-      promptId: "submit-guidance",
+      promptId,
       submitDiagnostics: {
         blockCount: 1,
         queued: true,
@@ -189,6 +202,10 @@ test("send-now retains the prompt until authoritative interrupt capability arriv
 
   assert.deepEqual(result, { accepted: true, queued: true });
   assert.equal(harness.commands.length, 0);
+  const promptId =
+    harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
+      ?.prompts[0]?.id;
+  assert.ok(promptId);
 
   harness.engine.dispatch({
     sessions: [
@@ -210,7 +227,7 @@ test("send-now retains the prompt until authoritative interrupt capability arriv
   assert.equal(
     harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
       ?.sendNextPromptId,
-    "submit-interrupt"
+    promptId
   );
 });
 
@@ -272,6 +289,10 @@ test("deferred send-now survives a temporary interaction blocker for the same tu
     content: [{ text: "steer after approval", type: "text" }],
     routing: "send_now"
   });
+  const promptId =
+    harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
+      ?.prompts[0]?.id;
+  assert.ok(promptId);
   const pendingInteraction: AgentActivityInteraction = {
     agentSessionId: "session-1",
     createdAtUnixMs: 3,
@@ -298,7 +319,7 @@ test("deferred send-now survives a temporary interaction blocker for the same tu
   assert.equal(harness.commands.length, 0);
   assert.ok(
     harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
-      ?.pendingSendNowByPromptId?.["submit-after-approval"]
+      ?.pendingSendNowByPromptId?.[promptId]
   );
 
   harness.engine.dispatch({
@@ -344,7 +365,7 @@ test("unsupported deferred send-now restores ordinary FIFO order", () => {
   const queued =
     harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"];
   assert.deepEqual(
-    queued?.prompts.map((prompt) => prompt.id),
+    queued?.prompts.map((prompt) => prompt.clientSubmitId),
     ["ordinary-first", "send-now-second"]
   );
   assert.deepEqual(queued?.pendingSendNowByPromptId, undefined);
@@ -489,10 +510,10 @@ test("consecutive deferred send-now prompts retain independent decisions", () =>
       harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"];
     assert.deepEqual(
       Object.keys(before?.pendingSendNowByPromptId ?? {}).sort(),
-      [`${scenario.name}-first`, `${scenario.name}-second`]
+      before?.prompts.map((prompt) => prompt.id).sort()
     );
     assert.deepEqual(
-      before?.prompts.map((prompt) => prompt.id),
+      before?.prompts.map((prompt) => prompt.clientSubmitId),
       [`${scenario.name}-first`, `${scenario.name}-second`]
     );
 
@@ -504,8 +525,11 @@ test("consecutive deferred send-now prompts retain independent decisions", () =>
     assert.equal(harness.commands[0]?.type ?? null, scenario.commandType);
     const after =
       harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"];
+    const remainingPromptId = after?.prompts.find(
+      (prompt) => prompt.clientSubmitId === `${scenario.name}-second`
+    )?.id;
     assert.deepEqual(Object.keys(after?.pendingSendNowByPromptId ?? {}), [
-      `${scenario.name}-second`
+      ...(remainingPromptId ? [remainingPromptId] : [])
     ]);
     const command = harness.commands[0];
     if (command?.type === "queue/sendPrompt") {

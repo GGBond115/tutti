@@ -37,8 +37,9 @@ func (a *CodexAppServerAdapter) steerActiveTurn(
 	}
 	events := []activityshared.Event{
 		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, displayPrompt, turnID, map[string]any{
-			"guidance": true,
-			"steered":  true,
+			messageOriginMetadataKey: string(messageOriginGuidance),
+			"guidance":               true,
+			"steered":                true,
 		}),
 	}
 	if emit != nil {

@@ -162,18 +162,43 @@ export function applyPastedTextStagingResult(
     uploading: false
   };
 }
+import {
+  agentComposerDraftIntentEqual,
+  agentComposerDraftRevision,
+  createAgentComposerDraftRevision,
+  withAgentComposerDraftRevision
+} from "./agentComposerDraftIntent";
+
+export {
+  agentComposerDraftIntentEqual,
+  agentComposerDraftRevision,
+  createAgentComposerDraftRevision,
+  projectAgentComposerDraftIntent,
+  withAgentComposerDraftRevision
+} from "./agentComposerDraftIntent";
 
 export const MAX_AGENT_COMPOSER_DRAFT_IMAGES = 8;
 
 export function emptyAgentComposerDraft(): AgentComposerDraft {
-  return [{ type: "text", text: "" }];
+  const draft: AgentComposerDraft = [{ type: "text", text: "" }];
+  return withAgentComposerDraftRevision(
+    draft,
+    createAgentComposerDraftRevision()
+  );
 }
 
 export function snapshotAgentComposerDraft(
   draft: AgentComposerDraft
 ): AgentComposerDraft {
   const [textBlock, ...attachmentBlocks] = draft;
-  return [{ ...textBlock }, ...attachmentBlocks.map((block) => ({ ...block }))];
+  const snapshot = [
+    { ...textBlock },
+    ...attachmentBlocks.map((block) => ({ ...block }))
+  ] as AgentComposerDraft;
+  return withAgentComposerDraftRevision(
+    snapshot,
+    agentComposerDraftRevision(draft) ?? createAgentComposerDraftRevision()
+  );
 }
 
 export function agentComposerDraftPrompt(
@@ -235,7 +260,7 @@ export function buildAgentComposerDraft(input: {
   quotes?: readonly AgentComposerQuoteBlock[];
   connectors?: readonly AgentComposerDraftConnector[];
 }): AgentComposerDraft {
-  return [
+  const draft = [
     { type: "text", text: input.prompt },
     ...(input.images ?? []).map((image) => ({
       type: "image" as const,
@@ -255,7 +280,11 @@ export function buildAgentComposerDraft(input: {
     ),
     ...(input.quotes ?? []).map((quote) => ({ ...quote })),
     ...agentComposerDraftConnectorBlocks(input.connectors ?? [])
-  ];
+  ] as AgentComposerDraft;
+  return withAgentComposerDraftRevision(
+    draft,
+    createAgentComposerDraftRevision()
+  );
 }
 
 export function updateAgentComposerDraft(
@@ -269,7 +298,7 @@ export function updateAgentComposerDraft(
     connectors: readonly AgentComposerDraftConnector[];
   }>
 ): AgentComposerDraft {
-  return buildAgentComposerDraft({
+  const nextDraft = buildAgentComposerDraft({
     prompt: update.prompt ?? agentComposerDraftPrompt(draft),
     images: update.images ?? agentComposerDraftImages(draft),
     files: update.files ?? agentComposerDraftFiles(draft),
@@ -277,6 +306,16 @@ export function updateAgentComposerDraft(
     quotes: update.quotes ?? agentComposerDraftQuotes(draft),
     connectors: update.connectors ?? agentComposerDraftConnectors(draft)
   });
+  const currentRevision = agentComposerDraftRevision(draft);
+  if (currentRevision !== null) {
+    withAgentComposerDraftRevision(
+      nextDraft,
+      agentComposerDraftIntentEqual(draft, nextDraft)
+        ? currentRevision
+        : currentRevision + 1
+    );
+  }
+  return nextDraft;
 }
 
 export function agentComposerDraftHasContent(

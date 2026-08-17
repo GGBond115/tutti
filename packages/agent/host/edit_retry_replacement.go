@@ -62,7 +62,6 @@ func (h *Host) reconcileEditRetryReplacement(
 			ProviderTurnID:    replacement.ID,
 			Source:            RuntimeAcceptanceSourceHistoryRead,
 		},
-		nil,
 	)
 	if err != nil {
 		failed, failErr := h.failEditRetryRecovery(
@@ -227,7 +226,7 @@ func (h *Host) dispatchEditRetryReplacement(
 	if receipt := execResult.ProviderDispatch.Acceptance; receipt != nil &&
 		execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied {
 		completed, completeErr := h.completeEditRetryAcceptance(
-			ctx, operation, owner, input, *receipt, hydrated,
+			ctx, operation, owner, input, *receipt,
 		)
 		if completeErr == nil {
 			return completed, nil
@@ -237,7 +236,7 @@ func (h *Host) dispatchEditRetryReplacement(
 		)
 	}
 	if strings.TrimSpace(execResult.TurnID) == payload.ReplacementTurnID {
-		if err := h.recordEditRetryReplacementSubmission(ctx, operation, input, hydrated); err != nil {
+		if err := h.recordEditRetryReplacementSubmission(ctx, operation, input); err != nil {
 			return h.failEditRetryRecovery(
 				ctx, operation, owner, storesqlite.EditRetryReasonRecoveryRequired, err,
 			)
@@ -265,7 +264,6 @@ func (h *Host) completeEditRetryAcceptance(
 	owner string,
 	input SendInput,
 	receipt RuntimeProviderAcceptanceReceipt,
-	hydrated []PromptContentBlock,
 ) (storesqlite.RuntimeOperation, error) {
 	payload, err := storesqlite.DecodeEditRetryOperationPayload(operation.Payload)
 	if err != nil {
@@ -275,7 +273,7 @@ func (h *Host) completeEditRetryAcceptance(
 		strings.TrimSpace(receipt.ProviderTurnID) == "" {
 		return operation, editRetryInvariant("provider acceptance receipt identity mismatch")
 	}
-	if err := h.recordEditRetryReplacementSubmission(ctx, operation, input, hydrated); err != nil {
+	if err := h.recordEditRetryReplacementSubmission(ctx, operation, input); err != nil {
 		return operation, err
 	}
 	replacement, found, err := h.store.GetTurn(
@@ -338,28 +336,17 @@ func (h *Host) recordEditRetryReplacementSubmission(
 	ctx context.Context,
 	operation storesqlite.RuntimeOperation,
 	input SendInput,
-	hydrated []PromptContentBlock,
 ) error {
 	payload, err := storesqlite.DecodeEditRetryOperationPayload(operation.Payload)
 	if err != nil {
 		return err
 	}
-	if reporter, ok := h.runtime.(RuntimeSubmitProvenanceReporter); ok {
-		if hydrated == nil {
-			hydrated = append([]PromptContentBlock(nil), input.Content...)
-			if h.attachments != nil {
-				hydrated, err = h.attachments.HydrateRuntimeContent(
-					operation.WorkspaceID, operation.AgentSessionID, input.Content,
-				)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		if err := reporter.DurablyReportSubmitProvenance(ctx, RuntimeSubmitProvenanceInput{
+	if reporter, ok := h.runtime.(RuntimeSubmitProvenanceUpdater); ok {
+		if err := reporter.UpdateSubmitProvenance(ctx, RuntimeSubmitProvenanceInput{
 			WorkspaceID: operation.WorkspaceID, AgentSessionID: operation.AgentSessionID,
 			TurnID: payload.ReplacementTurnID, ClientSubmitID: payload.ClientSubmitID,
-			Content: hydrated, DisplayPrompt: input.DisplayPrompt,
+			DispatchStatus: "accepted", DeliveryStatus: "accepted",
+			CanonicalSubmitOccurredAtUnixMS: h.now().UnixMilli(),
 		}); err != nil {
 			return err
 		}

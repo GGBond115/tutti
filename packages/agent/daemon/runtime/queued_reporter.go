@@ -13,6 +13,42 @@ type QueuedReporter struct {
 	ClientProvider func() ActivityClient
 }
 
+func (r QueuedReporter) AdmitSubmitIntent(ctx context.Context, input agentsessionstore.SubmitIntentInput) error {
+	if r.ClientProvider == nil {
+		return errors.New("agent session activity client provider is nil")
+	}
+	client, ok := r.ClientProvider().(submitIntentActivityClient)
+	if !ok || client == nil {
+		return errors.New("agent session activity client does not support submit intent admission")
+	}
+	reply, err := client.AdmitSubmitIntent(ctx, input)
+	if err != nil {
+		return err
+	}
+	if !reply.Accepted || reply.AcceptedMessageCount < 1 {
+		return errors.New("submit intent admission was not accepted")
+	}
+	return nil
+}
+
+func (r QueuedReporter) UpdateSubmitProvenance(ctx context.Context, input agentsessionstore.SubmitProvenanceInput) error {
+	if r.ClientProvider == nil {
+		return errors.New("agent session activity client provider is nil")
+	}
+	client, ok := r.ClientProvider().(submitIntentActivityClient)
+	if !ok || client == nil {
+		return errors.New("agent session activity client does not support submit provenance")
+	}
+	reply, err := client.UpdateSubmitProvenance(ctx, input)
+	if err != nil {
+		return err
+	}
+	if !reply.Accepted {
+		return errors.New("submit provenance update was not accepted")
+	}
+	return nil
+}
+
 func (r QueuedReporter) BindGoalProvenance(ctx context.Context, input agentsessionstore.BindGoalProvenanceInput) (agentsessionstore.GoalProvenanceBinding, error) {
 	if r.ClientProvider == nil {
 		return agentsessionstore.GoalProvenanceBinding{}, errors.New("agent session activity client provider is nil")

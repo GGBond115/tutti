@@ -43,6 +43,8 @@ export interface PlanFeedbackRequestedIntent {
   agentSessionId: string;
   capabilityRefs?: readonly import("../types.ts").AgentActivityCapabilityReference[];
   clientSubmitId: string;
+  /** Queue-owned identity; absent only for older replayed intents. */
+  promptId?: string;
   content: readonly import("../types.ts").AgentPromptContentBlock[];
   displayPrompt?: string;
   expiresAtUnixMs: number;

@@ -499,8 +499,11 @@ func TestControllerProvisionalStartCommitsWithFirstTurn(t *testing.T) {
 		t.Fatalf("Sessions() before first turn acceptance = %#v, want provisional session hidden", sessions)
 	}
 	result, err := controller.Exec(context.Background(), ExecInput{
-		RoomID: "room-1", AgentSessionID: "agent-session-1",
-		Content: []PromptContentBlock{{Type: "text", Text: "hello"}},
+		RoomID:                          "room-1",
+		AgentSessionID:                  "agent-session-1",
+		ClientSubmitID:                  "provisional-first-turn",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         []PromptContentBlock{{Type: "text", Text: "hello"}},
 	})
 	if err != nil || result.TurnID == "" {
 		t.Fatalf("Exec() = %#v, %v", result, err)

@@ -64,11 +64,18 @@ func (r *canonicalInitializationIntegrationReporter) Report(
 	return r.projection.Report(ctx, input)
 }
 
-func (r *canonicalInitializationIntegrationReporter) ReportSubmitProvenance(
+func (r *canonicalInitializationIntegrationReporter) AdmitSubmitIntent(
 	ctx context.Context,
-	input agentsessionstore.ReportActivityInput,
+	input agentsessionstore.SubmitIntentInput,
 ) error {
-	return r.projection.ReportSubmitProvenance(ctx, input)
+	return r.projection.AdmitSubmitIntent(ctx, input)
+}
+
+func (r *canonicalInitializationIntegrationReporter) UpdateSubmitProvenance(
+	ctx context.Context,
+	input agentsessionstore.SubmitProvenanceInput,
+) error {
+	return r.projection.UpdateSubmitProvenance(ctx, input)
 }
 
 func (r *canonicalInitializationIntegrationReporter) snapshot() agentsessionstore.ReportActivityInput {

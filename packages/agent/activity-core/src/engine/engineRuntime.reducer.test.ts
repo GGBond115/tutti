@@ -269,6 +269,10 @@ test("submit during in-flight activation queues and drains once the session appe
       ?.clientSubmitId,
     "submit-1"
   );
+  const promptId =
+    submitted.state.promptQueue.recordsBySessionId["session-1"]?.prompts[0]?.id;
+  assert.ok(promptId);
+  assert.notEqual(promptId, "submit-1");
   assert.equal(
     submitted.commands.some((command) => command.type === "queue/sendPrompt"),
     false
@@ -297,6 +301,10 @@ test("submit during in-flight activation queues and drains once the session appe
   assert.equal(
     send?.type === "queue/sendPrompt" ? send.clientSubmitId : "",
     "submit-1"
+  );
+  assert.equal(
+    send?.type === "queue/sendPrompt" ? send.promptId : "",
+    promptId
   );
 });
 
@@ -350,6 +358,7 @@ test("canceling a queued submit atomically removes queue and pending intent", ()
   state = rootEngineReducer(state, {
     agentSessionId: "session-1",
     clientSubmitId: "submit-1",
+    promptId: "prompt-submit-1",
     content: [{ type: "text", text: "queued" }],
     expiresAtUnixMs: 120_000,
     requestedAtUnixMs: 2,
@@ -646,6 +655,7 @@ test("an uncertain queued submit cannot be half-canceled", () => {
   state = rootEngineReducer(state, {
     agentSessionId: "session-1",
     clientSubmitId: "submit-1",
+    promptId: "prompt-submit-1",
     content: [{ type: "text", text: "queued" }],
     expiresAtUnixMs: 120_000,
     requestedAtUnixMs: 2,
@@ -693,7 +703,7 @@ test("an uncertain queued submit cannot be half-canceled", () => {
   assert.equal(
     canceled.state.promptQueue.recordsBySessionId["session-1"]
       ?.uncertainDelivery?.promptId,
-    "submit-1"
+    "prompt-submit-1"
   );
   assert.deepEqual(canceled.commands, []);
 
@@ -709,7 +719,7 @@ test("an uncertain queued submit cannot be half-canceled", () => {
   assert.equal(
     expired.state.promptQueue.recordsBySessionId["session-1"]?.uncertainDelivery
       ?.promptId,
-    "submit-1"
+    "prompt-submit-1"
   );
 });
 
@@ -963,7 +973,7 @@ test("composer send-now uses exact-turn cancel before a normal ACP prompt", () =
   );
   assert.equal(
     result.state.promptQueue.recordsBySessionId["session-1"]?.sendNextPromptId,
-    "submit-fallback"
+    "prompt-submit-fallback"
   );
 });
 
@@ -1296,7 +1306,7 @@ test("successful queued send waits for its exact canonical turn before FIFO drai
   );
   assert.equal(
     secondSend?.type === "queue/sendPrompt" ? secondSend.promptId : null,
-    "submit-2"
+    "prompt-submit-2"
   );
 });
 
@@ -1378,7 +1388,7 @@ test("timeout message confirmation waits for exact-turn lifecycle reconcile", ()
   );
   assert.equal(
     secondSend?.type === "queue/sendPrompt" ? secondSend.promptId : null,
-    "submit-2"
+    "prompt-submit-2"
   );
 });
 
@@ -1386,6 +1396,7 @@ function queuedSubmit(clientSubmitId: string, requestedAtUnixMs: number) {
   return {
     agentSessionId: "session-1",
     clientSubmitId,
+    promptId: `prompt-${clientSubmitId}`,
     content: [{ type: "text" as const, text: clientSubmitId }],
     expiresAtUnixMs: requestedAtUnixMs + 120_000,
     requestedAtUnixMs,
@@ -1421,6 +1432,7 @@ function sendNowSubmit(clientSubmitId: string) {
   return {
     agentSessionId: "session-1",
     clientSubmitId,
+    promptId: `prompt-${clientSubmitId}`,
     content: [{ type: "text" as const, text: "inserted" }],
     expiresAtUnixMs: 120_000,
     requestedAtUnixMs: 2,

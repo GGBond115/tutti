@@ -397,15 +397,15 @@ func (a serviceHostRuntime) Exec(ctx context.Context, input RuntimeExecInput) (R
 	result, err := a.service.controller().Exec(ctx, input)
 	return result, normalizeRuntimeError(err)
 }
-func (a serviceHostRuntime) DurablyReportSubmitProvenance(ctx context.Context, input RuntimeSubmitProvenanceInput) error {
+func (a serviceHostRuntime) UpdateSubmitProvenance(ctx context.Context, input RuntimeSubmitProvenanceInput) error {
 	reporter, ok := a.service.controller().(interface {
-		DurablyReportSubmitProvenance(context.Context, RuntimeSubmitProvenanceInput) error
+		UpdateSubmitProvenance(context.Context, RuntimeSubmitProvenanceInput) error
 	})
 	if !ok && !input.Guidance && a.service.TuttiModeActivations != nil {
 		return errors.New("agent runtime does not support durable submit provenance")
 	}
 	if ok {
-		if err := reporter.DurablyReportSubmitProvenance(ctx, input); err != nil {
+		if err := reporter.UpdateSubmitProvenance(ctx, input); err != nil {
 			return err
 		}
 	}

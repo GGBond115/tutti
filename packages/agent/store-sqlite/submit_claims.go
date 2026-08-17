@@ -2,7 +2,9 @@ package storesqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,26 +12,171 @@ import (
 )
 
 var ErrSubmitClaimTurnConflict = errors.New("workspace agent submit claim canonical turn conflict")
+var ErrSubmitClaimIdentityConflict = errors.New("workspace agent submit claim immutable identity conflict")
+
+const (
+	SubmitDispatchStatusNotStarted = "not_started"
+	SubmitDispatchStatusDispatched = "dispatched"
+	SubmitDispatchStatusAccepted   = "accepted"
+	SubmitDispatchStatusFailed     = "failed"
+	SubmitDispatchStatusUnknown    = "unknown"
+
+	SubmitDeliveryStatusNotStarted = "not_started"
+	SubmitDeliveryStatusPending    = "pending"
+	SubmitDeliveryStatusAccepted   = "accepted"
+	SubmitDeliveryStatusFailed     = "failed"
+	SubmitDeliveryStatusUnknown    = "unknown"
+)
 
 type SubmitClaim struct {
-	WorkspaceID     string
-	AgentSessionID  string
-	ClientSubmitID  string
-	Status          string
-	CanonicalTurnID string
-	TurnID          string
-	MetadataJSON    string
-	CreatedAtUnixMS int64
-	UpdatedAtUnixMS int64
+	WorkspaceID          string
+	AgentSessionID       string
+	ClientSubmitID       string
+	Status               string
+	CanonicalTurnID      string
+	CanonicalMessageID   string
+	CanonicalContentHash string
+	ProviderSessionID    string
+	ProviderTurnID       string
+	DispatchStatus       string
+	DeliveryStatus       string
+	FailureReason        string
+	TurnID               string
+	MetadataJSON         string
+	CreatedAtUnixMS      int64
+	UpdatedAtUnixMS      int64
 }
 
 type SubmitClaimPrepare struct {
-	WorkspaceID     string
-	AgentSessionID  string
-	ClientSubmitID  string
-	CanonicalTurnID string
-	MetadataJSON    string
-	NowUnixMS       int64
+	WorkspaceID          string
+	AgentSessionID       string
+	ClientSubmitID       string
+	CanonicalTurnID      string
+	CanonicalMessageID   string
+	CanonicalContentHash string
+	MetadataJSON         string
+	NowUnixMS            int64
+}
+
+// SubmitProvenanceUpdate changes only durable provenance. It never carries a
+// canonical message payload, so Provider and Host retries cannot rewrite the
+// user message admitted by the Controller.
+type SubmitProvenanceUpdate struct {
+	WorkspaceID          string
+	AgentSessionID       string
+	ClientSubmitID       string
+	CanonicalTurnID      string
+	CanonicalMessageID   string
+	CanonicalContentHash string
+	ProviderSessionID    string
+	ProviderTurnID       string
+	DispatchStatus       string
+	DeliveryStatus       string
+	FailureReason        string
+	NowUnixMS            int64
+}
+
+func canonicalSubmitContentHash(message MessageUpdate) (string, error) {
+	content := map[string]any{
+		"role":          strings.TrimSpace(message.Role),
+		"kind":          strings.TrimSpace(message.Kind),
+		"content":       message.Payload["content"],
+		"contentMode":   message.Payload["contentMode"],
+		"displayPrompt": message.Payload["displayPrompt"],
+		"text":          message.Payload["text"],
+	}
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		return "", fmt.Errorf("encode canonical submit content: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func validateSubmitStatus(status string, delivery bool) error {
+	if status == "" {
+		return nil
+	}
+	allowed := map[string]struct{}{
+		SubmitDispatchStatusNotStarted: {}, SubmitDispatchStatusDispatched: {},
+		SubmitDispatchStatusAccepted: {}, SubmitDispatchStatusFailed: {},
+		SubmitDispatchStatusUnknown: {},
+	}
+	if delivery {
+		allowed = map[string]struct{}{
+			SubmitDeliveryStatusNotStarted: {}, SubmitDeliveryStatusPending: {},
+			SubmitDeliveryStatusAccepted: {}, SubmitDeliveryStatusFailed: {},
+			SubmitDeliveryStatusUnknown: {},
+		}
+	}
+	if _, ok := allowed[status]; !ok {
+		return fmt.Errorf("invalid submit %s status %q", map[bool]string{true: "delivery", false: "dispatch"}[delivery], status)
+	}
+	return nil
+}
+
+// advanceSubmitStatus applies the intentionally small monotonic state
+// machine. Unknown is recoverable because it represents an ambiguous write;
+// accepted and failed are terminal. A late lower-priority report is ignored,
+// never used to regress the durable state.
+func advanceSubmitStatus(current, incoming string, delivery bool) (string, bool, error) {
+	if current == "" {
+		if delivery {
+			current = SubmitDeliveryStatusNotStarted
+		} else {
+			current = SubmitDispatchStatusNotStarted
+		}
+	}
+	if incoming == "" || incoming == current {
+		return current, false, nil
+	}
+	if err := validateSubmitStatus(incoming, delivery); err != nil {
+		return current, false, err
+	}
+	accepted := SubmitDispatchStatusAccepted
+	failed := SubmitDispatchStatusFailed
+	unknown := SubmitDispatchStatusUnknown
+	if delivery {
+		accepted = SubmitDeliveryStatusAccepted
+		failed = SubmitDeliveryStatusFailed
+		unknown = SubmitDeliveryStatusUnknown
+	}
+	if current == accepted || current == failed {
+		return current, false, nil
+	}
+	if current == unknown && incoming != accepted && incoming != failed {
+		return current, false, nil
+	}
+	if incoming == SubmitDispatchStatusNotStarted || incoming == SubmitDeliveryStatusNotStarted {
+		return current, false, nil
+	}
+	if current == SubmitDispatchStatusDispatched || current == SubmitDeliveryStatusPending {
+		return incoming, true, nil
+	}
+	if current == SubmitDispatchStatusNotStarted || current == SubmitDeliveryStatusNotStarted || current == unknown {
+		return incoming, true, nil
+	}
+	return current, false, nil
+}
+
+func validateSubmitClaimMetadata(claim SubmitClaim, canonicalMessageID, canonicalContentHash string) error {
+	canonicalMessageID = strings.TrimSpace(canonicalMessageID)
+	canonicalContentHash = strings.TrimSpace(canonicalContentHash)
+	if canonicalMessageID != "" && claim.CanonicalMessageID != "" && claim.CanonicalMessageID != canonicalMessageID {
+		return fmt.Errorf("%w: canonical message stored=%q incoming=%q", ErrSubmitClaimIdentityConflict, claim.CanonicalMessageID, canonicalMessageID)
+	}
+	if canonicalContentHash != "" && claim.CanonicalContentHash != "" && claim.CanonicalContentHash != canonicalContentHash {
+		return fmt.Errorf("%w: canonical content hash does not match", ErrSubmitClaimIdentityConflict)
+	}
+	return nil
+}
+
+func validateSubmitClaimIdentity(claim SubmitClaim, canonicalTurnID, canonicalMessageID, canonicalContentHash string) error {
+	canonicalTurnID = strings.TrimSpace(canonicalTurnID)
+	if claim.CanonicalTurnID != "" && claim.CanonicalTurnID != canonicalTurnID {
+		return fmt.Errorf("%w: canonical turn stored=%q incoming=%q", ErrSubmitClaimTurnConflict, claim.CanonicalTurnID, canonicalTurnID)
+	}
+	return validateSubmitClaimMetadata(claim, canonicalMessageID, canonicalContentHash)
 }
 
 func (s *Store) PrepareSubmitClaim(ctx context.Context, input SubmitClaimPrepare) (SubmitClaim, bool, error) {
@@ -37,6 +184,8 @@ func (s *Store) PrepareSubmitClaim(ctx context.Context, input SubmitClaimPrepare
 	input.AgentSessionID = strings.TrimSpace(input.AgentSessionID)
 	input.ClientSubmitID = strings.TrimSpace(input.ClientSubmitID)
 	input.CanonicalTurnID = strings.TrimSpace(input.CanonicalTurnID)
+	input.CanonicalMessageID = strings.TrimSpace(input.CanonicalMessageID)
+	input.CanonicalContentHash = strings.TrimSpace(input.CanonicalContentHash)
 	if strings.TrimSpace(input.MetadataJSON) == "" {
 		input.MetadataJSON = "{}"
 	}
@@ -74,6 +223,12 @@ func (s *Store) PrepareSubmitClaim(ctx context.Context, input SubmitClaimPrepare
 	); err != nil {
 		return SubmitClaim{}, false, err
 	} else if found {
+		// Preserve the legacy retry contract: PrepareSubmitClaim returns the
+		// existing claim even if a caller rebuilt a provisional turn. The strict
+		// identity fence belongs to AdmitSubmitIntent and UpdateSubmitProvenance.
+		if err := validateSubmitClaimMetadata(claim, input.CanonicalMessageID, input.CanonicalContentHash); err != nil {
+			return SubmitClaim{}, false, err
+		}
 		if err := tx.Commit(); err != nil {
 			return SubmitClaim{}, false, fmt.Errorf("commit duplicate submit claim read: %w", err)
 		}
@@ -88,8 +243,10 @@ func (s *Store) PrepareSubmitClaim(ctx context.Context, input SubmitClaimPrepare
 		return SubmitClaim{}, false, err
 	}
 	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workspace_agent_submit_claims
-		(workspace_id, agent_session_id, client_submit_id, status, turn_id, created_at_unix_ms, updated_at_unix_ms, canonical_turn_id, metadata_json)
-		VALUES (?, ?, ?, 'prepared', NULL, ?, ?, ?, ?)`, input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID, input.NowUnixMS, input.NowUnixMS, input.CanonicalTurnID, input.MetadataJSON)
+		(workspace_id, agent_session_id, client_submit_id, status, turn_id, created_at_unix_ms, updated_at_unix_ms,
+		 canonical_turn_id, canonical_message_id, canonical_content_hash, metadata_json)
+		VALUES (?, ?, ?, 'prepared', NULL, ?, ?, ?, ?, ?, ?)`, input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID,
+		input.NowUnixMS, input.NowUnixMS, input.CanonicalTurnID, nullString(input.CanonicalMessageID), nullString(input.CanonicalContentHash), input.MetadataJSON)
 	if err != nil {
 		return SubmitClaim{}, false, fmt.Errorf("prepare submit claim: %w", err)
 	}
@@ -114,6 +271,122 @@ func (s *Store) PrepareSubmitClaim(ctx context.Context, input SubmitClaimPrepare
 		return SubmitClaim{}, false, fmt.Errorf("commit prepare submit claim: %w", err)
 	}
 	return claim, created, nil
+}
+
+// UpdateSubmitProvenance records provider and delivery facts without
+// accepting a message payload. Immutable identities may be filled exactly
+// once, but never replaced. Statuses advance monotonically and terminal
+// accepted/failed states ignore late lower-priority reports.
+func (s *Store) UpdateSubmitProvenance(ctx context.Context, input SubmitProvenanceUpdate) (SubmitClaim, bool, error) {
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.AgentSessionID = strings.TrimSpace(input.AgentSessionID)
+	input.ClientSubmitID = strings.TrimSpace(input.ClientSubmitID)
+	input.CanonicalTurnID = strings.TrimSpace(input.CanonicalTurnID)
+	input.CanonicalMessageID = strings.TrimSpace(input.CanonicalMessageID)
+	input.CanonicalContentHash = strings.TrimSpace(input.CanonicalContentHash)
+	input.ProviderSessionID = strings.TrimSpace(input.ProviderSessionID)
+	input.ProviderTurnID = strings.TrimSpace(input.ProviderTurnID)
+	input.DispatchStatus = strings.TrimSpace(input.DispatchStatus)
+	input.DeliveryStatus = strings.TrimSpace(input.DeliveryStatus)
+	input.FailureReason = strings.TrimSpace(input.FailureReason)
+	if input.WorkspaceID == "" || input.AgentSessionID == "" || input.ClientSubmitID == "" ||
+		input.CanonicalTurnID == "" || input.NowUnixMS <= 0 {
+		return SubmitClaim{}, false, fmt.Errorf("invalid workspace agent submit provenance update")
+	}
+	if err := validateSubmitStatus(input.DispatchStatus, false); err != nil {
+		return SubmitClaim{}, false, err
+	}
+	if err := validateSubmitStatus(input.DeliveryStatus, true); err != nil {
+		return SubmitClaim{}, false, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SubmitClaim{}, false, fmt.Errorf("begin update submit provenance: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	claim, found, err := getSubmitClaimTx(ctx, tx, input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID)
+	if err != nil {
+		return SubmitClaim{}, false, err
+	}
+	if !found {
+		return SubmitClaim{}, false, fmt.Errorf("submit provenance claim does not exist")
+	}
+	if err := validateSubmitClaimIdentity(claim, input.CanonicalTurnID, input.CanonicalMessageID, input.CanonicalContentHash); err != nil {
+		return claim, false, err
+	}
+	if claim.ProviderSessionID != "" && input.ProviderSessionID != "" && claim.ProviderSessionID != input.ProviderSessionID {
+		return claim, false, fmt.Errorf("%w: provider session stored=%q incoming=%q", ErrSubmitClaimIdentityConflict, claim.ProviderSessionID, input.ProviderSessionID)
+	}
+	if claim.ProviderTurnID != "" && input.ProviderTurnID != "" && claim.ProviderTurnID != input.ProviderTurnID {
+		return claim, false, fmt.Errorf("%w: provider turn stored=%q incoming=%q", ErrSubmitClaimIdentityConflict, claim.ProviderTurnID, input.ProviderTurnID)
+	}
+	if err := requireSessionForkSourceWritableTx(ctx, tx, input.WorkspaceID, input.AgentSessionID); err != nil {
+		return SubmitClaim{}, false, err
+	}
+
+	nextDispatch, dispatchChanged, err := advanceSubmitStatus(claim.DispatchStatus, input.DispatchStatus, false)
+	if err != nil {
+		return claim, false, err
+	}
+	nextDelivery, deliveryChanged, err := advanceSubmitStatus(claim.DeliveryStatus, input.DeliveryStatus, true)
+	if err != nil {
+		return claim, false, err
+	}
+	nextCanonicalMessageID := claim.CanonicalMessageID
+	if nextCanonicalMessageID == "" {
+		nextCanonicalMessageID = input.CanonicalMessageID
+	}
+	nextCanonicalContentHash := claim.CanonicalContentHash
+	if nextCanonicalContentHash == "" {
+		nextCanonicalContentHash = input.CanonicalContentHash
+	}
+	nextProviderSessionID := claim.ProviderSessionID
+	if nextProviderSessionID == "" {
+		nextProviderSessionID = input.ProviderSessionID
+	}
+	nextProviderTurnID := claim.ProviderTurnID
+	if nextProviderTurnID == "" {
+		nextProviderTurnID = input.ProviderTurnID
+	}
+	nextFailureReason := claim.FailureReason
+	if nextFailureReason == "" && input.FailureReason != "" &&
+		(nextDispatch == SubmitDispatchStatusFailed || nextDispatch == SubmitDispatchStatusUnknown ||
+			nextDelivery == SubmitDeliveryStatusFailed || nextDelivery == SubmitDeliveryStatusUnknown) {
+		nextFailureReason = input.FailureReason
+	}
+	changed := dispatchChanged || deliveryChanged ||
+		nextCanonicalMessageID != claim.CanonicalMessageID ||
+		nextCanonicalContentHash != claim.CanonicalContentHash ||
+		nextProviderSessionID != claim.ProviderSessionID ||
+		nextProviderTurnID != claim.ProviderTurnID ||
+		nextFailureReason != claim.FailureReason
+	if !changed {
+		if err := tx.Commit(); err != nil {
+			return SubmitClaim{}, false, fmt.Errorf("commit submit provenance replay: %w", err)
+		}
+		return claim, false, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_agent_submit_claims
+SET canonical_message_id = ?, canonical_content_hash = ?, provider_session_id = ?, provider_turn_id = ?,
+    dispatch_status = ?, delivery_status = ?, failure_reason = ?, updated_at_unix_ms = ?
+WHERE workspace_id = ? AND agent_session_id = ? AND client_submit_id = ?
+`, nullString(nextCanonicalMessageID), nullString(nextCanonicalContentHash), nullString(nextProviderSessionID),
+		nullString(nextProviderTurnID), nextDispatch, nextDelivery, nullString(nextFailureReason), input.NowUnixMS,
+		input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID); err != nil {
+		return SubmitClaim{}, false, fmt.Errorf("update submit provenance: %w", err)
+	}
+	claim, found, err = getSubmitClaimTx(ctx, tx, input.WorkspaceID, input.AgentSessionID, input.ClientSubmitID)
+	if err != nil {
+		return SubmitClaim{}, false, err
+	}
+	if !found {
+		return SubmitClaim{}, false, fmt.Errorf("updated submit provenance claim disappeared before it could be read")
+	}
+	if err := tx.Commit(); err != nil {
+		return SubmitClaim{}, false, fmt.Errorf("commit submit provenance: %w", err)
+	}
+	return claim, true, nil
 }
 
 func (s *Store) AcceptSubmitClaim(ctx context.Context, workspaceID, agentSessionID, clientSubmitID, turnID string, nowUnixMS int64) (SubmitClaim, bool, error) {
@@ -307,7 +580,9 @@ func (s *Store) FindSubmitClaimByCanonicalTurn(
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT workspace_id, agent_session_id, client_submit_id, status,
-	       canonical_turn_id, turn_id, metadata_json, created_at_unix_ms, updated_at_unix_ms
+       canonical_turn_id, turn_id, metadata_json, created_at_unix_ms, updated_at_unix_ms,
+       canonical_message_id, canonical_content_hash, provider_session_id,
+       provider_turn_id, dispatch_status, delivery_status, failure_reason
 FROM workspace_agent_submit_claims
 WHERE workspace_id = ? AND agent_session_id = ? AND canonical_turn_id = ?
   AND status IN ('prepared', 'accepted')
@@ -346,7 +621,9 @@ LIMIT 2
 func (s *Store) getSubmitClaim(ctx context.Context, workspaceID, agentSessionID, clientSubmitID string) (SubmitClaim, bool, error) {
 	return scanSubmitClaim(s.db.QueryRowContext(
 		ctx,
-		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, metadata_json, created_at_unix_ms, updated_at_unix_ms
+		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, metadata_json, created_at_unix_ms, updated_at_unix_ms,
+		 canonical_message_id, canonical_content_hash, provider_session_id, provider_turn_id,
+		 dispatch_status, delivery_status, failure_reason
 		FROM workspace_agent_submit_claims WHERE workspace_id=? AND agent_session_id=? AND client_submit_id=?`,
 		workspaceID,
 		agentSessionID,
@@ -361,7 +638,9 @@ func getSubmitClaimTx(
 ) (SubmitClaim, bool, error) {
 	return scanSubmitClaim(tx.QueryRowContext(
 		ctx,
-		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, metadata_json, created_at_unix_ms, updated_at_unix_ms
+		`SELECT workspace_id, agent_session_id, client_submit_id, status, canonical_turn_id, turn_id, metadata_json, created_at_unix_ms, updated_at_unix_ms,
+		 canonical_message_id, canonical_content_hash, provider_session_id, provider_turn_id,
+		 dispatch_status, delivery_status, failure_reason
 		FROM workspace_agent_submit_claims WHERE workspace_id=? AND agent_session_id=? AND client_submit_id=?`,
 		workspaceID,
 		agentSessionID,
@@ -373,6 +652,11 @@ func scanSubmitClaim(row rowScanner) (SubmitClaim, bool, error) {
 	var claim SubmitClaim
 	var canonicalTurnID sql.NullString
 	var turnID sql.NullString
+	var canonicalMessageID sql.NullString
+	var canonicalContentHash sql.NullString
+	var providerSessionID sql.NullString
+	var providerTurnID sql.NullString
+	var failureReason sql.NullString
 	err := row.Scan(
 		&claim.WorkspaceID,
 		&claim.AgentSessionID,
@@ -383,6 +667,13 @@ func scanSubmitClaim(row rowScanner) (SubmitClaim, bool, error) {
 		&claim.MetadataJSON,
 		&claim.CreatedAtUnixMS,
 		&claim.UpdatedAtUnixMS,
+		&canonicalMessageID,
+		&canonicalContentHash,
+		&providerSessionID,
+		&providerTurnID,
+		&claim.DispatchStatus,
+		&claim.DeliveryStatus,
+		&failureReason,
 	)
 	if err == sql.ErrNoRows {
 		return SubmitClaim{}, false, nil
@@ -395,6 +686,21 @@ func scanSubmitClaim(row rowScanner) (SubmitClaim, bool, error) {
 	}
 	if canonicalTurnID.Valid {
 		claim.CanonicalTurnID = canonicalTurnID.String
+	}
+	if canonicalMessageID.Valid {
+		claim.CanonicalMessageID = canonicalMessageID.String
+	}
+	if canonicalContentHash.Valid {
+		claim.CanonicalContentHash = canonicalContentHash.String
+	}
+	if providerSessionID.Valid {
+		claim.ProviderSessionID = providerSessionID.String
+	}
+	if providerTurnID.Valid {
+		claim.ProviderTurnID = providerTurnID.String
+	}
+	if failureReason.Valid {
+		claim.FailureReason = failureReason.String
 	}
 	return claim, true, nil
 }

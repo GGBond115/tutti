@@ -23,18 +23,58 @@ type ActivityReporter interface {
 }
 
 // DurableActivityReporter is the required host boundary for runtime
-// controllers. ReportSubmitProvenance must atomically persist the report's
-// session/turn patch and canonical client-submit message before returning.
-// Compatibility ActivityReporter implementations that split state and message
-// persistence do not satisfy this contract and cannot host a controller.
+// controllers. AdmitSubmitIntent is the only operation that may persist the
+// canonical client-submit message. UpdateSubmitProvenance carries only
+// identity and delivery facts and must not rewrite that message.
 type DurableActivityReporter interface {
 	ActivityReporter
-	ReportSubmitProvenance(context.Context, agentsessionstore.ReportActivityInput) error
+	AdmitSubmitIntent(context.Context, agentsessionstore.SubmitIntentInput) error
+	UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error
 }
 
 type ActivityClient interface {
 	ReportSessionState(context.Context, canonical.ReportSessionStateInput) (canonical.ReportSessionStateReply, error)
 	ReportSessionMessages(context.Context, canonical.ReportSessionMessagesInput) (canonical.ReportSessionMessagesReply, error)
+}
+
+type submitIntentActivityClient interface {
+	agentsessionstore.SubmitIntentReporter
+}
+
+func (r Reporter) AdmitSubmitIntent(ctx context.Context, input agentsessionstore.SubmitIntentInput) error {
+	if r.ClientProvider == nil {
+		return errors.New("agent session activity client provider is nil")
+	}
+	client, ok := r.ClientProvider().(submitIntentActivityClient)
+	if !ok || client == nil {
+		return errors.New("agent session activity client does not support submit intent admission")
+	}
+	reply, err := client.AdmitSubmitIntent(ctx, input)
+	if err != nil {
+		return err
+	}
+	if !reply.Accepted || reply.AcceptedMessageCount < 1 {
+		return errors.New("submit intent admission was not accepted")
+	}
+	return nil
+}
+
+func (r Reporter) UpdateSubmitProvenance(ctx context.Context, input agentsessionstore.SubmitProvenanceInput) error {
+	if r.ClientProvider == nil {
+		return errors.New("agent session activity client provider is nil")
+	}
+	client, ok := r.ClientProvider().(submitIntentActivityClient)
+	if !ok || client == nil {
+		return errors.New("agent session activity client does not support submit provenance")
+	}
+	reply, err := client.UpdateSubmitProvenance(ctx, input)
+	if err != nil {
+		return err
+	}
+	if !reply.Accepted {
+		return errors.New("submit provenance update was not accepted")
+	}
+	return nil
 }
 
 type goalProvenanceActivityClient interface {
@@ -226,6 +266,7 @@ func reportActivityInput(session Session, events []activityshared.Event) agentse
 		},
 		Source: source,
 	}
+	providerEchoIDs := make(map[string]struct{})
 	now := time.Now().UnixMilli()
 	for _, event := range events {
 		appendProviderObservation(&input, event)
@@ -237,7 +278,14 @@ func reportActivityInput(session Session, events []activityshared.Event) agentse
 		if timestamp <= 0 {
 			timestamp = now
 		}
-		if update, ok := messageUpdateFromSessionEvent(source, event, sessionID, timestamp); ok {
+		if echo, ok := providerEchoTimelineItem(event, sessionID, timestamp); ok {
+			if _, seen := providerEchoIDs[echo.EventID]; !seen {
+				input.TimelineItems = append(input.TimelineItems, echo)
+				providerEchoIDs[echo.EventID] = struct{}{}
+			}
+			continue
+		}
+		if update, ok := messageUpdateFromSessionEvent(messageProjectionDurable, source, event, sessionID, timestamp); ok {
 			input.MessageUpdates = append(input.MessageUpdates, update)
 		}
 		if audit, ok := sessionAuditUpdateFromSessionEvent(event, sessionID, timestamp); ok {

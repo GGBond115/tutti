@@ -19,10 +19,11 @@ export function normalizeQueuedPrompt(
 ): EngineQueuedPrompt | null {
   const id = prompt.id.trim();
   if (!id || prompt.content.length === 0) return null;
+  // This is the raw queue-record boundary. Older persisted records predate
+  // clientSubmitId, so the compatibility mapping is deliberately kept here.
+  const clientSubmitId = prompt.clientSubmitId?.trim() || id;
   return {
-    ...(prompt.clientSubmitId?.trim()
-      ? { clientSubmitId: prompt.clientSubmitId.trim() }
-      : {}),
+    clientSubmitId,
     ...clonePromptCapabilityReferences(prompt.capabilityRefs),
     content: prompt.content.map((block) => ({ ...block })),
     createdAtUnixMs: prompt.createdAtUnixMs,

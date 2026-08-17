@@ -161,6 +161,7 @@ type reportRequest struct {
 	ctx              context.Context
 	report           agentsessionstore.ReportActivityInput
 	submitProvenance bool
+	provenance       *SubmitProvenanceInput
 	barrier          bool
 	done             chan error
 }

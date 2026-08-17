@@ -58,6 +58,91 @@ test("available canonical lifecycle sends an enqueued prompt immediately", () =>
   );
 });
 
+test("queue identity stays separate across delivery retry and explicit retry", () => {
+  const lifecycle = canonicalLifecycle("running", 1);
+  const first = reduce(
+    createInitialPromptQueueState(),
+    submit("submit-1", ""),
+    lifecycle
+  );
+  const firstPrompt = first.state.recordsBySessionId["session-1"]?.prompts[0];
+  assert.ok(firstPrompt);
+  assert.equal(firstPrompt.clientSubmitId, "submit-1");
+  assert.notEqual(firstPrompt.id, firstPrompt.clientSubmitId);
+
+  const explicitRetry = reduce(first.state, submit("submit-2", ""), lifecycle);
+  const retryPrompt =
+    explicitRetry.state.recordsBySessionId["session-1"]?.prompts[1];
+  assert.ok(retryPrompt);
+  assert.equal(retryPrompt.clientSubmitId, "submit-2");
+  assert.notEqual(retryPrompt.id, firstPrompt.id);
+
+  const sent = reduce(
+    first.state,
+    turnUpserted(settledTurn("turn-1", 2)),
+    canonicalLifecycle("settled", 2)
+  );
+  const firstCommand = send(sent.commands[0]);
+  assert.equal(firstCommand.promptId, firstPrompt.id);
+  assert.equal(firstCommand.clientSubmitId, "submit-1");
+
+  const failed = reduce(
+    sent.state,
+    commandResult(commandId(sent.commands[0]), "queue/sendPrompt", "failed"),
+    canonicalLifecycle("settled", 2)
+  );
+  const retried = reduce(
+    failed.state,
+    sendNow(firstPrompt.id),
+    canonicalLifecycle("settled", 2)
+  );
+  const retryCommand = send(retried.commands[0]);
+  assert.equal(retryCommand.promptId, firstPrompt.id);
+  assert.equal(retryCommand.clientSubmitId, "submit-1");
+});
+
+test("queue removal uses prompt.id rather than clientSubmitId", () => {
+  const queued = reduce(
+    createInitialPromptQueueState(),
+    {
+      agentSessionId: "session-1",
+      prompt: {
+        clientSubmitId: "submit-1",
+        content: [{ type: "text", text: "prompt" }],
+        createdAtUnixMs: 1,
+        id: "prompt-1"
+      },
+      type: "queue/enqueued",
+      workspaceId: "workspace-1"
+    },
+    canonicalLifecycle("running", 1)
+  );
+  const unchanged = reduce(
+    queued.state,
+    {
+      agentSessionId: "session-1",
+      promptId: "submit-1",
+      type: "queue/removed"
+    },
+    canonicalLifecycle("running", 1)
+  );
+  assert.equal(
+    unchanged.state.recordsBySessionId["session-1"]?.prompts[0]?.id,
+    "prompt-1"
+  );
+
+  const removed = reduce(
+    queued.state,
+    {
+      agentSessionId: "session-1",
+      promptId: "prompt-1",
+      type: "queue/removed"
+    },
+    canonicalLifecycle("running", 1)
+  );
+  assert.equal(removed.state.recordsBySessionId["session-1"], undefined);
+});
+
 test("user settings inFlight blocks drain until settings settle to idle", () => {
   let lifecycle = canonicalLifecycle("settled", 1);
   lifecycle = sessionLifecycleReducer(lifecycle, {
@@ -1304,11 +1389,12 @@ function enqueueGuidance(promptId: string) {
   };
 }
 
-function submit(clientSubmitId: string) {
+function submit(clientSubmitId: string, promptId = clientSubmitId) {
   return {
     type: "submit/requested" as const,
     agentSessionId: "session-1",
     clientSubmitId,
+    ...(promptId ? { promptId } : {}),
     content: [{ type: "text" as const, text: clientSubmitId }],
     expiresAtUnixMs: 60_000,
     requestedAtUnixMs: 1,

@@ -53,7 +53,7 @@ func ProjectActivityEventsToStreamEvents(session Session, events []activityshare
 		if isPrecommitTerminalTextMessage(event) {
 			continue
 		}
-		if update, ok := messageUpdateFromSessionEvent(source, event, sessionID, timestamp); ok {
+		if update, ok := messageUpdateFromSessionEvent(messageProjectionRealtime, source, event, sessionID, timestamp); ok {
 			out = append(out, StreamEvent{
 				EventType: StreamEventMessageUpdate,
 				Data:      update,

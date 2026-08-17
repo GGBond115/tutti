@@ -4,135 +4,170 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	canonical "github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
-// ReportSubmitProvenance is a deliberately narrower contract than Report.
-// It commits the canonical user message together with the session and optional
-// new-turn patch in one repository transaction. A client-submit id is carried
-// when the caller has one; internally allocated turns use a generated message
-// id instead. The ordinary Report compatibility path persists state and
-// messages separately and therefore cannot acknowledge provider dispatch
-// safely.
-func (p *ActivityProjection) ReportSubmitProvenance(
-	ctx context.Context,
-	input agentsessionstore.ReportActivityInput,
-) error {
+type submitIntentRepository interface {
+	AdmitSubmitIntent(context.Context, agentactivitybiz.SubmitIntentAdmission) (agentactivitybiz.SubmitIntentAdmissionResult, error)
+	UpdateSubmitProvenance(context.Context, agentactivitybiz.SubmitProvenanceUpdate) (agentactivitybiz.SubmitClaim, bool, error)
+}
+
+type canonicalAgentStoreProvider interface {
+	AgentCanonicalStore() *agentactivitybiz.Store
+}
+
+func (p *ActivityProjection) submitIntentStore() (submitIntentRepository, error) {
 	if p == nil || p.repo == nil {
-		return fmt.Errorf("agent activity repository is unavailable")
+		return nil, fmt.Errorf("agent activity repository is unavailable")
 	}
-	sourceOrigin := agentsessionstore.NormalizeSessionOrigin(input.Source.SessionOrigin)
-	if sourceOrigin == "" {
-		return ErrInvalidArgument
+	if store, ok := p.repo.(submitIntentRepository); ok {
+		return store, nil
 	}
-	input.Source.SessionOrigin = sourceOrigin
-	stateInputs := agentsessionstore.SessionStateInputsFromActivity(input)
-	messageInputs, err := agentsessionstore.SessionMessageInputsFromActivity(input)
+	provider, ok := p.repo.(canonicalAgentStoreProvider)
+	if !ok || provider.AgentCanonicalStore() == nil {
+		return nil, fmt.Errorf("agent submit intent store is unavailable")
+	}
+	return provider.AgentCanonicalStore(), nil
+}
+
+// AdmitSubmitIntent is the only ActivityProjection operation that creates a
+// canonical user message. The state, turn, claim, and message are committed
+// by the store as one admission transaction.
+func (p *ActivityProjection) AdmitSubmitIntent(
+	ctx context.Context,
+	input agentsessionstore.SubmitIntentInput,
+) error {
+	store, err := p.submitIntentStore()
 	if err != nil {
 		return err
 	}
-	if len(stateInputs) != 1 || len(messageInputs) != 1 || len(messageInputs[0].Updates) != 1 {
-		return fmt.Errorf(
-			"atomic submit provenance requires one state patch and one message update; got %d state batches, %d message batches",
-			len(stateInputs),
-			len(messageInputs),
-		)
-	}
-	stateInput := stateInputs[0]
-	messageInput := messageInputs[0]
-	if strings.TrimSpace(stateInput.WorkspaceID) != strings.TrimSpace(messageInput.WorkspaceID) ||
-		strings.TrimSpace(stateInput.AgentSessionID) != strings.TrimSpace(messageInput.AgentSessionID) {
-		return fmt.Errorf("atomic submit provenance state and message scopes do not match")
-	}
-	sessionOrigin, source, err := normalizeReportSessionOrigins(stateInput.SessionOrigin, stateInput.Source)
+	stateInput := input.State
+	messageInput := input.Messages
+	stateOrigin, stateSource, err := normalizeReportSessionOrigins(stateInput.SessionOrigin, stateInput.Source)
 	if err != nil {
 		return err
 	}
-	stateInput.SessionOrigin = sessionOrigin
-	stateInput.Source = source
-	messageInput.SessionOrigin = sessionOrigin
-	messageInput.Source = source
+	messageOrigin, messageSource, err := normalizeReportSessionOrigins(messageInput.SessionOrigin, messageInput.Source)
+	if err != nil {
+		return err
+	}
+	if stateOrigin != messageOrigin || strings.TrimSpace(stateInput.WorkspaceID) != strings.TrimSpace(messageInput.WorkspaceID) ||
+		strings.TrimSpace(stateInput.AgentSessionID) != strings.TrimSpace(messageInput.AgentSessionID) ||
+		strings.TrimSpace(stateInput.WorkspaceID) != strings.TrimSpace(input.WorkspaceID) ||
+		strings.TrimSpace(stateInput.AgentSessionID) != strings.TrimSpace(input.AgentSessionID) {
+		return fmt.Errorf("submit intent state and message scopes do not match")
+	}
+	stateInput.SessionOrigin = stateOrigin
+	stateInput.Source = stateSource
+	messageInput.SessionOrigin = messageOrigin
+	messageInput.Source = messageSource
+	if len(messageInput.Updates) != 1 {
+		return fmt.Errorf("submit intent admission requires exactly one canonical message")
+	}
 	update := messageInput.Updates[0]
-	clientSubmitID, _ := update.Payload["clientSubmitId"].(string)
-	clientSubmitID = strings.TrimSpace(clientSubmitID)
-	if strings.TrimSpace(update.MessageID) == "" || strings.TrimSpace(update.TurnID) == "" {
-		return fmt.Errorf("atomic submit provenance requires message id and turn id")
+	clientSubmitID := strings.TrimSpace(input.ClientSubmitID)
+	canonicalTurnID := strings.TrimSpace(input.CanonicalTurnID)
+	if clientSubmitID == "" || canonicalTurnID == "" || strings.TrimSpace(update.MessageID) == "" ||
+		strings.TrimSpace(update.TurnID) != canonicalTurnID || payloadString(update.Payload, "clientSubmitId") != clientSubmitID {
+		return fmt.Errorf("submit intent admission identity is incomplete or mismatched")
 	}
 
 	activityReport, canonicalTargetID, err := p.activityStateReport(ctx, stateInput)
 	if err != nil {
 		return err
 	}
-	if activityReport.Turn != nil && strings.TrimSpace(activityReport.Turn.TurnID) != strings.TrimSpace(update.TurnID) {
-		return fmt.Errorf("atomic submit provenance turn patch and message turn do not match")
+	if activityReport.Turn == nil || strings.TrimSpace(activityReport.Turn.TurnID) != canonicalTurnID {
+		return fmt.Errorf("submit intent admission requires the claimed canonical turn")
 	}
 	activityReport.Messages = activityMessageUpdates(messageInput.Updates)
-	result, err := p.repo.ReportActivityState(ctx, activityReport)
+	now := input.CanonicalSubmitOccurredAtUnixMS
+	if now <= 0 {
+		now = update.OccurredAtUnixMS
+	}
+	if now <= 0 {
+		now = stateInput.State.OccurredAtUnixMS
+	}
+	if now <= 0 {
+		now = time.Now().UnixMilli()
+	}
+	result, err := store.AdmitSubmitIntent(ctx, agentactivitybiz.SubmitIntentAdmission{
+		Claim: agentactivitybiz.SubmitClaimPrepare{
+			WorkspaceID: strings.TrimSpace(input.WorkspaceID), AgentSessionID: strings.TrimSpace(input.AgentSessionID),
+			ClientSubmitID: clientSubmitID, CanonicalTurnID: canonicalTurnID,
+			CanonicalMessageID: strings.TrimSpace(firstNonEmptyString(input.CanonicalMessageID, update.MessageID)), NowUnixMS: now,
+		},
+		Activity: activityReport,
+	})
 	if err != nil {
 		return err
 	}
-	if !result.State.Accepted || result.Messages.AcceptedCount != 1 || len(result.Messages.Messages) != 1 {
-		return fmt.Errorf(
-			"atomic submit provenance was not fully accepted: state=%t messages=%d",
-			result.State.Accepted,
-			result.Messages.AcceptedCount,
-		)
-	}
-	message := result.Messages.Messages[0]
-	if strings.TrimSpace(message.TurnID) != strings.TrimSpace(update.TurnID) ||
-		(clientSubmitID != "" && strings.TrimSpace(payloadString(message.Payload, "clientSubmitId")) != clientSubmitID) {
-		return fmt.Errorf("atomic submit provenance did not preserve canonical message identity")
+	if !result.Activity.State.Accepted || result.Activity.Messages.AcceptedCount != 1 || len(result.Activity.Messages.Messages) != 1 {
+		return fmt.Errorf("submit intent admission was not fully accepted")
 	}
 
 	stateReply := canonical.ReportSessionStateReply{
-		Accepted:          result.State.Accepted,
-		StateApplied:      result.State.StateApplied,
-		LastEventAtUnixMS: result.State.LastEventUnixMS,
-		RequestBodyBytes:  result.State.RequestBodyBytes,
+		Accepted: result.Activity.State.Accepted, StateApplied: result.Activity.State.StateApplied,
+		LastEventAtUnixMS: result.Activity.State.LastEventUnixMS, RequestBodyBytes: result.Activity.State.RequestBodyBytes,
 	}
 	provisional := activityStateIsProvisional(stateInput)
 	if !provisional {
-		p.publishPersistedTurnState(ctx, stateInput, result)
+		p.publishPersistedTurnState(ctx, stateInput, result.Activity)
 	}
 	if provisional {
 		p.observeSessionState(ctx, stateInput, stateReply)
 		p.observeSessionMessages(ctx, messageInput, canonical.ReportSessionMessagesReply{
-			AcceptedCount: result.Messages.AcceptedCount,
-			LatestVersion: result.Messages.LatestVersion,
+			AcceptedCount: result.Activity.Messages.AcceptedCount, LatestVersion: result.Activity.Messages.LatestVersion,
 		})
 		return nil
 	}
-	p.publishActivityUpdated(
-		ctx,
-		stateInput.WorkspaceID,
-		stateInput.AgentSessionID,
-		"session_reconcile_required",
-		activitySessionUpdateEventPayload(
-			stateInput.WorkspaceID,
-			stateInput.AgentSessionID,
-			result.State.LastEventUnixMS,
-			canonicalTargetID,
-		),
-	)
+	p.publishActivityUpdated(ctx, stateInput.WorkspaceID, stateInput.AgentSessionID, "session_reconcile_required",
+		activitySessionUpdateEventPayload(stateInput.WorkspaceID, stateInput.AgentSessionID, result.Activity.State.LastEventUnixMS, canonicalTargetID))
 	p.observeSessionState(ctx, stateInput, stateReply)
-
-	publishedAgentSessionID := canonicalMessageUpdateSessionID(messageInput.AgentSessionID, result.Messages.Messages)
+	publishedAgentSessionID := canonicalMessageUpdateSessionID(messageInput.AgentSessionID, result.Activity.Messages.Messages)
 	p.publishActivityUpdated(ctx, messageInput.WorkspaceID, publishedAgentSessionID, "message_update", map[string]any{
-		"acceptedCount":  result.Messages.AcceptedCount,
-		"agentSessionId": publishedAgentSessionID,
-		"eventType":      "message_update",
-		"latestVersion":  result.Messages.LatestVersion,
-		"messages":       activityMessagesEventPayload(result.Messages.Messages),
-		"workspaceId":    strings.TrimSpace(messageInput.WorkspaceID),
+		"acceptedCount": result.Activity.Messages.AcceptedCount, "agentSessionId": publishedAgentSessionID,
+		"eventType": "message_update", "latestVersion": result.Activity.Messages.LatestVersion,
+		"messages": activityMessagesEventPayload(result.Activity.Messages.Messages), "workspaceId": strings.TrimSpace(messageInput.WorkspaceID),
 	})
 	p.observeSessionMessages(ctx, messageInput, canonical.ReportSessionMessagesReply{
-		AcceptedCount: result.Messages.AcceptedCount,
-		LatestVersion: result.Messages.LatestVersion,
+		AcceptedCount: result.Activity.Messages.AcceptedCount, LatestVersion: result.Activity.Messages.LatestVersion,
 	})
 	return nil
+}
+
+// UpdateSubmitProvenance only advances submit identity and delivery facts. It
+// deliberately has no state or message payload and therefore cannot rewrite
+// the canonical user message admitted above.
+func (p *ActivityProjection) UpdateSubmitProvenance(
+	ctx context.Context,
+	input agentsessionstore.SubmitProvenanceInput,
+) error {
+	store, err := p.submitIntentStore()
+	if err != nil {
+		return err
+	}
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.AgentSessionID = strings.TrimSpace(input.AgentSessionID)
+	input.ClientSubmitID = strings.TrimSpace(input.ClientSubmitID)
+	input.CanonicalTurnID = strings.TrimSpace(input.CanonicalTurnID)
+	if input.WorkspaceID == "" || input.AgentSessionID == "" || input.ClientSubmitID == "" || input.CanonicalTurnID == "" {
+		return fmt.Errorf("submit provenance identity is incomplete")
+	}
+	if input.OccurredAtUnixMS <= 0 {
+		input.OccurredAtUnixMS = time.Now().UnixMilli()
+	}
+	_, _, err = store.UpdateSubmitProvenance(ctx, agentactivitybiz.SubmitProvenanceUpdate{
+		WorkspaceID: input.WorkspaceID, AgentSessionID: input.AgentSessionID, ClientSubmitID: input.ClientSubmitID,
+		CanonicalTurnID: input.CanonicalTurnID, CanonicalMessageID: strings.TrimSpace(input.CanonicalMessageID),
+		ProviderSessionID: strings.TrimSpace(input.ProviderSessionID), ProviderTurnID: strings.TrimSpace(input.ProviderTurnID),
+		DispatchStatus: strings.TrimSpace(input.DispatchStatus), DeliveryStatus: strings.TrimSpace(input.DeliveryStatus),
+		FailureReason: strings.TrimSpace(input.FailureReason), NowUnixMS: input.OccurredAtUnixMS,
+	})
+	return err
 }
 
 func (p *ActivityProjection) activityStateReport(

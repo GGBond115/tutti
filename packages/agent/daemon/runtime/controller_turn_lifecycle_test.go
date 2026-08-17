@@ -232,11 +232,15 @@ func (r *sessionEventTerminalBarrierReporter) Report(
 	}
 }
 
-func (r *sessionEventTerminalBarrierReporter) ReportSubmitProvenance(
+func (r *sessionEventTerminalBarrierReporter) AdmitSubmitIntent(
 	ctx context.Context,
-	report agentsessionstore.ReportActivityInput,
+	input agentsessionstore.SubmitIntentInput,
 ) error {
-	return r.Report(ctx, report)
+	return r.Report(ctx, reportFromSubmitIntentInput(input))
+}
+
+func (*sessionEventTerminalBarrierReporter) UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error {
+	return nil
 }
 
 func lateChildCompletionEvent(root Session) activityshared.Event {

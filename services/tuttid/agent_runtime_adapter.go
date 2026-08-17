@@ -292,19 +292,23 @@ func serviceProviderDispatchFromRuntime(
 	return projected
 }
 
-func (a agentRuntimeAdapter) DurablyReportSubmitProvenance(
+func (a agentRuntimeAdapter) UpdateSubmitProvenance(
 	ctx context.Context,
 	input agentservice.RuntimeSubmitProvenanceInput,
 ) error {
-	err := a.controller.DurablyReportSubmitProvenance(ctx, agentruntime.SubmitProvenanceInput{
-		RoomID:                          input.WorkspaceID,
-		AgentSessionID:                  input.AgentSessionID,
-		TurnID:                          input.TurnID,
-		ClientSubmitID:                  input.ClientSubmitID,
-		CanonicalSubmitOccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS,
-		Content:                         runtimePromptContentFromService(input.Content),
-		DisplayPrompt:                   input.DisplayPrompt,
-		Guidance:                        input.Guidance,
+	err := a.controller.UpdateSubmitProvenance(ctx, agentruntime.SubmitProvenanceInput{
+		RoomID:             input.WorkspaceID,
+		AgentSessionID:     input.AgentSessionID,
+		TurnID:             input.TurnID,
+		ClientSubmitID:     input.ClientSubmitID,
+		CanonicalMessageID: input.CanonicalMessageID,
+		ProviderSessionID:  input.ProviderSessionID,
+		ProviderTurnID:     input.ProviderTurnID,
+		DispatchStatus:     input.DispatchStatus,
+		DeliveryStatus:     input.DeliveryStatus,
+		FailureReason:      input.FailureReason,
+		OccurredAtUnixMS:   input.CanonicalSubmitOccurredAtUnixMS,
+		Guidance:           input.Guidance,
 	})
 	if err != nil {
 		return mapAgentRuntimeError(err)

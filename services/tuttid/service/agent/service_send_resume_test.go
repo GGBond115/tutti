@@ -220,8 +220,8 @@ func TestServiceSendInputPersistsPromptAfterRuntimeDispatchError(t *testing.T) {
 	}
 	provenance := runtime.provenanceCalls[0]
 	if provenance.ClientSubmitID != input.ClientSubmitID || provenance.TurnID == "" ||
-		len(provenance.Content) != 1 || provenance.Content[0].Text != "keep this prompt" {
-		t.Fatalf("provenance = %#v, want rejected prompt preserved", provenance)
+		provenance.CanonicalMessageID != "client-submit:user:"+input.ClientSubmitID || provenance.FailureReason != providerErr.Error() {
+		t.Fatalf("provenance = %#v, want rejected submit identity and failure only", provenance)
 	}
 }
 

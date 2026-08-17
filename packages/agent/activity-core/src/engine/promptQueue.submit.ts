@@ -3,6 +3,7 @@ import {
   clonePromptCapabilityReferences,
   clonePromptRequiredSettingsPatch
 } from "./promptQueue.prompt.ts";
+import { createPromptQueueId } from "./promptQueue.identity.ts";
 import type { EngineQueuedPrompt } from "./promptQueue.types.ts";
 
 export function queuedPromptFromSubmitIntent(
@@ -15,7 +16,7 @@ export function queuedPromptFromSubmitIntent(
     content: intent.content,
     createdAtUnixMs: intent.requestedAtUnixMs,
     ...(intent.displayPrompt ? { displayPrompt: intent.displayPrompt } : {}),
-    id: intent.clientSubmitId,
+    id: intent.promptId?.trim() || createPromptQueueId(),
     ...clonePromptRequiredSettingsPatch(intent.requiredSettingsPatch),
     submitDiagnostics: {
       ...(intent.submitDiagnostics ?? {}),

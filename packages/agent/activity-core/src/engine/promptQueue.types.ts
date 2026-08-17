@@ -7,6 +7,7 @@ import type {
 
 export interface EngineQueuedPrompt {
   capabilityRefs?: readonly AgentActivityCapabilityReference[];
+  /** Required for new records; absent only in legacy queue snapshots. */
   clientSubmitId?: string;
   content: readonly AgentPromptContentBlock[];
   createdAtUnixMs: number;
@@ -25,6 +26,8 @@ export type PromptQueueSuspendReason = "user_stop";
 
 export interface PromptQueueInFlightCommand {
   commandId: string;
+  /** Required for new records; absent only in legacy queue snapshots. */
+  clientSubmitId?: string;
   /** Set when the command was dispatched as an active-turn steer. */
   guidance?: true;
   kind: "send";

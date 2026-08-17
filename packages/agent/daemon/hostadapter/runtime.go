@@ -25,7 +25,7 @@ type RuntimeBackend interface {
 	State(string, string) (agentruntime.SessionStateSnapshot, error)
 	CanResume(agentruntime.ResumeInput) bool
 	Exec(context.Context, agentruntime.ExecInput) (agentruntime.ExecResult, error)
-	DurablyReportSubmitProvenance(context.Context, agentruntime.SubmitProvenanceInput) error
+	UpdateSubmitProvenance(context.Context, agentruntime.SubmitProvenanceInput) error
 	ValidatePromptContent(context.Context, agentruntime.ExecInput) error
 	Cancel(context.Context, agentruntime.CancelInput) (agentruntime.CancelResult, error)
 	SubmitInteractive(context.Context, agentruntime.SubmitInteractiveInput) (agentruntime.SubmitInteractiveResult, error)
@@ -65,7 +65,7 @@ var (
 	_ host.RuntimeWorkspaceDisconnector            = (*RuntimeController)(nil)
 	_ host.RuntimeWorkspaceDisconnectTargeter      = (*RuntimeController)(nil)
 	_ host.RuntimeRetainedSettingsUpdater          = (*RuntimeController)(nil)
-	_ host.RuntimeSubmitProvenanceReporter         = (*RuntimeController)(nil)
+	_ host.RuntimeSubmitProvenanceUpdater          = (*RuntimeController)(nil)
 	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)
 	_ host.SessionForkTurnBindingRecoveryRuntime   = (*RuntimeController)(nil)
 	_ host.SideConversationRuntime                 = (*RuntimeController)(nil)
@@ -277,11 +277,11 @@ func (a *RuntimeController) Exec(ctx context.Context, input host.RuntimeExecInpu
 	return projected, mapRuntimeError(err)
 }
 
-func (a *RuntimeController) DurablyReportSubmitProvenance(ctx context.Context, input host.RuntimeSubmitProvenanceInput) error {
+func (a *RuntimeController) UpdateSubmitProvenance(ctx context.Context, input host.RuntimeSubmitProvenanceInput) error {
 	if err := a.requireBackend(); err != nil {
 		return err
 	}
-	return mapRuntimeError(a.Backend.DurablyReportSubmitProvenance(ctx, runtimeSubmitProvenanceInput(input)))
+	return mapRuntimeError(a.Backend.UpdateSubmitProvenance(ctx, runtimeSubmitProvenanceInput(input)))
 }
 
 func (a *RuntimeController) ReconcileProviderTurnAcceptance(
@@ -827,9 +827,10 @@ func runtimeSubmitProvenanceInput(input host.RuntimeSubmitProvenanceInput) agent
 	return agentruntime.SubmitProvenanceInput{
 		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
 		TurnID: input.TurnID, ClientSubmitID: input.ClientSubmitID,
-		CanonicalSubmitOccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS,
-		Content:                         runtimePromptContent(input.Content), DisplayPrompt: input.DisplayPrompt,
-		Guidance: input.Guidance,
+		CanonicalMessageID: input.CanonicalMessageID, ProviderSessionID: input.ProviderSessionID,
+		ProviderTurnID: input.ProviderTurnID, DispatchStatus: input.DispatchStatus,
+		DeliveryStatus: input.DeliveryStatus, FailureReason: input.FailureReason,
+		OccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS, Guidance: input.Guidance,
 	}
 }
 

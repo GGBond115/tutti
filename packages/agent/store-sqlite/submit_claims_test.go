@@ -142,6 +142,9 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'session-1'
 	if err := store.applyWorkspaceAgentSubmitClaimsV4(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.applyWorkspaceAgentSubmitClaimsV5(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.db.ExecContext(ctx, `
 INSERT INTO workspace_agent_submit_claims
   (workspace_id, agent_session_id, client_submit_id, status, turn_id, created_at_unix_ms, updated_at_unix_ms, canonical_turn_id)

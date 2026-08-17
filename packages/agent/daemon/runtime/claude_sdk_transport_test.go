@@ -744,10 +744,12 @@ func TestClaudeCodeSDKAdapterControllerPublishesUIActivityWithSidecarTestDriver(
 	defer unsubscribe()
 
 	execResult, err := controller.Exec(ctx, ExecInput{
-		RoomID:         started.Session.RoomID,
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("say hello"),
-		DisplayPrompt:  "say hello",
+		RoomID:                          started.Session.RoomID,
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "claude-sdk-sidecar:say-hello",
+		CanonicalSubmitOccurredAtUnixMS: time.Now().UnixMilli(),
+		Content:                         textPrompt("say hello"),
+		DisplayPrompt:                   "say hello",
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)

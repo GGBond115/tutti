@@ -284,6 +284,7 @@ func TestSideConversationOpensDuringActiveParentWithoutDurableWrites(t *testing.
 	}
 	if _, err := controller.Exec(t.Context(), ExecInput{
 		RoomID: "workspace-side", AgentSessionID: "parent", TurnID: "parent-turn",
+		ClientSubmitID: "parent-submit", CanonicalSubmitOccurredAtUnixMS: 1,
 		Content: []PromptContentBlock{{Type: "text", Text: "keep working"}},
 	}); err != nil {
 		t.Fatal(err)
@@ -311,12 +312,11 @@ func TestSideConversationOpensDuringActiveParentWithoutDurableWrites(t *testing.
 	if !controller.HasActiveTurn("workspace-side", "parent") {
 		t.Fatal("opening Side disturbed the active parent turn")
 	}
-	if err := controller.DurablyReportSubmitProvenance(
+	if err := controller.UpdateSubmitProvenance(
 		t.Context(),
 		SubmitProvenanceInput{
 			RoomID: "workspace-side", AgentSessionID: "side-1",
 			TurnID: "side-turn", ClientSubmitID: "side-submit",
-			Content: []PromptContentBlock{{Type: "text", Text: "side question"}},
 		},
 	); !errors.Is(err, ErrSideConversationUnsupported) {
 		t.Fatalf("Side submit provenance error = %v, want unsupported", err)

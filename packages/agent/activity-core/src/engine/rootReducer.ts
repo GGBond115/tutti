@@ -16,6 +16,9 @@ import {
   resolveQueuedPromptSendNowStrategy
 } from "./promptQueue.sendNow.ts";
 import {
+  promptQueueHasClientSubmitInFlight,
+  promptQueueHasClientSubmitUncertainDelivery,
+  promptQueuePromptIdForClientSubmit,
   canCancelQueuedSubmit,
   isQueuedSubmitDeliveryPending
 } from "./promptQueue.lookup.ts";
@@ -80,6 +83,7 @@ import {
   createInitialSessionGoalControlState,
   sessionGoalControlReducer
 } from "./sessionGoalControl.reducer.ts";
+import { createPromptQueueId } from "./promptQueue.identity.ts";
 
 // Root reducer: static composition of domain reducers, zero business logic.
 // Cross-domain read-only context is passed explicitly; domains still own all
@@ -109,6 +113,13 @@ export function rootEngineReducer(
   state: RootAgentSessionEngineState,
   intent: RootEngineIntent
 ): RootEngineReducerResult<RootAgentSessionEngineState> {
+  if (
+    (intent.type === "submit/requested" ||
+      intent.type === "plan/feedbackRequested") &&
+    !intent.promptId?.trim()
+  ) {
+    intent = { ...intent, promptId: createPromptQueueId() };
+  }
   if (intent.type === "prompt/executionRequested") {
     const promptExecutions = promptExecutionReducer(
       state.promptExecutions,
@@ -266,9 +277,6 @@ export function rootEngineReducer(
           submitSession?.capabilities
         )
       : null;
-  const queueRecord = submitIntent
-    ? state.promptQueue.recordsBySessionId[submitSessionId]
-    : undefined;
   // A session whose activation is still in flight is not in sessionsById yet.
   // Plain submits for it are accepted into the queue (they drain once the
   // session upserts) instead of being silently dropped; routings that dispatch
@@ -290,11 +298,21 @@ export function rootEngineReducer(
       submitSendNowStrategy !== null) &&
     !state.sessionLifecycle.deletedSessionIds[submitSessionId] &&
     !state.pendingIntents.submitsByClientSubmitId[submitId] &&
-    !queueRecord?.prompts.some(
-      (prompt) => prompt.id === submitId || prompt.clientSubmitId === submitId
+    !promptQueuePromptIdForClientSubmit(
+      state.promptQueue,
+      submitSessionId,
+      submitId
     ) &&
-    queueRecord?.inFlight?.promptId !== submitId &&
-    queueRecord?.uncertainDelivery?.promptId !== submitId
+    !promptQueueHasClientSubmitInFlight(
+      state.promptQueue,
+      submitSessionId,
+      submitId
+    ) &&
+    !promptQueueHasClientSubmitUncertainDelivery(
+      state.promptQueue,
+      submitSessionId,
+      submitId
+    )
   );
   const feedbackAccepted = Boolean(
     intent.type === "plan/feedbackRequested" &&

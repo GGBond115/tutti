@@ -83,7 +83,8 @@ func (a *ClaudeCodeSDKAdapter) exec(
 	}
 	startEvents := []activityshared.Event{
 		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, map[string]any{
-			"adapter": claudeSDKSidecarAdapterName,
+			"adapter":                claudeSDKSidecarAdapterName,
+			messageOriginMetadataKey: string(messageOriginProviderEcho),
 		}),
 		newTurnActivityEvent(session, EventTurnStarted, turnID, SessionStatusWorking, "", "", map[string]any{
 			"adapter": claudeSDKSidecarAdapterName,
@@ -552,9 +553,10 @@ func (a *ClaudeCodeSDKAdapter) GuideActiveTurnWithProviderDispatch(
 	}
 	events := []activityshared.Event{
 		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, map[string]any{
-			"adapter":  claudeSDKSidecarAdapterName,
-			"guidance": true,
-			"steered":  true,
+			"adapter":                claudeSDKSidecarAdapterName,
+			messageOriginMetadataKey: string(messageOriginGuidance),
+			"guidance":               true,
+			"steered":                true,
 		}),
 	}
 	if err := a.startClaudeSDKReader(session.AgentSessionID, adapterSession); err != nil {

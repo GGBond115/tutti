@@ -143,14 +143,18 @@ func (*providerAcceptanceMappingTestAdapter) Fork(
 }
 
 type submitProvenanceAdapterTestReporter struct {
-	provenance agentsessionstore.ReportActivityInput
+	provenance agentsessionstore.SubmitProvenanceInput
 }
 
 func (*submitProvenanceAdapterTestReporter) Report(context.Context, agentsessionstore.ReportActivityInput) error {
 	return nil
 }
 
-func (r *submitProvenanceAdapterTestReporter) ReportSubmitProvenance(_ context.Context, input agentsessionstore.ReportActivityInput) error {
+func (*submitProvenanceAdapterTestReporter) AdmitSubmitIntent(context.Context, agentsessionstore.SubmitIntentInput) error {
+	return nil
+}
+
+func (r *submitProvenanceAdapterTestReporter) UpdateSubmitProvenance(_ context.Context, input agentsessionstore.SubmitProvenanceInput) error {
 	r.provenance = input
 	return nil
 }
@@ -343,8 +347,10 @@ func TestAgentRuntimeAdapterPreservesRejectedDispatchWithProviderFailure(t *test
 
 	result, err := adapter.Exec(t.Context(), agentservice.RuntimeExecInput{
 		WorkspaceID: "workspace-1", AgentSessionID: "session-rejected",
-		TurnID: "canonical-turn-rejected", Content: agentservice.TextPromptContent("hello"),
-		RequireProviderAcceptance: true,
+		TurnID: "canonical-turn-rejected", ClientSubmitID: "submit-rejected",
+		CanonicalSubmitOccurredAtUnixMS: 1,
+		Content:                         agentservice.TextPromptContent("hello"),
+		RequireProviderAcceptance:       true,
 	})
 	var mapped *agenthost.ProviderError
 	if !errors.As(err, &mapped) || mapped.Code != "auth_required" {
@@ -356,7 +362,7 @@ func TestAgentRuntimeAdapterPreservesRejectedDispatchWithProviderFailure(t *test
 	}
 }
 
-func TestAgentRuntimeAdapterDelegatesTypedDurableSubmitProvenance(t *testing.T) {
+func TestAgentRuntimeAdapterDelegatesTypedSubmitProvenance(t *testing.T) {
 	reporter := &submitProvenanceAdapterTestReporter{}
 	controller := agentruntime.NewController(
 		[]agentruntime.Adapter{submitProvenanceAdapterTestProvider{}},
@@ -369,22 +375,22 @@ func TestAgentRuntimeAdapterDelegatesTypedDurableSubmitProvenance(t *testing.T) 
 	}
 
 	adapter := newAgentRuntimeAdapter(controller)
-	if err := adapter.DurablyReportSubmitProvenance(context.Background(), agentservice.RuntimeSubmitProvenanceInput{
+	if err := adapter.UpdateSubmitProvenance(context.Background(), agentservice.RuntimeSubmitProvenanceInput{
 		WorkspaceID: "workspace-1", AgentSessionID: "session-1", TurnID: "turn-1",
-		ClientSubmitID: "submit-1", Content: agentservice.TextPromptContent("hello"),
-		CanonicalSubmitOccurredAtUnixMS: 1_234,
-		DisplayPrompt:                   "Visible hello",
+		ClientSubmitID: "submit-1", CanonicalMessageID: "message-1",
+		ProviderSessionID: "provider-session-1", ProviderTurnID: "provider-turn-1",
+		DispatchStatus: "accepted", DeliveryStatus: "accepted", CanonicalSubmitOccurredAtUnixMS: 1_234,
 	}); err != nil {
-		t.Fatalf("DurablyReportSubmitProvenance() error = %v", err)
+		t.Fatalf("UpdateSubmitProvenance() error = %v", err)
 	}
 	got := reporter.provenance
-	if got.WorkspaceID != "workspace-1" || got.Source.AgentID != "session-1" || len(got.MessageUpdates) != 1 {
+	if got.WorkspaceID != "workspace-1" || got.AgentSessionID != "session-1" || got.CanonicalTurnID != "turn-1" {
 		t.Fatalf("provenance report = %#v", got)
 	}
-	message := got.MessageUpdates[0]
-	if message.TurnID != "turn-1" || message.Seq != 1_234 || message.OccurredAtUnixMS != 1_234 ||
-		message.Payload["clientSubmitId"] != "submit-1" || message.Payload["displayPrompt"] != "Visible hello" {
-		t.Fatalf("provenance message = %#v", message)
+	if got.CanonicalMessageID != "message-1" || got.ProviderSessionID != "provider-session-1" ||
+		got.ProviderTurnID != "provider-turn-1" || got.DispatchStatus != "accepted" || got.DeliveryStatus != "accepted" ||
+		got.OccurredAtUnixMS != 1_234 {
+		t.Fatalf("provenance fields = %#v", got)
 	}
 }
 

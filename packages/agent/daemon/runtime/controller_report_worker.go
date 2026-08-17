@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -232,9 +233,8 @@ func (c *Controller) observeProviderObservations(
 }
 
 // reportSubmittedTurnDurable is the acceptance barrier for a user submission.
-// The durable reporter commits the submitted Turn and canonical user message
-// together before Exec may publish the transition, start provider work, or
-// return success.
+// Admission is the only runtime path that may create the canonical user
+// message. Provider activity and Host provenance use separate contracts.
 func (c *Controller) reportSubmittedTurnDurable(
 	ctx context.Context,
 	session Session,
@@ -257,7 +257,92 @@ func (c *Controller) reportSubmittedTurnDurable(
 	if keepProvisional {
 		hideProvisionalSessionReport(&report)
 	}
-	return c.reporter.ReportSubmitProvenance(ctx, report)
+	activityInput, err := submitIntentActivityInput(SubmitIntentInput{
+		RoomID:                          session.RoomID,
+		AgentSessionID:                  session.AgentSessionID,
+		TurnID:                          firstSubmitTurnID(report),
+		ClientSubmitID:                  firstSubmitClientSubmitID(report),
+		CanonicalMessageID:              firstSubmitMessageID(report),
+		CanonicalSubmitOccurredAtUnixMS: firstSubmitOccurredAt(report),
+		Report:                          report,
+	})
+	if err != nil {
+		return err
+	}
+	return c.reporter.AdmitSubmitIntent(ctx, activityInput)
+}
+
+func submitIntentActivityInput(input SubmitIntentInput) (agentsessionstore.SubmitIntentInput, error) {
+	stateInputs := agentsessionstore.SessionStateInputsFromActivity(input.Report)
+	messageInputs, err := agentsessionstore.SessionMessageInputsFromActivity(input.Report)
+	if err != nil {
+		return agentsessionstore.SubmitIntentInput{}, err
+	}
+	if len(stateInputs) != 1 || len(messageInputs) != 1 || len(messageInputs[0].Updates) != 1 {
+		return agentsessionstore.SubmitIntentInput{}, fmt.Errorf(
+			"submit intent admission requires one state and one canonical message, got %d state inputs and %d message inputs",
+			len(stateInputs), len(messageInputs),
+		)
+	}
+	message := messageInputs[0].Updates[0]
+	if strings.TrimSpace(message.MessageID) == "" || strings.TrimSpace(message.TurnID) == "" {
+		return agentsessionstore.SubmitIntentInput{}, errors.New("submit intent admission requires canonical message identity")
+	}
+	if strings.TrimSpace(input.RoomID) == "" || strings.TrimSpace(input.AgentSessionID) == "" ||
+		strings.TrimSpace(input.TurnID) == "" || strings.TrimSpace(input.ClientSubmitID) == "" {
+		return agentsessionstore.SubmitIntentInput{}, errors.New("submit intent admission requires complete scope and identity")
+	}
+	if message.TurnID != input.TurnID || payloadString(message.Payload, "clientSubmitId") != input.ClientSubmitID {
+		return agentsessionstore.SubmitIntentInput{}, errors.New("submit intent admission identity does not match canonical message")
+	}
+	return agentsessionstore.SubmitIntentInput{
+		WorkspaceID: input.RoomID, AgentSessionID: input.AgentSessionID,
+		ClientSubmitID: input.ClientSubmitID, CanonicalTurnID: input.TurnID,
+		CanonicalMessageID:              firstNonEmptyString(input.CanonicalMessageID, message.MessageID),
+		CanonicalSubmitOccurredAtUnixMS: input.CanonicalSubmitOccurredAtUnixMS,
+		State:                           stateInputs[0], Messages: messageInputs[0],
+	}, nil
+}
+
+func firstSubmitTurnID(report agentsessionstore.ReportActivityInput) string {
+	for _, update := range report.MessageUpdates {
+		if strings.TrimSpace(update.Role) == RoleUser {
+			return strings.TrimSpace(update.TurnID)
+		}
+	}
+	for _, patch := range report.StatePatches {
+		if patch.Turn != nil {
+			return strings.TrimSpace(patch.Turn.TurnID)
+		}
+	}
+	return ""
+}
+
+func firstSubmitClientSubmitID(report agentsessionstore.ReportActivityInput) string {
+	for _, update := range report.MessageUpdates {
+		if clientSubmitID := payloadString(update.Payload, "clientSubmitId"); clientSubmitID != "" {
+			return clientSubmitID
+		}
+	}
+	return ""
+}
+
+func firstSubmitMessageID(report agentsessionstore.ReportActivityInput) string {
+	for _, update := range report.MessageUpdates {
+		if strings.TrimSpace(update.Role) == RoleUser {
+			return strings.TrimSpace(update.MessageID)
+		}
+	}
+	return ""
+}
+
+func firstSubmitOccurredAt(report agentsessionstore.ReportActivityInput) int64 {
+	for _, update := range report.MessageUpdates {
+		if strings.TrimSpace(update.Role) == RoleUser && update.OccurredAtUnixMS > 0 {
+			return update.OccurredAtUnixMS
+		}
+	}
+	return 0
 }
 
 func hideProvisionalSessionReport(report *agentsessionstore.ReportActivityInput) {
@@ -635,8 +720,8 @@ func (c *Controller) report(ctx context.Context, request reportRequest) (reportE
 	if c.reporter == nil {
 		return errors.New("agent session activity reporter is unavailable")
 	}
-	if request.submitProvenance {
-		reportErr = c.reporter.ReportSubmitProvenance(ctx, request.report)
+	if request.provenance != nil {
+		reportErr = c.reporter.UpdateSubmitProvenance(ctx, submitProvenanceActivityInput(*request.provenance))
 	} else {
 		reportErr = c.reporter.Report(ctx, request.report)
 	}
@@ -660,6 +745,23 @@ func (c *Controller) report(ctx context.Context, request reportRequest) (reportE
 		)
 	}
 	return reportErr
+}
+
+func submitProvenanceActivityInput(input SubmitProvenanceInput) agentsessionstore.SubmitProvenanceInput {
+	return agentsessionstore.SubmitProvenanceInput{
+		WorkspaceID:        input.RoomID,
+		AgentSessionID:     input.AgentSessionID,
+		ClientSubmitID:     input.ClientSubmitID,
+		CanonicalTurnID:    input.TurnID,
+		CanonicalMessageID: input.CanonicalMessageID,
+		ProviderSessionID:  input.ProviderSessionID,
+		ProviderTurnID:     input.ProviderTurnID,
+		DispatchStatus:     input.DispatchStatus,
+		DeliveryStatus:     input.DeliveryStatus,
+		FailureReason:      input.FailureReason,
+		OccurredAtUnixMS:   input.OccurredAtUnixMS,
+		Guidance:           input.Guidance,
+	}
 }
 
 func sessionKey(roomID, agentSessionID string) string {

@@ -9,15 +9,21 @@ import (
 )
 
 type submitProvenanceCaptureReporter struct {
-	report agentsessionstore.ReportActivityInput
+	intent     agentsessionstore.SubmitIntentInput
+	provenance agentsessionstore.SubmitProvenanceInput
 }
 
 func (*submitProvenanceCaptureReporter) Report(context.Context, agentsessionstore.ReportActivityInput) error {
 	return nil
 }
 
-func (r *submitProvenanceCaptureReporter) ReportSubmitProvenance(_ context.Context, input agentsessionstore.ReportActivityInput) error {
-	r.report = input
+func (r *submitProvenanceCaptureReporter) AdmitSubmitIntent(_ context.Context, input agentsessionstore.SubmitIntentInput) error {
+	r.intent = input
+	return nil
+}
+
+func (r *submitProvenanceCaptureReporter) UpdateSubmitProvenance(_ context.Context, input agentsessionstore.SubmitProvenanceInput) error {
+	r.provenance = input
 	return nil
 }
 
@@ -84,14 +90,14 @@ func TestReportRunOutcomeSuccessClears(t *testing.T) {
 	}
 }
 
-func TestAgentRunOutcomeReporterPreservesRequiredAtomicSubmitProvenance(t *testing.T) {
+func TestAgentRunOutcomeReporterPreservesSubmitIntentAdmission(t *testing.T) {
 	inner := &submitProvenanceCaptureReporter{}
 	reporter := agentRunOutcomeReporter{DurableActivityReporter: inner}
-	input := agentsessionstore.ReportActivityInput{WorkspaceID: "ws-1"}
-	if err := reporter.ReportSubmitProvenance(context.Background(), input); err != nil {
-		t.Fatalf("ReportSubmitProvenance() error = %v", err)
+	input := agentsessionstore.SubmitIntentInput{WorkspaceID: "ws-1"}
+	if err := reporter.AdmitSubmitIntent(context.Background(), input); err != nil {
+		t.Fatalf("AdmitSubmitIntent() error = %v", err)
 	}
-	if inner.report.WorkspaceID != "ws-1" {
-		t.Fatalf("forwarded report = %#v", inner.report)
+	if inner.intent.WorkspaceID != "ws-1" {
+		t.Fatalf("forwarded submit intent = %#v", inner.intent)
 	}
 }

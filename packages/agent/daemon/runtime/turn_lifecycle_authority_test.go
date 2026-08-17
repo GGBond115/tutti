@@ -248,7 +248,7 @@ func TestApplyLifecycleSnapshotToPatchProviderAgnostic(t *testing.T) {
 	if patch.SubmitAvailability == nil || patch.SubmitAvailability.State != "blocked" {
 		t.Fatalf("patch submit availability not derived: %#v", patch.SubmitAvailability)
 	}
-	if _, isMessage := messageUpdateFromSessionEvent(canonical.EventSource{}, event, "agent-1", 1); isMessage {
+	if _, isMessage := messageUpdateFromSessionEvent(messageProjectionDurable, canonical.EventSource{}, event, "agent-1", 1); isMessage {
 		t.Fatal("stamped turn event must never become a message update")
 	}
 }

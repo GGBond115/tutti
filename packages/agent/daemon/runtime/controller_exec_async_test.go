@@ -279,9 +279,11 @@ func TestControllerExecPublishesTerminalEventAfterPartialEmitError(t *testing.T)
 	}
 	defer unsubscribe()
 	if _, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("run"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "terminal-settled-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("run"),
 	}); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
@@ -304,9 +306,11 @@ func TestControllerExecReconcilesWorkingStatusAfterTurnFinishesWithoutTerminalEv
 		t.Fatalf("Start: %v", err)
 	}
 	if _, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("run"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "terminal-settled-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("run"),
 	}); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
@@ -345,9 +349,11 @@ func TestControllerExecReportsTerminalTurnAsSettledAndAvailable(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	if _, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("run"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "terminal-availability-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_002,
+		Content:                         textPrompt("run"),
 	}); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}

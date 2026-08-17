@@ -35,6 +35,7 @@ import {
   isSettingsUpdateBlockingDrain,
   resolveQueueDrainDecision
 } from "./promptQueue.drainDecision.ts";
+import { createPromptQueueId } from "./promptQueue.identity.ts";
 import {
   deriveCanonicalSubmitAvailability,
   type CanonicalSessionLifecycleView
@@ -125,7 +126,7 @@ function reduceQueueOwnedState(
         return requestQueuedPromptSendNow(
           enqueueSubmit(state, intent, context.lifecycle).state,
           intent.agentSessionId,
-          intent.clientSubmitId,
+          intent.promptId ?? "",
           context.sendNowStrategy,
           targetTurnId,
           pendingSendNowFromSubmit(
@@ -231,7 +232,13 @@ function enqueuePrompt(
   const current =
     state.recordsBySessionId[agentSessionId] ??
     emptyQueueRecord(workspaceId, agentSessionId);
-  if (current.prompts.some((candidate) => candidate.id === prompt.id)) {
+  if (
+    current.prompts.some(
+      (candidate) =>
+        candidate.id === prompt.id ||
+        candidate.clientSubmitId === prompt.clientSubmitId
+    )
+  ) {
     return unchanged(state);
   }
   return result(
@@ -300,7 +307,7 @@ function sendCommandFromImmediateSubmit(
     ...(intent.targetTurnId?.trim()
       ? { targetTurnId: intent.targetTurnId.trim() }
       : {}),
-    promptId: intent.clientSubmitId,
+    promptId: intent.promptId?.trim() || createPromptQueueId(),
     ...clonePromptRequiredSettingsPatch(intent.requiredSettingsPatch),
     timeoutMs: QUEUE_SEND_TIMEOUT_MS,
     type: "queue/sendPrompt",
@@ -613,6 +620,9 @@ function drainSession(
     commandId,
     decision.guidance
   );
+  if (!command) {
+    return state === originalState ? unchanged(state) : result(state);
+  }
   const nextState = replaceRecord(
     { ...state, nextCommandSequence: sequence + 1 },
     record.agentSessionId,
@@ -620,6 +630,7 @@ function drainSession(
       ...record,
       inFlight: {
         commandId,
+        clientSubmitId: head.clientSubmitId,
         ...(decision.guidance ? { guidance: true as const } : {}),
         kind: "send",
         promptId: head.id,
@@ -641,13 +652,15 @@ function sendCommandFromQueuedPrompt(
   head: PromptQueueRecord["prompts"][number],
   commandId: string,
   guidance: boolean
-): Extract<EngineCommand, { type: "queue/sendPrompt" }> {
+): Extract<EngineCommand, { type: "queue/sendPrompt" }> | null {
+  const clientSubmitId = head.clientSubmitId?.trim();
+  if (!clientSubmitId) return null;
   return {
     agentSessionId: record.agentSessionId,
     ...clonePromptCapabilityReferences(head.capabilityRefs),
     commandId,
-    ...(head.clientSubmitId ? { correlationId: head.clientSubmitId } : {}),
-    clientSubmitId: head.clientSubmitId ?? head.id,
+    correlationId: clientSubmitId,
+    clientSubmitId,
     content: head.runtimeContent ?? head.content,
     ...(head.displayPrompt ? { displayPrompt: head.displayPrompt } : {}),
     ...(guidance ? { guidance: true } : {}),

@@ -3,7 +3,6 @@ package agentruntime
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -130,11 +129,13 @@ func TestControllerHiddenSessionPublishesLiveEventsAndReportsActivity(t *testing
 	}
 
 	execResult, err := controller.Exec(ctx, ExecInput{
-		RoomID:           "room-1",
-		AgentSessionID:   started.Session.AgentSessionID,
-		Content:          textPrompt("hello"),
-		InitialTitle:     "hello",
-		InitialTitleBase: started.Session.Title,
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "hidden-session-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("hello"),
+		InitialTitle:                    "hello",
+		InitialTitleBase:                started.Session.Title,
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -179,11 +180,13 @@ func TestControllerStartExecPublishesAndReports(t *testing.T) {
 	defer unsubscribe()
 
 	execResult, err := controller.Exec(ctx, ExecInput{
-		RoomID:           "room-1",
-		AgentSessionID:   started.Session.AgentSessionID,
-		Content:          textPrompt("hello"),
-		InitialTitle:     "hello",
-		InitialTitleBase: started.Session.Title,
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "start-exec-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_002,
+		Content:                         textPrompt("hello"),
+		InitialTitle:                    "hello",
+		InitialTitleBase:                started.Session.Title,
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -268,8 +271,9 @@ userMessagePublished:
 	if len(userMessageIDs) == 0 {
 		t.Fatalf("report calls = %#v, want user message update for turn", reportCalls)
 	}
-	if userMessageIDs[0] == "" || !strings.HasPrefix(userMessageIDs[0], turnUserMessageIDPrefix) {
-		t.Fatalf("user message IDs = %#v, want a generated turn-user message ID", userMessageIDs)
+	wantMessageID := userPromptActivityMessageIDFromClientSubmitID("start-exec-submit")
+	if userMessageIDs[0] != wantMessageID {
+		t.Fatalf("user message IDs = %#v, want client-submit message ID %q", userMessageIDs, wantMessageID)
 	}
 	for _, messageID := range userMessageIDs[1:] {
 		if messageID != userMessageIDs[0] {
@@ -311,9 +315,11 @@ func TestControllerReportsMessageUpdateOnlyRuntimeBatch(t *testing.T) {
 	}
 
 	execResult, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         started.Session.RoomID,
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("stream"),
+		RoomID:                          started.Session.RoomID,
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "stream-message-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_003,
+		Content:                         textPrompt("stream"),
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -373,9 +379,11 @@ func TestControllerExecRunsOutsideRequestContext(t *testing.T) {
 
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
 	execResult, err := controller.Exec(requestCtx, ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("run tests"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "request-context-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_004,
+		Content:                         textPrompt("run tests"),
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -492,9 +500,11 @@ func TestControllerExecRejectsPromptDuringActiveTurn(t *testing.T) {
 	}
 
 	first, err := controller.Exec(ctx, ExecInput{
-		RoomID:         started.Session.RoomID,
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("first prompt"),
+		RoomID:                          started.Session.RoomID,
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "first-prompt-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_005,
+		Content:                         textPrompt("first prompt"),
 	})
 	if err != nil {
 		t.Fatalf("first Exec: %v", err)
@@ -538,9 +548,11 @@ func TestControllerExecGuidanceDuringActiveTurn(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	first, err := controller.Exec(ctx, ExecInput{
-		RoomID:         started.Session.RoomID,
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("first prompt"),
+		RoomID:                          started.Session.RoomID,
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "guidance-base-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("first prompt"),
 	})
 	if err != nil {
 		t.Fatalf("first Exec: %v", err)
@@ -963,9 +975,11 @@ func TestControllerExecReportsReturnedEventsNotAlreadyEmitted(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	execResult, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: started.Session.AgentSessionID,
-		Content:        textPrompt("run"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  started.Session.AgentSessionID,
+		ClientSubmitID:                  "returned-events-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_006,
+		Content:                         textPrompt("run"),
 	})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)

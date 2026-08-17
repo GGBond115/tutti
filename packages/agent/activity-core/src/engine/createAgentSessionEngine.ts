@@ -32,6 +32,7 @@ import {
   type SessionMutationCancellation
 } from "./sessionMutationDispatch.ts";
 import { requestSessionActivation } from "./sessionActivation.operation.ts";
+import { createPromptQueueId } from "./promptQueue.identity.ts";
 import {
   createInitialAgentSessionEngineState,
   rootEngineReducer
@@ -589,6 +590,7 @@ export function createAgentSessionEngine({
           }
         : {}),
       clientSubmitId,
+      promptId: createPromptQueueId(),
       content,
       ...(displayPrompt ? { displayPrompt } : {}),
       expiresAtUnixMs:

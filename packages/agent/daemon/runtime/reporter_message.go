@@ -9,7 +9,22 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
+type messageProjectionTarget uint8
+
+const (
+	// messageProjectionDurable is the projection sent to the durable activity
+	// writer. Provider echoes are represented separately as timeline activity
+	// and must never become canonical message updates here.
+	messageProjectionDurable messageProjectionTarget = iota
+	// messageProjectionRealtime is the live stream projection. It keeps
+	// provider echoes observable, with their explicit origin and submit
+	// association, so filtering the durable projection cannot reorder the live
+	// stream.
+	messageProjectionRealtime
+)
+
 func messageUpdateFromSessionEvent(
+	target messageProjectionTarget,
 	source canonical.EventSource,
 	event activityshared.Event,
 	sessionID string,
@@ -17,7 +32,7 @@ func messageUpdateFromSessionEvent(
 ) (agentsessionstore.WorkspaceAgentMessageUpdate, bool) {
 	switch event.Type {
 	case activityshared.EventMessageAppended, activityshared.EventMessageCreated:
-		return textMessageUpdateFromSessionEvent(event, sessionID, timestamp)
+		return textMessageUpdateFromSessionEvent(target, event, sessionID, timestamp)
 	case activityshared.EventCallStarted, activityshared.EventCallCompleted, activityshared.EventCallFailed:
 		return callMessageUpdateFromSessionEvent(source, event, sessionID, timestamp)
 	default:
@@ -26,10 +41,14 @@ func messageUpdateFromSessionEvent(
 }
 
 func textMessageUpdateFromSessionEvent(
+	target messageProjectionTarget,
 	event activityshared.Event,
 	sessionID string,
 	timestamp int64,
 ) (agentsessionstore.WorkspaceAgentMessageUpdate, bool) {
+	if target == messageProjectionDurable && isProviderEchoMessageEvent(event) {
+		return agentsessionstore.WorkspaceAgentMessageUpdate{}, false
+	}
 	messageID := firstNonEmptyString(stringFromPayload(event.Payload.Metadata, "messageId"), event.EventID)
 	if strings.TrimSpace(sessionID) == "" || messageID == "" || timestamp <= 0 {
 		return agentsessionstore.WorkspaceAgentMessageUpdate{}, false
@@ -45,6 +64,9 @@ func textMessageUpdateFromSessionEvent(
 	}
 	payload := map[string]any{
 		"source": "runtime",
+	}
+	if role == RoleUser {
+		payload[messageOriginMetadataKey] = string(messageOriginForSessionEvent(event))
 	}
 	if event.Payload.Content != "" {
 		payload["content"] = event.Payload.Content

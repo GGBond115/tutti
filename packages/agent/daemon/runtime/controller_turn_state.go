@@ -30,7 +30,7 @@ func submittedTurnActivityEvents(
 		explicitDisplayPrompt,
 		visibleText,
 		turnID,
-		nil,
+		map[string]any{messageOriginMetadataKey: string(messageOriginCanonicalSubmit)},
 	)
 	event := activityshared.NewTurnUpdated(eventContext, turnID, activityshared.TurnPhaseSubmitted)
 	event.Payload.Title = strings.TrimSpace(submittedTitle)

@@ -60,11 +60,15 @@ func (reporter *providerAcceptanceBarrierReporter) Report(
 	return nil
 }
 
-func (reporter *providerAcceptanceBarrierReporter) ReportSubmitProvenance(
+func (reporter *providerAcceptanceBarrierReporter) AdmitSubmitIntent(
 	ctx context.Context,
-	report agentsessionstore.ReportActivityInput,
+	input agentsessionstore.SubmitIntentInput,
 ) error {
-	return reporter.Report(ctx, report)
+	return reporter.Report(ctx, reportFromSubmitIntentInput(input))
+}
+
+func (*providerAcceptanceBarrierReporter) UpdateSubmitProvenance(context.Context, agentsessionstore.SubmitProvenanceInput) error {
+	return nil
 }
 
 func TestCodexEffectiveHistoryUsesNoHandlerTypedCommands(t *testing.T) {
@@ -329,9 +333,13 @@ func TestControllerHistoryReplacementExplicitRejectionIsTyped(t *testing.T) {
 	})
 
 	result, err := controller.Exec(t.Context(), ExecInput{
-		RoomID: "room-edit-retry", AgentSessionID: sessionID,
-		TurnID: "replacement-turn-rejected", Content: textPrompt("replacement"),
-		HistoryReplacement: true,
+		RoomID:                          "room-edit-retry",
+		AgentSessionID:                  sessionID,
+		TurnID:                          "replacement-turn-rejected",
+		ClientSubmitID:                  "history-replacement-rejected",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("replacement"),
+		HistoryReplacement:              true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -641,8 +649,12 @@ func TestControllerHistoryReplacementNeverSteersActiveTurn(t *testing.T) {
 	})
 
 	if _, err := controller.Exec(t.Context(), ExecInput{
-		RoomID: "room-edit-retry", AgentSessionID: sessionID,
-		TurnID: "ordinary-active-turn", Content: textPrompt("keep working"),
+		RoomID:                          "room-edit-retry",
+		AgentSessionID:                  sessionID,
+		TurnID:                          "ordinary-active-turn",
+		ClientSubmitID:                  "ordinary-active-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_002,
+		Content:                         textPrompt("keep working"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -652,9 +664,13 @@ func TestControllerHistoryReplacementNeverSteersActiveTurn(t *testing.T) {
 	})
 
 	result, err := controller.Exec(t.Context(), ExecInput{
-		RoomID: "room-edit-retry", AgentSessionID: sessionID,
-		TurnID: "replacement-must-not-steer", Content: textPrompt("replacement"),
-		HistoryReplacement: true,
+		RoomID:                          "room-edit-retry",
+		AgentSessionID:                  sessionID,
+		TurnID:                          "replacement-must-not-steer",
+		ClientSubmitID:                  "history-replacement-active",
+		CanonicalSubmitOccurredAtUnixMS: 1_003,
+		Content:                         textPrompt("replacement"),
+		HistoryReplacement:              true,
 	})
 	if !errors.Is(err, ErrSessionActiveTurn) {
 		t.Fatalf("replacement error = %v, want ErrSessionActiveTurn", err)

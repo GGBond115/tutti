@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -12,13 +13,48 @@ import (
 )
 
 type recordingReporter struct {
-	mu      sync.Mutex
-	calls   []reportCall
-	updates chan struct{}
+	mu         sync.Mutex
+	calls      []reportCall
+	provenance []agentsessionstore.SubmitProvenanceInput
+	updates    chan struct{}
 }
 
 type reportCall struct {
 	report agentsessionstore.ReportActivityInput
+}
+
+func reportFromSubmitIntentInput(input agentsessionstore.SubmitIntentInput) agentsessionstore.ReportActivityInput {
+	report := agentsessionstore.ReportActivityInput{
+		WorkspaceID: input.WorkspaceID,
+		Connector:   input.State.Connector,
+		Source:      input.State.Source,
+	}
+	var statePatch agentsessionstore.WorkspaceAgentStatePatch
+	if raw, err := json.Marshal(input.State.State); err == nil {
+		_ = json.Unmarshal(raw, &statePatch)
+	}
+	statePatch.AgentSessionID = input.AgentSessionID
+	report.StatePatches = []agentsessionstore.WorkspaceAgentStatePatch{statePatch}
+	for _, message := range input.Messages.Updates {
+		messageUpdate := agentsessionstore.WorkspaceAgentMessageUpdate{
+			AgentSessionID:    input.AgentSessionID,
+			MessageID:         message.MessageID,
+			TurnID:            message.TurnID,
+			Role:              message.Role,
+			Kind:              message.Kind,
+			Status:            message.Status,
+			Semantics:         message.Semantics,
+			Payload:           message.Payload,
+			OccurredAtUnixMS:  message.OccurredAtUnixMS,
+			StartedAtUnixMS:   message.StartedAtUnixMS,
+			CompletedAtUnixMS: message.CompletedAtUnixMS,
+		}
+		if seq, ok := message.Payload["seq"].(uint64); ok {
+			messageUpdate.Seq = seq
+		}
+		report.MessageUpdates = append(report.MessageUpdates, messageUpdate)
+	}
+	return report
 }
 
 func (r *recordingReporter) Report(_ context.Context, report agentsessionstore.ReportActivityInput) error {
@@ -34,8 +70,27 @@ func (r *recordingReporter) Report(_ context.Context, report agentsessionstore.R
 	return nil
 }
 
-func (r *recordingReporter) ReportSubmitProvenance(ctx context.Context, report agentsessionstore.ReportActivityInput) error {
-	return r.Report(ctx, report)
+func (r *recordingReporter) AdmitSubmitIntent(ctx context.Context, input agentsessionstore.SubmitIntentInput) error {
+	return r.Report(ctx, reportFromSubmitIntentInput(input))
+}
+
+func (r *recordingReporter) UpdateSubmitProvenance(_ context.Context, input agentsessionstore.SubmitProvenanceInput) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.provenance = append(r.provenance, input)
+	if r.updates != nil {
+		select {
+		case r.updates <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
+func (r *recordingReporter) provenanceSnapshot() []agentsessionstore.SubmitProvenanceInput {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]agentsessionstore.SubmitProvenanceInput(nil), r.provenance...)
 }
 
 func (r *recordingReporter) snapshot() []reportCall {

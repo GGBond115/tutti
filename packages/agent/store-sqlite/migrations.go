@@ -51,6 +51,7 @@ const schemaMigrationWorkspaceAgentSubmitClaimsV1 = "workspace_agent_submit_clai
 const schemaMigrationWorkspaceAgentSubmitClaimsV2 = "workspace_agent_submit_claims_v2"
 const schemaMigrationWorkspaceAgentSubmitClaimsV3 = "workspace_agent_submit_claims_v3"
 const schemaMigrationWorkspaceAgentSubmitClaimsV4 = "workspace_agent_submit_claims_v4_submission_metadata"
+const schemaMigrationWorkspaceAgentSubmitClaimsV5 = "workspace_agent_submit_claims_v5_provenance_ledger"
 const schemaMigrationAgentTargetsV1 = "agent_targets_v1"
 const schemaMigrationAgentTargetsV2 = "agent_targets_v2"
 const schemaMigrationAgentTargetsV3 = "agent_targets_v3"
@@ -227,6 +228,9 @@ CREATE TABLE IF NOT EXISTS `+schemaMigrationsTable+` (
 		return err
 	}
 	if err := s.applyWorkspaceAgentSubmitClaimsV4(ctx); err != nil {
+		return err
+	}
+	if err := s.applyWorkspaceAgentSubmitClaimsV5(ctx); err != nil {
 		return err
 	}
 	if err := s.applyWorkspaceAgentSessionTitlesV1(ctx); err != nil {

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 	canonical "github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
@@ -237,19 +238,34 @@ type ExecInput struct {
 	RequireProviderAcceptance bool
 }
 
-// SubmitProvenanceInput describes the canonical user submit that an adapter
-// has already accepted. It is reported separately from Exec so waiting for
-// durable provenance never happens while Exec holds the session lifecycle
-// lock.
-type SubmitProvenanceInput struct {
+// SubmitIntentInput is the Controller-owned admission request. Report carries
+// exactly one canonical user message and its matching submitted turn.
+type SubmitIntentInput struct {
 	RoomID                          string
 	AgentSessionID                  string
 	TurnID                          string
 	ClientSubmitID                  string
+	CanonicalMessageID              string
 	CanonicalSubmitOccurredAtUnixMS int64
-	Content                         []PromptContentBlock
-	DisplayPrompt                   string
-	Guidance                        bool
+	Report                          agentsessionstore.ReportActivityInput
+}
+
+// SubmitProvenanceInput contains only submit identity and delivery facts. It
+// intentionally has no prompt content or display text: Host and Provider can
+// retry it without rewriting the canonical user message.
+type SubmitProvenanceInput struct {
+	RoomID             string
+	AgentSessionID     string
+	TurnID             string
+	ClientSubmitID     string
+	CanonicalMessageID string
+	ProviderSessionID  string
+	ProviderTurnID     string
+	DispatchStatus     string
+	DeliveryStatus     string
+	FailureReason      string
+	OccurredAtUnixMS   int64
+	Guidance           bool
 }
 
 type CapabilityReference = activityshared.CapabilityReference

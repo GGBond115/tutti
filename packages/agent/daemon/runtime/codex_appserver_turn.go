@@ -499,7 +499,9 @@ func (a *CodexAppServerAdapter) execBlocking(
 		return append([]activityshared.Event(nil), events...)
 	}
 	startEvents := []activityshared.Event{
-		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, nil),
+		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, map[string]any{
+			messageOriginMetadataKey: string(messageOriginProviderEcho),
+		}),
 		newTurnActivityEvent(session, EventTurnStarted, turnID, SessionStatusWorking, "", "", nil),
 	}
 

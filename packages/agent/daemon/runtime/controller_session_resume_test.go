@@ -141,9 +141,11 @@ func TestControllerResumeReattachesExistingProviderSession(t *testing.T) {
 	defer unsubscribe()
 
 	execResult, err := controller.Exec(context.Background(), ExecInput{
-		RoomID:         "room-1",
-		AgentSessionID: "agent-session-1",
-		Content:        textPrompt("continue"),
+		RoomID:                          "room-1",
+		AgentSessionID:                  "agent-session-1",
+		ClientSubmitID:                  "resume-continue-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1_001,
+		Content:                         textPrompt("continue"),
 	})
 	if err != nil {
 		t.Fatalf("Exec after Resume: %v", err)
@@ -229,9 +231,11 @@ func TestControllerResumeRecreatesMissingProviderSessionWhenOptedIn(t *testing.T
 		}
 		// The recreated session must be live so a turn can run on it.
 		result, err := controller.Exec(context.Background(), ExecInput{
-			RoomID:         "room-1",
-			AgentSessionID: "imported-1",
-			Content:        textPrompt("continue"),
+			RoomID:                          "room-1",
+			AgentSessionID:                  "imported-1",
+			ClientSubmitID:                  "resume-recreated-submit",
+			CanonicalSubmitOccurredAtUnixMS: 1_002,
+			Content:                         textPrompt("continue"),
 		})
 		if err != nil {
 			t.Fatalf("Exec after recreate: %v", err)

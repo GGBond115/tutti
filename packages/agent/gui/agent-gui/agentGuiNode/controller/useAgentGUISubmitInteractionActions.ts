@@ -20,12 +20,14 @@ import type {
 import {
   agentPromptContentDisplayText,
   agentPromptContentHasImage,
+  agentComposerDraftRevision,
   emptyAgentComposerDraft,
   normalizeAgentPromptContentBlocks,
   snapshotAgentComposerDraft
 } from "../model/agentComposerDraft";
 import type {
   AgentComposerDraft,
+  AgentComposerSubmissionToken,
   SubmittedDraftSnapshot
 } from "../model/agentGuiNodeTypes";
 import { resolveAgentComposerDraftScopeKey } from "../model/agentComposerDraftScope";
@@ -266,9 +268,17 @@ export function useAgentGUISubmitInteractionActions(
           options?.submittedDraft ??
           draftByScopeKeyRef.current[sourceScopeKey] ??
           emptyAgentComposerDraft();
+        const content = snapshotAgentComposerDraft(submittedDraft);
+        const submissionToken: AgentComposerSubmissionToken = {
+          scopeKey: sourceScopeKey,
+          revision: agentComposerDraftRevision(content) ?? 0,
+          clientSubmitId: submitTrace.clientSubmitId
+        };
         submittedDraftSnapshotsRef.current[submitTrace.clientSubmitId] = {
-          sourceScopeKey,
-          content: snapshotAgentComposerDraft(submittedDraft),
+          clientSubmitId: submissionToken.clientSubmitId,
+          content,
+          revision: submissionToken.revision,
+          sourceScopeKey: submissionToken.scopeKey,
           targetAgentSessionId: agentSessionId
         };
       }

@@ -150,3 +150,49 @@ ALTER TABLE workspace_agent_submit_claims
 	}
 	return nil
 }
+
+// V5 makes the submit claim the durable provenance ledger. The existing
+// prepared/accepted/rejected claim status remains the submit lifecycle
+// outcome; dispatch and delivery are deliberately separate monotonic
+// projections so an ambiguous delivery can be reconciled without allocating
+// another canonical message or turn.
+func (s *Store) applyWorkspaceAgentSubmitClaimsV5(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceAgentSubmitClaimsV5)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace agent submit claims v5: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+ALTER TABLE workspace_agent_submit_claims
+  ADD COLUMN canonical_message_id TEXT;
+ALTER TABLE workspace_agent_submit_claims
+  ADD COLUMN canonical_content_hash TEXT;
+ALTER TABLE workspace_agent_submit_claims
+  ADD COLUMN provider_session_id TEXT;
+ALTER TABLE workspace_agent_submit_claims
+  ADD COLUMN provider_turn_id TEXT;
+ALTER TABLE workspace_agent_submit_claims
+  ADD COLUMN dispatch_status TEXT NOT NULL DEFAULT 'not_started'
+    CHECK (dispatch_status IN ('not_started','dispatched','accepted','failed','unknown'));
+ALTER TABLE workspace_agent_submit_claims
+  ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'not_started'
+    CHECK (delivery_status IN ('not_started','pending','accepted','failed','unknown'));
+ALTER TABLE workspace_agent_submit_claims
+  ADD COLUMN failure_reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_workspace_agent_submit_claims_provider_turn
+  ON workspace_agent_submit_claims(workspace_id, agent_session_id, provider_turn_id);
+`); err != nil {
+		return fmt.Errorf("migrate workspace agent submit claims v5: %w", err)
+	}
+	if err := recordMigrationTx(ctx, tx, schemaMigrationWorkspaceAgentSubmitClaimsV5); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit workspace agent submit claims v5: %w", err)
+	}
+	return nil
+}

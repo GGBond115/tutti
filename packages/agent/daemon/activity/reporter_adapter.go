@@ -40,6 +40,30 @@ type SessionActivityReporterAdapter struct {
 
 var _ ActivityReporter = (*SessionActivityReporterAdapter)(nil)
 
+var _ SubmitIntentReporter = (*SessionActivityReporterAdapter)(nil)
+
+func (a *SessionActivityReporterAdapter) AdmitSubmitIntent(ctx context.Context, input SubmitIntentInput) (SubmitIntentReply, error) {
+	if a == nil || a.reporter == nil {
+		return SubmitIntentReply{}, errors.New("agent activity reporter is unavailable")
+	}
+	reporter, ok := a.reporter.(SubmitIntentReporter)
+	if !ok {
+		return SubmitIntentReply{}, errors.New("agent activity reporter does not support submit intent admission")
+	}
+	return reporter.AdmitSubmitIntent(ctx, input)
+}
+
+func (a *SessionActivityReporterAdapter) UpdateSubmitProvenance(ctx context.Context, input SubmitProvenanceInput) (SubmitProvenanceReply, error) {
+	if a == nil || a.reporter == nil {
+		return SubmitProvenanceReply{}, errors.New("agent activity reporter is unavailable")
+	}
+	reporter, ok := a.reporter.(SubmitIntentReporter)
+	if !ok {
+		return SubmitProvenanceReply{}, errors.New("agent activity reporter does not support submit provenance")
+	}
+	return reporter.UpdateSubmitProvenance(ctx, input)
+}
+
 func (a *SessionActivityReporterAdapter) BindGoalProvenance(ctx context.Context, input BindGoalProvenanceInput) (GoalProvenanceBinding, error) {
 	if a == nil {
 		return GoalProvenanceBinding{}, errors.New("agent activity reporter does not support goal provenance")

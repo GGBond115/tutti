@@ -18,7 +18,10 @@ import type {
 import {
   agentComposerDraftPreservingConnectors,
   emptyAgentComposerDraft,
-  materializePastedTextInstructions
+  agentComposerDraftIntentEqual,
+  agentComposerDraftRevision,
+  materializePastedTextInstructions,
+  withAgentComposerDraftRevision
 } from "../model/agentComposerDraft";
 import { materializeAgentCustomMentionPromptText } from "../agentRichText/agentMentionMarkdown";
 import { type AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
@@ -258,49 +261,6 @@ function areDraftValuesStructurallyEqual(
   );
 }
 
-// Upload completion replaces the local image bytes with a provider locator and
-// updates presentation state. Those transitions do not mean the user edited
-// the submitted image. Keep uploadError and unknown fields comparable so a
-// failed upload or a future user-owned field still prevents clearing.
-const IMAGE_SUBMISSION_TRANSIENT_FIELDS = new Set([
-  "attachmentId",
-  "data",
-  "path",
-  "previewUrl",
-  "uploading",
-  "url"
-]);
-
-function submissionComparableDraftBlock(
-  block: AgentComposerDraft[number]
-): unknown {
-  if (block.type !== "image") {
-    return block;
-  }
-  return Object.fromEntries(
-    Object.entries(block).filter(
-      ([key]) => !IMAGE_SUBMISSION_TRANSIENT_FIELDS.has(key)
-    )
-  );
-}
-
-function areAgentComposerDraftsEquivalentForSubmission(
-  left: AgentComposerDraft,
-  right: AgentComposerDraft
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((block, index) => {
-      const other = right[index];
-      if (!other || block.type !== other.type) return false;
-      return areDraftValuesStructurallyEqual(
-        submissionComparableDraftBlock(block),
-        submissionComparableDraftBlock(other)
-      );
-    })
-  );
-}
-
 export function deleteSubmittedDraftSnapshotsForScopes(input: {
   snapshots: Record<string, SubmittedDraftSnapshot>;
   scopeKeys: ReadonlySet<string>;
@@ -450,12 +410,15 @@ export function shouldClearSubmittedDraft(input: {
   currentDraft: AgentComposerDraft | undefined;
   submittedDraft: AgentComposerDraft;
 }): boolean {
-  return Boolean(
-    input.currentDraft &&
-    areAgentComposerDraftsEquivalentForSubmission(
-      input.currentDraft,
-      input.submittedDraft
-    )
+  if (!input.currentDraft) return false;
+  const currentRevision = agentComposerDraftRevision(input.currentDraft);
+  const submittedRevision = agentComposerDraftRevision(input.submittedDraft);
+  if (currentRevision !== null && submittedRevision !== null) {
+    return currentRevision === submittedRevision;
+  }
+  return agentComposerDraftIntentEqual(
+    input.currentDraft,
+    input.submittedDraft
   );
 }
 
@@ -463,22 +426,37 @@ export function clearSubmittedDraftIfUnchanged(input: {
   drafts: Record<string, AgentComposerDraft>;
   snapshot: SubmittedDraftSnapshot;
 }): Record<string, AgentComposerDraft> {
-  if (
-    !shouldClearSubmittedDraft({
-      currentDraft: input.drafts[input.snapshot.sourceScopeKey],
-      submittedDraft: input.snapshot.content
-    })
-  ) {
+  const currentDraft = input.drafts[input.snapshot.sourceScopeKey];
+  if (!currentDraft) return input.drafts;
+  const currentRevision = agentComposerDraftRevision(currentDraft);
+  const submittedRevision =
+    input.snapshot.revision ??
+    agentComposerDraftRevision(input.snapshot.content);
+  const canClear =
+    currentRevision !== null && submittedRevision !== null
+      ? currentRevision === submittedRevision
+      : shouldClearSubmittedDraft({
+          currentDraft,
+          submittedDraft: input.snapshot.content
+        });
+  if (!canClear) {
     return input.drafts;
   }
+  const clearedDraft = withAgentComposerDraftRevision(
+    emptyAgentComposerDraft(),
+    Math.max(currentRevision ?? 0, submittedRevision ?? 0) + 1
+  );
+  const nextDraft = isAgentComposerSessionDraftScope(
+    input.snapshot.sourceScopeKey
+  )
+    ? agentComposerDraftPreservingConnectors(currentDraft)
+    : clearedDraft;
+  withAgentComposerDraftRevision(
+    nextDraft,
+    Math.max(currentRevision ?? 0, submittedRevision ?? 0) + 1
+  );
   return {
     ...input.drafts,
-    [input.snapshot.sourceScopeKey]: isAgentComposerSessionDraftScope(
-      input.snapshot.sourceScopeKey
-    )
-      ? agentComposerDraftPreservingConnectors(
-          input.drafts[input.snapshot.sourceScopeKey]
-        )
-      : emptyAgentComposerDraft()
+    [input.snapshot.sourceScopeKey]: nextDraft
   };
 }
