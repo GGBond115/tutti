@@ -29,15 +29,23 @@ type CatalogSourceConfig struct {
 	ExpectedMarketType string
 	HTTPClient         *http.Client
 	AuthorizeRequest   RequestAuthorizer
-	// ExecutionTarget selects a Connector v3 target. Empty defaults to the
+	// ExecutionTarget selects a Connector v3 or v4 target. Empty defaults to the
 	// daemon process GOOS/GOARCH, which is the correct target for desktop Tutti.
-	ExecutionTarget string
+	ExecutionTarget    string
+	HostProduct        string
+	HostVersion        string
+	MaxConnectorSchema int
+	HostCapabilities   []string
 }
 
 type CatalogSource struct {
 	expectedMarketType string
 	marketClient       marketv1.MarketServiceHTTPClient
 	executionTarget    string
+	hostProduct        string
+	hostVersion        string
+	maxConnectorSchema int
+	hostCapabilities   []string
 }
 
 var _ market.CatalogSource = (*CatalogSource)(nil)
@@ -65,7 +73,9 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	if executionTargetErr != nil {
 		return nil, executionTargetErr
 	}
-	return &CatalogSource{expectedMarketType: expectedMarketType, marketClient: client, executionTarget: executionTarget}, nil
+	return &CatalogSource{expectedMarketType: expectedMarketType, marketClient: client, executionTarget: executionTarget,
+		hostProduct: strings.TrimSpace(config.HostProduct), hostVersion: strings.TrimSpace(config.HostVersion),
+		maxConnectorSchema: config.MaxConnectorSchema, hostCapabilities: append([]string(nil), config.HostCapabilities...)}, nil
 }
 
 func (source *CatalogSource) Refresh(ctx context.Context) (market.CatalogSnapshot, error) {
@@ -119,7 +129,12 @@ func (source *CatalogSource) Refresh(ctx context.Context) (market.CatalogSnapsho
 }
 
 func (source *CatalogSource) ListCategories(ctx context.Context) ([]market.CatalogCategory, error) {
-	payload, err := source.marketClient.ListMarketCategories(ctx, &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
+	request := &marketv1.ListMarketCategoriesRequest{ItemType: "connector"}
+	if source.hasHostCohort() {
+		request.HostProduct, request.HostVersion, request.ExecutionTarget = source.hostProduct, source.hostVersion, source.executionTarget
+		request.MaxConnectorSchema, request.HostCapabilities = int32(source.maxConnectorSchema), source.hostCapabilities
+	}
+	payload, err := source.marketClient.ListMarketCategories(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("request connector market catalog: %w", err)
 	}
@@ -147,9 +162,14 @@ func (source *CatalogSource) ListCategories(ctx context.Context) ([]market.Catal
 }
 
 func (source *CatalogSource) ListPage(ctx context.Context, input market.CatalogSourcePageQuery) (market.CatalogSourcePage, error) {
-	payload, err := source.marketClient.ListMarketItems(ctx, &marketv1.ListMarketItemsRequest{
+	request := &marketv1.ListMarketItemsRequest{
 		ItemType: "connector", SectionId: strings.TrimSpace(input.SectionID), PageSize: int32(input.PageSize), PageToken: strings.TrimSpace(input.PageToken),
-	})
+	}
+	if source.hasHostCohort() {
+		request.HostProduct, request.HostVersion, request.ExecutionTarget = source.hostProduct, source.hostVersion, source.executionTarget
+		request.MaxConnectorSchema, request.HostCapabilities = int32(source.maxConnectorSchema), source.hostCapabilities
+	}
+	payload, err := source.marketClient.ListMarketItems(ctx, request)
 	if err != nil {
 		return market.CatalogSourcePage{}, fmt.Errorf("request connector market catalog: %w", err)
 	}
@@ -168,6 +188,10 @@ func (source *CatalogSource) ListPage(ctx context.Context, input market.CatalogS
 		entries = append(entries, market.CatalogEntry{CategoryID: item.GetCategoryId(), Featured: item.GetFeatured(), Release: release})
 	}
 	return market.CatalogSourcePage{SectionID: strings.TrimSpace(input.SectionID), Entries: entries, NextPageToken: payload.GetNextPageToken()}, nil
+}
+
+func (source *CatalogSource) hasHostCohort() bool {
+	return source != nil && strings.TrimSpace(source.hostProduct) != "" && strings.TrimSpace(source.hostVersion) != "" && source.maxConnectorSchema > 0
 }
 
 func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (market.Release, error) {
@@ -205,7 +229,7 @@ func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (market.Re
 		iconURL = legacyConnectorIconURL
 	}
 	// The server's v2 envelope is the generic, market-neutral publication
-	// contract. V3 selects one target first. Both project into the stable host
+	// contract. V3 and v4 select one target first. All project into the stable host
 	// manifest contract; these schema versions describe different boundaries.
 	manifest := market.Manifest{SchemaVersion: "1", DisplayName: connectorManifest.Display.Name, IconURL: iconURL,
 		Description: connectorManifest.Display.Description, AgentRouting: connectorManifest.Payload.AgentRouting,
@@ -234,9 +258,9 @@ func (source *CatalogSource) resolveManifestImplementation(manifest wireConnecto
 			return market.Implementation{}, errors.New("connector v2 manifest must provide one market-neutral implementation")
 		}
 		return *payload.Implementation, nil
-	case "3":
+	case "3", "4":
 		if payload.Implementation != nil || len(payload.TargetImplementations) == 0 {
-			return market.Implementation{}, errors.New("connector v3 manifest must provide targetImplementations")
+			return market.Implementation{}, errors.New("targeted connector manifest must provide targetImplementations")
 		}
 		return market.ResolveTargetImplementation(source.executionTarget, payload.TargetImplementations)
 	default:

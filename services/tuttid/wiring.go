@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -278,11 +279,19 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("configure connector market account authorization: %w", err)
 		}
+		connectorHostCapabilities := []string(nil)
+		if goruntime.GOOS == "linux" {
+			connectorHostCapabilities = []string{"connector.install.remote-archive.v1"}
+		}
 		connectorCatalog, err := connectormarketdaemon.NewCatalogSource(connectormarketdaemon.CatalogSourceConfig{
 			BaseURL:            connectorMarketBaseURL,
 			ExpectedMarketType: connectorMarketType,
 			HTTPClient:         agenthttpx.NewClient(30 * time.Second),
 			AuthorizeRequest:   marketAuthorizer.Authorize,
+			HostProduct:        "tutti",
+			HostVersion:        tuttitypes.ResolveAppVersion(),
+			MaxConnectorSchema: 4,
+			HostCapabilities:   connectorHostCapabilities,
 		})
 		if err != nil {
 			_ = connectorMarketStore.Close()
@@ -328,7 +337,17 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("configure connector node package installer: %w", err)
 		}
-		releaseInstaller, err := connectorruntime.NewReleaseInstaller(artifactPreparer, nodePackageInstaller)
+		remoteArchiveInstaller, err := connectorruntime.NewRemoteArchiveInstaller(connectorruntime.RemoteArchiveInstallerConfig{
+			RootDir: filepath.Join(connectorStateRoot, "remote-archives"), HTTPClient: agenthttpx.NewClient(5 * time.Minute),
+		})
+		if err != nil {
+			return fmt.Errorf("configure connector remote archive installer: %w", err)
+		}
+		cliInstallationRouter, err := connectorruntime.NewCLIInstallationRouter(nodePackageInstaller, remoteArchiveInstaller)
+		if err != nil {
+			return fmt.Errorf("configure connector CLI installation router: %w", err)
+		}
+		releaseInstaller, err := connectorruntime.NewReleaseInstaller(artifactPreparer, cliInstallationRouter)
 		if err != nil {
 			return fmt.Errorf("configure connector release installer: %w", err)
 		}
@@ -349,7 +368,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			return fmt.Errorf("configure remote connector MCP client factory: %w", err)
 		}
 		implementationHost, err := connectormarketservice.NewImplementationHost(connectormarketservice.ImplementationHostConfig{
-			Artifacts: artifactPreparer, CLIInstallations: nodePackageInstaller,
+			Artifacts: artifactPreparer, CLIInstallations: cliInstallationRouter,
 			Runtimes: runtimeResolver, Processes: processTransport, Registry: connectorRegistry,
 			RemoteMCPClientFactory: remoteMCPClientFactory,
 			StateRoot:              filepath.Join(connectorStateRoot, "user-state"),
