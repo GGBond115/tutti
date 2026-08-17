@@ -825,6 +825,7 @@ func TestAppRunnerRetriesFreshPortAfterBindFailure(t *testing.T) {
 	packageDir := filepath.Join(root, "package")
 	runtimeDir := filepath.Join(root, "runtime")
 	dataDir := filepath.Join(root, "data")
+	databaseDir := filepath.Join(root, "database")
 	logDir := filepath.Join(root, "logs")
 	if err := os.MkdirAll(packageDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(packageDir) error = %v", err)
@@ -878,6 +879,7 @@ server.serve_forever()
 		HealthcheckPath: "/ready",
 		RuntimeDir:      runtimeDir,
 		DataDir:         dataDir,
+		DatabaseDir:     databaseDir,
 		LogDir:          logDir,
 	})
 	if err != nil {
