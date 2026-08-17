@@ -12,13 +12,13 @@ export interface WorkspaceLaunchAdapters {
   showAgentWindow(input: WorkspaceLaunchAgentWindowInput): Promise<void>;
   showWorkspaceWindow(
     workspaceID: string,
-    options?: WorkspaceLaunchWorkspaceWindowOptions
+    options: WorkspaceLaunchWorkspaceWindowOptions
   ): Promise<WorkspaceLaunchOwnerWindow | null | void>;
   warnStartupWindowResolutionFailure(error: unknown): void;
 }
 
 export interface WorkspaceLaunchWorkspaceWindowOptions {
-  windowKind?: "agent" | "workspace";
+  windowKind: "agent" | "workspace";
 }
 
 export interface WorkspaceLaunchAgentWindowInput {
@@ -60,6 +60,7 @@ export interface WorkspaceLaunchReplacementInput {
 
 export interface WorkspaceLaunchDependencies {
   adapters: WorkspaceLaunchAdapters;
+  getPrimaryWorkspaceWindowKind: () => "agent" | "workspace";
   onAnalyticsError?: (error: unknown) => void;
   tuttidClient: Pick<TuttidClient, "getStartupWorkspace" | "trackEvents">;
 }
@@ -79,7 +80,9 @@ export function createWorkspaceLaunch(
     async openStartupWindow() {
       try {
         const workspaceID = await resolveStartupWorkspaceID();
-        await deps.adapters.showWorkspaceWindow(workspaceID);
+        await deps.adapters.showWorkspaceWindow(workspaceID, {
+          windowKind: deps.getPrimaryWorkspaceWindowKind()
+        });
       } catch (error) {
         deps.adapters.warnStartupWindowResolutionFailure(error);
         throw error;
@@ -105,8 +108,10 @@ export function createWorkspaceLaunch(
     ownerWindow: WorkspaceLaunchOwnerWindow | null,
     workspaceID: string
   ): Promise<void> {
-    const workspaceWindow =
-      await deps.adapters.showWorkspaceWindow(workspaceID);
+    const workspaceWindow = await deps.adapters.showWorkspaceWindow(
+      workspaceID,
+      { windowKind: deps.getPrimaryWorkspaceWindowKind() }
+    );
     if (workspaceWindow === ownerWindow) {
       return;
     }

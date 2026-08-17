@@ -6,8 +6,10 @@ import type {
   WorkspaceSummary
 } from "@tutti-os/client-tuttid-ts";
 import {
-  createWorkspaceLaunch,
+  createWorkspaceLaunch as createWorkspaceLaunchCore,
+  type WorkspaceLaunch,
   type WorkspaceLaunchAdapters,
+  type WorkspaceLaunchDependencies,
   type WorkspaceLaunchOwnerWindow
 } from "./workspaceLaunch.ts";
 
@@ -44,6 +46,18 @@ function createAdapters(
   };
 }
 
+function createWorkspaceLaunch(
+  deps: Omit<WorkspaceLaunchDependencies, "getPrimaryWorkspaceWindowKind"> & {
+    getPrimaryWorkspaceWindowKind?: WorkspaceLaunchDependencies["getPrimaryWorkspaceWindowKind"];
+  }
+): WorkspaceLaunch {
+  return createWorkspaceLaunchCore({
+    ...deps,
+    getPrimaryWorkspaceWindowKind:
+      deps.getPrimaryWorkspaceWindowKind ?? (() => "workspace")
+  });
+}
+
 test("workspace launch ensures an exact User Browser host", async () => {
   const calls: Array<{
     options: { windowKind?: "agent" | "workspace" } | undefined;
@@ -70,14 +84,17 @@ test("workspace launch ensures an exact User Browser host", async () => {
 
 test("workspace launch opens the daemon-resolved startup workspace", async () => {
   let startupCalls = 0;
-  let openedWorkspaceID: string | null = null;
+  let openedWindow:
+    | { windowKind: "agent" | "workspace"; workspaceID: string }
+    | undefined;
 
   const launch = createWorkspaceLaunch({
     adapters: createAdapters({
-      async showWorkspaceWindow(workspaceID) {
-        openedWorkspaceID = workspaceID;
+      async showWorkspaceWindow(workspaceID, options) {
+        openedWindow = { windowKind: options.windowKind, workspaceID };
       }
     }),
+    getPrimaryWorkspaceWindowKind: () => "agent",
     tuttidClient: createStartupWorkspaceClient(async () => {
       startupCalls += 1;
       return createWorkspaceSummary("ws-start");
@@ -87,7 +104,10 @@ test("workspace launch opens the daemon-resolved startup workspace", async () =>
   await launch.openStartupWindow();
 
   assert.equal(startupCalls, 1);
-  assert.equal(openedWorkspaceID, "ws-start");
+  assert.deepEqual(openedWindow, {
+    windowKind: "agent",
+    workspaceID: "ws-start"
+  });
 });
 
 test("workspace launch warns and rejects when startup resolution fails", async () => {

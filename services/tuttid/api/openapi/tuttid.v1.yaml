@@ -8394,8 +8394,22 @@ components:
       required:
         - preferences
       properties:
+        writeMode:
+          $ref: "#/components/schemas/DesktopPreferencesWriteMode"
         preferences:
           $ref: "#/components/schemas/DesktopPreferences"
+    DesktopPreferencesWriteMode:
+      type: string
+      description: >-
+        replace performs the normal full preference update. initializeIfAbsent
+        atomically creates the preference row only when it does not exist and
+        otherwise returns the authoritative stored preferences unchanged.
+      enum:
+        - replace
+        - initializeIfAbsent
+      x-enum-varnames:
+        - DesktopPreferencesWriteModeReplace
+        - DesktopPreferencesWriteModeInitializeIfAbsent
     DesktopUpdateAdmissionProduct:
       type: string
       enum:

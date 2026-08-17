@@ -193,6 +193,59 @@ func TestSQLiteStorePutDesktopPreferencesPersistsValue(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreInitializeDesktopPreferencesCreatesMissingRow(t *testing.T) {
+	t.Parallel()
+
+	store := openTestSQLiteStore(t)
+	candidate := preferencesbiz.DefaultDesktopPreferences()
+	candidate.Locale = "zh-CN"
+
+	stored, created, err := store.InitializeDesktopPreferences(context.Background(), candidate)
+	if err != nil {
+		t.Fatalf("InitializeDesktopPreferences() error = %v", err)
+	}
+	if !created {
+		t.Fatal("InitializeDesktopPreferences() created = false, want true")
+	}
+	if !stored.Initialized || stored.Locale != "zh-CN" {
+		t.Fatalf("stored preferences = %#v", stored)
+	}
+	if !stored.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
+		t.Fatalf("stored feature flags = %#v, want standalone Agent mode enabled", stored.FeatureFlags)
+	}
+}
+
+func TestSQLiteStoreInitializeDesktopPreferencesPreservesExistingLegacyRow(t *testing.T) {
+	t.Parallel()
+
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	existing := preferencesbiz.DefaultDesktopPreferences()
+	existing.FeatureFlags = map[string]bool{}
+	existing.Locale = "en"
+	existing.ThemeSource = "light"
+	if _, err := store.PutDesktopPreferences(ctx, existing); err != nil {
+		t.Fatalf("PutDesktopPreferences() error = %v", err)
+	}
+	candidate := preferencesbiz.DefaultDesktopPreferences()
+	candidate.Locale = "zh-CN"
+	candidate.ThemeSource = "dark"
+
+	stored, created, err := store.InitializeDesktopPreferences(ctx, candidate)
+	if err != nil {
+		t.Fatalf("InitializeDesktopPreferences() error = %v", err)
+	}
+	if created {
+		t.Fatal("InitializeDesktopPreferences() created = true, want false")
+	}
+	if stored.Locale != "en" || stored.ThemeSource != "light" {
+		t.Fatalf("stored locale/theme = %q/%q, want en/light", stored.Locale, stored.ThemeSource)
+	}
+	if len(stored.FeatureFlags) != 0 {
+		t.Fatalf("stored feature flags = %#v, want legacy empty flags", stored.FeatureFlags)
+	}
+}
+
 func TestSQLiteStoreDesktopPreferencesAgentConversationDetailModeMigrationAndNormalize(t *testing.T) {
 	t.Parallel()
 
@@ -445,6 +498,9 @@ func TestSQLiteStorePatchAgentComposerDefaultsForTargetInitializesMissingPrefere
 	if !got.Initialized || got.AgentComposerDefaultsByAgentTarget["local:codex"].Model != model {
 		t.Fatalf("preferences = %#v", got)
 	}
+	if !got.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
+		t.Fatalf("feature flags = %#v, want standalone Agent mode enabled", got.FeatureFlags)
+	}
 }
 
 func TestSQLiteStorePatchAgentComposerDefaultsForTargetPersistsCodexSaverMode(t *testing.T) {
@@ -569,6 +625,27 @@ func TestSQLiteStorePatchAgentSessionLaunchModeSerializesConcurrentProjectsAndRe
 	}
 	if got.Locale != "zh-CN" {
 		t.Fatalf("locale = %q, want zh-CN", got.Locale)
+	}
+}
+
+func TestSQLiteStorePatchAgentSessionLaunchModeInitializesMissingRowInAgentMode(t *testing.T) {
+	t.Parallel()
+
+	store := openTestSQLiteStore(t)
+	stored, err := store.PatchAgentSessionLaunchMode(
+		context.Background(),
+		"workspace-a",
+		"project:/alpha",
+		"worktree",
+	)
+	if err != nil {
+		t.Fatalf("PatchAgentSessionLaunchMode() error = %v", err)
+	}
+	if !stored.Initialized || !stored.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
+		t.Fatalf("stored preferences = %#v, want initialized Agent mode", stored)
+	}
+	if stored.AgentSessionLaunchModesByWorkspace["workspace-a"]["project:/alpha"] != "worktree" {
+		t.Fatalf("stored launch modes = %#v", stored.AgentSessionLaunchModesByWorkspace)
 	}
 }
 

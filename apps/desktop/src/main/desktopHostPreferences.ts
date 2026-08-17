@@ -4,6 +4,7 @@ import type {
   TuttidClient,
   PutDesktopPreferencesRequest
 } from "@tutti-os/client-tuttid-ts";
+import { withDesktopWorkspaceUiMode } from "../shared/featureFlags/catalog.ts";
 import {
   defaultDesktopBrowserUseConnectionMode,
   defaultDesktopAgentCliUpdateCheckEnabled,
@@ -436,89 +437,111 @@ async function resolveInitialDesktopPreferences(
   options: CreateDesktopHostPreferencesOptions
 ): Promise<PutDesktopPreferencesRequest["preferences"]> {
   const defaultUpdateChannel = resolveDefaultDesktopUpdateChannel(options);
+  const legacyFallbackPreferences = createDefaultDesktopPreferences(
+    options,
+    defaultUpdateChannel,
+    defaultDesktopFeatureFlags
+  );
+  let response: Awaited<
+    ReturnType<
+      CreateDesktopHostPreferencesOptions["tuttidClient"]["getDesktopPreferences"]
+    >
+  >;
   try {
-    const response = await options.tuttidClient.getDesktopPreferences();
-    if (response.initialized) {
-      const shouldMigrateDefaultUpdateChannel =
-        await shouldMigrateDefaultDesktopUpdateChannel(options);
-      const migratedPreferences = await migrateInitializedDesktopPreferences(
-        options,
-        response.preferences,
-        defaultUpdateChannel,
-        shouldMigrateDefaultUpdateChannel
-      );
-      return alignUpdateChannelWithInstalledVersion(
-        options,
-        migratedPreferences
-      );
-    }
-
-    const initializedPreferences = (
-      await options.tuttidClient.putDesktopPreferences({
-        preferences: {
-          agentCliUpdateCheckEnabled: defaultDesktopAgentCliUpdateCheckEnabled,
-          agentComposerDefaultsByProvider: {},
-          agentGuiConversationRailCollapsedByProvider: {},
-          agentConversationDetailMode:
-            defaultDesktopAgentConversationDetailMode,
-          // The dual-dock (legacySplit) layout has been removed; the stored
-          // preference is pinned to the unified layout.
-          agentDockLayout: "unified",
-          appCatalogChannel: defaultDesktopAppCatalogChannel,
-          browserUseConnectionMode: defaultDesktopBrowserUseConnectionMode,
-          defaultAgentProvider: defaultDesktopAgentProvider,
-          dockIconStyle: defaultDesktopDockIconStyle,
-          dockPlacement: defaultDesktopDockPlacement,
-          deletedAgentConversationRetentionDays:
-            defaultDeletedAgentConversationRetentionDays,
-          featureFlags: defaultDesktopFeatureFlags,
-          fileDefaultOpenersByExtension:
-            defaultDesktopFileDefaultOpenersByExtension,
-          locale: options.fallbackLocale,
-          minimizeAnimation: defaultDesktopMinimizeAnimation,
-          showAppDeveloperSources: defaultDesktopShowAppDeveloperSources,
-          sleepPreventionMode: defaultDesktopSleepPreventionMode,
-          themeSource: defaultDesktopThemeSource,
-          updateChannel: defaultUpdateChannel,
-          updatePolicy: defaultDesktopUpdatePolicy,
-          workbenchShortcuts: defaultDesktopWorkbenchShortcuts
-        }
-      })
-    ).preferences;
-    return alignUpdateChannelWithInstalledVersion(
-      options,
-      initializedPreferences
-    );
+    response = await options.tuttidClient.getDesktopPreferences();
   } catch (error) {
-    options.logger.warn("failed to resolve desktop preferences from tuttid", {
+    options.logger.warn("failed to read desktop preferences from tuttid", {
       error: error instanceof Error ? error.message : String(error)
     });
-    return {
-      agentCliUpdateCheckEnabled: defaultDesktopAgentCliUpdateCheckEnabled,
-      agentComposerDefaultsByProvider: {},
-      agentGuiConversationRailCollapsedByProvider: {},
-      agentConversationDetailMode: defaultDesktopAgentConversationDetailMode,
-      agentDockLayout: "unified",
-      appCatalogChannel: defaultDesktopAppCatalogChannel,
-      browserUseConnectionMode: defaultDesktopBrowserUseConnectionMode,
-      defaultAgentProvider: defaultDesktopAgentProvider,
-      dockIconStyle: defaultDesktopDockIconStyle,
-      dockPlacement: defaultDesktopDockPlacement,
-      deletedAgentConversationRetentionDays:
-        defaultDeletedAgentConversationRetentionDays,
-      featureFlags: defaultDesktopFeatureFlags,
-      fileDefaultOpenersByExtension:
-        defaultDesktopFileDefaultOpenersByExtension,
-      locale: options.fallbackLocale,
-      minimizeAnimation: defaultDesktopMinimizeAnimation,
-      showAppDeveloperSources: defaultDesktopShowAppDeveloperSources,
-      sleepPreventionMode: defaultDesktopSleepPreventionMode,
-      themeSource: defaultDesktopThemeSource,
-      updateChannel: defaultUpdateChannel,
-      updatePolicy: defaultDesktopUpdatePolicy,
-      workbenchShortcuts: defaultDesktopWorkbenchShortcuts
-    };
+    return legacyFallbackPreferences;
   }
+
+  if (response.initialized) {
+    const shouldMigrateDefaultUpdateChannel =
+      await shouldMigrateDefaultDesktopUpdateChannel(options);
+    const migratedPreferences = await migrateInitializedDesktopPreferences(
+      options,
+      response.preferences,
+      defaultUpdateChannel,
+      shouldMigrateDefaultUpdateChannel
+    );
+    return alignUpdateChannelWithInstalledVersion(options, migratedPreferences);
+  }
+
+  const freshPreferences = createDefaultDesktopPreferences(
+    options,
+    defaultUpdateChannel,
+    withDesktopWorkspaceUiMode(defaultDesktopFeatureFlags, "agent")
+  );
+  try {
+    const initialized = await options.tuttidClient.putDesktopPreferences({
+      writeMode: "initializeIfAbsent",
+      preferences: freshPreferences
+    });
+    return alignUpdateChannelWithInstalledVersion(
+      options,
+      initialized.preferences
+    );
+  } catch (error) {
+    options.logger.warn("failed to initialize desktop preferences in tuttid", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+
+  try {
+    const reconciled = await options.tuttidClient.getDesktopPreferences();
+    if (reconciled.initialized) {
+      return alignUpdateChannelWithInstalledVersion(
+        options,
+        reconciled.preferences
+      );
+    }
+  } catch (error) {
+    options.logger.warn(
+      "failed to reconcile desktop preferences after initialization",
+      {
+        error: error instanceof Error ? error.message : String(error)
+      }
+    );
+  }
+
+  // The first read proved this identity had no stored preferences. Keep the
+  // fresh Agent default in memory when persistence is unavailable and retry
+  // initialization on the next launch.
+  return alignUpdateChannelWithInstalledVersion(options, freshPreferences);
+}
+
+function createDefaultDesktopPreferences(
+  options: CreateDesktopHostPreferencesOptions,
+  updateChannel: DesktopUpdateChannel,
+  featureFlags: DesktopFeatureFlags
+): PutDesktopPreferencesRequest["preferences"] {
+  return {
+    agentCliUpdateCheckEnabled: defaultDesktopAgentCliUpdateCheckEnabled,
+    agentComposerDefaultsByProvider: {},
+    agentGuiConversationRailCollapsedByProvider: {},
+    agentConversationDetailMode: defaultDesktopAgentConversationDetailMode,
+    // The dual-dock (legacySplit) layout has been removed; the stored
+    // preference is pinned to the unified layout.
+    agentDockLayout: "unified",
+    appCatalogChannel: defaultDesktopAppCatalogChannel,
+    browserUseConnectionMode: defaultDesktopBrowserUseConnectionMode,
+    defaultAgentProvider: defaultDesktopAgentProvider,
+    dockIconStyle: defaultDesktopDockIconStyle,
+    dockPlacement: defaultDesktopDockPlacement,
+    deletedAgentConversationRetentionDays:
+      defaultDeletedAgentConversationRetentionDays,
+    featureFlags,
+    fileDefaultOpenersByExtension: defaultDesktopFileDefaultOpenersByExtension,
+    locale: options.fallbackLocale,
+    minimizeAnimation: defaultDesktopMinimizeAnimation,
+    showAppDeveloperSources: defaultDesktopShowAppDeveloperSources,
+    sleepPreventionMode: defaultDesktopSleepPreventionMode,
+    themeSource: defaultDesktopThemeSource,
+    updateChannel,
+    updatePolicy: defaultDesktopUpdatePolicy,
+    workbenchShortcuts: defaultDesktopWorkbenchShortcuts
+  };
 }
 
 async function alignUpdateChannelWithInstalledVersion(

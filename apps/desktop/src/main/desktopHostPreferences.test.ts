@@ -8,7 +8,7 @@ import { defaultDesktopWorkbenchShortcuts } from "../shared/preferences/index.ts
 import { createDesktopHostPreferencesState } from "./desktopHostPreferences.ts";
 import type { DesktopLogger } from "./logging.ts";
 
-test("createDesktopHostPreferencesState initializes missing preferences with dark theme and default icons", async () => {
+test("createDesktopHostPreferencesState initializes a new profile in Agent mode with desktop defaults", async () => {
   const putRequests: PutDesktopPreferencesRequest[] = [];
   const state = await createDesktopHostPreferencesState({
     fallbackLocale: "zh-CN",
@@ -54,6 +54,7 @@ test("createDesktopHostPreferencesState initializes missing preferences with dar
 
   assert.deepEqual(putRequests, [
     {
+      writeMode: "initializeIfAbsent",
       preferences: {
         agentCliUpdateCheckEnabled: true,
         agentComposerDefaultsByProvider: {},
@@ -64,7 +65,9 @@ test("createDesktopHostPreferencesState initializes missing preferences with dar
         appCatalogChannel: "production",
         browserUseConnectionMode: "isolated",
         defaultAgentProvider: "tutti-agent",
-        featureFlags: {},
+        featureFlags: {
+          "workspace.standaloneAgentMode": true
+        },
         workbenchShortcuts: defaultDesktopWorkbenchShortcuts,
         dockIconStyle: "default",
         dockPlacement: "bottom",
@@ -88,6 +91,9 @@ test("createDesktopHostPreferencesState initializes missing preferences with dar
   assert.equal(state.getDockPlacement(), "bottom");
   assert.equal(state.getLocale(), "zh-CN");
   assert.equal(state.getDefaultAgentProvider(), "tutti-agent");
+  assert.deepEqual(state.getFeatureFlags(), {
+    "workspace.standaloneAgentMode": true
+  });
   assert.deepEqual(state.getAgentGUIConversationRailCollapsedByProvider(), {});
   assert.equal(state.getBrowserUseConnectionMode(), "isolated");
   assert.equal(state.getSleepPreventionMode(), "never");
@@ -194,7 +200,7 @@ test("createDesktopHostPreferencesState keeps missing beta package preferences o
   assert.equal(putRequests[0]?.preferences.updateChannel, "stable");
 });
 
-test("createDesktopHostPreferencesState keeps initialized theme preferences", async () => {
+test("createDesktopHostPreferencesState preserves initialized preferences with the legacy missing workspace mode", async () => {
   let putCalls = 0;
   const state = await createDesktopHostPreferencesState({
     fallbackLocale: "zh-CN",
@@ -236,6 +242,7 @@ test("createDesktopHostPreferencesState keeps initialized theme preferences", as
   });
 
   assert.equal(putCalls, 0);
+  assert.deepEqual(state.getFeatureFlags(), {});
   assert.equal(state.getDockPlacement(), "bottom");
   assert.equal(state.getLocale(), "en");
   assert.equal(state.getDefaultAgentProvider(), "codex");

@@ -113,6 +113,10 @@ type PreferencesStore interface {
 	PutDesktopPreferences(context.Context, preferencesbiz.DesktopPreferences) (preferencesbiz.DesktopPreferences, error)
 }
 
+type DesktopPreferencesInitializer interface {
+	InitializeDesktopPreferences(context.Context, preferencesbiz.DesktopPreferences) (preferencesbiz.DesktopPreferences, bool, error)
+}
+
 // AgentProviderRuntimeSelectionStore persists an explicit local runtime choice.
 // No value permits only a uniquely ready runtime; multiple ready runtimes
 // require an explicit user choice.

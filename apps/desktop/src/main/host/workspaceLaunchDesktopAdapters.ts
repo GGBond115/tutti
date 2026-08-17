@@ -26,7 +26,6 @@ export interface WorkspaceLaunchDesktopAdapterOptions {
   enableDevelopmentReloadShortcut?: boolean;
   getDockPlacement: () => DesktopDockPlacement;
   getLocale: () => DesktopLocale;
-  getPrimaryWorkspaceWindowKind: () => WorkspaceLaunchWindowKind;
   getTheme: () => DesktopThemeState;
   preloadPath: string;
   rendererUrl?: string;
@@ -68,8 +67,7 @@ export function createWorkspaceLaunchDesktopAdapters(
     },
 
     async showWorkspaceWindow(workspaceID, input) {
-      const windowKind =
-        input?.windowKind ?? options.getPrimaryWorkspaceWindowKind();
+      const windowKind: WorkspaceLaunchWindowKind = input.windowKind;
       try {
         if (windowKind === "agent") {
           return await showStandaloneAgentWindow(options, { workspaceID });

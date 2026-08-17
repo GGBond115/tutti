@@ -129,6 +129,15 @@ Device-global desktop preferences are durable daemon state in the
 must be changed through the preferences service/API so the daemon can persist,
 normalize, and publish the authoritative preferences event.
 
+Fresh-profile creation is daemon-owned. A client uses the desktop preferences
+`initializeIfAbsent` write mode, which writes one complete default row with a
+single `INSERT ... ON CONFLICT DO NOTHING` and returns the authoritative stored
+row. A concurrent initializer or field-specific preference writer therefore
+wins without being overwritten. Field-specific writers that encounter a
+missing row create the same complete default row before applying their patch.
+The normal omitted/`replace` write mode remains the full preference update.
+Existing rows are never backfilled by initialization.
+
 `agent_cli_update_check_enabled` stores the
 `agentCliUpdateCheckEnabled` preference as a non-null SQLite boolean and
 defaults to `true`, including for existing databases upgraded by migration. It

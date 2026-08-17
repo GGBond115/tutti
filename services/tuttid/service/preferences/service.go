@@ -55,7 +55,16 @@ type PatchAgentSessionLaunchModeInput struct {
 	Mode              string
 }
 
+type DesktopPreferencesWriteMode string
+
+const (
+	DesktopPreferencesWriteModeReplace            DesktopPreferencesWriteMode = "replace"
+	DesktopPreferencesWriteModeInitializeIfAbsent DesktopPreferencesWriteMode = "initializeIfAbsent"
+)
+
 type PutInput struct {
+	WriteMode DesktopPreferencesWriteMode
+
 	AgentCLIUpdateCheckEnabled bool
 	// AgentComposerDefaultsByProvider is accepted for wire compatibility but
 	// ignored on write: the legacy provider-keyed defaults are frozen after
@@ -194,13 +203,21 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 		return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences store is not configured")
 	}
 
+	writeMode := input.WriteMode
+	if writeMode == "" {
+		writeMode = DesktopPreferencesWriteModeReplace
+	}
+	if writeMode != DesktopPreferencesWriteModeReplace && writeMode != DesktopPreferencesWriteModeInitializeIfAbsent {
+		return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences write mode is unsupported")
+	}
+
 	stored, err := s.Store.GetDesktopPreferences(ctx)
 	if err != nil {
 		return preferencesbiz.DesktopPreferences{}, err
 	}
 
 	windowSnapping := resolveWindowSnapping(stored, input.WindowSnapping)
-	preferences, err := s.Store.PutDesktopPreferences(ctx, preferencesbiz.DesktopPreferences{
+	candidate := preferencesbiz.DesktopPreferences{
 		AgentCLIUpdateCheckEnabled: input.AgentCLIUpdateCheckEnabled,
 		// The legacy provider-keyed defaults are frozen: client input is
 		// ignored so nothing writes the old field anymore; the stored value
@@ -235,7 +252,25 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 		UpdatePolicy:                          strings.TrimSpace(input.UpdatePolicy),
 		WindowSnappingEnabled:                 windowSnapping.Enabled,
 		WindowSnappingShortcutPreset:          windowSnapping.ShortcutPreset,
-	})
+	}
+
+	var preferences preferencesbiz.DesktopPreferences
+	if writeMode == DesktopPreferencesWriteModeInitializeIfAbsent {
+		initializer, ok := s.Store.(workspacedata.DesktopPreferencesInitializer)
+		if !ok {
+			return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences initializer is not configured")
+		}
+		var created bool
+		preferences, created, err = initializer.InitializeDesktopPreferences(ctx, candidate)
+		if err != nil {
+			return preferencesbiz.DesktopPreferences{}, err
+		}
+		if !created {
+			return preferences, nil
+		}
+	} else {
+		preferences, err = s.Store.PutDesktopPreferences(ctx, candidate)
+	}
 	if err != nil {
 		return preferencesbiz.DesktopPreferences{}, err
 	}

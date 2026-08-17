@@ -23,13 +23,13 @@ func TestNormalizeDesktopShortcutBindingClampsLongValues(t *testing.T) {
 	}
 }
 
-func TestDefaultDesktopPreferencesHasEmptyFlags(t *testing.T) {
+func TestDefaultDesktopPreferencesStartsNewProfilesInAgentMode(t *testing.T) {
 	d := DefaultDesktopPreferences()
 	if !d.AgentCLIUpdateCheckEnabled {
 		t.Fatal("want agent CLI update checks enabled by default")
 	}
-	if len(d.FeatureFlags) != 0 {
-		t.Fatalf("want empty flags, got %v", d.FeatureFlags)
+	if !d.FeatureFlags[DesktopStandaloneAgentModeFeatureFlag] {
+		t.Fatalf("want standalone Agent mode enabled, got %v", d.FeatureFlags)
 	}
 }
 

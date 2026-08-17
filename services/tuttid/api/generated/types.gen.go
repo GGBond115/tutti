@@ -1993,6 +1993,24 @@ func (e DesktopMinimizeAnimation) Valid() bool {
 	}
 }
 
+// Defines values for DesktopPreferencesWriteMode.
+const (
+	DesktopPreferencesWriteModeInitializeIfAbsent DesktopPreferencesWriteMode = "initializeIfAbsent"
+	DesktopPreferencesWriteModeReplace            DesktopPreferencesWriteMode = "replace"
+)
+
+// Valid indicates whether the value is a known member of the DesktopPreferencesWriteMode enum.
+func (e DesktopPreferencesWriteMode) Valid() bool {
+	switch e {
+	case DesktopPreferencesWriteModeInitializeIfAbsent:
+		return true
+	case DesktopPreferencesWriteModeReplace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DesktopSleepPreventionMode.
 const (
 	Always            DesktopSleepPreventionMode = "always"
@@ -6937,6 +6955,9 @@ type DesktopPreferencesStateResponse struct {
 	Preferences DesktopPreferences `json:"preferences"`
 }
 
+// DesktopPreferencesWriteMode replace performs the normal full preference update. initializeIfAbsent atomically creates the preference row only when it does not exist and otherwise returns the authoritative stored preferences unchanged.
+type DesktopPreferencesWriteMode string
+
 // DesktopSleepPreventionMode defines model for DesktopSleepPreventionMode.
 type DesktopSleepPreventionMode string
 
@@ -8022,6 +8043,9 @@ type PutAutomationRuleRequest struct {
 // PutDesktopPreferencesRequest defines model for PutDesktopPreferencesRequest.
 type PutDesktopPreferencesRequest struct {
 	Preferences DesktopPreferences `json:"preferences"`
+
+	// WriteMode replace performs the normal full preference update. initializeIfAbsent atomically creates the preference row only when it does not exist and otherwise returns the authoritative stored preferences unchanged.
+	WriteMode *DesktopPreferencesWriteMode `json:"writeMode,omitempty"`
 }
 
 // PutModelPlanRequest defines model for PutModelPlanRequest.

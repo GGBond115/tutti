@@ -18,6 +18,10 @@ type preferencesStoreStub struct {
 	patchLaunchMode              string
 	patchLaunchResult            preferencesbiz.DesktopPreferences
 	putInput                     preferencesbiz.DesktopPreferences
+	initializeInput              preferencesbiz.DesktopPreferences
+	initializeResult             preferencesbiz.DesktopPreferences
+	initializeCreated            bool
+	initializeErr                error
 }
 
 type preferencesPublisherStub struct {
@@ -32,6 +36,11 @@ func (s preferencesStoreStub) GetDesktopPreferences(context.Context) (preference
 func (s *preferencesStoreStub) PutDesktopPreferences(_ context.Context, preferences preferencesbiz.DesktopPreferences) (preferencesbiz.DesktopPreferences, error) {
 	s.putInput = preferences
 	return preferences, nil
+}
+
+func (s *preferencesStoreStub) InitializeDesktopPreferences(_ context.Context, preferences preferencesbiz.DesktopPreferences) (preferencesbiz.DesktopPreferences, bool, error) {
+	s.initializeInput = preferences
+	return s.initializeResult, s.initializeCreated, s.initializeErr
 }
 
 func (s *preferencesStoreStub) PatchAgentComposerDefaultsForTarget(_ context.Context, agentTargetID string, patch preferencesbiz.AgentComposerDefaultsPatch) (preferencesbiz.AgentComposerDefaults, error) {
@@ -162,6 +171,99 @@ func TestServicePutNotifiesChangeObserversWithPreviousAndCurrentPreferences(t *t
 	}
 	if observed != 1 {
 		t.Fatalf("second observer calls = %d, want 1", observed)
+	}
+}
+
+func TestServicePutInitializeIfAbsentUsesAtomicStoreOperation(t *testing.T) {
+	stored := preferencesbiz.DefaultDesktopPreferences()
+	initialized := stored
+	initialized.Initialized = true
+	store := &preferencesStoreStub{
+		getResult:         stored,
+		initializeResult:  initialized,
+		initializeCreated: true,
+	}
+	publisher := &preferencesPublisherStub{}
+	service := Service{Store: store, Publisher: publisher}
+	observed := 0
+	service.RegisterChangeObserver(func(_ context.Context, before, after preferencesbiz.DesktopPreferences) {
+		observed++
+		if before.Initialized {
+			t.Fatal("observer previous preferences initialized = true, want false")
+		}
+		if !after.Initialized {
+			t.Fatal("observer current preferences initialized = false, want true")
+		}
+	})
+
+	preferences, err := service.Put(context.Background(), PutInput{
+		WriteMode:    DesktopPreferencesWriteModeInitializeIfAbsent,
+		FeatureFlags: map[string]bool{preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: true},
+	})
+	if err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	if !preferences.Initialized {
+		t.Fatal("Put() initialized = false, want true")
+	}
+	if !store.initializeInput.Initialized {
+		t.Fatal("InitializeDesktopPreferences() candidate initialized = false, want true")
+	}
+	if !store.initializeInput.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
+		t.Fatalf("InitializeDesktopPreferences() feature flags = %#v, want Agent mode", store.initializeInput.FeatureFlags)
+	}
+	if store.putInput.Initialized {
+		t.Fatal("PutDesktopPreferences() was called for initialize-if-absent write")
+	}
+	if observed != 1 {
+		t.Fatalf("observer calls = %d, want 1", observed)
+	}
+	if len(publisher.published) != 1 {
+		t.Fatalf("published preferences = %d, want 1", len(publisher.published))
+	}
+}
+
+func TestServicePutInitializeIfAbsentPreservesConcurrentExistingPreferences(t *testing.T) {
+	existing := preferencesbiz.DefaultDesktopPreferences()
+	existing.Initialized = true
+	existing.FeatureFlags = map[string]bool{preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: false}
+	store := &preferencesStoreStub{
+		getResult:         preferencesbiz.DefaultDesktopPreferences(),
+		initializeResult:  existing,
+		initializeCreated: false,
+	}
+	publisher := &preferencesPublisherStub{}
+	service := Service{Store: store, Publisher: publisher}
+	observed := 0
+	service.RegisterChangeObserver(func(context.Context, preferencesbiz.DesktopPreferences, preferencesbiz.DesktopPreferences) {
+		observed++
+	})
+
+	preferences, err := service.Put(context.Background(), PutInput{
+		WriteMode:    DesktopPreferencesWriteModeInitializeIfAbsent,
+		FeatureFlags: map[string]bool{preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: true},
+	})
+	if err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	if preferences.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
+		t.Fatalf("Put() feature flags = %#v, want existing OS mode", preferences.FeatureFlags)
+	}
+	if observed != 0 {
+		t.Fatalf("observer calls = %d, want 0", observed)
+	}
+	if len(publisher.published) != 0 {
+		t.Fatalf("published preferences = %d, want 0", len(publisher.published))
+	}
+}
+
+func TestServicePutRejectsUnsupportedWriteMode(t *testing.T) {
+	t.Parallel()
+
+	service := Service{Store: &preferencesStoreStub{}}
+	_, err := service.Put(context.Background(), PutInput{WriteMode: "merge"})
+	if err == nil {
+		t.Fatal("Put() error = nil, want unsupported write mode error")
 	}
 }
 
