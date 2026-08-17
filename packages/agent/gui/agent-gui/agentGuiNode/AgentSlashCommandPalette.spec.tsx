@@ -38,7 +38,7 @@ describe("AgentSlashCommandPalette", () => {
 
     expect(
       screen.getByRole("option", { name: /side/i }).querySelector("svg")
-    ).toBeTruthy();
+    ).toHaveClass("lucide-message-circle-plus");
   });
 
   it("renders a capability section and dispatches capability selection", () => {

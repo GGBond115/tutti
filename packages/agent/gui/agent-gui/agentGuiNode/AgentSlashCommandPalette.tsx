@@ -4,9 +4,9 @@ import {
   Globe,
   Info,
   ListChecks,
+  MessageCirclePlus,
   Minimize2,
   Monitor,
-  PanelRightOpen,
   Plug,
   Search,
   Target,
@@ -449,7 +449,7 @@ function slashPaletteEntryIcon(entry: AgentSlashPaletteEntry): ReactNode {
     case "plan":
       return <ListChecks className={SLASH_PALETTE_ICON_CLASS} />;
     case "side":
-      return <PanelRightOpen className={SLASH_PALETTE_ICON_CLASS} />;
+      return <MessageCirclePlus className={SLASH_PALETTE_ICON_CLASS} />;
     case "review":
       return <Search className={SLASH_PALETTE_ICON_CLASS} />;
     case "status":
