@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type FocusEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode
 } from "react";
 import {
@@ -19,6 +18,16 @@ import { useWorkbenchController } from "./WorkbenchProvider.tsx";
 import { createWorkbenchDockNodesSelector } from "./dockNodeSelectors.ts";
 import { useWorkbenchSelector } from "./hooks/useWorkbenchSelector.ts";
 import type { WorkbenchGenieController } from "./useWorkbenchGenieAnimation.tsx";
+
+const WORKBENCH_DOCK_AUTO_HIDE_REVEAL_DELAY_MS = 100;
+const WORKBENCH_DOCK_AUTO_HIDE_EDGE_GAP_PX = 8;
+const WORKBENCH_DOCK_AUTO_HIDE_HOVER_ZONE_PX = 16;
+const WORKBENCH_DOCK_AUTO_HIDE_CORNER_MARGIN_PX = 24;
+
+interface DockAutoHidePointerIntent {
+  buttons: number;
+  pointerType: string;
+}
 
 export interface WorkbenchDockFrameProps<TData = unknown> {
   dockAutoHide?: boolean;
@@ -63,6 +72,11 @@ export function WorkbenchDockFrame<TData>({
     (state) => selectFocusedWorkbenchNode(state)?.id ?? null
   );
   const [dockVisible, setDockVisible] = useState(() => !dockAutoHide);
+  const dockAutoHideState = dockAutoHide
+    ? dockVisible
+      ? "visible"
+      : "hidden"
+    : "disabled";
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -89,22 +103,26 @@ export function WorkbenchDockFrame<TData>({
     }
   }, [cancelTimers, dockAutoHide, workbenchInteractionActive]);
   const scheduleReveal = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      cancelTimers();
+    (event: DockAutoHidePointerIntent) => {
+      cancelHide();
       if (
         !dockAutoHide ||
         workbenchInteractionActive ||
         event.buttons !== 0 ||
         event.pointerType !== "mouse"
       ) {
+        cancelReveal();
+        return;
+      }
+      if (revealTimerRef.current !== null) {
         return;
       }
       revealTimerRef.current = setTimeout(() => {
         revealTimerRef.current = null;
         setDockVisible(true);
-      }, 220);
+      }, WORKBENCH_DOCK_AUTO_HIDE_REVEAL_DELAY_MS);
     },
-    [cancelTimers, dockAutoHide, workbenchInteractionActive]
+    [cancelHide, cancelReveal, dockAutoHide, workbenchInteractionActive]
   );
   const scheduleHide = useCallback(() => {
     cancelHide();
@@ -167,16 +185,54 @@ export function WorkbenchDockFrame<TData>({
         scheduleHide();
       }
     };
+    const handleDocumentPointerMove = (event: PointerEvent) => {
+      const pointerWithinHotZone = isPointerWithinDockAutoHideHoverZone(
+        event,
+        dockPlacement
+      );
+      if (
+        dockVisible &&
+        (pointerWithinHotZone ||
+          (event.target instanceof Element &&
+            isDockAutoHideHoldTarget(event.target)))
+      ) {
+        return;
+      }
+      if (dockVisible) {
+        scheduleHide();
+        return;
+      }
+      if (pointerWithinHotZone) {
+        scheduleReveal(event);
+        return;
+      }
+      cancelReveal();
+    };
 
     window.addEventListener("blur", handleWindowBlur);
     document.addEventListener("pointerover", handleDocumentPointerOver);
     document.addEventListener("pointerout", handleDocumentPointerOut);
+    document.addEventListener("pointermove", handleDocumentPointerMove, true);
     return () => {
       window.removeEventListener("blur", handleWindowBlur);
       document.removeEventListener("pointerover", handleDocumentPointerOver);
       document.removeEventListener("pointerout", handleDocumentPointerOut);
+      document.removeEventListener(
+        "pointermove",
+        handleDocumentPointerMove,
+        true
+      );
     };
-  }, [cancelTimers, dockAutoHide, scheduleHide, showDock]);
+  }, [
+    cancelReveal,
+    cancelTimers,
+    dockAutoHide,
+    dockPlacement,
+    dockVisible,
+    scheduleHide,
+    scheduleReveal,
+    showDock
+  ]);
 
   useEffect(() => () => cancelTimers(), [cancelTimers]);
 
@@ -189,6 +245,7 @@ export function WorkbenchDockFrame<TData>({
       {dockAutoHide ? (
         <div
           className="workbench-dock-frame__auto-hide-hover-zone"
+          data-auto-hide-state={dockAutoHideState}
           data-dock-placement={dockPlacement}
           onPointerEnter={scheduleReveal}
           onPointerLeave={handleHotZoneLeave}
@@ -198,9 +255,7 @@ export function WorkbenchDockFrame<TData>({
       <div
         className="workbench-dock-frame"
         data-dock-placement={dockPlacement}
-        data-auto-hide-state={
-          dockAutoHide ? (dockVisible ? "visible" : "hidden") : "disabled"
-        }
+        data-auto-hide-state={dockAutoHideState}
         onBlurCapture={handleDockBlur}
         onFocusCapture={showDock}
         onPointerEnter={showDock}
@@ -246,6 +301,34 @@ function isDockAutoHideHoldTarget(target: Element): boolean {
   return (
     target.closest(".workbench-dock-frame") !== null ||
     target.closest(".desktop-dock-popup-root") !== null
+  );
+}
+
+function isPointerWithinDockAutoHideHoverZone(
+  pointer: Pick<PointerEvent, "clientX" | "clientY">,
+  dockPlacement: WorkbenchDockPlacement
+): boolean {
+  if (dockPlacement === "left") {
+    return (
+      pointer.clientX >= WORKBENCH_DOCK_AUTO_HIDE_EDGE_GAP_PX &&
+      pointer.clientX <
+        WORKBENCH_DOCK_AUTO_HIDE_EDGE_GAP_PX +
+          WORKBENCH_DOCK_AUTO_HIDE_HOVER_ZONE_PX &&
+      pointer.clientY >= WORKBENCH_DOCK_AUTO_HIDE_CORNER_MARGIN_PX &&
+      pointer.clientY <
+        window.innerHeight - WORKBENCH_DOCK_AUTO_HIDE_CORNER_MARGIN_PX
+    );
+  }
+
+  return (
+    pointer.clientX >= WORKBENCH_DOCK_AUTO_HIDE_CORNER_MARGIN_PX &&
+    pointer.clientX <
+      window.innerWidth - WORKBENCH_DOCK_AUTO_HIDE_CORNER_MARGIN_PX &&
+    pointer.clientY >=
+      window.innerHeight -
+        WORKBENCH_DOCK_AUTO_HIDE_EDGE_GAP_PX -
+        WORKBENCH_DOCK_AUTO_HIDE_HOVER_ZONE_PX &&
+    pointer.clientY < window.innerHeight - WORKBENCH_DOCK_AUTO_HIDE_EDGE_GAP_PX
   );
 }
 

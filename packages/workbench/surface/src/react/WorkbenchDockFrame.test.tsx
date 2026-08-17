@@ -24,8 +24,8 @@ function createTestGenieController(): WorkbenchGenieController & {
 }
 
 function dispatchMousePointerEvent(
-  element: Element,
-  type: "pointerout" | "pointerover",
+  element: EventTarget,
+  type: "pointermove" | "pointerout" | "pointerover",
   init: MouseEventInit = {}
 ): void {
   const event = new MouseEvent(type, { bubbles: true, ...init });
@@ -105,7 +105,7 @@ describe("WorkbenchDockFrame automatic hiding", () => {
     }
   });
 
-  it("reveals after a deliberate inner-hot-zone hover and hides after leaving", async () => {
+  it("reveals after a short inner-hot-zone pause and hides after leaving", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -133,13 +133,14 @@ describe("WorkbenchDockFrame automatic hiding", () => {
       );
       expect(frame?.dataset.autoHideState).toBe("hidden");
       expect(hoverZone).not.toBeNull();
+      expect(hoverZone?.dataset.autoHideState).toBe("hidden");
       if (!frame || !hoverZone) {
         return;
       }
 
       await act(async () => {
         dispatchMousePointerEvent(hoverZone, "pointerover");
-        vi.advanceTimersByTime(219);
+        vi.advanceTimersByTime(99);
       });
       expect(frame.dataset.autoHideState).toBe("hidden");
 
@@ -147,6 +148,7 @@ describe("WorkbenchDockFrame automatic hiding", () => {
         vi.advanceTimersByTime(1);
       });
       expect(frame.dataset.autoHideState).toBe("visible");
+      expect(hoverZone.dataset.autoHideState).toBe("visible");
 
       await act(async () => {
         dispatchMousePointerEvent(hoverZone, "pointerout", {
@@ -158,6 +160,76 @@ describe("WorkbenchDockFrame automatic hiding", () => {
 
       await act(async () => {
         vi.advanceTimersByTime(1);
+      });
+      expect(frame.dataset.autoHideState).toBe("hidden");
+      expect(hoverZone.dataset.autoHideState).toBe("hidden");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      genie.nodeVisibility.dispose();
+      container.remove();
+    }
+  });
+
+  it("detects the left hot zone through overlapping host chrome", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const controller = createWorkbenchController();
+    const genie = createTestGenieController();
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchProvider controller={controller}>
+            <WorkbenchDockFrame
+              dockAutoHide
+              dockPlacement="left"
+              genie={genie}
+              renderDock={() => <div>Dock</div>}
+            />
+          </WorkbenchProvider>
+        );
+      });
+
+      const frame = container.querySelector<HTMLElement>(
+        ".workbench-dock-frame"
+      );
+      expect(frame?.dataset.autoHideState).toBe("hidden");
+      if (!frame) {
+        return;
+      }
+
+      await act(async () => {
+        dispatchMousePointerEvent(document, "pointermove", {
+          clientX: 0,
+          clientY: 50
+        });
+        vi.advanceTimersByTime(100);
+      });
+      expect(frame.dataset.autoHideState).toBe("hidden");
+
+      await act(async () => {
+        dispatchMousePointerEvent(document, "pointermove", {
+          clientX: 16,
+          clientY: 50
+        });
+        vi.advanceTimersByTime(99);
+      });
+      expect(frame.dataset.autoHideState).toBe("hidden");
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(frame.dataset.autoHideState).toBe("visible");
+
+      await act(async () => {
+        dispatchMousePointerEvent(document, "pointermove", {
+          clientX: 400,
+          clientY: 300
+        });
+        vi.advanceTimersByTime(500);
       });
       expect(frame.dataset.autoHideState).toBe("hidden");
     } finally {
