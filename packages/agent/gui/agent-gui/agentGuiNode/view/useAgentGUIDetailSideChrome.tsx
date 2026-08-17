@@ -24,6 +24,7 @@ interface UseAgentGUIDetailSideChromeInput {
   controller: ReturnType<typeof useAgentGUIDetailSideConversation>;
   conversationFlowLabels: AgentGUISideConversationPaneProps["conversationFlowLabels"];
   isVisible: boolean;
+  textSelectionActionsEnabled: boolean;
   onRequestComposerFocus: () => void;
   renderComposerFooterAccessory: AgentGUIDetailPaneProps["renderComposerFooterAccessory"];
 }
@@ -34,6 +35,7 @@ export function useAgentGUIDetailSideChrome({
   controller,
   conversationFlowLabels,
   isVisible,
+  textSelectionActionsEnabled,
   onRequestComposerFocus,
   renderComposerFooterAccessory
 }: UseAgentGUIDetailSideChromeInput): {
@@ -41,6 +43,7 @@ export function useAgentGUIDetailSideChrome({
   selectionProps: {
     onAddSelectionToConversation: (text: string) => void;
     onAskSelectionInSide?: (text: string) => void;
+    textSelectionActionsEnabled: boolean;
   };
   sidePane: ReactNode;
 } {
@@ -117,9 +120,15 @@ export function useAgentGUIDetailSideChrome({
   const selectionProps = useMemo(
     () => ({
       onAddSelectionToConversation: addSelectionToConversation,
-      onAskSelectionInSide: controller.canOpen ? askSelectionInSide : undefined
+      onAskSelectionInSide: controller.canOpen ? askSelectionInSide : undefined,
+      textSelectionActionsEnabled
     }),
-    [addSelectionToConversation, askSelectionInSide, controller.canOpen]
+    [
+      addSelectionToConversation,
+      askSelectionInSide,
+      controller.canOpen,
+      textSelectionActionsEnabled
+    ]
   );
   const sideComposerProps = useMemo<AgentComposerProps | null>(() => {
     if (!active) return null;

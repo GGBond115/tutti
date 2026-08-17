@@ -14,6 +14,7 @@ import {
   isFeatureEnabled,
   labFeatureDefinitions,
   LAB_ENABLED_FLAG,
+  LAB_AGENT_SIDE_CONVERSATION_FLAG,
   LAB_AGENT_SESSION_FORK_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
   LAB_CONNECTORS_FLAG,
@@ -129,6 +130,23 @@ test("session Fork keeps its durable flag without appearing in Lab settings", ()
   assert.equal(
     labFeatureDefinitions().some(
       (definition) => definition.key === LAB_AGENT_SESSION_FORK_FLAG
+    ),
+    false
+  );
+});
+
+test("Side conversations stay disabled until the developer opts in", () => {
+  assert.equal(isFeatureEnabled({}, LAB_AGENT_SIDE_CONVERSATION_FLAG), false);
+  assert.equal(
+    isFeatureEnabled(
+      { [LAB_AGENT_SIDE_CONVERSATION_FLAG]: true },
+      LAB_AGENT_SIDE_CONVERSATION_FLAG
+    ),
+    true
+  );
+  assert.equal(
+    labFeatureDefinitions().some(
+      (definition) => definition.key === LAB_AGENT_SIDE_CONVERSATION_FLAG
     ),
     false
   );

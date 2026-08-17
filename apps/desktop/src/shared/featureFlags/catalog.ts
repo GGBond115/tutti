@@ -12,6 +12,7 @@ export const LAB_WORKBENCH_SHORTCUTS_FLAG = "lab.workbenchShortcuts";
 export const LAB_CONVERSATION_ACTIVITY_VIEW_FLAG =
   "lab.conversationActivityView";
 export const LAB_AGENT_SESSION_FORK_FLAG = "lab.agentSessionFork";
+export const LAB_AGENT_SIDE_CONVERSATION_FLAG = "lab.agentSideConversation";
 export const LAB_CODEX_SAVER_MODE_FLAG = "lab.codexSaverMode";
 // Keep the durable key for existing profiles while naming the product concept
 // after Tutti's integration maturity rather than the upstream Agent maturity.
@@ -191,6 +192,14 @@ export const FEATURE_FLAG_DEFINITIONS: readonly FeatureFlagDefinition[] = [
     group: "developer",
     labelKey: "workspace.settings.developer.agentSessionForkLabel",
     descriptionKey: "workspace.settings.developer.agentSessionForkDescription"
+  },
+  {
+    key: LAB_AGENT_SIDE_CONVERSATION_FLAG,
+    default: false,
+    group: "developer",
+    labelKey: "workspace.settings.developer.agentSideConversationLabel",
+    descriptionKey:
+      "workspace.settings.developer.agentSideConversationDescription"
   },
   {
     key: LAB_CODEX_SAVER_MODE_FLAG,

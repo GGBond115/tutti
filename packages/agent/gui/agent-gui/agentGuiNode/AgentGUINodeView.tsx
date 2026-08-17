@@ -77,6 +77,7 @@ export function AgentGUINodeView({
   mentionAgentTargets,
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
+  sideConversationEnabled = false,
   sessionForkEnabled = false,
   sessionWorktreeEnabled = false,
   sessionLaunchModesByProjectSectionKey,
@@ -688,6 +689,7 @@ export function AgentGUINodeView({
                 homeTargetProjection={homeTargetProjection}
                 referenceProvenanceFilters={referenceProvenanceFilters}
                 sessionInputHistoryEnabled={sessionInputHistoryEnabled}
+                sideConversationEnabled={sideConversationEnabled}
                 sessionForkEnabled={sessionForkEnabled}
                 sessionWorktreeEnabled={sessionWorktreeEnabled}
                 sessionLaunchModesByProjectSectionKey={

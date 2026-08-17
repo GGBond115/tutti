@@ -181,6 +181,28 @@ describe("AgentGUINode memoization", () => {
     );
   });
 
+  it("rerenders when Side conversations are enabled", () => {
+    mockViewModel = createViewModel();
+    const props = createProps();
+    const { rerender } = render(<AgentGUINode {...props} />);
+
+    expect(agentGuiNodeViewSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sideConversationEnabled: false })
+    );
+    agentGuiNodeViewSpy.mockClear();
+
+    rerender(
+      <AgentGUINode
+        {...props}
+        hostCapabilities={{ sideConversationEnabled: true }}
+      />
+    );
+
+    expect(agentGuiNodeViewSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sideConversationEnabled: true })
+    );
+  });
+
   it("rerenders when per-target composer overrides change", () => {
     mockViewModel = createViewModel();
     const props = createProps({

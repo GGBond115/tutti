@@ -120,6 +120,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     referenceProvenanceFilterCatalog: injectedReferenceProvenanceFilterCatalog,
     referenceProvenanceFilterEnabled = false,
     sessionInputHistoryEnabled = false,
+    sideConversationEnabled = false,
     sessionForkEnabled = false,
     sessionWorktreeEnabled = false,
     sessionLaunchModesByProjectSectionKey,
@@ -583,6 +584,7 @@ export const AgentGUINode = memo(function AgentGUINode({
               workspaceAppIcons={workspaceAppIcons}
               referenceProvenanceFilters={referenceProvenanceFilters}
               sessionInputHistoryEnabled={sessionInputHistoryEnabled}
+              sideConversationEnabled={sideConversationEnabled}
               sessionForkEnabled={sessionForkEnabled}
               sessionWorktreeEnabled={sessionWorktreeEnabled}
               sessionLaunchModesByProjectSectionKey={

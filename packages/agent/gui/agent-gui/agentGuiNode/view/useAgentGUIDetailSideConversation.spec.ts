@@ -63,6 +63,32 @@ describe("appendAgentSidePromptToDraft", () => {
 });
 
 describe("useAgentGUIDetailSideConversation lifecycle", () => {
+  it("leaves /side as ordinary main input when the developer flag is off", () => {
+    const submitPrompt = vi.fn();
+    const rendered = renderHook(() =>
+      useAgentGUIDetailSideConversation({
+        enabled: false,
+        workspaceId: "workspace-1",
+        sourceAgentSessionId: "source-1",
+        provider: "codex",
+        cwd: null,
+        availableCommands: [{ name: "side" }, { name: "status" }],
+        clearMainDraft: vi.fn(),
+        submitPrompt
+      })
+    );
+
+    act(() => {
+      rendered.result.current.submitMain(
+        [{ type: "text", text: "/side keep this in main" }],
+        "/side keep this in main"
+      );
+    });
+
+    expect(rendered.result.current.commands).toEqual([{ name: "status" }]);
+    expect(submitPrompt).toHaveBeenCalledOnce();
+  });
+
   it("hides /side while capability resolution is pending", () => {
     const transport: AgentSideConversationTransport = {
       resolveCapabilities: vi.fn(

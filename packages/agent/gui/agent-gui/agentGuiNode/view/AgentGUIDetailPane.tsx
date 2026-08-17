@@ -49,6 +49,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   homeTargetProjection,
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
+  sideConversationEnabled = false,
   sessionForkEnabled = false,
   sessionWorktreeEnabled = false,
   sessionLaunchModesByProjectSectionKey,
@@ -155,16 +156,14 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     }
   });
   const forkHandler = sessionForkEnabled ? handleForkThroughTurn : undefined;
-  const openForkSourceSession = useStableEventCallback(
+  const openForkSource = useStableEventCallback(
     actions.openForkSourceConversation
   );
   const editRetry = useAgentGUIDetailEditRetry({
     agentSessionId: viewModel.rail.activeConversationId,
     workspaceId: viewModel.shell.workspaceId
   });
-  const submitApprovalOption = useStableEventCallback(
-    actions.submitApprovalOption
-  );
+  const submitApproval = useStableEventCallback(actions.submitApprovalOption);
   const retryActivation = useStableEventCallback(actions.retryActivation);
   const retryTuttiModeActivation = useStableEventCallback(
     actions.retryTuttiModeActivation
@@ -367,6 +366,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     viewModel
   });
   const sideConversation = useAgentGUIDetailSideConversation({
+    enabled: sideConversationEnabled,
     workspaceId: viewModel.shell.workspaceId,
     sourceAgentSessionId: viewModel.rail.activeConversationId,
     provider: composerProvider,
@@ -630,6 +630,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     controller: sideConversation,
     conversationFlowLabels,
     isVisible,
+    textSelectionActionsEnabled: sideConversationEnabled,
     onRequestComposerFocus,
     renderComposerFooterAccessory
   });
@@ -692,7 +693,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       }
       noticeChrome={homeNoticeChrome}
       isRespondingApproval={isInteractionPending}
-      onSubmitApprovalOption={submitApprovalOption}
+      onSubmitApprovalOption={submitApproval}
       onRetryActivation={retryActivation}
       onAuthLogin={authLogin}
       onContinueInNewConversation={continueInNewConversation}
@@ -740,7 +741,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
             labels={labels}
             onAuthLogin={authLogin}
             onForkThroughTurn={forkHandler}
-            onOpenForkSourceSession={openForkSourceSession}
+            onOpenForkSourceSession={openForkSource}
             forkThroughTurnPendingTurnIds={
               viewModel.operations.forkThroughTurnPendingTurnIds
             }
@@ -775,7 +776,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
               chromeLabels={chromeLabels}
               goalBannerLabels={goalBannerLabels}
               promptLabels={interactivePromptLabels}
-              onSubmitApprovalOption={submitApprovalOption}
+              onSubmitApprovalOption={submitApproval}
               onRetryActivation={retryActivation}
               onRetryInlineNotice={retryInlineNotice}
               onAuthLogin={authLogin}

@@ -341,9 +341,15 @@ publishes only the transient `agent.side.updated` envelope. Desktop is a thin
 transport adapter. AgentGUI owns capability gating, the transient event
 projection, and presentation; it contains no provider-name branches.
 
-Side has no persistent button in the main composer. AgentGUI injects the
-provider-neutral `/side` entry into the slash command palette only after the
-exact source Session reports every required Side capability. Selecting the
+Side has no persistent button in the main composer. Desktop exposes Side and
+the transcript text-selection action toolbar only after the user enables the
+default-off `lab.agentSideConversation` developer preference. The host passes
+that preference as an explicit AgentGUI capability and omits the Side runtime
+while it is disabled; AgentGUI therefore does not resolve provider support,
+show the toolbar or slash entry, or intercept typed `/side` input. After the
+host opt-in, AgentGUI injects the provider-neutral `/side` entry into the slash
+command palette only when the exact source Session reports every required Side
+capability. Selecting the
 entry inserts `/side`; submitting it ensures the source runtime is available,
 then opens Side; `/side <prompt>` opens it and sends the prompt in one action.
 After capability discovery has enabled `/side`, submission creates the local

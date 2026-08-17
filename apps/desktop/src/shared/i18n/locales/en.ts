@@ -1332,6 +1332,9 @@ export const en = {
         agentSessionForkDescription:
           "Allow creating a new Agent conversation from a supported completed turn.",
         agentSessionForkLabel: "Session Fork",
+        agentSideConversationDescription:
+          "Enable /side, transient Side conversations, and the text-selection action toolbar in Agent conversations.",
+        agentSideConversationLabel: "Side conversations",
         codexSaverModeDescription:
           "Show a remembered Codex composer switch that delegates suitable subtasks to Luna Max.",
         codexSaverModeLabel: "Codex saver mode",

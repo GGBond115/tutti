@@ -72,6 +72,7 @@ interface AgentGUIDetailTimelineProps {
   onLinkAction?: (action: WorkspaceLinkAction) => void;
   onAddSelectionToConversation: (text: string) => void;
   onAskSelectionInSide?: (text: string) => void;
+  textSelectionActionsEnabled?: boolean;
   showTimelineSkeleton: boolean;
   showUnavailableChatEmpty: boolean;
   timelineContentRef: RefObject<HTMLDivElement | null>;
@@ -101,6 +102,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
   onLinkAction,
   onAddSelectionToConversation,
   onAskSelectionInSide,
+  textSelectionActionsEnabled = true,
   showTimelineSkeleton,
   showUnavailableChatEmpty,
   timelineContentRef,
@@ -210,7 +212,10 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
           homeContent
         )}
       </ScrollArea>
-      {hasActiveConversation && textSelection && timelineRef.current ? (
+      {textSelectionActionsEnabled &&
+      hasActiveConversation &&
+      textSelection &&
+      timelineRef.current ? (
         <AgentGUITextSelectionActions
           labels={{
             addToConversation: labels.selectionAddToConversation,

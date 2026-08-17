@@ -1249,6 +1249,9 @@ export const zhCN = {
         agentSessionForkDescription:
           "允许从支持的已完成轮次创建新的 Agent 会话",
         agentSessionForkLabel: "会话 Fork",
+        agentSideConversationDescription:
+          "在 Agent 对话中启用 /side、Side 临时会话和选中文本浮动操作栏",
+        agentSideConversationLabel: "Side 临时会话",
         codexSaverModeDescription:
           "在 Codex 输入框显示可记忆的省额度开关，将合适的子任务交给 Luna Max",
         codexSaverModeLabel: "Codex 省额度模式",

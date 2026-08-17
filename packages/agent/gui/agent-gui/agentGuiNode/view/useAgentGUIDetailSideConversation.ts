@@ -47,6 +47,7 @@ export function appendAgentSidePromptToDraft(
 }
 
 interface UseAgentGUIDetailSideConversationInput {
+  enabled?: boolean;
   workspaceId: string;
   sourceAgentSessionId: string | null;
   provider: string;
@@ -57,6 +58,7 @@ interface UseAgentGUIDetailSideConversationInput {
 }
 
 export function useAgentGUIDetailSideConversation({
+  enabled = true,
   workspaceId,
   sourceAgentSessionId,
   provider,
@@ -80,7 +82,7 @@ export function useAgentGUIDetailSideConversation({
       : null;
   const sideSupported = useAgentSideConversationSupport({
     workspaceId,
-    sourceAgentSessionId: sourceAgentSessionId ?? "",
+    sourceAgentSessionId: enabled ? (sourceAgentSessionId ?? "") : "",
     provider,
     cwd
   });
@@ -123,7 +125,7 @@ export function useAgentGUIDetailSideConversation({
 
   const open = useCallback(
     async (initialPrompt?: string | null) => {
-      if (!runtime || !sourceAgentSessionId) return null;
+      if (!enabled || !runtime || !sourceAgentSessionId) return null;
       setEntryErrorState(null);
       try {
         const existing = runtime.getSnapshot(workspaceId).active;
@@ -194,6 +196,7 @@ export function useAgentGUIDetailSideConversation({
     [
       capabilityIdentity,
       cwd,
+      enabled,
       provider,
       runtime,
       sourceAgentSessionId,
@@ -203,6 +206,10 @@ export function useAgentGUIDetailSideConversation({
 
   const submitMain = useCallback<NonNullable<AgentComposerProps["onSubmit"]>>(
     (content, displayPrompt, options) => {
+      if (!enabled) {
+        submitPrompt(content, displayPrompt, options);
+        return;
+      }
       const invocation = parseAgentSideInvocation(content);
       if (!invocation) {
         submitPrompt(content, displayPrompt, options);
@@ -234,6 +241,7 @@ export function useAgentGUIDetailSideConversation({
     [
       capabilityIdentity,
       clearMainDraft,
+      enabled,
       open,
       runtime,
       sideSupported,
@@ -263,6 +271,7 @@ export function useAgentGUIDetailSideConversation({
     );
     if (
       !runtime ||
+      !enabled ||
       !sourceAgentSessionId ||
       !sideSupported ||
       (active && active.sourceAgentSessionId !== sourceAgentSessionId)
@@ -279,6 +288,7 @@ export function useAgentGUIDetailSideConversation({
   }, [
     active,
     availableCommands,
+    enabled,
     runtime,
     sideSupported,
     sourceAgentSessionId,

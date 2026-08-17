@@ -89,6 +89,7 @@ import {
   AGENT_REFERENCE_PROVENANCE_FILTER_FLAG,
   LAB_CONVERSATION_ACTIVITY_VIEW_FLAG,
   isFeatureEnabled,
+  LAB_AGENT_SIDE_CONVERSATION_FLAG,
   LAB_AGENT_SESSION_FORK_FLAG,
   LAB_CODEX_SAVER_MODE_FLAG,
   LAB_CONNECTORS_FLAG
@@ -587,6 +588,11 @@ function DesktopAgentGUISurfaceImpl({
     AGENT_REFERENCE_PROVENANCE_FILTER_FLAG
   );
   const sessionInputHistoryEnabled = true;
+  const sideConversationEnabled = isFeatureEnabled(
+    desktopPreferencesState.changingFeatureFlags ??
+      desktopPreferencesState.featureFlags,
+    LAB_AGENT_SIDE_CONVERSATION_FLAG
+  );
   const sessionForkEnabled = isFeatureEnabled(
     desktopPreferencesState.featureFlags,
     LAB_AGENT_SESSION_FORK_FLAG
@@ -667,6 +673,7 @@ function DesktopAgentGUISurfaceImpl({
     },
     hostCapabilities: {
       referenceProvenanceFilterEnabled,
+      sideConversationEnabled,
       sessionInputHistoryEnabled,
       sessionForkEnabled,
       sessionWorktreeEnabled: true,
@@ -730,7 +737,9 @@ function DesktopAgentGUISurfaceImpl({
         allAgentsPresentation={allAgentsPresentation}
         renderAgentsEmpty={renderAgentsEmpty}
         agentActivityRuntime={agentActivityRuntime}
-        agentSideConversationRuntime={agentSideConversationRuntime}
+        agentSideConversationRuntime={
+          sideConversationEnabled ? agentSideConversationRuntime : null
+        }
         agentHostApi={agentHostApiWithToast}
         tuttiModePlanReviewRuntime={
           capabilityMenuState?.tuttiMode?.enabled === false
