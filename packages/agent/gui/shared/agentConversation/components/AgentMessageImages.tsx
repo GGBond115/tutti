@@ -19,6 +19,7 @@ import type {
 } from "../contracts/agentMessageRowVM";
 
 type ImageFailureKind = "load" | "read" | "unavailable";
+type ImageFailureUnavailableReason = "source_vm";
 type ImageFailureSource =
   | {
       kind: "resolved";
@@ -30,6 +31,7 @@ type ImageFailureSource =
       kind: "locator";
       path: string;
       readerAvailable: boolean;
+      unavailableReason?: ImageFailureUnavailableReason;
       workspaceId: string;
     };
 type ImageFailureReporter = (
@@ -67,11 +69,10 @@ export function AgentUserImageGrid({
       {images.map((image) => {
         const src = sources.get(image.id) ?? imageSourceUrl(image);
         const failureSource = imageFailureSource(image, src, runtime);
-        const failed = isMatchingImageFailure(
-          failedSources.get(image.id),
-          failureSource
-        );
-        const canRetry = canRetryImageFailure(failureSource);
+        const failedSource = failedSources.get(image.id);
+        const displayedFailureSource = failedSource ?? failureSource;
+        const failed = isMatchingImageFailure(failedSource, failureSource);
+        const canRetry = canRetryImageFailure(displayedFailureSource);
         const attempt = retryCounts.get(image.id) ?? 0;
         return (
           <AgentUserImageTile
@@ -82,7 +83,7 @@ export function AgentUserImageGrid({
             failed={failed}
             sourceLoading={!src && loadingIds.has(image.id)}
             attempt={attempt}
-            failureLabel={t(imageFailureLabelKey(failureSource))}
+            failureLabel={t(imageFailureLabelKey(displayedFailureSource))}
             retryLabel={t("agentHost.agentGui.retryImage")}
             onFailed={() => {
               markFailed(image.id, failureSource);
@@ -300,10 +301,20 @@ function useAgentMessageImageSources(
               return next;
             });
           })
-          .catch(() => {
+          .catch((error: unknown) => {
             if (canceled) return;
-            markFailed(image.id, imageFailureSource(image, null, runtime));
-            reportFailure(image, "read", attempt);
+            const unavailableReason = isSourceVMUnavailableError(error)
+              ? "source_vm"
+              : undefined;
+            markFailed(
+              image.id,
+              imageFailureSource(image, null, runtime, unavailableReason)
+            );
+            reportFailure(
+              image,
+              unavailableReason ? "unavailable" : "read",
+              attempt
+            );
           })
           .finally(() => {
             if (canceled) return;
@@ -458,7 +469,8 @@ function imageSourceUrl(image: AgentMessageImageVM): string | null {
 function imageFailureSource(
   image: AgentMessageImageVM,
   src: string | null,
-  runtime: AgentGUIRuntime | null
+  runtime: AgentGUIRuntime | null,
+  unavailableReason?: ImageFailureUnavailableReason
 ): ImageFailureSource {
   if (src) {
     return { kind: "resolved", src };
@@ -472,12 +484,16 @@ function imageFailureSource(
     path: image.path?.trim() ?? "",
     readerAvailable: Boolean(
       attachmentId ? runtime?.readSessionAttachment : runtime?.readPromptAsset
-    )
+    ),
+    ...(unavailableReason ? { unavailableReason } : {})
   };
 }
 
 function canRetryImageFailure(source: ImageFailureSource): boolean {
-  return source.kind === "resolved" || source.readerAvailable;
+  return (
+    source.kind === "resolved" ||
+    (source.readerAvailable && !source.unavailableReason)
+  );
 }
 
 function imageFailureLabelKey(
@@ -485,9 +501,20 @@ function imageFailureLabelKey(
 ):
   | "agentHost.agentGui.imageLoadFailed"
   | "agentHost.agentGui.imageTemporarilyUnavailable" {
-  return source.kind === "locator" && !source.readerAvailable
+  return source.kind === "locator" &&
+    (source.unavailableReason === "source_vm" || !source.readerAvailable)
     ? "agentHost.agentGui.imageTemporarilyUnavailable"
     : "agentHost.agentGui.imageLoadFailed";
+}
+
+function isSourceVMUnavailableError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code ===
+      "agent_session_attachment_vm_unavailable"
+  );
 }
 
 function isMatchingImageFailure(

@@ -654,6 +654,102 @@ describe("AgentTranscriptItemView render stability", () => {
     delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
   });
 
+  it("offers retry for an ordinary prompt image read failure", async () => {
+    const readSessionAttachment = vi.fn(async () => {
+      throw new Error("attachment not found");
+    });
+    Object.defineProperty(window, "agentGUIRuntime", {
+      configurable: true,
+      value: {
+        readSessionAttachment
+      } as Partial<AgentGUIRuntime>
+    });
+
+    render(
+      <AgentMessageBlock
+        workspaceRoot="/workspace/demo"
+        basePath="/workspace/demo"
+        row={userMessageRow({
+          kind: "message-content",
+          id: "user-images-read-failed",
+          turnId: "turn-1",
+          body: "",
+          contentKind: "image-grid",
+          images: [
+            {
+              id: "read-failed-image",
+              workspaceId: "room-1",
+              agentSessionId: "session-1",
+              attachmentId: "attachment-read-failed",
+              mimeType: "image/png",
+              name: "screen.png"
+            }
+          ],
+          occurredAtUnixMs: 1
+        })}
+        thinkingLabel="Thought process"
+      />
+    );
+
+    expect(
+      await screen.findByText("agentHost.agentGui.imageLoadFailed")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "agentHost.agentGui.retryImage" })
+    ).toBeInTheDocument();
+
+    delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
+  });
+
+  it("does not offer retry when the prompt image belongs to another VM", async () => {
+    const readSessionAttachment = vi.fn(async () => {
+      throw Object.assign(new Error("attachment is on another VM"), {
+        code: "agent_session_attachment_vm_unavailable"
+      });
+    });
+    Object.defineProperty(window, "agentGUIRuntime", {
+      configurable: true,
+      value: {
+        readSessionAttachment
+      } as Partial<AgentGUIRuntime>
+    });
+
+    render(
+      <AgentMessageBlock
+        workspaceRoot="/workspace/demo"
+        basePath="/workspace/demo"
+        row={userMessageRow({
+          kind: "message-content",
+          id: "user-images-vm-unavailable",
+          turnId: "turn-1",
+          body: "",
+          contentKind: "image-grid",
+          images: [
+            {
+              id: "vm-unavailable-image",
+              workspaceId: "room-1",
+              agentSessionId: "session-1",
+              attachmentId: "attachment-from-another-vm",
+              mimeType: "image/png",
+              name: "screen.png"
+            }
+          ],
+          occurredAtUnixMs: 1
+        })}
+        thinkingLabel="Thought process"
+      />
+    );
+
+    expect(
+      await screen.findByText("agentHost.agentGui.imageTemporarilyUnavailable")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "agentHost.agentGui.retryImage" })
+    ).toBeNull();
+
+    delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
+  });
+
   it("keeps a loaded optimistic image mounted when its durable attachment arrives", async () => {
     const readPromptAsset = vi.fn(async () => ({
       attachmentId: "prompt-asset-1",
