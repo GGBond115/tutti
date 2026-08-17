@@ -221,7 +221,10 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     eventStreamClient: tuttidEventStreamClient,
     openAuthorizationUrl: (url) =>
       desktopApi.host.files.openExternal(
-        addTuttiDesktopClientToConnectorAuthorizationUrl(url)
+        addTuttiDesktopClientToConnectorAuthorizationUrl(
+          url,
+          import.meta.env.DEV
+        )
       ),
     reportDiagnostic: (error) => {
       void desktopApi.runtime
