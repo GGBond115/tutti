@@ -52,6 +52,22 @@ func TestPublishedWorkspaceRuntimeDisconnectScenarioCatalogHasUniqueNames(t *tes
 	}
 }
 
+func TestPublishedWorkspaceRuntimeDisconnectCleanupScenarioCatalogHasUniqueNames(t *testing.T) {
+	t.Parallel()
+	scenarios := WorkspaceRuntimeDisconnectCleanupScenarios()
+	if len(scenarios) != 1 || scenarios[0].Name == "" {
+		t.Fatalf("workspace runtime disconnect cleanup scenarios=%#v", scenarios)
+	}
+}
+
+func TestPublishedWorkspaceRuntimeCloseScenarioCatalogHasUniqueNames(t *testing.T) {
+	t.Parallel()
+	scenarios := WorkspaceRuntimeCloseScenarios()
+	if len(scenarios) != 1 || scenarios[0].Name == "" {
+		t.Fatalf("workspace runtime close scenarios=%#v", scenarios)
+	}
+}
+
 func TestPublishedWorkspaceRuntimeAdmissionScenarioCatalogHasUniqueNames(t *testing.T) {
 	scenarios := WorkspaceRuntimeAdmissionScenarios()
 	seen := make(map[string]struct{}, len(scenarios))

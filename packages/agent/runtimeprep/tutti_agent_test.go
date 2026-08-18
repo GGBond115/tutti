@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestTuttiAgentPreparerUsesExplicitAuthSourceAndInstallsSkills(t *testing.T) {
@@ -234,6 +236,51 @@ func TestTuttiAgentPreparerDoesNotFallbackWhenExplicitAuthSourceIsEmpty(t *testi
 	}
 	if strings.Contains(string(config), `model = "old"`) {
 		t.Fatal("explicit empty auth source imported the VM user's config")
+	}
+}
+
+func TestTuttiAgentPreparerRepairsMalformedDurableConfigWithoutTouchingRollout(t *testing.T) {
+	stateRoot := t.TempDir()
+	home := filepath.Join(stateRoot, tuttiAgentHomeDirectory)
+	if err := os.MkdirAll(filepath.Join(home, "sessions"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("old-final-config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rolloutPath := filepath.Join(home, "sessions", "rollout.jsonl")
+	if err := os.WriteFile(rolloutPath, []byte("preserve\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (TuttiAgentPreparer{}).Prepare(t.Context(), ProviderPrepareInput{
+		PrepareInput: PrepareInput{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1", Provider: "tutti-agent", Cwd: t.TempDir(),
+			ProviderStateRoot: stateRoot,
+		},
+		RuntimeRoot: t.TempDir(), Store: LocalStore{StateDir: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	config, err := os.ReadFile(filepath.Join(home, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(config), "old-final-config") || !strings.Contains(string(config), codexProjectRootMarkersDisabledConfig) {
+		t.Fatalf("durable config was not repaired: %q", config)
+	}
+	var document map[string]any
+	if _, err := toml.Decode(string(config), &document); err != nil {
+		t.Fatalf("repaired durable config is malformed: %v\n%s", err, config)
+	}
+	rollout, err := os.ReadFile(rolloutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(rollout) != "preserve\n" {
+		t.Fatalf("durable rollout = %q, want preserved rollout", rollout)
 	}
 }
 

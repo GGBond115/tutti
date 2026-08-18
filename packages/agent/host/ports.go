@@ -331,6 +331,15 @@ type RuntimeWorkspaceDisconnectTargeter interface {
 	DisconnectRuntimeSessionTarget(context.Context, RuntimeDisconnectTarget) (bool, error)
 }
 
+// RuntimeLiveSessionLister lists every currently live provider connection.
+// Host uses it for generation invalidation and closes each returned Session
+// through the same lossless close boundary as a single retention eviction.
+// Implementations must return stable SessionRef identities and must not start
+// or resume a provider.
+type RuntimeLiveSessionLister interface {
+	LiveRuntimeSessions(context.Context) ([]ProviderRuntimeSession, error)
+}
+
 // RuntimeRetainedSettingsUpdater refreshes the settings snapshot kept by a
 // disconnected runtime Session without starting its provider connection.
 type RuntimeRetainedSettingsUpdater interface {

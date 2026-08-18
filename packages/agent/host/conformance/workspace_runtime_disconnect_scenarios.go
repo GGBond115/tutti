@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 )
@@ -12,6 +13,61 @@ func WorkspaceRuntimeDisconnectScenarios() []WorkspaceRuntimeDisconnectScenario 
 		Name: "disconnect workspace runtime without losing resumable sessions",
 		run:  runDisconnectWorkspaceRuntime,
 	}}
+}
+
+func WorkspaceRuntimeDisconnectCleanupScenarios() []WorkspaceRuntimeDisconnectCleanupScenario {
+	return []WorkspaceRuntimeDisconnectCleanupScenario{{
+		Name: "disconnect workspace runtime cleans preparation owners and preserves provider state",
+		run:  runDisconnectWorkspaceRuntimeCleansPreparationOwners,
+	}}
+}
+
+func runDisconnectWorkspaceRuntimeCleansPreparationOwners(
+	ctx context.Context,
+	driver WorkspaceRuntimeDisconnectCleanupDriver,
+) error {
+	const (
+		workspaceID      = "workspace-1"
+		failedSessionID  = "session-cleanup-failed"
+		successSessionID = "session-cleanup-success"
+	)
+	if err := driver.Reset(ctx, Fixture{
+		RuntimePreparationCleanupFailureSessionID: failedSessionID,
+	}); err != nil {
+		return err
+	}
+	for _, sessionID := range []string{failedSessionID, successSessionID} {
+		if _, _, err := driver.Create(ctx, workspaceID, agenthost.CreateSessionInput{
+			AgentSessionID: sessionID,
+			AgentTargetID:  "target-1",
+			Provider:       "codex",
+		}); err != nil {
+			return fmt.Errorf("create session %q: %w", sessionID, err)
+		}
+	}
+
+	result, err := driver.DisconnectWorkspaceRuntime(ctx, workspaceID)
+	if result.Scanned != 2 || result.Disconnected != 2 || result.Failed != 0 {
+		return fmt.Errorf("disconnect result=%#v", result)
+	}
+	if err == nil {
+		return fmt.Errorf("disconnect cleanup error=nil, want preparation cleanup failure to be aggregated")
+	}
+	if got, want := driver.RuntimePreparationCleanupSessionIDs(), []string{failedSessionID, successSessionID}; !slices.Equal(got, want) {
+		return fmt.Errorf("preparation cleanup session IDs=%#v, want exactly once for each disconnected session=%#v", got, want)
+	}
+	for _, sessionID := range []string{failedSessionID, successSessionID} {
+		canonical, getErr := driver.GetCanonicalSession(ctx, agenthost.SessionRef{
+			WorkspaceID: workspaceID, AgentSessionID: sessionID,
+		})
+		if getErr != nil {
+			return fmt.Errorf("get canonical session %q: %w", sessionID, getErr)
+		}
+		if canonical.ProviderSessionID == "" {
+			return fmt.Errorf("canonical provider state lost for %q: %#v", sessionID, canonical)
+		}
+	}
+	return nil
 }
 
 func runDisconnectWorkspaceRuntime(ctx context.Context, driver WorkspaceRuntimeDisconnectDriver) error {

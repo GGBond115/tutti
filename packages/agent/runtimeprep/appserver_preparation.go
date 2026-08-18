@@ -23,6 +23,7 @@ type appServerPreparedProfile struct {
 	digest             string
 	syntheticSessionID string
 	runtimeRoot        string
+	store              RuntimeStore
 	cwd                string
 	env                []string
 	provider           string
@@ -38,6 +39,7 @@ type appServerPreparedSession struct {
 	workspaceID              string
 	agentSessionID           string
 	provider                 string
+	store                    RuntimeStore
 	profile                  *appServerPreparedProfile
 	runtimeRoot              string
 	providerCleanup          func(context.Context) error
@@ -158,7 +160,7 @@ func (p *DefaultPreparer) acquireAppServerProfile(
 	}
 	profile := &appServerPreparedProfile{
 		key: key, digest: digest, syntheticSessionID: syntheticSessionID,
-		runtimeRoot: runtimeRoot, cwd: result.Cwd, env: processEnv,
+		runtimeRoot: runtimeRoot, store: store, cwd: result.Cwd, env: processEnv,
 		provider: strings.TrimSpace(input.Provider), providerCleanup: result.Cleanup,
 		skillsPrepared: !input.SkipSkills, references: 1,
 	}
@@ -466,7 +468,11 @@ func (p *DefaultPreparer) releaseAppServerThreadLease(ctx context.Context, sessi
 		}
 		session.threadProviderCleaned = true
 	}
-	if err := p.runtimeStore().CleanupRuntime(StoreCleanupInput{
+	if session.store == nil {
+		session.mu.Unlock()
+		return errors.New("app-server Session lease has no runtime-store owner")
+	}
+	if err := session.store.CleanupRuntime(StoreCleanupInput{
 		WorkspaceID: session.workspaceID, AgentSessionID: session.agentSessionID, RuntimeRoot: session.runtimeRoot,
 	}); err != nil {
 		session.mu.Unlock()
@@ -514,7 +520,7 @@ func (p *DefaultPreparer) releaseAppServerProcessLease(ctx context.Context, sess
 	return nil
 }
 
-func (p *DefaultPreparer) cleanupAppServerProfile(ctx context.Context, profile *appServerPreparedProfile) error {
+func (*DefaultPreparer) cleanupAppServerProfile(ctx context.Context, profile *appServerPreparedProfile) error {
 	if profile == nil {
 		return nil
 	}
@@ -531,7 +537,10 @@ func (p *DefaultPreparer) cleanupAppServerProfile(ctx context.Context, profile *
 	if profile.rootCleaned {
 		return nil
 	}
-	if err := p.runtimeStore().CleanupRuntime(StoreCleanupInput{
+	if profile.store == nil {
+		return errors.New("app-server process profile has no runtime-store owner")
+	}
+	if err := profile.store.CleanupRuntime(StoreCleanupInput{
 		WorkspaceID: "appserver-profile", AgentSessionID: profile.syntheticSessionID, RuntimeRoot: profile.runtimeRoot,
 	}); err != nil {
 		return err

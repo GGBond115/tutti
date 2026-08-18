@@ -318,6 +318,16 @@ func (a serviceHostStore) DeleteSubmitClaim(ctx context.Context, workspaceID, se
 
 type serviceHostRuntime struct{ service *Service }
 
+func (a serviceHostRuntime) LiveRuntimeSessions(ctx context.Context) ([]ProviderRuntimeSession, error) {
+	lister, ok := a.service.controller().(interface {
+		LiveRuntimeSessions(context.Context) ([]ProviderRuntimeSession, error)
+	})
+	if !ok {
+		return nil, agenthost.ErrRuntimeLiveSessionListUnavailable
+	}
+	return lister.LiveRuntimeSessions(ctx)
+}
+
 func (a serviceHostRuntime) WorkspaceRuntimeSessions(_ context.Context, workspaceID string) ([]ProviderRuntimeSession, error) {
 	return a.service.controller().Sessions(workspaceID), nil
 }

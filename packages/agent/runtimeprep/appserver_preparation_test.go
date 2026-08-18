@@ -65,6 +65,108 @@ func (s *failOnceProfileCleanupStore) CleanupRuntime(input StoreCleanupInput) er
 	return s.RuntimeStore.CleanupRuntime(input)
 }
 
+type leaseOwnerRuntimeStore struct {
+	RuntimeStore
+	ProviderStateStore
+	cleanups []StoreCleanupInput
+}
+
+func (s *leaseOwnerRuntimeStore) CleanupRuntime(input StoreCleanupInput) error {
+	s.cleanups = append(s.cleanups, input)
+	return s.RuntimeStore.CleanupRuntime(input)
+}
+
+func cleanupForSession(store *leaseOwnerRuntimeStore, sessionID string) int {
+	count := 0
+	for _, input := range store.cleanups {
+		if input.AgentSessionID == sessionID {
+			count++
+		}
+	}
+	return count
+}
+
+func TestAppServerLeasesRetainCreationStoreAcrossInterleavedCleanup(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	preparer := newTestPreparer(t.TempDir())
+	preparer.RegisterProvider(passthroughCodexPreparer{})
+	preparer.AppServerScope = AppServerProfileScope{
+		ExecutionHostID: "device-1", RuntimeGeneration: "runtime-1", TransportScopeID: "transport-1",
+	}
+	firstStore := &leaseOwnerRuntimeStore{
+		RuntimeStore:       LocalStore{StateDir: t.TempDir()},
+		ProviderStateStore: LocalStore{StateDir: t.TempDir()},
+	}
+	secondStore := &leaseOwnerRuntimeStore{
+		RuntimeStore:       LocalStore{StateDir: t.TempDir()},
+		ProviderStateStore: LocalStore{StateDir: t.TempDir()},
+	}
+	input := func(sessionID string) PrepareInput {
+		return PrepareInput{
+			WorkspaceID: "workspace-1", AgentSessionID: sessionID, AgentTargetID: "target-1",
+			Provider: "codex", Cwd: t.TempDir(), CLICommand: "tutti",
+			ProviderTargetRef: map[string]any{"accountAuthority": "account-1"},
+		}
+	}
+
+	preparer.Store = firstStore
+	first, err := preparer.Prepare(t.Context(), input("session-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.AppServer == nil {
+		t.Fatal("first Prepare() AppServer = nil")
+	}
+	firstHome := appServerEnvironmentValue(first.AppServer.ProcessEnv, "CODEX_HOME")
+	rollout := filepath.Join(firstHome, "sessions", "rollout.jsonl")
+	if err := os.MkdirAll(filepath.Dir(rollout), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rollout, []byte("durable\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	preparer.Store = secondStore
+	second, err := preparer.Prepare(t.Context(), input("session-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.AppServer == nil || second.AppServer.ProcessProfileDigest != first.AppServer.ProcessProfileDigest {
+		t.Fatalf("shared process profile = %#v / %#v", first.AppServer, second.AppServer)
+	}
+	firstLease, err := preparer.AcquireAppServerLaunchLease(t.Context(), AppServerLaunchLeaseInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", Provider: "codex",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondLease, err := preparer.AcquireAppServerLaunchLease(t.Context(), AppServerLaunchLeaseInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-2", Provider: "codex",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := firstLease.ThreadCleanup(t.Context()); err != nil {
+		t.Fatalf("first ThreadCleanup() = %v", err)
+	}
+	if err := secondLease.ProcessCleanup(t.Context()); err != nil {
+		t.Fatalf("second ProcessCleanup() = %v", err)
+	}
+	if err := secondLease.ThreadCleanup(t.Context()); err != nil {
+		t.Fatalf("second ThreadCleanup() = %v", err)
+	}
+	if err := firstLease.ProcessCleanup(t.Context()); err != nil {
+		t.Fatalf("first ProcessCleanup() = %v", err)
+	}
+	if cleanupForSession(firstStore, "session-1") != 1 || cleanupForSession(secondStore, "session-2") != 1 {
+		t.Fatalf("lease cleanup owners = first %#v, second %#v", firstStore.cleanups, secondStore.cleanups)
+	}
+	if _, err := os.Stat(rollout); err != nil {
+		t.Fatalf("provider rollout after interleaved cleanup: %v", err)
+	}
+}
+
 func TestAppServerPreparationSharesProcessProfileAndIsolatesThreadOverlay(t *testing.T) {
 	stateDir := t.TempDir()
 	setTestHome(t, t.TempDir())

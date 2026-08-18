@@ -63,6 +63,7 @@ var (
 	_ host.RuntimeSessionLiveness                  = (*RuntimeController)(nil)
 	_ host.RuntimeWorkspaceDisconnector            = (*RuntimeController)(nil)
 	_ host.RuntimeWorkspaceDisconnectTargeter      = (*RuntimeController)(nil)
+	_ host.RuntimeLiveSessionLister                = (*RuntimeController)(nil)
 	_ host.RuntimeRetainedSettingsUpdater          = (*RuntimeController)(nil)
 	_ host.RuntimeSubmitProvenanceReporter         = (*RuntimeController)(nil)
 	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)

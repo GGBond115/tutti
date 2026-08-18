@@ -800,6 +800,14 @@ func (f *fakeRuntime) Sessions(workspaceID string) []ProviderRuntimeSession {
 	return result
 }
 
+func (f *fakeRuntime) LiveRuntimeSessions(context.Context) ([]ProviderRuntimeSession, error) {
+	result := make([]ProviderRuntimeSession, 0, len(f.sessions))
+	for _, session := range f.sessions {
+		result = append(result, session)
+	}
+	return result, nil
+}
+
 func (f fakeSessionReader) GetSession(workspaceID string, agentSessionID string) (PersistedSession, bool) {
 	key := workspaceID + ":" + agentSessionID
 	session, ok := f.sessions[key]

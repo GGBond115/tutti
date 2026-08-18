@@ -436,6 +436,48 @@ func (c *Controller) CloseAllLiveSessions(ctx context.Context) CloseAllLiveSessi
 	return result
 }
 
+// LiveRuntimeSessions returns every currently live provider connection without
+// starting or resuming one. Host uses this snapshot for generation
+// invalidation so preparation cleanup remains paired with each exact session.
+func (c *Controller) LiveRuntimeSessions(ctx context.Context) ([]Session, error) {
+	if c == nil {
+		return nil, nil
+	}
+	if err := c.waitForAllWorkspaceStartupOperations(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	candidates := make([]struct {
+		key     string
+		session Session
+		adapter Adapter
+	}, 0, len(c.sessions))
+	for key, session := range c.sessions {
+		candidates = append(candidates, struct {
+			key     string
+			session Session
+			adapter Adapter
+		}{key: key, session: session, adapter: c.adapters[session.Provider]})
+	}
+	c.mu.Unlock()
+	result := make([]Session, 0, len(candidates))
+	for _, candidate := range candidates {
+		probe, ok := candidate.adapter.(LiveSessionProbeAdapter)
+		if !ok || !probe.HasLiveSession(candidate.session) {
+			continue
+		}
+		c.mu.Lock()
+		current, found := c.sessions[candidate.key]
+		if found {
+			current = c.reconcileSessionStatusLocked(candidate.key, current)
+			c.sessions[candidate.key] = current
+			result = append(result, current)
+		}
+		c.mu.Unlock()
+	}
+	return result, nil
+}
+
 func sessionIdleFor(session Session, nowUnixMS int64, idleAfterMS int64) bool {
 	if session.UpdatedAtUnixMS <= 0 {
 		return false

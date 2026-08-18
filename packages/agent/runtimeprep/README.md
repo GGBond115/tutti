@@ -45,6 +45,10 @@ model-plan credentials remain in the Thread overlay. A product launch adapter mu
 `AppServerLaunchLeaseProvider` transfer and pass both cleanup callbacks to the
 daemon app-server adapter. Thread cleanup removes only the Session run root;
 process cleanup reclaims the profile root after its final acquisition.
+Each transferred lease retains the `RuntimeStore` captured during its
+preparation; later changes to `DefaultPreparer.Store` cannot redirect cleanup
+to another Session. If a host commits a staging root by rename, that captured
+Store must resolve the lease's staging path to the committed final root.
 
 Model-only catalog probes may set `PrepareInput.SkipSkills` to avoid
 materializing Session skills while still producing the explicit shared process
@@ -79,13 +83,14 @@ synthetic process-profile root, never into the shared provider-state Home; the
 Thread developer overlay carries the saver routing policy.
 
 When an existing Session has a persisted legacy home authority, migration first
-uses that exact path. If it is absent, runtimeprep checks only the managed
-Session run home, known `agent.codexHome` aliases, and bounded old
-`appserver-profile-*` roots. It validates `session_meta.payload.id` as the
-provider thread identity. A missing `id` cannot identify a rollout and is
-rejected; it requires one unique rollout and atomically installs only that JSONL
-file. An ordinary runtime with a missing exact rollout fails preparation;
-imported Sessions retain Host's explicit recreate policy.
+uses that exact path. If it is absent, runtimeprep checks the managed Session
+run home, known `agent.codexHome` aliases, and all managed legacy run roots
+under `agent/runs/<session-id>/codex-home`. It validates `session_meta.payload.id`
+as the provider thread identity. A missing `id` cannot identify a rollout and
+is rejected; it requires one unique rollout and atomically installs only that
+JSONL file. Multiple matching rollouts fail closed. An ordinary runtime with a
+missing exact rollout fails preparation; imported Sessions retain Host's
+explicit recreate policy.
 Every existing source ancestor is checked with `Lstat`; a symlinked legacy
 ancestor is rejected, and multiple matching legacy sources fail closed.
 
@@ -95,6 +100,10 @@ may share one provider state. Therefore Session cleanup and tombstone purge do
 not delete a provider-state root or individual rollout. This is the explicit
 retention policy: the current lifecycle never deletes provider state because it
 has no authoritative reference owner that can prove the root is unused.
+
+Each durable Tutti Agent preparation also validates and, when necessary,
+rebuilds the managed `config.toml`; malformed config is replaced without
+deleting the durable Sessions or rollout files.
 
 Rollout replacement is owned by the platform-specific runtime file replacer:
 POSIX uses rename and Windows uses `MoveFileEx` with replacement and

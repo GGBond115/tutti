@@ -22,6 +22,25 @@ type DisconnectWorkspaceRuntimeResult struct {
 	Failed       int
 }
 
+// CloseLiveRuntimeSessionResult reports one lossless live-runtime close. The
+// canonical Session and its terminal/history facts are never deleted by this
+// operation.
+type CloseLiveRuntimeSessionResult struct {
+	Closed                      bool
+	PreparationCleanupAttempted bool
+	PreparationCleanupFailed    bool
+}
+
+// CloseAllLiveRuntimeSessionsResult reports generation invalidation across
+// every live provider connection while retaining canonical sessions.
+type CloseAllLiveRuntimeSessionsResult struct {
+	Scanned                     int
+	Closed                      int
+	Failed                      int
+	PreparationCleanupAttempted int
+	PreparationCleanupFailed    int
+}
+
 // RuntimeDisconnectTarget identifies an exact provider-connection incarnation
 // for deferred attachment cleanup.
 type RuntimeDisconnectTarget struct {

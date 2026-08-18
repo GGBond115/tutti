@@ -112,6 +112,7 @@ type Host struct {
 	goalActor                 *SessionActor
 	sessionMutationActor      *SessionActor
 	workspaceRuntimeAdmission *workspaceRuntimeAdmission
+	runtimeCleanupState       *runtimePreparationCleanupState
 	editRetryDisabled         bool
 	goalFencesRestored        sync.Map
 	sideMu                    sync.Mutex
@@ -153,6 +154,7 @@ func New(config Config) *Host {
 		goalMaxAttempts: config.GoalMaxAttempts, goalDispatchDeadline: config.GoalDispatchDeadline,
 		goalActor: goalActor, sessionMutationActor: sessionMutationActor,
 		workspaceRuntimeAdmission: newWorkspaceRuntimeAdmission(),
+		runtimeCleanupState:       newRuntimePreparationCleanupState(),
 		editRetryDisabled:         config.EditRetryDisabled,
 		sideConversations:         make(map[string]sideConversationRegistration),
 	}

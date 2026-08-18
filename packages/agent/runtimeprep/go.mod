@@ -4,7 +4,10 @@ go 1.24.3
 
 toolchain go1.24.5
 
-require gopkg.in/yaml.v3 v3.0.1
+require (
+	github.com/BurntSushi/toml v1.3.2
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require golang.org/x/sys v0.41.0
 

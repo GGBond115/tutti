@@ -18,6 +18,29 @@ type runtimeWorkspaceDisconnectTargetBackend interface {
 	DisconnectRuntimeSessionTarget(context.Context, agentruntime.RuntimeDisconnectTarget) (agentruntime.DisconnectRuntimeSessionResult, error)
 }
 
+type runtimeLiveSessionListerBackend interface {
+	LiveRuntimeSessions(context.Context) ([]agentruntime.Session, error)
+}
+
+func (a *RuntimeController) LiveRuntimeSessions(ctx context.Context) ([]host.ProviderRuntimeSession, error) {
+	if a == nil || a.Backend == nil {
+		return nil, host.ErrRuntimeLiveSessionListUnavailable
+	}
+	backend, ok := a.Backend.(runtimeLiveSessionListerBackend)
+	if !ok {
+		return nil, host.ErrRuntimeLiveSessionListUnavailable
+	}
+	sessions, err := backend.LiveRuntimeSessions(ctx)
+	if err != nil {
+		return nil, mapRuntimeError(err)
+	}
+	result := make([]host.ProviderRuntimeSession, 0, len(sessions))
+	for _, session := range sessions {
+		result = append(result, a.sessionWithState(session))
+	}
+	return result, nil
+}
+
 func (a *RuntimeController) WorkspaceRuntimeSessions(ctx context.Context, workspaceID string) ([]host.ProviderRuntimeSession, error) {
 	if a == nil || a.Backend == nil {
 		return nil, host.ErrWorkspaceDisconnectUnavailable

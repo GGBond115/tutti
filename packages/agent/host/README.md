@@ -142,6 +142,18 @@ resumes a provider or replays a prompt. Provider adapters terminalize active
 work and pending interactions before dropping the transport, and transport-only
 disconnect must not invoke a destructive provider `session/close`. A later
 user command follows the ordinary just-in-time Resume path.
+`CloseLiveRuntimeSession` is the lossless close boundary for retention and
+force-close of one live provider connection. It passes
+`PreserveCanonicalState=true`, then releases the Host-owned runtime
+preparation with `PreserveRecoverableState=true`; canonical Session, provider
+resume identity, terminal results, and history remain authoritative. A
+preparation cleanup failure is returned and retained by Host for a later retry,
+including after the runtime record has already been closed.
+`CloseAllLiveRuntimeSessions` is the generation-invalidation boundary. It
+snapshots all live provider connections, invokes the same single-session close
+for each, continues after individual close or cleanup failures, and aggregates
+the errors. TSH adapters should call these Host APIs from retention and VM
+force-close paths rather than invoking a runtime Controller close directly.
 Host consumers that perform a provisional runtime mutation use
 `WithWorkspaceRuntimeOperation`; its callback receives the reentrant admitted
 context and must own startup through cleanup. Attachment observers first call

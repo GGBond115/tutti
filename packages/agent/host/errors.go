@@ -29,6 +29,7 @@ var (
 	ErrRuntimeSessionPublishUnavailable   = errors.New("agent runtime session initialization publication is unavailable")
 	ErrRuntimeRailPlacementUnavailable    = errors.New("agent runtime rail placement resolution is unavailable")
 	ErrWorkspaceDisconnectUnavailable     = errors.New("agent workspace runtime disconnect is unavailable")
+	ErrRuntimeLiveSessionListUnavailable  = errors.New("agent live runtime session listing is unavailable")
 	ErrInteractionNotFound                = errors.New("agent interaction was not found")
 	ErrRuntimeOperationInProgress         = errors.New("agent runtime operation is already in progress")
 	ErrRuntimeOperationFailed             = errors.New("agent runtime operation failed")

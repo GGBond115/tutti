@@ -92,6 +92,11 @@ type Fixture struct {
 	CancelDeliveryUnconfirmed bool
 	DeleteAdmissionErr        error
 	DeleteSessionPlans        [][]string
+	// RuntimePreparationCleanupFailureSessionID asks an adapter conformance
+	// driver to install a preparation cleanup owner for newly created sessions
+	// and fail that owner's cleanup for the named Session. It is used only by
+	// the workspace-disconnect cleanup scenario.
+	RuntimePreparationCleanupFailureSessionID string
 }
 
 type SessionObservation struct {
@@ -229,6 +234,34 @@ type WorkspaceRuntimeDisconnectScenario struct {
 	run  func(context.Context, WorkspaceRuntimeDisconnectDriver) error
 }
 
+// WorkspaceRuntimeDisconnectCleanupDriver is the opt-in conformance surface
+// for adapters that expose their Host runtime-preparation cleanup recorder.
+// The scenario still drives lifecycle only through Host commands; the
+// recorder is an observation of the adapter-owned cleanup side effect.
+type WorkspaceRuntimeDisconnectCleanupDriver interface {
+	WorkspaceRuntimeDisconnectDriver
+	RuntimePreparationCleanupSessionIDs() []string
+}
+
+type WorkspaceRuntimeDisconnectCleanupScenario struct {
+	Name string
+	run  func(context.Context, WorkspaceRuntimeDisconnectCleanupDriver) error
+}
+
+// WorkspaceRuntimeCloseDriver is the narrow Host-owned close boundary used by
+// retention and runtime-generation invalidation adapters.
+type WorkspaceRuntimeCloseDriver interface {
+	Driver
+	CloseLiveRuntimeSession(context.Context, agenthost.SessionRef) (agenthost.CloseLiveRuntimeSessionResult, error)
+	CloseAllLiveRuntimeSessions(context.Context) (agenthost.CloseAllLiveRuntimeSessionsResult, error)
+	RuntimePreparationCleanupSessionIDs() []string
+}
+
+type WorkspaceRuntimeCloseScenario struct {
+	Name string
+	run  func(context.Context, WorkspaceRuntimeCloseDriver) error
+}
+
 // WorkspaceRuntimeAdmissionDriver exposes only the Host-owned coordination
 // seam needed to verify admission and durable disconnect fencing.
 type WorkspaceRuntimeAdmissionDriver interface {
@@ -270,6 +303,34 @@ func RunWorkspaceRuntimeDisconnect(
 	}
 	if scenario.run == nil {
 		return fmt.Errorf("workspace runtime disconnect scenario %q has no runner", scenario.Name)
+	}
+	return scenario.run(ctx, driver)
+}
+
+func RunWorkspaceRuntimeDisconnectCleanup(
+	ctx context.Context,
+	driver WorkspaceRuntimeDisconnectCleanupDriver,
+	scenario WorkspaceRuntimeDisconnectCleanupScenario,
+) error {
+	if driver == nil {
+		return fmt.Errorf("workspace runtime disconnect cleanup conformance driver is required")
+	}
+	if scenario.run == nil {
+		return fmt.Errorf("workspace runtime disconnect cleanup scenario %q has no runner", scenario.Name)
+	}
+	return scenario.run(ctx, driver)
+}
+
+func RunWorkspaceRuntimeClose(
+	ctx context.Context,
+	driver WorkspaceRuntimeCloseDriver,
+	scenario WorkspaceRuntimeCloseScenario,
+) error {
+	if driver == nil {
+		return fmt.Errorf("workspace runtime close conformance driver is required")
+	}
+	if scenario.run == nil {
+		return fmt.Errorf("workspace runtime close scenario %q has no runner", scenario.Name)
 	}
 	return scenario.run(ctx, driver)
 }

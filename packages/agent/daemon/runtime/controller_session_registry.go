@@ -199,6 +199,31 @@ func (c *Controller) waitForWorkspaceStartupOperations(ctx context.Context, room
 	return nil
 }
 
+func (c *Controller) waitForAllWorkspaceStartupOperations(ctx context.Context) error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	operations := make([]<-chan struct{}, 0)
+	for _, lock := range c.startupLocks {
+		if lock == nil {
+			continue
+		}
+		for done := range lock.startupOperations {
+			operations = append(operations, done)
+		}
+	}
+	c.mu.Unlock()
+	for _, done := range operations {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
+	}
+	return nil
+}
+
 func (c *Controller) adapter(provider string) Adapter {
 	if c == nil {
 		return nil
@@ -822,46 +847,4 @@ func (c *Controller) applyConfigOptionsUpdateByAgentSessionID(update AgentSessio
 		configOptionsUpdateStreamEvent(update),
 	})
 	c.enqueueSessionSnapshotReport(context.Background(), session)
-}
-
-func (c *Controller) recordConfigOptionsUpdate(session Session, update AgentSessionConfigOptionsUpdate) {
-	if c == nil {
-		return
-	}
-	key := sessionKey(session.RoomID, session.AgentSessionID)
-	c.mu.Lock()
-	c.configOptionsUpdates[key] = update
-	c.mu.Unlock()
-}
-
-func (*Controller) completeConfigOptionsUpdate(session Session, update AgentSessionConfigOptionsUpdate) AgentSessionConfigOptionsUpdate {
-	if update.RoomID == "" {
-		update.RoomID = session.RoomID
-	}
-	if update.Provider == "" {
-		update.Provider = session.Provider
-	}
-	if update.ProviderSessionID == "" {
-		update.ProviderSessionID = session.ProviderSessionID
-	}
-	if update.OccurredAtUnixMS <= 0 {
-		update.OccurredAtUnixMS = unixMS(now())
-	}
-	return update
-}
-
-func configOptionsUpdateStreamEvent(update AgentSessionConfigOptionsUpdate) StreamEvent {
-	return StreamEvent{
-		EventType: StreamEventConfigOptions,
-		Data:      update,
-	}
-}
-
-func cloneAgentSessionCommands(commands []AgentSessionCommand) []AgentSessionCommand {
-	if len(commands) == 0 {
-		return []AgentSessionCommand{}
-	}
-	out := make([]AgentSessionCommand, len(commands))
-	copy(out, commands)
-	return out
 }

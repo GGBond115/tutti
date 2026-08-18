@@ -41,7 +41,7 @@ func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
 		Command:            command,
 		Env:                spawnEnv,
 	}
-	if prepared := session.AppServer; prepared != nil && a.preparer == nil {
+	if prepared := session.AppServer; prepared != nil {
 		profile := AppServerProcessProfile{
 			ExecutionHostID: prepared.ExecutionHostID, RuntimeGeneration: prepared.RuntimeGeneration,
 			TransportScopeID: prepared.TransportScopeID, ProcessProfileDigest: prepared.ProcessProfileDigest,

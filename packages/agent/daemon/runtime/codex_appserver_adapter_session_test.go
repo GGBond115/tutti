@@ -570,6 +570,7 @@ func TestCodexAppServerAdapterStartAuthRequiredCloseReleasesOwnedResources(t *te
 		return authRequiredTestLaunchPreparation(input, &processCleanupCalls, &threadCleanupCalls), nil
 	})
 	session := testAppServerSession()
+	session.AppServer = nil
 	if _, err := adapter.Start(t.Context(), session); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -609,6 +610,7 @@ func TestCodexAppServerAdapterResumeAuthRequiredCloseReleasesOwnedResources(t *t
 		return authRequiredTestLaunchPreparation(input, &processCleanupCalls, &threadCleanupCalls), nil
 	})
 	session := testAppServerSession()
+	session.AppServer = nil
 	session.ProviderSessionID = "codex-thread-auth-required"
 	if err := adapter.Resume(t.Context(), session); err != nil {
 		t.Fatalf("Resume: %v", err)

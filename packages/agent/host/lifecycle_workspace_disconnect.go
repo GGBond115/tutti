@@ -94,6 +94,26 @@ func (h *Host) disconnectWorkspaceRuntime(
 		if disconnected {
 			result.Disconnected++
 		}
+		// A transport disconnect and preparation cleanup are one Host-owned
+		// lifecycle boundary. Keep recoverable provider state, but release the
+		// prepared runtime owner. Cleanup is intentionally attempted even when
+		// the runtime reports an already-detached session: a previous cleanup
+		// failure must remain retryable on the next detach sweep.
+		if h.preparation != nil {
+			cleanupInput := RuntimeCleanupInput{
+				WorkspaceID:              workspaceID,
+				AgentSessionID:           sessionID,
+				Provider:                 strings.TrimSpace(session.Provider),
+				PreserveRecoverableState: true,
+			}
+			cleanupErr := h.preparation.Cleanup(ctx, cleanupInput)
+			if cleanupErr != nil {
+				h.rememberPendingRuntimePreparationCleanup(cleanupInput)
+				failures = append(failures, fmt.Errorf("cleanup agent session %q runtime preparation: %w", sessionID, cleanupErr))
+			} else {
+				h.forgetPendingRuntimePreparationCleanup(cleanupInput)
+			}
+		}
 	}
 	return result, errors.Join(failures...)
 }

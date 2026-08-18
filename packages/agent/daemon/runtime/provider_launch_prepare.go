@@ -30,6 +30,10 @@ type ProviderLaunchPrepareInput struct {
 	Env         []string
 	CWD         string
 	DirectStart bool
+	// ProviderAuthFingerprint is an opaque identity supplied by the provider
+	// auth owner. Runtime adapters transport it to provider preparation; they
+	// never derive it from Session or Workspace state.
+	ProviderAuthFingerprint string
 	// SkipSkills is used by model-only probes that do not start a live Agent
 	// Session and therefore do not need provider Skill materialization.
 	SkipSkills bool
@@ -50,10 +54,11 @@ type ProviderLaunchPrepareResult struct {
 // provider Thread lease. A non-nil value is an explicit compatibility proof:
 // ProcessProfile fields never fall back to the flat Session launch fields.
 type AppServerLaunchPreparation struct {
-	ProcessProfile AppServerProcessProfile
-	ThreadOverlay  AppServerThreadOverlay
-	ProcessCleanup func(context.Context) error
-	ThreadCleanup  func(context.Context) error
+	ProviderStateID string
+	ProcessProfile  AppServerProcessProfile
+	ThreadOverlay   AppServerThreadOverlay
+	ProcessCleanup  func(context.Context) error
+	ThreadCleanup   func(context.Context) error
 }
 
 type AppServerProcessProfile struct {

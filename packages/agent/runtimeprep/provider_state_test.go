@@ -211,6 +211,63 @@ func TestCodexProviderStateMigratesOneLegacyRolloutAndSurvivesLeaseCleanup(t *te
 	}
 }
 
+func TestCodexProviderStateScansLegacySessionRunsWithoutPersistedHome(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		sessionIDs []string
+		wantErr    string
+	}{
+		{name: "one historical session is migrated", sessionIDs: []string{"legacy-session-auto"}},
+		{name: "multiple historical sessions fail closed", sessionIDs: []string{"legacy-session-a", "legacy-session-b"}, wantErr: "multiple legacy Codex rollouts"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			store := LocalStore{StateDir: stateDir}
+			setTestHome(t, t.TempDir())
+			providerSessionID := "provider-session-auto"
+			for _, sessionID := range test.sessionIDs {
+				legacyRoot, err := store.RuntimeRoot("workspace-1", sessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rollout := filepath.Join(legacyRoot, codexHomeDirectory, "sessions", "2026", "08", sessionID+".jsonl")
+				writeTestCodexRollout(t, rollout, providerSessionID)
+			}
+			stateRoot, err := store.ProviderStateRoot("provider-state-auto-scan")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.EnsureProviderStateRoot(stateRoot); err != nil {
+				t.Fatal(err)
+			}
+			_, err = (CodexPreparer{}).Prepare(t.Context(), ProviderPrepareInput{
+				PrepareInput: PrepareInput{
+					Provider:          "codex",
+					ProviderSessionID: providerSessionID,
+					ProviderStateRoot: stateRoot,
+					Cwd:               t.TempDir(),
+					ProviderTargetRef: map[string]any{"accountAuthority": "account-a"},
+				},
+				RuntimeRoot: filepath.Join(stateDir, "agent", "runs", "staging-runtime"),
+				Store:       store,
+			})
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("legacy scan error = %v, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			migrated := filepath.Join(stateRoot, codexHomeDirectory, "sessions", "2026", "08", "legacy-session-auto.jsonl")
+			if _, err := os.Stat(migrated); err != nil {
+				t.Fatalf("unique legacy rollout was not migrated: %v", err)
+			}
+		})
+	}
+}
+
 func TestCodexProviderStatePrefersPersistedLegacyHomeOverProfileScan(t *testing.T) {
 	stateDir := t.TempDir()
 	setTestHome(t, t.TempDir())

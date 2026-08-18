@@ -221,7 +221,7 @@ func (p *DefaultPreparer) Prepare(ctx context.Context, input PrepareInput) (Prep
 		}
 		threadEnv := appServerThreadEnvironment(result.Env)
 		p.rememberAppServerSession(&appServerPreparedSession{
-			workspaceID: workspaceID, agentSessionID: agentSessionID, provider: providerID,
+			workspaceID: workspaceID, agentSessionID: agentSessionID, provider: providerID, store: store,
 			profile: profile, runtimeRoot: runtimeRoot, providerCleanup: result.Cleanup,
 		})
 		prepared.Env = threadEnv

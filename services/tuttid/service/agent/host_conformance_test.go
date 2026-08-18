@@ -67,6 +67,21 @@ func TestHostWorkspaceRuntimeDisconnectConformance(t *testing.T) {
 	}
 }
 
+func TestHostWorkspaceRuntimeCloseConformance(t *testing.T) {
+	for _, scenario := range hostconformance.WorkspaceRuntimeCloseScenarios() {
+		scenario := scenario
+		for _, directHost := range []bool{false, true} {
+			directHost := directHost
+			t.Run(fmt.Sprintf("direct=%v/%s", directHost, scenario.Name), func(t *testing.T) {
+				driver := &legacyHostConformanceDriver{t: t, directHost: directHost}
+				if err := hostconformance.RunWorkspaceRuntimeClose(context.Background(), driver, scenario); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
 func TestHostWorkspaceRuntimeAdmissionConformance(t *testing.T) {
 	for _, scenario := range hostconformance.WorkspaceRuntimeAdmissionScenarios() {
 		scenario := scenario
@@ -305,10 +320,49 @@ type legacyHostConformanceDriver struct {
 	deletionEvents           *[]string
 	historicalState          *conformanceHistoricalStateStore
 	runtimeStartReportWrites int
+	preparationCleanup       *conformancePreparationCleanupRecorder
+}
+
+type conformancePreparationCleanupRecorder struct {
+	mu         sync.Mutex
+	sessionIDs []string
+}
+
+type conformanceRuntimePreparation struct {
+	delegate         agenthost.RuntimePreparationPort
+	failureSessionID string
+	owner            *legacyHostConformanceDriver
+	mu               sync.Mutex
+	failed           bool
+}
+
+func (p *conformanceRuntimePreparation) Prepare(ctx context.Context, input agenthost.RuntimePreparationInput) (agenthost.PreparedRuntime, error) {
+	return p.delegate.Prepare(ctx, input)
+}
+
+func (p *conformanceRuntimePreparation) Cleanup(ctx context.Context, input agenthost.RuntimeCleanupInput) error {
+	if p.owner != nil {
+		p.owner.preparationCleanup.mu.Lock()
+		p.owner.preparationCleanup.sessionIDs = append(p.owner.preparationCleanup.sessionIDs, input.AgentSessionID)
+		p.owner.preparationCleanup.mu.Unlock()
+	}
+	delegateErr := p.delegate.Cleanup(ctx, input)
+	p.mu.Lock()
+	injected := false
+	if input.AgentSessionID == p.failureSessionID && !p.failed {
+		p.failed = true
+		injected = true
+	}
+	p.mu.Unlock()
+	if injected {
+		return errors.Join(delegateErr, fmt.Errorf("preparation cleanup failed for %s", input.AgentSessionID))
+	}
+	return delegateErr
 }
 
 func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconformance.Fixture) error {
 	d.runtime = newFakeRuntime()
+	d.preparationCleanup = &conformancePreparationCleanupRecorder{}
 	d.runtime.guidanceTargetMismatch = fixture.GuidanceTargetMismatch
 	if fixture.CancelDeliveryUnconfirmed {
 		d.runtime.cancelErr = agenthost.ErrRuntimeCancelDeliveryUnconfirmed
@@ -433,6 +487,12 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	d.historicalState = &conformanceHistoricalStateStore{driver: d}
 	hostStore := serviceHostStore{service: d.service}
 	hostSupport := hostSupportPortsForService(d.service, nil)
+	if preparation := hostSupport.RuntimePreparation; preparation != nil && strings.TrimSpace(fixture.RuntimePreparationCleanupFailureSessionID) != "" {
+		hostSupport.RuntimePreparation = &conformanceRuntimePreparation{
+			delegate: preparation, failureSessionID: strings.TrimSpace(fixture.RuntimePreparationCleanupFailureSessionID),
+			owner: d,
+		}
+	}
 	d.service.SetApplicationHost(composeApplicationHost(
 		hostSupport,
 		hostStore,
@@ -760,6 +820,28 @@ func (d *legacyHostConformanceDriver) DisconnectWorkspaceRuntime(
 	workspaceID string,
 ) (agenthost.DisconnectWorkspaceRuntimeResult, error) {
 	return d.service.ApplicationHost().DisconnectWorkspaceRuntime(ctx, workspaceID)
+}
+
+func (d *legacyHostConformanceDriver) CloseLiveRuntimeSession(
+	ctx context.Context,
+	ref agenthost.SessionRef,
+) (agenthost.CloseLiveRuntimeSessionResult, error) {
+	return d.service.ApplicationHost().CloseLiveRuntimeSession(ctx, ref)
+}
+
+func (d *legacyHostConformanceDriver) CloseAllLiveRuntimeSessions(
+	ctx context.Context,
+) (agenthost.CloseAllLiveRuntimeSessionsResult, error) {
+	return d.service.ApplicationHost().CloseAllLiveRuntimeSessions(ctx)
+}
+
+func (d *legacyHostConformanceDriver) RuntimePreparationCleanupSessionIDs() []string {
+	if d.preparationCleanup == nil {
+		return nil
+	}
+	d.preparationCleanup.mu.Lock()
+	defer d.preparationCleanup.mu.Unlock()
+	return append([]string(nil), d.preparationCleanup.sessionIDs...)
 }
 
 func (d *legacyHostConformanceDriver) WithWorkspaceRuntimeOperation(

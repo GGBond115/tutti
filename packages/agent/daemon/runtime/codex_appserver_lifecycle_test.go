@@ -110,6 +110,7 @@ func TestCodexAppServerAdapterProviderLaunchPrepareMutatesSpecAndCleansUpOnClose
 	})
 
 	session := testAppServerSession()
+	session.AppServer = nil
 	session.Env = []string{"SESSION_ENV=1"}
 	if _, err := adapter.Start(context.Background(), session); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -180,6 +181,30 @@ func TestCodexAppServerAdapterStartUsesInjectedProviderCommand(t *testing.T) {
 	}
 }
 
+func TestCodexAppServerAdapterUsesHostPreparedProfileWithoutLatePrepare(t *testing.T) {
+	t.Parallel()
+
+	transport := newScriptedAppServerTransport()
+	adapter := NewCodexAppServerAdapter(transport)
+	preparerCalls := 0
+	adapter.SetProviderLaunchPreparer(func(context.Context, ProviderLaunchPrepareInput) (ProviderLaunchPrepareResult, error) {
+		preparerCalls++
+		return ProviderLaunchPrepareResult{}, errors.New("late preparation must not run")
+	})
+
+	session := testAppServerSession()
+	session.AppServer.ProviderStateID = "provider-state-early"
+	if _, err := adapter.Start(t.Context(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if preparerCalls != 0 {
+		t.Fatalf("late provider preparer calls = %d, want 0", preparerCalls)
+	}
+	if err := adapter.Close(t.Context(), session); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func TestCodexAppServerAdapterProviderLaunchPrepareFailureDoesNotSpawn(t *testing.T) {
 	t.Parallel()
 
@@ -190,7 +215,9 @@ func TestCodexAppServerAdapterProviderLaunchPrepareFailureDoesNotSpawn(t *testin
 		return ProviderLaunchPrepareResult{}, prepareErr
 	})
 
-	if _, err := adapter.Start(context.Background(), testAppServerSession()); !errors.Is(err, prepareErr) {
+	session := testAppServerSession()
+	session.AppServer = nil
+	if _, err := adapter.Start(context.Background(), session); !errors.Is(err, prepareErr) {
 		t.Fatalf("Start error = %v, want %v", err, prepareErr)
 	}
 	spawned, _ := transport.snapshot()
@@ -229,7 +256,9 @@ func TestCodexAppServerAdapterProviderLaunchCleanupRunsOnProcessStartFailure(t *
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := adapter.Start(ctx, testAppServerSession()); !errors.Is(err, startErr) {
+	session := testAppServerSession()
+	session.AppServer = nil
+	if _, err := adapter.Start(ctx, session); !errors.Is(err, startErr) {
 		t.Fatalf("Start error = %v, want %v", err, startErr)
 	}
 	if cleanupCalls != 1 {

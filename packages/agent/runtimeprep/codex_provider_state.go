@@ -115,7 +115,11 @@ func legacyCodexHomeCandidates(runtimeRoot, persistedHome string) ([]string, err
 		return nil, fmt.Errorf("read legacy Codex run roots: %w", err)
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), appServerProfileSessionPrefix) {
+		// Legacy ordinary Sessions use their opaque Session id as the run
+		// directory name. Provider-session matching below is the authority that
+		// distinguishes a real migration candidate from unrelated run state;
+		// do not narrow discovery to the synthetic app-server profile prefix.
+		if !entry.IsDir() {
 			continue
 		}
 		candidates = append(candidates, filepath.Join(runsRoot, entry.Name(), codexHomeDirectory))

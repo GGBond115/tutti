@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // TuttiAgentPreparer materializes the session-scoped TUTTI_AGENT_HOME for the
@@ -58,6 +60,15 @@ func (p TuttiAgentPreparer) Prepare(ctx context.Context, input ProviderPrepareIn
 			return ProviderPrepareResult{}, fmt.Errorf("prepare durable tutti-agent provider state: %w", err)
 		}
 		if !input.appServerProcessProfile {
+			configInput := input.PrepareInput
+			configInput.MCPServers = nil
+			configInput.ConversationDetailMode = ""
+			configInput.Model = ""
+			configInput.AgentInstructions = ""
+			configInput.appServerProcessProfile = true
+			if err := ensureTuttiAgentSessionConfig(filepath.Join(home, "config.toml"), configInput); err != nil {
+				return ProviderPrepareResult{}, fmt.Errorf("prepare durable tutti-agent config: %w", err)
+			}
 			return ProviderPrepareResult{Cwd: input.Cwd, Env: []string{"TUTTI_AGENT_HOME=" + home}}, nil
 		}
 	}
@@ -281,7 +292,14 @@ func ensureTuttiAgentSessionConfig(configPath string, input PrepareInput) error 
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read tutti-agent config: %w", err)
 	}
-	next, changed := codexConfigWithProjectRootMarkersDisabled(string(contentBytes))
+	content := string(contentBytes)
+	if strings.TrimSpace(content) != "" {
+		var document map[string]any
+		if _, parseErr := toml.Decode(content, &document); parseErr != nil {
+			content = ""
+		}
+	}
+	next, changed := codexConfigWithProjectRootMarkersDisabled(content)
 	if tuttiNext, tuttiChanged := codexConfigWithTuttiConversationDetailMode(next, input.ConversationDetailMode); tuttiChanged {
 		next = tuttiNext
 		changed = true
@@ -313,6 +331,10 @@ func ensureTuttiAgentSessionConfig(configPath string, input PrepareInput) error 
 	}
 	if !changed {
 		return nil
+	}
+	var document map[string]any
+	if _, err := toml.Decode(next, &document); err != nil {
+		return fmt.Errorf("render valid tutti-agent config: %w", err)
 	}
 	if err := os.WriteFile(configPath, []byte(next), 0o600); err != nil {
 		return fmt.Errorf("write tutti-agent config: %w", err)
