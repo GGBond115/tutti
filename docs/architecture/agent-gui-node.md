@@ -267,6 +267,13 @@ same authorization overlay as Connector Market management. Connector Market
 change events invalidate retained Composer options, while a menu open may still
 force an authoritative reread as a recovery path.
 
+Hosts may project a Connector catalog as inspectable but read-only. In that
+mode AgentGUI keeps the menu and host-provided readiness descriptions visible,
+but suppresses selection, setup or authorization opens, selected chips, and
+the optional management footer. Read-only presentation never becomes execution
+authority; the Host remains responsible for Connector admission at submit or
+runtime preparation.
+
 Settings that affect provider preparation are immutable after launch. The
 daemon validates them against current product policy and resolved provider
 capability before runtime preparation; an active Session cannot reinterpret
