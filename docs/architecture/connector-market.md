@@ -24,10 +24,17 @@ digest-match every copied file. The client exposes the reusable
 `/v1/market/categories`, `/v1/market/items`, and
 `/v1/market/items/{item_type}/{item_key}` read boundary for both connectors and
 Skills. Connector catalog requests always use `itemType=connector`; Skill
-consumers use `itemType=skill`. The shared connector package may provide a
-default `CatalogSource` adapter over that generated client, but must not copy or
-redefine the remote schema. Remote transport DTOs and local daemon DTOs remain
-separate.
+consumers use `itemType=skill`. `packages/connector/market/source` is the only
+Connector module that imports this generated client. It terminates the remote
+protocol by parsing its DTOs, traversing pagination, validating manifests,
+selecting the exact execution target, and projecting stable Connector
+contracts. Remote transport DTOs and local daemon DTOs remain separate.
+
+The current remote protocol does not expose an authoritative catalog snapshot
+revision. The source adapter therefore performs two complete reads and accepts
+only structurally equal validated snapshots. It does not synthesize a source
+revision, release digest, or artifact identity. The daemon depends only on the
+narrow `CatalogSource` and `ArtifactDownloadResolver` application ports.
 
 The generated client adapter applies host authorization only to the initial
 Market request. It preserves the host redirect policy and rejects any redirect
@@ -77,27 +84,55 @@ read-compatible at this boundary.
 
 The shared Connector modules own:
 
-- connector, catalog, installation, authorization, compatibility, durable
-  operation, revision, and error contracts
-- `connector/host`: Go state transitions, manifest validation, host ports,
-  application orchestration, and recovery rules
-- `connector/daemon`: bootstrap fencing, scheduling, workers, and outbox
-  delivery
+- `connector/contracts`: dependency-free domain values for connector, catalog,
+  installation, authorization, compatibility, runtime convergence, policy,
+  operations, revisions, commands, observations, and errors
+- `connector/application`: state transitions, manifest validation, durable
+  operations and recovery rules, runtime identity/intent, account projection,
+  Agent policy, and host-neutral ports
+- `connector/daemon`: the long-running lifecycle composition, command
+  admission, bootstrap fencing, scheduling, physical anti-entropy, workers, and
+  outbox delivery
 - `connector/store-sqlite`: the canonical repository, transactions, leases,
   migrations, and durable outbox implementation
 - `connector/runtime`: latest-only artifact download caching, no-network archive
   import, secure artifact preparation, managed runtime identity, ABI
-  verification, and typed Node package installation
-- a default remote-catalog domain adapter built over the authoritative market
-  client
+  verification, typed Node package installation, process primitives, and route
+  registries
+- `connector/market/source`: the generated Market protocol termination and its
+  projections into application ports and stable contracts
 - reusable artifact mechanics: bounded download, `current + candidate` cache
   replacement, size and digest verification, no-network import, safe
   extraction, release-to-package verification, atomic promotion, and cleanup
 - `connector/market`: the reusable local daemon OpenAPI fragment under
   `openapi/connector-market.v1.yaml`
-- the renderer `ConnectorMarketBackend` contract, module Root/Runtime,
-  lifecycle and StartupJobs, Valtio-backed domain services, reusable renderer,
-  and connector-market i18n bundle
+- the renderer `ConnectorMarketBackend` contract, readonly renderer model,
+  reusable UI System surfaces, semantic events, and Connector i18n bundle
+
+The Go layers form this dependency DAG:
+
+```text
+contracts
+  -> application
+       -> daemon
+       -> runtime
+       -> store-sqlite
+       -> market/source
+```
+
+The arrows describe increasing responsibility: every outer module imports the
+contracts/application layers it adapts, and neither foundational layer imports
+an outer module. The product creates one daemon composition object and exposes
+only its narrow query, command, operation, and Agent-policy facets. Daemon
+workers receive a separate private maintenance-port group rather than the
+public root.
+
+`daemon.NewHost` only validates and assembles this graph. The product calls
+`Start(ctx, initialScope)` before serving Connector commands; Start performs
+bootstrap and registers every worker under one cancellable lifecycle. Commands
+are admitted only in the running state. `Close(ctx)` closes admission, fences
+capability publication, cancels the same lifecycle, and waits up to the
+caller's deadline. Repeated Close calls continue the same idempotent shutdown.
 
 Each host daemon owns:
 
@@ -105,9 +140,9 @@ Each host daemon owns:
 - remote market base URL, authentication, HTTP transport, proxy, TLS, logging,
   and tracing configuration
 - the state root supplied to the shared runtime
-- process transport, artifact and executable enforcement, OS integration, product command
-  publication, invocation admission, and credential binding injected into the
-  shared runtime boundary
+- product command publication, invocation admission, product-specific remote
+  process placement, and credential binding injected into the shared runtime
+  boundary
 - secure credential storage and authorization callbacks
 - a durable outbox and integration with the host event stream
 - local transport DTO mapping, product compatibility inputs, and diagnostics
@@ -283,10 +318,13 @@ before extraction or installation. A split control-plane/runtime host carries
 the same descriptor and verified bytes across its data-plane boundary without
 exposing storage object keys as a client protocol.
 
-`connector/host` owns the implementation-host port and durable reconcile
-semantics; `connector/runtime` owns portable artifact and managed-runtime
-installation primitives, while each daemon supplies the concrete
-implementation host, process, and product-command adapters. In Tutti, `managed_stdio`
+`connector/application` owns the implementation command port and durable
+reconcile semantics; `connector/runtime` owns portable artifact and managed
+runtime installation primitives, Connector process contracts, verified launch,
+bounded I/O, and process-tree shutdown. Each daemon supplies the concrete
+implementation and product-command adapters and, for a split runtime, the
+product-specific remote process placement. Connector process primitives do not
+reuse Agent runtime process contracts. In Tutti, `managed_stdio`
 connectors resolve an exact Node/Python runtime profile. MCP servers are
 long-lived daemon children governed by the route generation fence and process
 registry. CLI routes instead atomically publish stable shims that directly exec
@@ -534,62 +572,26 @@ maps wire DTOs into `@tutti-os/connector-market` domain types. The public
 renderer package never constructs a daemon client and never reads preload or
 window globals.
 
-The renderer domain follows the same Root + Runtime + StartupJob boundary as
-TSH Room Chat:
+Each renderer window activates one Connector module through the host lifecycle
+and adapts its narrow application ports into one stable readonly
+`ConnectorRendererModel`. React components receive that model, not internal
+services, mutable roots, transport clients, or lifecycle controls. Disposal is
+owned by the window-level module.
 
-- `ConnectorMarketModule.activate()` creates a child DI container and is called
-  by the workspace module startup flow before the settings UI can render
-- `ConnectorMarketRuntime` owns the lifecycle sequence `created -> starting ->
-synchronizing -> materializing -> ready`; failure is terminal and disposes
-  the child container
-- Market, UiState, and View each have one StartupJob; the Market job places an
-  initial-load barrier in `synchronizing`, and View materialization starts only
-  after that barrier resolves
-- `ConnectorMarketRoot` remains internal compatibility composition for the
-  catalog/dialog surface; the composer receives only a stable readonly
-  `ConnectorRendererModel`
-- every service exposes a `readonly dataStore = proxy(...)` as its only writable
-  state source, and only its owning service mutates it
-- asynchronous responses are fenced by request sequence, service generation,
-  and daemon revision; `dispose()` is idempotent and terminal
-- installation intent is projected into the reactive Market store before the
-  host request starts, so cards and dialogs become busy immediately even when a
-  host keeps the mutation request open until runtime work completes; the local
-  projection is cleared on both success and failure and never replaces daemon
-  installation truth
-- every new user authorization action creates a new `clientRequestId` and sends
-  `replacementPolicy=replace_active`; continuation polling within that action
-  reuses the same identity, while a superseded renderer Promise cannot retain
-  the Connector mutation token
-- event refreshes are coalesced, daemon reconnect performs a full reload, and
-  accepted commands are followed through the operation endpoint or events
-- hosts gate connector-market transport through `canRequest`; Tutti binds it to
-  account authentication, activates the module without network access while
-  signed out, reloads after login, and keeps reconnect/resume paths silent
-  after logout
-- install intent that arrives while Tutti is signed out invokes the host-owned
-  account login flow through `requestInstallAdmission`; the service rechecks
-  admission and returns `not_admitted` without calling the backend or showing
-  installation success when login is still pending
-- Tutti enables renderer-owned automatic updates for installed, compatible
-  Connectors. After an authoritative snapshot, catalog page, or connector event
-  publishes a different active release digest, Market starts the existing
-  install/update command in the background. It never opens login from a
-  background update and attempts one release digest only once per renderer
-  lifetime, leaving explicit update available after failure
-- the shared renderer subscribes at leaf components through a stable context,
-  uses `@tutti-os/ui-system`, and owns no transport, startup, disposal, or
-  business-state reconciliation
+Asynchronous responses are fenced by service generation and daemon revision.
+Daemon events are coalesced invalidation hints, and reconnect performs an
+authoritative reload. Renderer-local pending state can make an action visible
+immediately, but it is cleared after settlement and never replaces daemon
+installation, authorization, operation, or runtime truth. Hosts gate network
+access through `canRequest`; install admission remains a host callback rather
+than Connector-owned account UI.
 
 Compact composer surfaces render `ConnectorComposerEntry` from the canonical
 `@tutti-os/connector-market/renderer` entrypoint. Connector owns its readonly
-snapshot projection, ten-state vocabulary, i18n, ordering, selection admission,
-and closed semantic events. Only `connected` may be newly selected; unknown
-states and missing Shared Agent policy fail closed. Local Agents use the
-validated catalog, while Shared Agents require an explicit
-`supportedConnectorKeys` policy. A stale catalog is exposed as stale metadata
-and does not reinterpret an exact physically-ready installed Connector as
-degraded. `degraded` comes only from runtime/availability observation.
+model, i18n, ordering, selection admission, and closed semantic events. Unknown
+renderer values and missing Shared Agent support fail closed. Agent support,
+grants, authorization, connection identity, and exact runtime availability are
+application-owned facts; host and AgentGUI adapters must not derive them again.
 
 AgentGUI supplies one neutral `primaryCapability` placement with exact target
 identity and an opaque draft-key mutation port. It does not map Connector
@@ -601,10 +603,10 @@ the host chooses the product container without inferring command success.
 `/renderer` is canonical. `/ui` is one-release compile-time re-export only and
 contains no second implementation or runtime fallback.
 
-Every renderer window mounts exactly one `ConnectorMarketDialogHost` alongside
+Every renderer window mounts exactly one `ConnectorDialogHost` alongside
 its other window-level panel hosts. Composer entries and catalog cards never
 mount their own dialog host. This keeps dialog identity and mutual exclusion in
-one shared Root while allowing several AgentGUI surfaces in the same window to
+one window-level Connector module while allowing several AgentGUI surfaces to
 open it.
 
 Connector details are represented by one modal state machine, never by a fixed
@@ -616,7 +618,7 @@ the catalog keeps the full settings content width and never leaves an empty
 right column.
 
 Closing an authorization dialog only dismisses presentation. The explicit
-Cancel action calls the Host cancellation command. Reopening an unconnected
+Cancel action calls the Connector authorization command. Reopening an unconnected
 Connector starts a new replace-active attempt, so a hidden or stuck renderer
 request cannot lock later authorization actions.
 
@@ -644,12 +646,13 @@ but cannot be installed.
 
 ## Current Checkpoint
 
-The shared package now contains immutable operation targets and execution
-receipts, recoverable install/uninstall/authorization flows, latest-only
-artifact download caching, a no-network archive importer, host ports, the local daemon OpenAPI
-fragment, and the complete reusable renderer module: Root, Runtime, lifecycle,
-per-service StartupJobs, UiState, render-ready View, i18n, catalog, and modal
-state branches.
+The shared package cohort now contains dependency-free contracts, the narrow
+application composition and policy projection, explicit daemon lifecycle and
+workers, canonical SQLite persistence, recoverable
+install/uninstall/authorization flows, latest-only artifact download caching,
+a no-network archive importer, generated Market protocol termination, the local
+daemon OpenAPI fragment, and a reusable readonly renderer model with
+Connector-owned i18n, catalog, composer entry, and modal surfaces.
 
 Tutti now composes that fragment, persists catalog/operations/leases and a
 transactional outbox in SQLite, reads the typed remote catalog, exposes

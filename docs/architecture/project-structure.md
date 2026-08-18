@@ -193,19 +193,58 @@ desktop daemons.
 
 Current packages:
 
-- `packages/connector/market`: TypeScript contracts, renderer state, reusable
-  UI, i18n, and local OpenAPI fragment
-- `packages/connector/host`: connector catalog, installation, authorization,
-  compatibility, operation, and recovery application core
-- `packages/connector/daemon`: reusable daemon lifecycle and workers
-- `packages/connector/store-sqlite`: canonical local persistence and outbox
+- `packages/connector/contracts`: dependency-free Go domain values, command and
+  observation contracts, policy projections, and error vocabulary
+- `packages/connector/application`: host-neutral state transitions, durable
+  operations, runtime intent, identity/projection policy, and narrow ports
+- `packages/connector/daemon`: the long-running lifecycle composition,
+  admission fence, recovery schedulers, physical anti-entropy, and outbox
+  delivery
+- `packages/connector/store-sqlite`: canonical local persistence, migrations,
+  leases, revisions, and outbox
 - `packages/connector/runtime`: latest-only artifact caching, no-network archive
   import, same-machine composition, managed-runtime installation primitives,
   Connector route/MCP registries, and the session-bound loopback MCP server
+- `packages/connector/market/source`: the sole generated Market protocol
+  adapter, projecting remote DTOs into application ports and stable contracts
+- `packages/connector/market`: TypeScript daemon contracts, renderer model and
+  UI, i18n, and the reusable local OpenAPI fragment
+
+The Go dependency direction is deliberately one-way:
+
+```text
+contracts
+  -> application
+       -> daemon
+       -> runtime
+       -> store-sqlite
+       -> market/source
+```
+
+The arrows describe increasing responsibility: the outer modules depend on
+the earlier contracts/application layers, never the reverse. `daemon` also
+composes the SQLite adapter, while the owning product composition root injects
+runtime, Market source, authentication, event publication, and platform
+adapters. One `daemon.Host` is created for that lifecycle, but callers receive
+only its narrow state, catalog, command, operation, and Agent-policy facets.
+
+`NewHost` only assembles dependencies. The product composition must call
+`Start(ctx, initialScope)` to bootstrap and register all background workers
+under one cancellable lifecycle. Commands are admitted only while that
+lifecycle is running. `Close(ctx)` closes command admission, fences capability
+publication, cancels the same lifecycle, and waits only until the caller's
+deadline; repeated close calls continue the same idempotent shutdown.
+
+Runtime commands and runtime observation remain separate. Application code
+issues semantic actions through `ImplementationCommands`; daemon anti-entropy
+reads physical truth through `RouteObservation`. A successful command is never
+used as a substitute for an exact physical observation.
 
 Remote endpoint authentication, credentials, state-root selection, generated
-daemon clients, product command publication, and OS process integration remain
-in host adapters.
+daemon clients, product command publication, and product-specific remote
+process placement remain in host adapters. Connector process contracts,
+verified launch, bounded I/O, and process-tree shutdown remain in
+`connector/runtime/process` and do not depend on Agent runtime process types.
 
 ### `services/tuttid`
 
@@ -229,9 +268,10 @@ account-scoped Connector authorization. It owns authorization session,
 snapshot, and realtime-event decoding plus bounded HTTPS transport. A product
 host supplies the API prefix, HTTP client, and per-account request authorizer;
 the package never stores account cookies, chooses an environment, or sends
-credentials to a runtime VM. `packages/connector/host` selects this client only
-for `remote_streamable_http` releases, while `managed_stdio` authorization
-stays with the injected local implementation host.
+credentials to a runtime VM. The product composition injects it as the
+authorization provider for `remote_streamable_http` releases, while
+`managed_stdio` authorization stays with the injected local implementation
+host.
 
 `packages/clients/device-authority-go` is the shared Go client boundary for the
 Device Authority owner lifecycle across Tutti and TSH. The initial package is a

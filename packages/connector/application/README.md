@@ -1,46 +1,68 @@
-# Connector Host
+# Connector Application
 
-`packages/connector/host` is the host-neutral Connector application core. It
-owns catalog acceptance, device installation and account authorization projections, durable
-operation transitions, compatibility evaluation, recovery, reconcile intent,
-manifest validation, installation calibration, and the ports implemented by
-daemon and runtime hosts. Calibration reads verified physical installation
-receipts only; Connector-owned commands never determine installation truth.
+`packages/connector/application` is the host-neutral Connector application
+core. It depends only on `packages/connector/contracts` and owns catalog
+acceptance, manifest validation, installation and authorization transitions,
+durable operation recovery, runtime intent, compatibility evaluation, and
+Agent Connector policy projection.
 
-The package contains no HTTP client, SQLite driver, product account state,
-Electron API, absolute state root, or operating-system process policy.
-Lifecycle behavior belongs here when Tutti and another daemon host must observe
-the same result.
+The package contains no HTTP client, generated transport DTO, SQLite driver,
+Electron API, absolute state root, or operating-system process policy. Outer
+modules such as `connector/daemon`, `connector/runtime`,
+`connector/store-sqlite`, `connector/market/source`, and product composition
+adapters consume or implement its narrow ports.
 
-`OperationScope` freezes the account authority used by a durable command.
-`RuntimeBindingResolver` derives the connection ID, active/inactive intent and
-one-shot credential grant from that scope. Grants are passed directly to the
-implementation host and cleared after the call; they are never operation
-state. `ReleaseInstallationManager` is the single physical install/uninstall
-boundary. Same-machine hosts compose artifact import plus optional CLI
-installation; cross-machine hosts may download and cache on the control-plane
-machine, sync the verified candidate, and install it on the runtime machine.
-Receipts may use opaque references when execution is remote. Installation
-never implies runtime publication: a prepared Candidate and Runtime Desired are
-committed together, and Current is promoted only after the exact generation is
-Observed by the current host boot. Runtime receipts carry structured per-interface readiness so a
-CLI-only Connector can be ready without an MCP route. A successful enabled
-reconcile also carries the bounded `ConnectorSummary` committed by that exact
-route generation. Lifecycle observers consume this receipt projection even
-while Agent publication is fenced; they must not perform a later key-only
-lookup against the mutable published registry.
+## Composition and facets
 
-New Connector mutations use a per-Connector revision fence; the global Snapshot
-revision remains the compatibility fallback for old clients. Private
-runtime anti-entropy uses `RuntimeDesired` and `RuntimeObserved` instead of a
-public Operation. The Host advances a scope-and-Connector generation only when
-intent changes or an observer invalidates the current receipt. Workers claim
-that generation with a renewable lease; Observed commits use an exact-generation
-CAS so stale host results cannot overwrite newer authorization or release
-intent.
+`New` returns one `Composition`. Its public `Root` exposes only
+responsibility-specific interfaces:
 
-Install/update/uninstall/authorization are phase state machines implemented as
-short repository transactions around idempotent effects. Updates retain Current
-and Candidate release evidence simultaneously. Disconnect and uninstall both
-wait for a disabled Observed receipt before they complete or remove physical
-content.
+- `StateQueries`
+- `CatalogQueries` and `CatalogCommands`
+- `InstallationCommands`
+- `AuthorizationCommands`
+- `OperationQueries`
+- `AgentConnectorPolicyQueries`
+
+Daemon workers receive a separate `DaemonPorts` group, split into recovery,
+operation, catalog, installation, authorization, and runtime maintenance
+interfaces. Consumers keep the facet they need; they do not retain the private
+application implementation or gain worker controls through a public query or
+command surface.
+
+## State authority
+
+Installation is device-scoped truth. Authorization is an account-scoped
+projection. `RuntimeBindingResolver` is the only execution port that may derive
+a connection identity and obtain a one-shot credential grant;
+`RuntimeIntentResolver` is its side-effect-free planning counterpart and cannot
+mint credentials. Grants are cleared after the physical command returns and are
+never persisted as operation state.
+
+The application combines catalog membership, installation, authorization,
+compatibility, exact runtime convergence, local/shared Agent support, and
+explicit grants into `AgentConnectorPolicySnapshot`. Adapters map that
+projection to their own DTOs; they must not independently derive connection
+identity, authorization, availability, or Agent admission.
+
+## Command and observation boundaries
+
+Physical runtime mutation is exposed through the command-only
+`ImplementationCommands` port. Physical route truth is exposed separately
+through `RouteObservation`, whose level-triggered `Snapshot` is authoritative
+and whose `Watch` stream only reduces repair latency. The application core does
+not treat a command return value, a registry lookup, or an edge event as
+physical observation.
+
+`ReleaseInstallationManager` similarly owns the complete physical
+install/inspect/commit/uninstall boundary. Installation does not imply runtime
+publication: Candidate and Runtime Desired are committed first, and Current is
+promoted only after an exact-generation Runtime Observed receipt for the current
+boot.
+
+Connector mutations use a per-Connector revision fence, with the global
+snapshot revision retained as a compatibility input for older clients. Durable
+install, update, uninstall, authorization, and reconcile flows use short
+transactions around idempotent effects. Updates retain Current and Candidate
+evidence simultaneously; disconnect and uninstall wait for an exact disabled
+observation before completing.
