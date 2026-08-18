@@ -108,6 +108,22 @@ func (c *codexAppServerClient) observeMCPStartupStatus(status map[string]any) {
 	c.scheduleMCPFailure(codexMCPServerStartupFailureFromStatus(status), "notification")
 }
 
+func (c *codexAppServerClient) completeThreadLifecycleFromNotification(thread map[string]any) {
+	if c == nil || c.raw == nil || len(thread) == 0 {
+		return
+	}
+	threadID := strings.TrimSpace(asString(thread["id"]))
+	if threadID == "" {
+		return
+	}
+	result, err := json.Marshal(map[string]any{"thread": clonePayload(thread)})
+	if err != nil {
+		return
+	}
+	c.raw.completeActiveHandler(appServerMethodThreadStart, result)
+	c.raw.completeActiveHandler(appServerMethodThreadResume, result)
+}
+
 func (c *codexAppServerClient) scheduleMCPFailure(failure error, source string) {
 	if c == nil || failure == nil {
 		return

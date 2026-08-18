@@ -533,6 +533,58 @@ func TestCodexAppServerAdapterMCPStartupStatusResponseWinsGraceRace(t *testing.T
 	}
 }
 
+func TestCodexAppServerAdapterThreadStartedNotificationCompletesLifecycleWithoutRPCResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		resume    bool
+		configure func(*fakeCodexAppServer)
+	}{
+		{
+			name: "start",
+			configure: func(server *fakeCodexAppServer) {
+				server.threadStartedOnStart = true
+			},
+		},
+		{
+			name:   "resume",
+			resume: true,
+			configure: func(server *fakeCodexAppServer) {
+				server.threadStartedOnResume = true
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &multiProcAppServerTransport{}
+			adapter := NewCodexAppServerAdapter(transport)
+			session := testAppServerSession()
+			if test.resume {
+				if _, err := adapter.Start(context.Background(), session); err != nil {
+					t.Fatalf("Start: %v", err)
+				}
+				session.ProviderSessionID = "codex-thread-1"
+			}
+			transport.setConfigure(test.configure)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if test.resume {
+				if err := adapter.Resume(ctx, session); err != nil {
+					t.Fatalf("Resume should use thread/started as lifecycle success: %v", err)
+				}
+			} else if _, err := adapter.Start(ctx, session); err != nil {
+				t.Fatalf("Start should use thread/started as lifecycle success: %v", err)
+			}
+			if !adapter.HasLiveSession(session) {
+				t.Fatal("HasLiveSession = false after notification-only lifecycle success")
+			}
+		})
+	}
+}
+
 func TestCodexAppServerAdapterStartReleaseRaceLeavesNoOrphanProcess(t *testing.T) {
 	t.Parallel()
 

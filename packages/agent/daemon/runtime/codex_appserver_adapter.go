@@ -325,9 +325,15 @@ type codexAppServerSession struct {
 	canceledProviderThreads map[string]struct{}
 	activeTurn              *codexAppServerActiveTurn
 	childThreads            map[string]*codexAppServerThreadContext
-	// recentForeignDrops remembers recently dropped unknown thread ids so a
-	// late registration can report how many events the ordering gap lost.
+	// recentForeignDrops remembers recently observed unknown thread ids so a
+	// late registration can report the ordering gap; terminal notifications are
+	// retained separately for replay while ordinary progress remains dropped.
 	recentForeignDrops map[string]int
+	// pendingForeignTerminalNotifications retains one terminal notification per
+	// unknown child thread until receiverThreadIds registers that child. This
+	// closes the provider announce/stream ordering gap without admitting
+	// ordinary foreign-thread progress into the parent session.
+	pendingForeignTerminalNotifications map[string]appServerBufferedNotification
 	acpLiveState
 	pendingRequests map[string]*pendingInteractiveRequest
 }
@@ -343,9 +349,15 @@ type codexAppServerThreadContext struct {
 	parentItemID         string
 	normalizer           *acpTurnNormalizer
 	// droppedBeforeRegistration counts events for this thread that arrived
-	// (and were dropped as unknown) before its receiverThreadIds registration
-	// - permanent telemetry for ADR 0003's ordering question.
+	// before its receiverThreadIds registration - permanent telemetry for ADR
+	// 0003's ordering question. Terminal events are replayed after registration;
+	// ordinary progress remains dropped.
 	droppedBeforeRegistration int
+}
+
+type appServerBufferedNotification struct {
+	method string
+	params map[string]any
 }
 
 // codexAppServerActiveTurn carries the streaming context of an in-flight

@@ -359,6 +359,7 @@ func (r codexAppServerReducer) reduceNotification(
 		})
 		return emit(nil)
 	case appServerNotifyThreadStarted:
+		client.completeThreadLifecycleFromNotification(payloadObject(params["thread"]))
 		return codexAppServerReduction{}
 	default:
 		_ = emitCommands

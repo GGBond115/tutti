@@ -1390,6 +1390,83 @@ func TestCodexAppServerChildRegistrationReportsEarlyDrops(t *testing.T) {
 	}
 }
 
+func TestCodexAppServerChildTerminalBeforeRegistrationIsReplayed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		method        string
+		params        map[string]any
+		terminalEvent activityshared.EventType
+	}{
+		{
+			name:          "turn completed",
+			method:        appServerNotifyTurnCompleted,
+			params:        map[string]any{"turn": map[string]any{"id": "child-turn-1", "status": "completed"}},
+			terminalEvent: activityshared.EventTurnCompleted,
+		},
+		{
+			name:          "terminal error",
+			method:        appServerNotifyError,
+			params:        map[string]any{"willRetry": false, "error": map[string]any{"message": "child failed"}},
+			terminalEvent: activityshared.EventTurnFailed,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := NewCodexAppServerAdapter(nil)
+			session := Session{
+				AgentSessionID:    "agent-session-1",
+				Provider:          ProviderCodex,
+				ProviderSessionID: "parent-thread-1",
+				CWD:               "/workspace",
+			}
+			adapter.storeSession(session.AgentSessionID, &codexAppServerSession{threadID: session.ProviderSessionID})
+			reducer := newCodexAppServerReducer(adapter)
+			normalizer := newACPTurnNormalizer()
+
+			terminalParams := clonePayload(test.params)
+			terminalParams["threadId"] = "child-thread-1"
+			terminalParams["turnId"] = "child-turn-1"
+			if events := reducer.ReduceNotification(nil, session, "parent-turn-1", acpMessage{
+				Method: test.method,
+				Params: mustJSONRawMessage(t, terminalParams),
+			}, normalizer, nil).Events; len(events) != 0 {
+				t.Fatalf("early terminal events = %#v, want buffered until child registration", events)
+			}
+
+			events := reducer.ReduceNotification(nil, session, "parent-turn-1", acpMessage{
+				Method: appServerNotifyItemStarted,
+				Params: mustJSONRawMessage(t, map[string]any{
+					"threadId": session.ProviderSessionID,
+					"turnId":   "parent-turn-1",
+					"item": map[string]any{
+						"type":              "collabAgentToolCall",
+						"id":                "spawn-child-1",
+						"tool":              "spawnAgent",
+						"status":            "inProgress",
+						"receiverThreadIds": []any{"child-thread-1"},
+					},
+				}),
+			}, normalizer, nil).Events
+
+			terminalCount := 0
+			for _, event := range events {
+				if event.Type == test.terminalEvent {
+					terminalCount++
+					if event.SessionKind != "child" || event.ProviderSessionID != "child-thread-1" {
+						t.Fatalf("terminal event = %#v, want child routing", event)
+					}
+				}
+			}
+			if terminalCount != 1 {
+				t.Fatalf("terminal events = %#v, want exactly one replayed %s", events, test.terminalEvent)
+			}
+		})
+	}
+}
+
 func TestCodexAppServerChildThreadNameUpdateEmitsNameMarker(t *testing.T) {
 	t.Parallel()
 

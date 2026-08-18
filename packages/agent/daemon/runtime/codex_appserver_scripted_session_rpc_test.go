@@ -38,6 +38,9 @@ type scriptedSessionState struct {
 	mcpStartupStatusFailedOnStart   bool
 	mcpStartupStatusFailedOnResume  bool
 	mcpStartupStatusFailureResponse bool
+	threadStartedOnStart            bool
+	threadStartedOnResume           bool
+	threadStartedResponse           bool
 	extraRootsError                 bool
 }
 
@@ -207,6 +210,9 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 		mcpStartupStatusFailed := (s.mcpStartupStatusFailedOnStart && message.Method == appServerMethodThreadStart) ||
 			(s.mcpStartupStatusFailedOnResume && message.Method == appServerMethodThreadResume)
 		mcpStartupStatusFailureResponse := s.mcpStartupStatusFailureResponse
+		threadStarted := (s.threadStartedOnStart && message.Method == appServerMethodThreadStart) ||
+			(s.threadStartedOnResume && message.Method == appServerMethodThreadResume)
+		threadStartedResponse := s.threadStartedResponse
 		replayTokenUsage := s.replayTokenUsageOnResume && message.Method == appServerMethodThreadResume
 		s.mu.Unlock()
 		if mcpAuthStderrOnResume {
@@ -234,9 +240,14 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 			})
 			return true
 		}
-		s.notify(appServerNotifyThreadStarted, map[string]any{
-			"thread": map[string]any{"id": "codex-thread-1"},
-		})
+		if threadStarted {
+			s.notify(appServerNotifyThreadStarted, map[string]any{
+				"thread": map[string]any{"id": "codex-thread-1"},
+			})
+			if !threadStartedResponse {
+				return true
+			}
+		}
 		if replayTokenUsage {
 			// Real codex 0.140.0 replays thread/tokenUsage/updated during
 			// thread/resume so the GUI can show context fill before a new
@@ -261,6 +272,11 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 				"modelProvider":   "openai",
 			},
 		})
+		if !threadStarted {
+			s.notify(appServerNotifyThreadStarted, map[string]any{
+				"thread": map[string]any{"id": "codex-thread-1"},
+			})
+		}
 	case appServerMethodThreadFork:
 		if s.forkRPCError {
 			s.sendJSON(map[string]any{
