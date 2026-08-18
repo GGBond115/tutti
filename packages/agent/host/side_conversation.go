@@ -31,13 +31,6 @@ func (h *Host) ResolveSideConversation(
 	}
 	workspaceID = strings.TrimSpace(workspaceID)
 	sourceAgentSessionID = strings.TrimSpace(sourceAgentSessionID)
-	if h.store != nil {
-		if _, err := h.EnsureRuntimeSession(ctx, SessionRef{
-			WorkspaceID: workspaceID, AgentSessionID: sourceAgentSessionID,
-		}); err != nil {
-			return SideConversationCapabilities{}, err
-		}
-	}
 	source, err := h.sideSourceRuntime(workspaceID, sourceAgentSessionID)
 	if err != nil {
 		return SideConversationCapabilities{}, err
@@ -200,13 +193,7 @@ func (h *Host) ensureSideSourceRuntimeLocked(
 	workspaceID string,
 	sourceAgentSessionID string,
 ) (ProviderRuntimeSession, error) {
-	if h.store != nil {
-		if _, err := h.ensureRuntimeSessionLocked(ctx, SessionRef{
-			WorkspaceID: workspaceID, AgentSessionID: sourceAgentSessionID,
-		}); err != nil {
-			return ProviderRuntimeSession{}, err
-		}
-	}
+	_ = ctx
 	return h.sideSourceRuntime(workspaceID, sourceAgentSessionID)
 }
 

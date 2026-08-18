@@ -24,7 +24,6 @@ export type DesktopAgentGUIHostProps = {
     | "referenceProvenanceFilterEnabled"
     | "sideConversationEnabled"
     | "sessionInputHistoryEnabled"
-    | "sessionForkEnabled"
     | "sessionWorktreeEnabled"
     | "sessionLaunchModesByProjectSectionKey"
     | "codexSaverModeEntryEnabled"
@@ -110,7 +109,6 @@ export function useStableDesktopAgentGUIHostProps({
       sideConversationEnabled: nextHostCapabilities.sideConversationEnabled,
       sessionInputHistoryEnabled:
         nextHostCapabilities.sessionInputHistoryEnabled,
-      sessionForkEnabled: nextHostCapabilities.sessionForkEnabled,
       sessionWorktreeEnabled: nextHostCapabilities.sessionWorktreeEnabled,
       sessionLaunchModesByProjectSectionKey:
         nextHostCapabilities.sessionLaunchModesByProjectSectionKey,

@@ -44,11 +44,9 @@ func (c *Controller) sideSourceCapabilitiesLocked(
 	if source.IsSideConversation() {
 		return Session{}, nil, SideConversationCapabilities{}, ErrSideConversationUnsupported
 	}
-	if err := c.ensureLiveAdapterSession(ctx, source, adapter); err != nil {
-		return Session{}, nil, SideConversationCapabilities{}, err
-	}
-	if refreshed, ok := c.get(source.RoomID, source.AgentSessionID); ok {
-		source = refreshed
+	probe, ok := adapter.(LiveSessionProbeAdapter)
+	if !ok || !probe.HasLiveSession(source) {
+		return Session{}, nil, SideConversationCapabilities{}, ErrSessionDisconnected
 	}
 	sideAdapter, ok := adapter.(SideConversationAdapter)
 	if !ok {

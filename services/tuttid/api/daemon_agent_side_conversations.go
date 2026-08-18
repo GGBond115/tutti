@@ -86,6 +86,11 @@ func (api DaemonAPI) ResolveWorkspaceAgentSideCapabilities(
 			ServiceUnavailableErrorJSONResponse: agentSessionServiceUnavailableError(),
 		}, nil
 	}
+	if !api.agentSideConversationEnabled(ctx) {
+		return tuttigenerated.ResolveWorkspaceAgentSideCapabilities200JSONResponse{
+			Capabilities: generatedSideCapabilities(agenthost.SideConversationCapabilities{}),
+		}, nil
+	}
 	capabilities, err := api.SideConversationService.ResolveSideConversation(
 		ctx, string(request.WorkspaceID), string(request.AgentSessionID),
 	)
@@ -122,6 +127,11 @@ func (api DaemonAPI) OpenWorkspaceAgentSideConversation(
 	if api.SideConversationService == nil {
 		return tuttigenerated.OpenWorkspaceAgentSideConversation503JSONResponse{
 			ServiceUnavailableErrorJSONResponse: agentSessionServiceUnavailableError(),
+		}, nil
+	}
+	if !api.agentSideConversationEnabled(ctx) {
+		return tuttigenerated.OpenWorkspaceAgentSideConversation400JSONResponse{
+			InvalidRequestErrorJSONResponse: agentSideConversationDisabledError(),
 		}, nil
 	}
 	if request.Body == nil {

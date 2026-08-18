@@ -8,10 +8,7 @@ import (
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 )
 
-// agentSessionForkWritesEnabled reports whether callers may create new Session
-// forks. Reads and acknowledgements remain available so existing operations and
-// lineage stay observable when the Lab experiment is disabled.
-func (api DaemonAPI) agentSessionForkWritesEnabled(ctx context.Context) bool {
+func (api DaemonAPI) agentSideConversationEnabled(ctx context.Context) bool {
 	if api.PreferencesService == nil {
 		return false
 	}
@@ -21,15 +18,15 @@ func (api DaemonAPI) agentSessionForkWritesEnabled(ctx context.Context) bool {
 	}
 	return preferencesbiz.IsLabFlagEnabled(
 		preferences.FeatureFlags,
-		preferencesbiz.LabFlagAgentSessionFork,
+		preferencesbiz.LabFlagAgentSideConversation,
 	)
 }
 
-func agentSessionForkWriteDisabledError() tuttigenerated.InvalidRequestErrorJSONResponse {
+func agentSideConversationDisabledError() tuttigenerated.InvalidRequestErrorJSONResponse {
 	return invalidRequestError(apierrors.InvalidRequest(
-		"agent_session_fork_disabled",
+		"agent_side_conversation_disabled",
 		apierrors.WithDeveloperMessage(
-			"agent session fork writes require the lab.agentSessionFork feature flag",
+			"agent Side conversations require the lab.agentSideConversation feature flag",
 		),
 	))
 }

@@ -78,6 +78,7 @@ export const zhCN = {
     errorTitle: "无法检查更新",
     restartAction: "重启安装",
     retryAction: "重试",
+    releaseNotesAction: "更新内容",
     storeManaged: "更新由 Microsoft Store 管理"
   },
   desktop: {
@@ -1246,9 +1247,6 @@ export const zhCN = {
         agentSessionRecordingDescription:
           "在 Agent 首页显示会话录制与回放开发入口",
         agentSessionRecordingLabel: "Agent 会话录制",
-        agentSessionForkDescription:
-          "允许从支持的已完成轮次创建新的 Agent 会话",
-        agentSessionForkLabel: "会话 Fork",
         agentSideConversationDescription:
           "在 Agent 对话中启用 /side、Side 临时会话和选中文本浮动操作栏",
         agentSideConversationLabel: "Side 临时会话",
@@ -1261,10 +1259,6 @@ export const zhCN = {
         referenceProvenanceFilterDescription:
           "在 Agent 对话的引用选择器中启用智能体来源筛选",
         referenceProvenanceFilterLabel: "智能体来源筛选",
-        quickPromptLibraryDescription:
-          "在 Agent 输入框中显示个人快捷提示词库入口",
-        quickPromptLibraryLabel: "快捷提示词库",
-        quickPromptLibrarySaveFailed: "暂时无法更新快捷提示词库可用状态",
         releaseChannelOptions: {
           rc: "预览版",
           stable: "稳定版"

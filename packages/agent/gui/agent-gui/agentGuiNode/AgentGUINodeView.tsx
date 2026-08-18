@@ -78,7 +78,6 @@ export function AgentGUINodeView({
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
   sideConversationEnabled = false,
-  sessionForkEnabled = false,
   sessionWorktreeEnabled = false,
   sessionLaunchModesByProjectSectionKey,
   onSessionLaunchModePreferenceChange,
@@ -690,7 +689,6 @@ export function AgentGUINodeView({
                 referenceProvenanceFilters={referenceProvenanceFilters}
                 sessionInputHistoryEnabled={sessionInputHistoryEnabled}
                 sideConversationEnabled={sideConversationEnabled}
-                sessionForkEnabled={sessionForkEnabled}
                 sessionWorktreeEnabled={sessionWorktreeEnabled}
                 sessionLaunchModesByProjectSectionKey={
                   sessionLaunchModesByProjectSectionKey

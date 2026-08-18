@@ -578,7 +578,6 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   referenceProvenanceFilters?: AgentComposerReferenceProvenanceFilters | null;
   sessionInputHistoryEnabled?: boolean;
   sideConversationEnabled?: boolean;
-  sessionForkEnabled?: boolean;
   sessionWorktreeEnabled?: boolean;
   sessionLaunchModesByProjectSectionKey?: Readonly<
     Record<string, AgentGUISessionLaunchMode>

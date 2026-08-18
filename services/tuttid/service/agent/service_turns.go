@@ -369,15 +369,30 @@ func (s *Service) withProtocolV2TurnStates(ctx context.Context, workspaceID stri
 	if err != nil {
 		return nil, err
 	}
+	forkabilityByTurn := make(map[string]bool)
 	result := make([]Session, len(sessions))
 	for i, session := range sessions {
 		sessionID := strings.TrimSpace(session.ID)
 		if latest, ok := latestBySessionID[sessionID]; ok {
 			value := latest
+			if strings.TrimSpace(session.Kind) != agentactivitybiz.SessionKindChild {
+				value = s.withProviderTurnForkabilityCached(
+					ctx, workspaceID, sessionID, latest, forkabilityByTurn,
+				)
+			} else {
+				value.ProviderForkBindingAvailable = false
+			}
 			session.LatestTurn = &value
 		}
 		if active, ok := activeBySessionID[sessionID]; ok {
 			value := active
+			if strings.TrimSpace(session.Kind) != agentactivitybiz.SessionKindChild {
+				value = s.withProviderTurnForkabilityCached(
+					ctx, workspaceID, sessionID, active, forkabilityByTurn,
+				)
+			} else {
+				value.ProviderForkBindingAvailable = false
+			}
 			session.ActiveTurn = &value
 		}
 		session.PendingInteractions = pendingBySessionID[sessionID]
@@ -393,6 +408,35 @@ func (s *Service) withProtocolV2TurnStates(ctx context.Context, workspaceID stri
 		return nil, err
 	}
 	return s.withSessionGoalStates(ctx, workspaceID, result)
+}
+
+func (s *Service) withProviderTurnForkabilityCached(
+	ctx context.Context,
+	workspaceID string,
+	agentSessionID string,
+	turn agentactivitybiz.Turn,
+	forkabilityByTurn map[string]bool,
+) agentactivitybiz.Turn {
+	turn.ProviderForkBindingAvailable = false
+	if strings.TrimSpace(turn.Phase) != agentactivitybiz.TurnPhaseSettled {
+		return turn
+	}
+	key := strings.Join([]string{
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(agentSessionID),
+		strings.TrimSpace(turn.TurnID),
+		strings.TrimSpace(turn.RootProviderTurnID),
+		string(turn.ProviderTurnBindingJSON),
+	}, "\x00")
+	if forkable, ok := forkabilityByTurn[key]; ok {
+		turn.ProviderForkBindingAvailable = forkable
+		return turn
+	}
+	projected := s.withProviderTurnForkability(
+		ctx, workspaceID, agentSessionID, turn,
+	)
+	forkabilityByTurn[key] = projected.ProviderForkBindingAvailable
+	return projected
 }
 
 func (s *Service) withSessionGoalState(

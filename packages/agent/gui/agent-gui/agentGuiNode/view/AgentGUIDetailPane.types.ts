@@ -39,7 +39,6 @@ export interface AgentGUIDetailPaneProps extends AgentGUIDetailExternalPromptPro
   referenceProvenanceFilters?: AgentComposerProps["referenceProvenanceFilters"];
   sessionInputHistoryEnabled?: boolean;
   sideConversationEnabled?: boolean;
-  sessionForkEnabled?: boolean;
   sessionWorktreeEnabled?: boolean;
   sessionLaunchModesByProjectSectionKey?: Readonly<
     Record<string, AgentGUISessionLaunchMode>

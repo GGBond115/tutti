@@ -8,8 +8,18 @@ import (
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	"github.com/tutti-os/tutti/services/tuttid/apierrors"
+	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 )
+
+func enabledSideConversationAPI(service SideConversationService) DaemonAPI {
+	return DaemonAPI{
+		PreferencesService: gateTestPreferences(map[string]bool{
+			preferencesbiz.LabFlagAgentSideConversation: true,
+		}, nil),
+		SideConversationService: service,
+	}
+}
 
 type sideConversationServiceStub struct {
 	resolveFn func(context.Context, string, string) (agenthost.SideConversationCapabilities, error)
@@ -31,6 +41,46 @@ func (s sideConversationServiceStub) ResolveSideConversation(
 	}, nil
 }
 
+func TestResolveWorkspaceAgentSideCapabilitiesFailsClosedWhenDisabled(t *testing.T) {
+	service := sideConversationServiceStub{
+		resolveFn: func(
+			context.Context,
+			string,
+			string,
+		) (agenthost.SideConversationCapabilities, error) {
+			t.Fatal("disabled capability lookup reached the Side service")
+			return agenthost.SideConversationCapabilities{}, nil
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		PreferencesService:      gateTestPreferences(map[string]bool{}, nil),
+		SideConversationService: service,
+	}))
+
+	recorder := performGeneratedRouteRequest(
+		t,
+		mux,
+		http.MethodGet,
+		"/v1/workspaces/workspace-1/agent-sessions/source-1/side-capabilities",
+		nil,
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Capabilities struct {
+			Supported bool `json:"supported"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Capabilities.Supported {
+		t.Fatalf("disabled capabilities = %#v, want unsupported", body.Capabilities)
+	}
+}
+
 func TestResolveWorkspaceAgentSideCapabilitiesMapsDisconnectedToExpiredConflict(
 	t *testing.T,
 ) {
@@ -45,7 +95,7 @@ func TestResolveWorkspaceAgentSideCapabilitiesMapsDisconnectedToExpiredConflict(
 		},
 	}
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, NewRoutes(DaemonAPI{SideConversationService: service}))
+	RegisterRoutes(mux, NewRoutes(enabledSideConversationAPI(service)))
 
 	recorder := performGeneratedRouteRequest(
 		t,
@@ -88,7 +138,7 @@ func TestResolveWorkspaceAgentSideCapabilitiesMapsWorkspaceNotFound(
 		},
 	}
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, NewRoutes(DaemonAPI{SideConversationService: service}))
+	RegisterRoutes(mux, NewRoutes(enabledSideConversationAPI(service)))
 
 	recorder := performGeneratedRouteRequest(
 		t,
@@ -178,7 +228,7 @@ func TestOpenWorkspaceAgentSideConversationPreservesTransientIdentity(t *testing
 		},
 	}
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, NewRoutes(DaemonAPI{SideConversationService: service}))
+	RegisterRoutes(mux, NewRoutes(enabledSideConversationAPI(service)))
 
 	recorder := performGeneratedRouteRequest(
 		t,
@@ -229,6 +279,39 @@ func TestOpenWorkspaceAgentSideConversationPreservesTransientIdentity(t *testing
 	}
 }
 
+func TestOpenWorkspaceAgentSideConversationRejectsDisabledFeature(t *testing.T) {
+	service := sideConversationServiceStub{
+		openFn: func(
+			context.Context,
+			string,
+			string,
+			agentservice.OpenSideConversationInput,
+		) (agentservice.SideConversation, error) {
+			t.Fatal("disabled Side open reached the service")
+			return agentservice.SideConversation{}, nil
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		PreferencesService:      gateTestPreferences(map[string]bool{}, nil),
+		SideConversationService: service,
+	}))
+
+	recorder := performGeneratedRouteRequest(
+		t,
+		mux,
+		http.MethodPost,
+		"/v1/workspaces/workspace-1/agent-sessions/source-1/side-conversations",
+		map[string]any{
+			"sideAgentSessionId": "side-1",
+			"requestId":          "request-1",
+		},
+	)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestSubmitWorkspaceAgentSideConversationInteractiveUsesExactIdentity(
 	t *testing.T,
 ) {
@@ -245,7 +328,7 @@ func TestSubmitWorkspaceAgentSideConversationInteractiveUsesExactIdentity(
 		},
 	}
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, NewRoutes(DaemonAPI{SideConversationService: service}))
+	RegisterRoutes(mux, NewRoutes(enabledSideConversationAPI(service)))
 
 	recorder := performGeneratedRouteRequest(
 		t,
@@ -307,7 +390,7 @@ func TestSubmitWorkspaceAgentSideConversationInteractiveClassifiesErrors(
 			mux := http.NewServeMux()
 			RegisterRoutes(
 				mux,
-				NewRoutes(DaemonAPI{SideConversationService: service}),
+				NewRoutes(enabledSideConversationAPI(service)),
 			)
 			recorder := performGeneratedRouteRequest(
 				t,

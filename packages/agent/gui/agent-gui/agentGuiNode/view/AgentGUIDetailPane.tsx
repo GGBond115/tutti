@@ -50,7 +50,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
   sideConversationEnabled = false,
-  sessionForkEnabled = false,
   sessionWorktreeEnabled = false,
   sessionLaunchModesByProjectSectionKey,
   onSessionLaunchModePreferenceChange,
@@ -155,8 +154,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       void actions.forkConversationThroughTurn(agentSessionId, turnId);
     }
   });
-  const forkHandler = sessionForkEnabled ? handleForkThroughTurn : undefined;
-  const openForkSource = useStableEventCallback(
+  const openForkSourceSession = useStableEventCallback(
     actions.openForkSourceConversation
   );
   const editRetry = useAgentGUIDetailEditRetry({
@@ -711,6 +709,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   return (
     <main
       className={styles.detail}
+      aria-busy={timelineInteractionLocked || undefined}
       data-agent-session-id={viewModel.rail.activeConversationId ?? undefined}
     >
       {viewModel.operations.goalClearNoticeSequence > 0 ? (
@@ -740,8 +739,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
             isTimelineScrolledToTop={isTimelineScrolledToTop}
             labels={labels}
             onAuthLogin={authLogin}
-            onForkThroughTurn={forkHandler}
-            onOpenForkSourceSession={openForkSource}
+            onForkThroughTurn={handleForkThroughTurn}
+            onOpenForkSourceSession={openForkSourceSession}
             forkThroughTurnPendingTurnIds={
               viewModel.operations.forkThroughTurnPendingTurnIds
             }
