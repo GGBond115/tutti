@@ -56,11 +56,13 @@ type appServerScheduledResult struct {
 
 type appServerScheduledRequest struct {
 	ctx         context.Context
+	cancel      context.CancelFunc
 	method      string
 	priority    appServerRequestPriority
 	lane        string
 	coalesceKey string
 	enqueuedAt  time.Time
+	forcedErr   error
 	run         func(context.Context) ([]byte, error)
 	done        chan appServerScheduledResult
 }
@@ -88,6 +90,7 @@ type appServerRequestScheduler struct {
 	inFlight  int
 	laneBusy  map[string]bool
 	coalesced map[string]*appServerCoalescedRequest
+	active    map[*appServerScheduledRequest]struct{}
 	closed    bool
 	telemetry appServerRequestSchedulerTelemetry
 	// admissionHook is a test-only channel barrier installed by scheduler
@@ -98,6 +101,7 @@ type appServerRequestScheduler struct {
 func newAppServerRequestScheduler() *appServerRequestScheduler {
 	return &appServerRequestScheduler{
 		laneBusy: make(map[string]bool), coalesced: make(map[string]*appServerCoalescedRequest),
+		active: make(map[*appServerScheduledRequest]struct{}),
 	}
 }
 
@@ -140,10 +144,12 @@ func (s *appServerRequestScheduler) do(
 		s.mu.Unlock()
 		return nil, overload
 	}
+	requestCtx, cancel := context.WithCancel(ctx)
 	request := &appServerScheduledRequest{
-		ctx: ctx, method: method, priority: priority, lane: lane, coalesceKey: coalesceKey,
+		ctx: requestCtx, cancel: cancel, method: method, priority: priority, lane: lane, coalesceKey: coalesceKey,
 		enqueuedAt: time.Now(), run: run, done: make(chan appServerScheduledResult, 1),
 	}
+	defer cancel()
 	if coalesceKey != "" {
 		s.coalesced[coalesceKey] = &appServerCoalescedRequest{done: make(chan struct{})}
 	}
@@ -171,6 +177,7 @@ func (s *appServerRequestScheduler) dispatchLocked() {
 			return
 		}
 		s.inFlight++
+		s.active[request] = struct{}{}
 		if request.lane != "" {
 			s.laneBusy[request.lane] = true
 		}
@@ -210,11 +217,17 @@ func (s *appServerRequestScheduler) execute(request *appServerScheduledRequest) 
 	result.raw = append([]byte(nil), result.raw...)
 
 	s.mu.Lock()
+	forcedErr := request.forcedErr
 	s.inFlight--
+	delete(s.active, request)
 	if request.lane != "" {
 		delete(s.laneBusy, request.lane)
 	}
 	s.telemetry.Completed++
+	if forcedErr != nil {
+		result.raw = nil
+		result.err = forcedErr
+	}
 	if request.coalesceKey != "" {
 		if shared := s.coalesced[request.coalesceKey]; shared != nil {
 			shared.result = result
@@ -225,6 +238,23 @@ func (s *appServerRequestScheduler) execute(request *appServerScheduledRequest) 
 	s.dispatchLocked()
 	s.mu.Unlock()
 	request.done <- result
+}
+
+// failActive wakes requests that were moved behind the scheduler. The raw ACP
+// client's legacy active-handler slot is not used by scheduled calls, so MCP
+// startup failures must also cancel and annotate scheduler-owned requests.
+func (s *appServerRequestScheduler) failActive(err error) {
+	if s == nil || err == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for request := range s.active {
+		request.forcedErr = err
+		if request.cancel != nil {
+			request.cancel()
+		}
+	}
 }
 
 func (s *appServerRequestScheduler) close() {

@@ -14,6 +14,8 @@ func (a *RuntimeController) fromSession(session agentruntime.Session) host.Provi
 	}
 	return host.ProviderRuntimeSession{
 		ID: session.AgentSessionID, WorkspaceID: session.RoomID, UserID: a.currentUserID(),
+		Scope:                host.RuntimeSessionScope(session.Scope),
+		SourceAgentSessionID: session.SourceAgentSessionID, SideRequestID: session.SideRequestID,
 		AgentTargetID: session.AgentTargetID, Provider: session.Provider, ProviderSessionID: session.ProviderSessionID,
 		Resumable: session.Resumable,
 		Cwd:       session.CWD, Env: append([]string(nil), session.Env...), MCPServers: hostMCPServerBindings(session.MCPServers), Settings: settings,
@@ -33,6 +35,8 @@ func runtimeSession(session host.ProviderRuntimeSession) agentruntime.Session {
 	}
 	return agentruntime.Session{
 		RoomID: session.WorkspaceID, AgentSessionID: session.ID,
+		Scope:                agentruntime.RuntimeSessionScope(session.Scope),
+		SourceAgentSessionID: session.SourceAgentSessionID, SideRequestID: session.SideRequestID,
 		AgentTargetID: session.AgentTargetID, Provider: session.Provider,
 		ProviderSessionID: session.ProviderSessionID, Resumable: session.Resumable,
 		CWD: session.Cwd, Env: append([]string(nil), session.Env...), MCPServers: runtimeMCPServerBindings(session.MCPServers),

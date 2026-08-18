@@ -85,8 +85,13 @@ type Fixture struct {
 	// explicit TurnID is not the Session.ActiveTurnID. It models the runtime
 	// target race without exposing a runtime/provider API to scenarios.
 	GuidanceTargetMismatch bool
-	DeleteAdmissionErr     error
-	DeleteSessionPlans     [][]string
+	// CancelDeliveryUnconfirmed makes the test runtime acknowledge the exact
+	// cancel delivery without being able to confirm that it stopped that turn.
+	// The Host must retain the durable operation instead of inventing a
+	// terminal outcome.
+	CancelDeliveryUnconfirmed bool
+	DeleteAdmissionErr        error
+	DeleteSessionPlans        [][]string
 }
 
 type SessionObservation struct {
@@ -123,6 +128,7 @@ type CancelObservation struct {
 	Session  SessionObservation
 	TurnID   string
 	Canceled bool
+	Pending  bool
 	Reason   string
 }
 
@@ -355,6 +361,30 @@ type InteractionTreeScenario struct {
 	run  func(context.Context, InteractionTreeDriver) error
 }
 
+type SideConversationMetrics struct {
+	ParentActive    bool
+	CanonicalWrites int
+	TransientEvents int
+	SideLive        bool
+}
+
+// SideConversationDriver is optional because a provider may omit the native
+// Side adapter entirely. Implementations exercise the common Host lifecycle;
+// provider-specific protocol details belong in adapter tests.
+type SideConversationDriver interface {
+	ResetSideConversation(context.Context) error
+	SettleSideParent(context.Context) error
+	OpenSideConversation(context.Context, agenthost.OpenSideConversationInput) (agenthost.OpenSideConversationResult, error)
+	SendSideConversation(context.Context, agenthost.RuntimeExecInput) (agenthost.RuntimeExecResult, error)
+	CloseSideConversation(context.Context, string, string) error
+	SideConversationMetrics() SideConversationMetrics
+}
+
+type SideConversationScenario struct {
+	Name string
+	run  func(context.Context, SideConversationDriver) error
+}
+
 func Run(ctx context.Context, driver Driver, scenario Scenario) error {
 	if driver == nil {
 		return fmt.Errorf("agent host conformance driver is required")
@@ -417,6 +447,23 @@ func RunInteractionTree(
 	}
 	if scenario.run == nil {
 		return fmt.Errorf("agent host interaction tree conformance scenario %q has no runner", scenario.Name)
+	}
+	return scenario.run(ctx, driver)
+}
+
+func RunSideConversation(
+	ctx context.Context,
+	driver SideConversationDriver,
+	scenario SideConversationScenario,
+) error {
+	if driver == nil {
+		return fmt.Errorf("agent host side conversation conformance driver is required")
+	}
+	if scenario.run == nil {
+		return fmt.Errorf(
+			"agent host side conversation conformance scenario %q has no runner",
+			scenario.Name,
+		)
 	}
 	return scenario.run(ctx, driver)
 }

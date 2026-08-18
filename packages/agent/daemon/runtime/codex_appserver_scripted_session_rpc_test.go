@@ -1,34 +1,41 @@
 package agentruntime
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 type scriptedSessionState struct {
-	modelList                    []any
-	userAgent                    string
-	forkChildThreadID            string
-	forkedFromThreadID           string
-	omitForkedFromThreadID       bool
-	emptyForkedFromThreadID      bool
-	forkResponseLastTurnID       string
-	forkResponseTurnIDs          []string
-	threadReadTurnIDs            []string
-	forkRPCError                 bool
-	requiresAuth                 bool
-	collaborationModeUnsupported bool
-	accountReadError             bool
-	accountReadErrorCode         int
-	accountReadErrorMessage      string
-	rateLimitsReadError          bool
-	rateLimitsReadErrorCode      int
-	rateLimitsReadErrorMessage   string
-	childNicknames               map[string]string
-	historyTurns                 []any
-	rollbackHistoryTurns         []any
-	rollbackUnsupported          bool
-	threadName                   string
-	replayTokenUsageOnResume     bool
-	threadResumeError            bool
-	extraRootsError              bool
+	modelList                      []any
+	userAgent                      string
+	forkChildThreadID              string
+	forkedFromThreadID             string
+	omitForkedFromThreadID         bool
+	emptyForkedFromThreadID        bool
+	forkResponseLastTurnID         string
+	forkResponseTurnIDs            []string
+	forkNotificationBeforeResponse bool
+	forkResponseDelay              time.Duration
+	threadReadTurnIDs              []string
+	forkRPCError                   bool
+	requiresAuth                   bool
+	collaborationModeUnsupported   bool
+	accountReadError               bool
+	accountReadErrorCode           int
+	accountReadErrorMessage        string
+	rateLimitsReadError            bool
+	rateLimitsReadErrorCode        int
+	rateLimitsReadErrorMessage     string
+	childNicknames                 map[string]string
+	historyTurns                   []any
+	rollbackHistoryTurns           []any
+	rollbackUnsupported            bool
+	threadName                     string
+	replayTokenUsageOnResume       bool
+	threadResumeError              bool
+	mcpAuthStderrOnResume          bool
+	mcpAuthStderrResumeResponse    bool
+	extraRootsError                bool
 }
 
 func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) bool {
@@ -197,8 +204,16 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 	case appServerMethodThreadStart, appServerMethodThreadResume:
 		s.mu.Lock()
 		threadResumeError := s.threadResumeError && message.Method == appServerMethodThreadResume
+		mcpAuthStderrOnResume := s.mcpAuthStderrOnResume && message.Method == appServerMethodThreadResume
+		mcpAuthStderrResumeResponse := s.mcpAuthStderrResumeResponse && message.Method == appServerMethodThreadResume
 		replayTokenUsage := s.replayTokenUsageOnResume && message.Method == appServerMethodThreadResume
 		s.mu.Unlock()
+		if mcpAuthStderrOnResume {
+			s.sendStderr([]byte(`rmcp::transport::worker: worker quit with fatal: Transport channel closed, when AuthRequired(AuthRequiredError { www_authenticate_header: "Bearer resource_metadata=\"https://mcp.figma.com/.well-known/oauth-protected-resource\",scope=\"mcp:connect\"" })`))
+			if !mcpAuthStderrResumeResponse {
+				return true
+			}
+		}
 		if threadResumeError {
 			s.sendJSON(map[string]any{
 				"id":    message.ID,
@@ -278,11 +293,33 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 				thread["forkedFromId"] = forkedFromThreadID
 			}
 		}
-		s.sendJSON(map[string]any{
+		if s.forkNotificationBeforeResponse {
+			s.notify(appServerNotifyThreadNameUpdated, map[string]any{
+				"threadId":   childThreadID,
+				"threadName": "Early Side title",
+			})
+		}
+		s.mu.Lock()
+		forkResponseDelay := s.forkResponseDelay
+		s.mu.Unlock()
+		response := map[string]any{
 			"id": message.ID,
 			"result": map[string]any{
 				"thread": thread,
 			},
+		}
+		if forkResponseDelay > 0 {
+			go func() {
+				time.Sleep(forkResponseDelay)
+				s.sendJSON(response)
+			}()
+			return true
+		}
+		s.sendJSON(response)
+	case appServerMethodThreadInjectItems:
+		s.sendJSON(map[string]any{
+			"id":     message.ID,
+			"result": map[string]any{},
 		})
 	case appServerMethodThreadRead:
 		s.mu.Lock()

@@ -383,7 +383,7 @@ func (c *appServerConnection) route(ctx context.Context, message acpMessage) err
 		return nil
 	}
 	routed := appServerRoutedMessage{ctx: ctx, message: message, receivedAt: c.nowTime()}
-	threadID := appServerMessageThreadID(message)
+	threadID := appServerMessageThreadIDFromMessage(message)
 	c.mu.Lock()
 	if c.dead || c.closing {
 		c.mu.Unlock()
@@ -699,7 +699,7 @@ func (b *appServerThreadBinding) captureReplayUsage(message acpMessage) {
 	b.mu.Unlock()
 }
 
-func appServerMessageThreadID(message acpMessage) string {
+func appServerMessageThreadIDFromMessage(message acpMessage) string {
 	if len(message.Params) == 0 {
 		return ""
 	}

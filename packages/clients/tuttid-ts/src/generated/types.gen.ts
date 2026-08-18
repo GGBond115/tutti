@@ -619,8 +619,14 @@ export type WorkspaceAppAgentPreferencesResponse = {
 };
 
 export type PutDesktopPreferencesRequest = {
+  writeMode?: DesktopPreferencesWriteMode;
   preferences: DesktopPreferences;
 };
+
+/**
+ * replace performs the normal full preference update, and omitting writeMode is equivalent to replace. initializeIfAbsent atomically creates the preference row only when it does not exist after applying the daemon-owned Agent workspace-mode default to the supplied preferences. If the row already exists, it returns the authoritative stored preferences unchanged.
+ */
+export type DesktopPreferencesWriteMode = "replace" | "initializeIfAbsent";
 
 export type DesktopUpdateAdmissionProduct = "tsh-desktop" | "tutti-desktop";
 
@@ -2910,9 +2916,13 @@ export type WorkspaceAgentSessionGoal = {
 export type WorkspaceAgentTurnCancelResult = {
   canceled: boolean;
   /**
-   * turn_canceled reports an active turn was stopped. already_settled and not_found are idempotent no-op successes, not errors.
+   * turn_canceled reports an active turn was stopped. cancel_requested reports accepted cancellation whose exact provider delivery still needs canonical reconciliation. already_settled and not_found are idempotent no-op successes, not errors.
    */
-  reason: "turn_canceled" | "already_settled" | "not_found";
+  reason:
+    | "turn_canceled"
+    | "cancel_requested"
+    | "already_settled"
+    | "not_found";
 };
 
 export type WorkspaceAgentTurnCancelResponse = {
@@ -3475,6 +3485,67 @@ export type WorkspaceAgentRailPlacement = {
   kind: "conversations" | "project";
   projectPath?: string;
   sectionKey: string;
+};
+
+export type WorkspaceAgentSideCapabilities = {
+  supported: boolean;
+  activeSourceTurn: boolean;
+  ephemeral: boolean;
+  hideInheritedTurns: boolean;
+  modelBoundaryInjected: boolean;
+};
+
+export type WorkspaceAgentSideCapabilitiesResponse = {
+  capabilities: WorkspaceAgentSideCapabilities;
+};
+
+export type OpenWorkspaceAgentSideConversationRequest = {
+  sideAgentSessionId: string;
+  requestId: string;
+};
+
+export type WorkspaceAgentSideConversation = {
+  workspaceId: string;
+  sourceAgentSessionId: string;
+  sideAgentSessionId: string;
+  provider: string;
+  status: string;
+  capabilities: WorkspaceAgentSideCapabilities;
+};
+
+export type WorkspaceAgentSideConversationResponse = {
+  side: WorkspaceAgentSideConversation;
+};
+
+export type SendWorkspaceAgentSideConversationInputRequest = {
+  turnId: string;
+  clientSubmitId: string;
+  content: Array<AgentPromptContentBlock>;
+  displayPrompt?: string | null;
+};
+
+export type WorkspaceAgentSideTurnResponse = {
+  sideAgentSessionId: string;
+  turnId: string;
+  accepted: boolean;
+  status: string;
+};
+
+export type WorkspaceAgentSideTurnCancelResponse = {
+  canceled: boolean;
+  targetAbsent: boolean;
+};
+
+export type SubmitWorkspaceAgentSideConversationInteractiveRequest = {
+  action?: string;
+  optionId?: string;
+  payload?: {
+    [key: string]: unknown;
+  };
+};
+
+export type WorkspaceAgentSideInteractiveResponse = {
+  disposition: string;
 };
 
 export type SendWorkspaceAgentSessionInputRequest = {
@@ -4808,6 +4879,14 @@ export type ConnectorMarketCategory = {
   kind: "category" | "featured";
   sortOrder: number;
   itemCount: number;
+  /**
+   * Server-managed Simplified Chinese category name.
+   */
+  displayNameZh?: string;
+  /**
+   * Server-managed English category name.
+   */
+  displayNameEn?: string;
 };
 
 export type ConnectorMarketCategoriesResponse = {
@@ -12863,6 +12942,329 @@ export type RecoverWorkspaceAgentEditRetryResponses = {
 
 export type RecoverWorkspaceAgentEditRetryResponse =
   RecoverWorkspaceAgentEditRetryResponses[keyof RecoverWorkspaceAgentEditRetryResponses];
+
+export type ResolveWorkspaceAgentSideCapabilitiesData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    agentSessionID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/side-capabilities";
+};
+
+export type ResolveWorkspaceAgentSideCapabilitiesErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * The source session is not eligible for Side
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ResolveWorkspaceAgentSideCapabilitiesError =
+  ResolveWorkspaceAgentSideCapabilitiesErrors[keyof ResolveWorkspaceAgentSideCapabilitiesErrors];
+
+export type ResolveWorkspaceAgentSideCapabilitiesResponses = {
+  /**
+   * Side capabilities for the live source session
+   */
+  200: WorkspaceAgentSideCapabilitiesResponse;
+};
+
+export type ResolveWorkspaceAgentSideCapabilitiesResponse =
+  ResolveWorkspaceAgentSideCapabilitiesResponses[keyof ResolveWorkspaceAgentSideCapabilitiesResponses];
+
+export type OpenWorkspaceAgentSideConversationData = {
+  body: OpenWorkspaceAgentSideConversationRequest;
+  path: {
+    workspaceID: string;
+    agentSessionID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/side-conversations";
+};
+
+export type OpenWorkspaceAgentSideConversationErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Side identity conflicts, is opening, or the source is ineligible
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type OpenWorkspaceAgentSideConversationError =
+  OpenWorkspaceAgentSideConversationErrors[keyof OpenWorkspaceAgentSideConversationErrors];
+
+export type OpenWorkspaceAgentSideConversationResponses = {
+  /**
+   * Opened or reconciled transient Side conversation
+   */
+  200: WorkspaceAgentSideConversationResponse;
+};
+
+export type OpenWorkspaceAgentSideConversationResponse =
+  OpenWorkspaceAgentSideConversationResponses[keyof OpenWorkspaceAgentSideConversationResponses];
+
+export type CloseWorkspaceAgentSideConversationData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    sideAgentSessionID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}";
+};
+
+export type CloseWorkspaceAgentSideConversationErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type CloseWorkspaceAgentSideConversationError =
+  CloseWorkspaceAgentSideConversationErrors[keyof CloseWorkspaceAgentSideConversationErrors];
+
+export type CloseWorkspaceAgentSideConversationResponses = {
+  /**
+   * Side conversation closed or already absent
+   */
+  204: void;
+};
+
+export type CloseWorkspaceAgentSideConversationResponse =
+  CloseWorkspaceAgentSideConversationResponses[keyof CloseWorkspaceAgentSideConversationResponses];
+
+export type SendWorkspaceAgentSideConversationInputData = {
+  body: SendWorkspaceAgentSideConversationInputRequest;
+  path: {
+    workspaceID: string;
+    sideAgentSessionID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}/turns";
+};
+
+export type SendWorkspaceAgentSideConversationInputErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * The Side conversation has expired or cannot accept input
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type SendWorkspaceAgentSideConversationInputError =
+  SendWorkspaceAgentSideConversationInputErrors[keyof SendWorkspaceAgentSideConversationInputErrors];
+
+export type SendWorkspaceAgentSideConversationInputResponses = {
+  /**
+   * Accepted transient Side turn
+   */
+  200: WorkspaceAgentSideTurnResponse;
+};
+
+export type SendWorkspaceAgentSideConversationInputResponse =
+  SendWorkspaceAgentSideConversationInputResponses[keyof SendWorkspaceAgentSideConversationInputResponses];
+
+export type CancelWorkspaceAgentSideConversationTurnData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    sideAgentSessionID: string;
+    turnID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}/turns/{turnID}/cancel";
+};
+
+export type CancelWorkspaceAgentSideConversationTurnErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * The Side conversation has expired
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type CancelWorkspaceAgentSideConversationTurnError =
+  CancelWorkspaceAgentSideConversationTurnErrors[keyof CancelWorkspaceAgentSideConversationTurnErrors];
+
+export type CancelWorkspaceAgentSideConversationTurnResponses = {
+  /**
+   * Side turn cancel result
+   */
+  200: WorkspaceAgentSideTurnCancelResponse;
+};
+
+export type CancelWorkspaceAgentSideConversationTurnResponse =
+  CancelWorkspaceAgentSideConversationTurnResponses[keyof CancelWorkspaceAgentSideConversationTurnResponses];
+
+export type SubmitWorkspaceAgentSideConversationInteractiveData = {
+  body: SubmitWorkspaceAgentSideConversationInteractiveRequest;
+  path: {
+    workspaceID: string;
+    sideAgentSessionID: string;
+    turnID: string;
+    requestID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}/turns/{turnID}/interactive/{requestID}";
+};
+
+export type SubmitWorkspaceAgentSideConversationInteractiveErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * The Side conversation or interaction is no longer live
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type SubmitWorkspaceAgentSideConversationInteractiveError =
+  SubmitWorkspaceAgentSideConversationInteractiveErrors[keyof SubmitWorkspaceAgentSideConversationInteractiveErrors];
+
+export type SubmitWorkspaceAgentSideConversationInteractiveResponses = {
+  /**
+   * Side interactive response disposition
+   */
+  200: WorkspaceAgentSideInteractiveResponse;
+};
+
+export type SubmitWorkspaceAgentSideConversationInteractiveResponse =
+  SubmitWorkspaceAgentSideConversationInteractiveResponses[keyof SubmitWorkspaceAgentSideConversationInteractiveResponses];
 
 export type SubmitWorkspaceAgentPlanDecisionData = {
   body: SubmitWorkspaceAgentPlanDecisionRequest;

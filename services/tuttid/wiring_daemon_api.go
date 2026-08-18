@@ -284,9 +284,7 @@ func buildDaemonAPI(
 		Publisher: eventstreamservice.AgentQuickPromptPublisher{Service: events},
 	}
 	agentRuntimeController := newAgentRuntimeAdapter(agentRuntime.Controller(), agentRuntimePreparer)
-	agentRuntime.Controller().SetStreamEventObserver(agentRuntimeActivityEventBridge{
-		publisher: eventstreamservice.AgentActivityPublisher{Service: events},
-	})
+	configureAgentRuntimeEventObservers(agentRuntime.Controller(), events)
 	agentModelCapabilities := agentservice.NewModelCapabilitiesService()
 	agentModelCatalog := agentservice.NewAgentModelCatalog()
 	agentModelCatalog.PersistentPath = filepath.Join(
@@ -829,6 +827,7 @@ func buildDaemonAPI(
 			Adapter: fileAdapter,
 		},
 		AgentSessionService:          agentSessionService,
+		SideConversationService:      agentSessionService,
 		AgentSessionRecordingService: agentSessionRecordingService,
 		AgentSessionReplayVerifier:   agentSessionReplayVerifier,
 		AgentStatusService:           replayAgentProviderStatusAPI(replayComposition, &agentStatusService),

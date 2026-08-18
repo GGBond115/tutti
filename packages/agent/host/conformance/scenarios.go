@@ -35,6 +35,7 @@ var (
 	}
 	duplicateClientSubmitIDScenario     = Scenario{Name: "duplicate client submit id", run: runDuplicateClientSubmitID}
 	exactTurnCancelScenario             = Scenario{Name: "exact turn cancel", run: runExactTurnCancel}
+	unconfirmedTurnCancelScenario       = Scenario{Name: "exact turn cancel keeps delivery-unconfirmed intent pending", run: runUnconfirmedTurnCancel}
 	interactiveResponseScenario         = Scenario{Name: "interactive response", run: runInteractiveResponse}
 	interactiveResponseReusedIDScenario = Scenario{Name: "interactive response reuses provider request id across turns", run: runInteractiveResponseReusedRequestID}
 	interactiveResponseRaceScenario     = Scenario{Name: "interactive response race", run: runInteractiveResponseRace}
@@ -150,6 +151,7 @@ func DeletionAdmissionScenarios() []Scenario {
 func CoordinatorScenarios() []Scenario {
 	return []Scenario{
 		exactTurnCancelScenario,
+		unconfirmedTurnCancelScenario,
 		interactiveResponseScenario,
 		interactiveResponseReusedIDScenario,
 		interactiveResponseRaceScenario,
@@ -207,6 +209,16 @@ func InteractionTreeScenarios() []InteractionTreeScenario {
 	return []InteractionTreeScenario{{
 		Name: "root interaction tree includes descendant latest turns",
 		run:  runInteractionTreeSnapshot,
+	}}
+}
+
+// SideConversationScenarios fixes the provider-neutral contract: the source
+// remains untouched, Side output is transient, a Side survives source Turn
+// settlement, and explicit close releases the child.
+func SideConversationScenarios() []SideConversationScenario {
+	return []SideConversationScenario{{
+		Name: "active parent side stays transient",
+		run:  runActiveParentSideStaysTransient,
 	}}
 }
 

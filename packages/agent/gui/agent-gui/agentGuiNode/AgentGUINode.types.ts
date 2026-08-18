@@ -43,7 +43,10 @@ import type {
   AgentMentionReferenceTargetResolver,
   AgentWorkspaceReferenceInitialTargetResolver
 } from "./AgentGUINodeView";
-import type { AgentVisibleErrorOverrides } from "../../shared/agentEnv/agentErrorPresentation";
+import type {
+  AgentVisibleErrorOverrides,
+  AgentVisibleErrorPresentationScope
+} from "../../shared/agentEnv/agentErrorPresentation";
 import type {
   AgentComposerCapabilityMenuState,
   AgentComposerCapabilitySettingsTarget,
@@ -128,6 +131,8 @@ export interface AgentGUINodeHostCapabilities {
   referenceProvenanceFilterEnabled?: boolean;
   /** Host-owned experimental opt-in for current-Session composer history. */
   sessionInputHistoryEnabled?: boolean;
+  /** Host-owned experimental opt-in for Side and transcript selection actions. */
+  sideConversationEnabled?: boolean;
   /** Host-owned opt-in for launching self-owned local Sessions in git worktrees. */
   sessionWorktreeEnabled?: boolean;
   /** Host-owned durable launch preference projection for this workspace. */
@@ -147,6 +152,11 @@ export interface AgentGUINodeHostCapabilities {
    * AgentGUI owns the generic card; product domains own product semantics.
    */
   visibleErrorPresentationOverrides?: AgentVisibleErrorOverrides | null;
+  /**
+   * Presentation-only remediation authority for visible errors. Omission
+   * retains local-owner behavior for backwards compatibility.
+   */
+  visibleErrorPresentationScope?: AgentVisibleErrorPresentationScope;
   agentTargets?: readonly AgentGUIAgentTarget[];
   agentTargetsLoading?: boolean;
   /** Complete presentation-only catalog for resolving Agent mention identity. */
@@ -425,6 +435,7 @@ export function areAgentGUINodePropsEqual(
     pc.referenceProvenanceFilterEnabled ===
       nc.referenceProvenanceFilterEnabled &&
     pc.sessionInputHistoryEnabled === nc.sessionInputHistoryEnabled &&
+    pc.sideConversationEnabled === nc.sideConversationEnabled &&
     pc.sessionWorktreeEnabled === nc.sessionWorktreeEnabled &&
     pc.sessionLaunchModesByProjectSectionKey ===
       nc.sessionLaunchModesByProjectSectionKey &&

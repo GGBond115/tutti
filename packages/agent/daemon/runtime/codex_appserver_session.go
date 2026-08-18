@@ -185,6 +185,7 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 		connection:             connection,
 		binding:                binding,
 		threadID:               threadID,
+		runtimeSession:         session,
 		serverInfo:             serverInfo,
 		account:                account,
 		models:                 cloneCodexAppServerModels(models),
@@ -405,6 +406,7 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 		connection:             connection,
 		binding:                binding,
 		threadID:               strings.TrimSpace(session.ProviderSessionID),
+		runtimeSession:         session,
 		serverInfo:             serverInfo,
 		account:                account,
 		models:                 cloneCodexAppServerModels(models),
@@ -466,6 +468,74 @@ func (a *CodexAppServerAdapter) Close(ctx context.Context, session Session) erro
 	return a.detachLiveSession(ctx, agentSessionID, false)
 }
 
+func (a *CodexAppServerAdapter) QuiesceForClose(
+	ctx context.Context,
+	session Session,
+) error {
+	if a == nil {
+		return nil
+	}
+	appTurn := a.sessionActiveTurn(session.AgentSessionID)
+	if appTurn == nil &&
+		a.sessionActiveTurnID(session.AgentSessionID) == "" {
+		return nil
+	}
+	appSession := a.getSession(session.AgentSessionID)
+	_, err := a.Cancel(ctx, session, "session closed")
+	if errors.Is(err, ErrSessionDisconnected) {
+		return nil
+	}
+	if err != nil && !errors.Is(err, ErrSessionNoActiveTurn) {
+		return err
+	}
+	if appTurn == nil {
+		return nil
+	}
+	select {
+	case <-appTurn.terminated:
+		return nil
+	default:
+	}
+
+	// Cancel queues an interrupt when turn/start has been sent but has not
+	// returned the provider Turn id yet. Close must not detach the session while
+	// that queued interrupt still depends on the session registry. Wait for the
+	// normal binding/interrupt path, then tear down the shared transport if the
+	// provider never supplies an interruptible identity within the ordinary
+	// cancellation grace window.
+	grace := a.cancelGraceWindow
+	if grace <= 0 {
+		grace = defaultCodexAppServerCancelGraceWindow
+	}
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-appTurn.terminated:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+	a.markTurnForceCanceled(appTurn)
+	slog.Warn(
+		"agent session app-server force-closing turn with unresolved provider identity",
+		"event", "agent_session.app_server.close.pending_turn_start_forced",
+		"agent_session_id", session.AgentSessionID,
+		"provider_session_id", session.ProviderSessionID,
+		"turn_id", appTurn.turnID,
+		"grace_ms", grace.Milliseconds(),
+	)
+	if appSession != nil && appSession.client != nil {
+		_ = appSession.client.Close()
+	}
+	select {
+	case <-appTurn.terminated:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (a *CodexAppServerAdapter) ReleaseLiveSession(ctx context.Context, session Session) error {
 	if a == nil {
 		return nil
@@ -514,20 +584,23 @@ func (a *CodexAppServerAdapter) detachLiveSession(ctx context.Context, agentSess
 		}
 	}
 	a.mu.Unlock()
-	if appSession != nil && connection != nil && binding != nil {
+	if appSession != nil && connection != nil {
 		var unsubscribeErr error
 		if threadID = strings.TrimSpace(threadID); threadID != "" {
 			unsubscribeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			_, unsubscribeErr = client.ThreadUnsubscribe(unsubscribeCtx, 5*time.Second, threadID)
 			cancel()
 		}
-		detachErr := connection.detachBinding(binding)
-		a.mu.Lock()
-		if a.sessions[agentSessionID] == appSession {
-			appSession.binding = nil
-			appSession.threadID = ""
+		var detachErr error
+		if binding != nil {
+			detachErr = connection.detachBinding(binding)
+			a.mu.Lock()
+			if a.sessions[agentSessionID] == appSession {
+				appSession.binding = nil
+				appSession.threadID = ""
+			}
+			a.mu.Unlock()
 		}
-		a.mu.Unlock()
 		var closeErr error
 		if closePhysical {
 			_, closeErr = a.connections.closeIfIdle(connection)
