@@ -432,6 +432,8 @@ components:
       properties:
         catalogState:
           $ref: "#/components/schemas/ConnectorMarketCatalogState"
+        catalogFreshness:
+          $ref: "#/components/schemas/ConnectorMarketCatalogFreshness"
         connectors:
           type: array
           items:
@@ -822,6 +824,29 @@ components:
     ConnectorMarketCatalogState:
       type: string
       enum: [ready, refreshing, stale, failed]
+    ConnectorMarketCatalogFreshness:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state:
+          $ref: "#/components/schemas/ConnectorMarketCatalogFreshnessState"
+        snapshotId:
+          type: string
+          minLength: 1
+        sourceRevision:
+          type: string
+        acceptedAt:
+          type: string
+          format: date-time
+        staleSince:
+          type: string
+          format: date-time
+        lastFailure:
+          type: string
+    ConnectorMarketCatalogFreshnessState:
+      type: string
+      enum: [unavailable, refreshing, fresh, stale]
     ConnectorMarketInstallationState:
       type: string
       enum:

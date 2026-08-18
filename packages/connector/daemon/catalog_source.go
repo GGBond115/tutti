@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -69,56 +69,63 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 }
 
 func (source *CatalogSource) Refresh(ctx context.Context) (market.CatalogSnapshot, error) {
-	categories, err := source.ListCategories(ctx)
+	// The current Market API does not expose a catalog snapshot revision, so a
+	// refresh intentionally pays for two complete reads and accepts only equal
+	// validated results. A future server revision can replace this 2x-read fence.
+	first, err := source.fetchSnapshot(ctx)
 	if err != nil {
 		return market.CatalogSnapshot{}, err
 	}
-	releases := make([]market.Release, 0)
-	seen := make(map[string]struct{})
+	second, err := source.fetchSnapshot(ctx)
+	if err != nil {
+		return market.CatalogSnapshot{}, err
+	}
+	if !reflect.DeepEqual(first, second) {
+		return market.CatalogSnapshot{}, market.NewDomainError(market.ErrorCodeUpstreamUnavailable,
+			"connector market changed while a complete snapshot was being read", true, nil)
+	}
+	return second, nil
+}
+
+func (source *CatalogSource) fetchSnapshot(ctx context.Context) (market.CatalogSnapshot, error) {
+	categories, err := source.fetchCategories(ctx)
+	if err != nil {
+		return market.CatalogSnapshot{}, err
+	}
+	primaryPlacements := make(map[string]struct{})
 	primarySections := 0
+	entries := make([]market.CatalogEntry, 0)
 	for _, category := range categories {
-		if category.Kind != "category" {
-			continue
+		if category.Kind == "category" {
+			primarySections++
 		}
-		primarySections++
-		pageToken := ""
-		seenPageTokens := make(map[string]struct{})
-		for {
-			page, pageErr := source.ListPage(ctx, market.CatalogSourcePageQuery{SectionID: category.CategoryID, PageSize: 100, PageToken: pageToken})
-			if pageErr != nil {
-				return market.CatalogSnapshot{}, pageErr
-			}
-			for _, entry := range page.Entries {
-				if _, exists := seen[entry.Release.ConnectorKey]; exists {
+		sectionEntries, err := source.fetchSection(ctx, category.CategoryID)
+		if err != nil {
+			return market.CatalogSnapshot{}, err
+		}
+		if int64(len(sectionEntries)) != category.ItemCount {
+			return market.CatalogSnapshot{}, errors.New("connector market category item count does not match the complete section")
+		}
+		for index := range sectionEntries {
+			entry := &sectionEntries[index]
+			entry.SectionID = category.CategoryID
+			entry.Order = index
+			if category.Kind == "category" {
+				if _, exists := primaryPlacements[entry.Release.ConnectorKey]; exists {
 					return market.CatalogSnapshot{}, errors.New("connector market catalog contains duplicate primary placements")
 				}
-				seen[entry.Release.ConnectorKey] = struct{}{}
-				releases = append(releases, entry.Release)
+				primaryPlacements[entry.Release.ConnectorKey] = struct{}{}
 			}
-			if page.NextPageToken == "" {
-				break
-			}
-			if _, exists := seenPageTokens[page.NextPageToken]; exists {
-				return market.CatalogSnapshot{}, errors.New("connector market catalog returned a cyclic page token")
-			}
-			seenPageTokens[page.NextPageToken] = struct{}{}
-			pageToken = page.NextPageToken
 		}
+		entries = append(entries, sectionEntries...)
 	}
 	if primarySections == 0 {
 		return market.CatalogSnapshot{}, errors.New("connector market catalog returned no primary categories")
 	}
-	revisionHash := sha256.New()
-	for _, release := range releases {
-		_, _ = io.WriteString(revisionHash, release.ConnectorKey)
-		_, _ = io.WriteString(revisionHash, "\x00")
-		_, _ = io.WriteString(revisionHash, release.ReleaseDigest)
-		_, _ = io.WriteString(revisionHash, "\n")
-	}
-	return market.CatalogSnapshot{SourceRevision: hex.EncodeToString(revisionHash.Sum(nil)), Releases: releases}, nil
+	return market.CatalogSnapshot{Categories: categories, Entries: entries}, nil
 }
 
-func (source *CatalogSource) ListCategories(ctx context.Context) ([]market.CatalogCategory, error) {
+func (source *CatalogSource) fetchCategories(ctx context.Context) ([]market.CatalogCategory, error) {
 	payload, err := source.marketClient.ListMarketCategories(ctx, &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
 	if err != nil {
 		return nil, fmt.Errorf("request connector market catalog: %w", err)
@@ -143,31 +150,54 @@ func (source *CatalogSource) ListCategories(ctx context.Context) ([]market.Catal
 			DisplayNameZH: category.GetDisplayNameZh(), DisplayNameEN: category.GetDisplayNameEn(),
 		})
 	}
+	sort.Slice(categories, func(left, right int) bool {
+		if categories[left].SortOrder == categories[right].SortOrder {
+			return categories[left].CategoryID < categories[right].CategoryID
+		}
+		return categories[left].SortOrder < categories[right].SortOrder
+	})
 	return categories, nil
 }
 
-func (source *CatalogSource) ListPage(ctx context.Context, input market.CatalogSourcePageQuery) (market.CatalogSourcePage, error) {
-	payload, err := source.marketClient.ListMarketItems(ctx, &marketv1.ListMarketItemsRequest{
-		ItemType: "connector", SectionId: strings.TrimSpace(input.SectionID), PageSize: int32(input.PageSize), PageToken: strings.TrimSpace(input.PageToken),
-	})
-	if err != nil {
-		return market.CatalogSourcePage{}, fmt.Errorf("request connector market catalog: %w", err)
-	}
-	if payload.GetMarketType() != source.expectedMarketType {
-		return market.CatalogSourcePage{}, errors.New("connector market type does not match configured market")
-	}
-	entries := make([]market.CatalogEntry, 0, len(payload.GetItems()))
-	for _, item := range payload.GetItems() {
-		release, err := source.mapItem(item)
+func (source *CatalogSource) fetchSection(ctx context.Context, sectionID string) ([]market.CatalogEntry, error) {
+	entries := make([]market.CatalogEntry, 0)
+	seenConnectors := make(map[string]struct{})
+	pageToken := ""
+	seenPageTokens := make(map[string]struct{})
+	for {
+		payload, err := source.marketClient.ListMarketItems(ctx, &marketv1.ListMarketItemsRequest{
+			ItemType: "connector", SectionId: sectionID, PageSize: 100, PageToken: pageToken,
+		})
 		if err != nil {
-			return market.CatalogSourcePage{}, err
+			return nil, fmt.Errorf("request connector market catalog: %w", err)
 		}
-		if strings.TrimSpace(item.GetCategoryId()) == "" {
-			return market.CatalogSourcePage{}, errors.New("connector market item category is missing")
+		if payload.GetMarketType() != source.expectedMarketType {
+			return nil, errors.New("connector market type does not match configured market")
 		}
-		entries = append(entries, market.CatalogEntry{CategoryID: item.GetCategoryId(), Featured: item.GetFeatured(), Release: release})
+		for _, item := range payload.GetItems() {
+			release, err := source.mapItem(item)
+			if err != nil {
+				return nil, err
+			}
+			if strings.TrimSpace(item.GetCategoryId()) == "" {
+				return nil, errors.New("connector market item category is missing")
+			}
+			if _, exists := seenConnectors[release.ConnectorKey]; exists {
+				return nil, errors.New("connector market section contains duplicate placements")
+			}
+			seenConnectors[release.ConnectorKey] = struct{}{}
+			entries = append(entries, market.CatalogEntry{SectionID: sectionID, CategoryID: item.GetCategoryId(), Featured: item.GetFeatured(), Release: release})
+		}
+		nextPageToken := strings.TrimSpace(payload.GetNextPageToken())
+		if nextPageToken == "" {
+			return entries, nil
+		}
+		if _, exists := seenPageTokens[nextPageToken]; exists {
+			return nil, errors.New("connector market catalog returned a cyclic page token")
+		}
+		seenPageTokens[nextPageToken] = struct{}{}
+		pageToken = nextPageToken
 	}
-	return market.CatalogSourcePage{SectionID: strings.TrimSpace(input.SectionID), Entries: entries, NextPageToken: payload.GetNextPageToken()}, nil
 }
 
 func (source *CatalogSource) ResolveArtifactDownload(ctx context.Context, releaseDigest string) (market.ArtifactDownload, error) {

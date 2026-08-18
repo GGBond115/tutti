@@ -5,10 +5,11 @@ package host
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,14 +41,11 @@ type Application struct {
 
 	// executionMu and inFlight provide process-local ownership for operation
 	// execution. Durable recovery remains the repository and adapter contract.
-	executionMu            sync.Mutex
-	inFlight               map[string]*operationExecution
-	catalogMu              sync.Mutex
-	catalogFetchSequence   uint64
-	catalogAppliedSequence uint64
-	authorizationMu        sync.Mutex
-	authorizationLanes     map[string]*sync.Mutex
-	authorizationRequests  map[string]*authorizationRequestExecution
+	executionMu           sync.Mutex
+	inFlight              map[string]*operationExecution
+	authorizationMu       sync.Mutex
+	authorizationLanes    map[string]*sync.Mutex
+	authorizationRequests map[string]*authorizationRequestExecution
 }
 
 type operationExecution struct {
@@ -164,23 +162,14 @@ func publicSnapshot(snapshot Snapshot, scope OperationScope) Snapshot {
 }
 
 func (application *Application) ListCatalogCategories(ctx context.Context) ([]CatalogCategory, error) {
-	categories, err := application.config.CatalogSource.ListCategories(ctx)
+	view, err := application.config.Repository.CatalogView(ctx)
 	if err != nil {
-		return nil, preserveCatalogSourceError("connector catalog categories could not be loaded", err)
+		return nil, err
 	}
-	seen := make(map[string]struct{}, len(categories))
-	for _, category := range categories {
-		if strings.TrimSpace(category.CategoryID) == "" ||
-			(category.Kind != "category" && category.Kind != "featured") ||
-			category.ItemCount < 0 {
-			return nil, invalidManifest("connector catalog returned an invalid category", nil)
-		}
-		if _, exists := seen[category.CategoryID]; exists {
-			return nil, invalidManifest("connector catalog returned duplicate categories", nil)
-		}
-		seen[category.CategoryID] = struct{}{}
+	if view.Freshness.SnapshotID == "" {
+		return nil, catalogUnavailable(view.Freshness)
 	}
-	return categories, nil
+	return view.Categories, nil
 }
 
 func (application *Application) ListCatalogPage(ctx context.Context, query CatalogPageQuery) (CatalogPage, error) {
@@ -193,141 +182,37 @@ func (application *Application) ListCatalogPage(ctx context.Context, query Catal
 	if query.InstallationFilter != "" && query.InstallationFilter != CatalogInstallationFilterNotInstalled {
 		return CatalogPage{}, invalidRequest("installation filter is invalid")
 	}
-	fetchSequence := application.beginCatalogFetch()
-	pageToken := query.PageToken
-	seenPageTokens := map[string]struct{}{pageToken: {}}
-	result := CatalogPage{
-		SectionID: query.SectionID,
-		Items:     make([]CatalogListing, 0, query.PageSize),
-	}
-	for {
-		pageSize := query.PageSize
-		if query.InstallationFilter == CatalogInstallationFilterNotInstalled {
-			pageSize -= len(result.Items)
-		}
-		page, err := application.config.CatalogSource.ListPage(ctx, CatalogSourcePageQuery{
-			SectionID: query.SectionID,
-			PageSize:  pageSize,
-			PageToken: pageToken,
-		})
-		if err != nil {
-			return CatalogPage{}, preserveCatalogSourceError("connector catalog page could not be loaded", err)
-		}
-		projected, err := application.projectCatalogSourcePage(ctx, fetchSequence, query.SectionID, page)
-		if err != nil {
-			return CatalogPage{}, err
-		}
-		if query.InstallationFilter == "" {
-			return projected, nil
-		}
-		if projected.Revision > result.Revision {
-			result.Revision = projected.Revision
-		}
-		for _, item := range projected.Items {
-			if !connectorHasInstalledArtifact(item.Connector) {
-				result.Items = append(result.Items, item)
-			}
-		}
-		result.NextPageToken = projected.NextPageToken
-		if len(result.Items) >= query.PageSize || projected.NextPageToken == "" {
-			return result, nil
-		}
-		if _, exists := seenPageTokens[projected.NextPageToken]; exists {
-			return CatalogPage{}, invalidManifest("connector catalog pagination did not advance", nil)
-		}
-		seenPageTokens[projected.NextPageToken] = struct{}{}
-		pageToken = projected.NextPageToken
-	}
-}
-
-func (application *Application) projectCatalogSourcePage(
-	ctx context.Context,
-	fetchSequence uint64,
-	sectionID string,
-	page CatalogSourcePage,
-) (CatalogPage, error) {
-	if page.SectionID != sectionID {
-		return CatalogPage{}, invalidManifest("connector catalog page section does not match the request", nil)
-	}
-	seen := make(map[string]struct{}, len(page.Entries))
-	compatibilityByKey := make(map[string]Compatibility, len(page.Entries))
-	for _, entry := range page.Entries {
-		if strings.TrimSpace(entry.CategoryID) == "" {
-			return CatalogPage{}, invalidManifest("connector catalog item category is required", nil)
-		}
-		if _, exists := seen[entry.Release.ConnectorKey]; exists {
-			return CatalogPage{}, invalidManifest("connector catalog page contains duplicate connectors", nil)
-		}
-		seen[entry.Release.ConnectorKey] = struct{}{}
-		if err := ValidateReleaseShape(entry.Release); err != nil {
-			return CatalogPage{}, err
-		}
-		compatibility, err := application.compatibilityFor(entry.Release.Manifest)
-		if err != nil {
-			return CatalogPage{}, err
-		}
-		compatibilityByKey[entry.Release.ConnectorKey] = compatibility
-	}
-
-	// Browsing is a cache-aside catalog sync. Persisting newly observed releases
-	// makes an item immediately installable without waiting for the background
-	// authoritative refresh; unseen items are never removed by a partial page.
-	var revision uint64
-	applied, err := application.applyCatalogFetch(fetchSequence, func() error {
-		return application.config.Repository.Transaction(ctx, func(tx Transaction) error {
-			revision = tx.Revision()
-			changed := make([]Connector, 0, len(page.Entries))
-			for _, entry := range page.Entries {
-				connector, lookupErr := tx.Connector(entry.Release.ConnectorKey)
-				if lookupErr != nil && !errors.Is(lookupErr, ErrNotFound) {
-					return lookupErr
-				}
-				if errors.Is(lookupErr, ErrNotFound) {
-					connector = newCatalogConnector(entry.Release)
-				}
-				compatibility := compatibilityByKey[entry.Release.ConnectorKey]
-				if lookupErr == nil && reflect.DeepEqual(connector.Release, entry.Release) && reflect.DeepEqual(connector.Compatibility, compatibility) {
-					continue
-				}
-				connector.Release = entry.Release
-				connector.Authorization = authorizationForManifest(connector.Authorization, entry.Release.Manifest.AuthorizationKind)
-				connector.Compatibility = compatibility
-				changed = append(changed, connector)
-			}
-			if len(changed) == 0 {
-				return nil
-			}
-			revision = tx.AdvanceRevision()
-			for _, connector := range changed {
-				connector.Revision = revision
-				if err := tx.SaveConnector(connector); err != nil {
-					return err
-				}
-			}
-			return tx.EnqueueConnectorMarketChanged(ChangedEvent{Revision: revision})
-		})
-	})
+	view, err := application.config.Repository.CatalogView(ctx)
 	if err != nil {
 		return CatalogPage{}, err
 	}
-	if !applied {
-		snapshot, snapshotErr := application.config.Repository.Snapshot(ctx)
-		if snapshotErr != nil {
-			return CatalogPage{}, snapshotErr
-		}
-		revision = snapshot.Revision
+	if view.Freshness.SnapshotID == "" {
+		return CatalogPage{}, catalogUnavailable(view.Freshness)
 	}
-
-	result := CatalogPage{SectionID: page.SectionID, Items: make([]CatalogListing, 0, len(page.Entries)), NextPageToken: page.NextPageToken, Revision: revision}
-	for _, entry := range page.Entries {
-		connector, err := application.config.Repository.Connector(ctx, entry.Release.ConnectorKey)
-		if !applied && errors.Is(err, ErrNotFound) {
-			continue
+	offset, err := decodeCatalogPageToken(query.PageToken, view.Freshness.SnapshotID, query.SectionID, query.InstallationFilter)
+	if err != nil {
+		return CatalogPage{}, err
+	}
+	items := view.ListingsBySection[query.SectionID]
+	if query.InstallationFilter == CatalogInstallationFilterNotInstalled {
+		filtered := make([]CatalogListing, 0, len(items))
+		for _, item := range items {
+			if !connectorHasInstalledArtifact(item.Connector) {
+				filtered = append(filtered, item)
+			}
 		}
-		if err != nil {
-			return CatalogPage{}, err
-		}
-		result.Items = append(result.Items, CatalogListing{CategoryID: entry.CategoryID, Featured: entry.Featured, Connector: connector})
+		items = filtered
+	}
+	if offset > len(items) {
+		return CatalogPage{}, invalidRequest("pageToken is outside the active catalog snapshot")
+	}
+	end := offset + query.PageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	result := CatalogPage{SectionID: query.SectionID, Items: append([]CatalogListing(nil), items[offset:end]...), Revision: view.Revision}
+	if end < len(items) {
+		result.NextPageToken = encodeCatalogPageToken(view.Freshness.SnapshotID, query.SectionID, query.InstallationFilter, end)
 	}
 	return result, nil
 }
@@ -348,24 +233,39 @@ func connectorHasInstalledArtifact(connector Connector) bool {
 		installation.State == InstallationStateUninstalling
 }
 
-func (application *Application) beginCatalogFetch() uint64 {
-	application.catalogMu.Lock()
-	defer application.catalogMu.Unlock()
-	application.catalogFetchSequence++
-	return application.catalogFetchSequence
+func catalogUnavailable(freshness CatalogFreshness) error {
+	message := "connector catalog has no accepted snapshot"
+	if freshness.LastFailure != "" {
+		message += ": " + freshness.LastFailure
+	}
+	return NewDomainError(ErrorCodeUnavailable, message, true, nil)
 }
 
-func (application *Application) applyCatalogFetch(sequence uint64, apply func() error) (bool, error) {
-	application.catalogMu.Lock()
-	defer application.catalogMu.Unlock()
-	if sequence < application.catalogAppliedSequence {
-		return false, nil
+func encodeCatalogPageToken(snapshotID, sectionID string, filter CatalogInstallationFilter, offset int) string {
+	payload := strings.Join([]string{snapshotID, sectionID, string(filter), strconv.Itoa(offset)}, "\n")
+	return base64.RawURLEncoding.EncodeToString([]byte(payload))
+}
+
+func decodeCatalogPageToken(token, activeSnapshotID, sectionID string, filter CatalogInstallationFilter) (int, error) {
+	if token == "" {
+		return 0, nil
 	}
-	if err := apply(); err != nil {
-		return false, err
+	payload, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return 0, invalidRequest("pageToken is invalid")
 	}
-	application.catalogAppliedSequence = sequence
-	return true, nil
+	parts := strings.Split(string(payload), "\n")
+	if len(parts) != 4 || parts[0] != activeSnapshotID {
+		return 0, NewDomainError(ErrorCodeRevisionConflict, "pageToken belongs to a different catalog snapshot", true, nil)
+	}
+	if parts[1] != sectionID || parts[2] != string(filter) {
+		return 0, invalidRequest("pageToken belongs to a different catalog query")
+	}
+	offset, err := strconv.Atoi(parts[3])
+	if err != nil || offset < 0 {
+		return 0, invalidRequest("pageToken is invalid")
+	}
+	return offset, nil
 }
 
 func (application *Application) GetConnector(
@@ -1290,6 +1190,18 @@ func (application *Application) acceptConnectorOperation(
 			result = MutationResult{Connector: &connector, Operation: *existing, Revision: tx.Revision()}
 			return nil
 		}
+		if kind == OperationKindInstall {
+			freshness, err := tx.CatalogFreshness()
+			if err != nil {
+				return err
+			}
+			admissible := freshness.State == CatalogFreshnessFresh ||
+				(freshness.State == CatalogFreshnessRefreshing && freshness.SnapshotID != "" && freshness.StaleSince == nil)
+			if freshness.SnapshotID == "" || !admissible {
+				return NewDomainError(ErrorCodeUpstreamUnavailable,
+					"connector install requires a fresh catalog snapshot", true, nil)
+			}
+		}
 		connector, err := tx.Connector(mutation.ConnectorKey)
 		if err != nil {
 			return err
@@ -1441,11 +1353,6 @@ func (application *Application) acceptOperation(
 			Stage:           OperationStageAccepted,
 			CreatedAt:       now,
 			UpdatedAt:       now,
-		}
-		if kind == OperationKindRefreshCatalog {
-			if err := tx.SetCatalogState(CatalogStateRefreshing); err != nil {
-				return err
-			}
 		}
 		if err := tx.SaveOperation(operation); err != nil {
 			return err

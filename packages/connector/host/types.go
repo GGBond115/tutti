@@ -46,6 +46,24 @@ const (
 	CatalogStateFailed     CatalogState = "failed"
 )
 
+type CatalogFreshnessState string
+
+const (
+	CatalogFreshnessUnavailable CatalogFreshnessState = "unavailable"
+	CatalogFreshnessRefreshing  CatalogFreshnessState = "refreshing"
+	CatalogFreshnessFresh       CatalogFreshnessState = "fresh"
+	CatalogFreshnessStale       CatalogFreshnessState = "stale"
+)
+
+type CatalogFreshness struct {
+	State          CatalogFreshnessState `json:"state"`
+	SnapshotID     string                `json:"snapshotId,omitempty"`
+	SourceRevision string                `json:"sourceRevision,omitempty"`
+	AcceptedAt     *time.Time            `json:"acceptedAt,omitempty"`
+	StaleSince     *time.Time            `json:"staleSince,omitempty"`
+	LastFailure    string                `json:"lastFailure,omitempty"`
+}
+
 type ReleaseStatus string
 
 const (
@@ -600,12 +618,13 @@ type AuthorizationObservation struct {
 }
 
 type Snapshot struct {
-	CatalogState   CatalogState `json:"catalogState"`
-	Connectors     []Connector  `json:"connectors"`
-	Operations     []Operation  `json:"operations"`
-	Revision       uint64       `json:"revision"`
-	EventCursor    int64        `json:"eventCursor"`
-	SourceRevision string       `json:"sourceRevision,omitempty"`
+	CatalogState     CatalogState     `json:"catalogState"`
+	CatalogFreshness CatalogFreshness `json:"catalogFreshness"`
+	Connectors       []Connector      `json:"connectors"`
+	Operations       []Operation      `json:"operations"`
+	Revision         uint64           `json:"revision"`
+	EventCursor      int64            `json:"eventCursor"`
+	SourceRevision   string           `json:"sourceRevision,omitempty"`
 }
 
 type Mutation struct {

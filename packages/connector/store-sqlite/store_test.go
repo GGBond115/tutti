@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -720,5 +721,169 @@ func testConnector() market.Connector {
 		Installation:  market.Installation{State: market.InstallationStateNotInstalled},
 		Authorization: market.Authorization{State: market.AuthorizationStateNotRequired},
 		Compatibility: market.Compatibility{State: market.CompatibilityStateSupported},
+	}
+}
+
+func TestCatalogSnapshotIsAtomicDurableAndReleaseImmutable(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "catalog.db")
+	store, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.CatalogView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Freshness.State != market.CatalogFreshnessUnavailable || view.Freshness.SnapshotID != "" || len(view.Categories) != 0 {
+		t.Fatalf("initial catalog view = %#v", view)
+	}
+	initialSnapshot, err := store.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initialSnapshot.CatalogState != market.CatalogStateFailed || initialSnapshot.SourceRevision != "" {
+		t.Fatalf("initial compatibility snapshot = %#v", initialSnapshot)
+	}
+
+	connectorA := testConnector()
+	installedPayload, err := json.Marshal(connectorA.Release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+INSERT INTO connector_market_installed_releases (connector_key, release_digest, release_json)
+VALUES (?, ?, ?)`, connectorA.Key, connectorA.Release.ReleaseDigest, string(installedPayload)); err != nil {
+		t.Fatal(err)
+	}
+	snapshotA := catalogSnapshotForTest(connectorA.Release)
+	generationA, err := store.BeginCatalogRefresh(ctx, time.Unix(10, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+		applied, err := tx.ReplaceCatalogSnapshot(generationA, snapshotA, time.Unix(11, 0).UTC())
+		if err != nil || !applied {
+			return fmt.Errorf("replace snapshot A applied=%v: %w", applied, err)
+		}
+		return tx.SaveConnector(connectorA)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	connectorB := connectorA
+	connectorB.Release.Version = "2.0.0"
+	connectorB.Release.ReleaseID = "github@2.0.0"
+	connectorB.Release.ReleaseDigest = strings.Repeat("d", 64)
+	connectorB.Installation.State = market.InstallationStateInstalled
+	if err := store.Transaction(ctx, func(tx market.Transaction) error { return tx.SaveConnector(connectorB) }); err != nil {
+		t.Fatal(err)
+	}
+	view, err = store.CatalogView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listing := view.ListingsBySection["development"][0]
+	if listing.Connector.Release.ReleaseDigest != connectorA.Release.ReleaseDigest {
+		t.Fatalf("active snapshot release was mixed with mutable projection: %#v", listing.Connector.Release)
+	}
+	if listing.Connector.Installation.State != market.InstallationStateInstalled {
+		t.Fatalf("installation overlay = %#v", listing.Connector.Installation)
+	}
+	var installedDigest string
+	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_installed_releases WHERE connector_key = ?`, connectorA.Key).
+		Scan(&installedDigest); err != nil || installedDigest != connectorA.Release.ReleaseDigest {
+		t.Fatalf("installed evidence digest = %q; error = %v", installedDigest, err)
+	}
+
+	firstFailure := time.Unix(20, 0).UTC()
+	generationFailure, err := store.BeginCatalogRefresh(ctx, firstFailure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FailCatalogRefresh(ctx, generationFailure, "offline", firstFailure); err != nil {
+		t.Fatal(err)
+	}
+	secondFailure := time.Unix(30, 0).UTC()
+	generationFailure, err = store.BeginCatalogRefresh(ctx, secondFailure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FailCatalogRefresh(ctx, generationFailure, "still_offline", secondFailure); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	view, err = store.CatalogView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Freshness.State != market.CatalogFreshnessStale || view.Freshness.StaleSince == nil ||
+		!view.Freshness.StaleSince.Equal(firstFailure) || view.Freshness.LastFailure != "still_offline" ||
+		view.ListingsBySection["development"][0].Connector.Release.ReleaseDigest != connectorA.Release.ReleaseDigest {
+		t.Fatalf("reopened stale view = %#v", view)
+	}
+}
+
+func TestCatalogGenerationRejectsSlowOlderRefresh(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	oldGeneration, err := store.BeginCatalogRefresh(ctx, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newGeneration, err := store.BeginCatalogRefresh(ctx, time.Unix(2, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRelease := testConnector().Release
+	newRelease.Version = "2.0.0"
+	newRelease.ReleaseID = "github@2.0.0"
+	newRelease.ReleaseDigest = strings.Repeat("d", 64)
+	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+		applied, err := tx.ReplaceCatalogSnapshot(newGeneration, catalogSnapshotForTest(newRelease), time.Unix(3, 0))
+		if err == nil && !applied {
+			return errors.New("new snapshot was not applied")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+		applied, err := tx.ReplaceCatalogSnapshot(oldGeneration, catalogSnapshotForTest(testConnector().Release), time.Unix(4, 0))
+		if err != nil {
+			return err
+		}
+		if applied {
+			return errors.New("slow older snapshot was applied")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.CatalogView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := view.ListingsBySection["development"][0].Connector.Release.ReleaseDigest; got != newRelease.ReleaseDigest {
+		t.Fatalf("active release digest = %q, want %q", got, newRelease.ReleaseDigest)
+	}
+}
+
+func catalogSnapshotForTest(release market.Release) market.CatalogSnapshot {
+	return market.CatalogSnapshot{
+		Categories: []market.CatalogCategory{{CategoryID: "development", Kind: "category", ItemCount: 1, DisplayNameEN: "Development"}},
+		Entries:    []market.CatalogEntry{{SectionID: "development", CategoryID: "development", Order: 0, Release: release}},
 	}
 }

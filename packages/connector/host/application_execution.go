@@ -3,6 +3,8 @@ package host
 import (
 	"context"
 	"errors"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 )
@@ -13,97 +15,176 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 	if _, err := application.updateOperationStage(ctx, operation.OperationID, OperationStageRefreshing, nil); err != nil {
 		return err
 	}
-	fetchSequence := application.beginCatalogFetch()
+	generation, err := application.config.Repository.BeginCatalogRefresh(ctx, application.config.Now().UTC())
+	if err != nil {
+		return err
+	}
+	failRefresh := func(refreshErr error) error {
+		code := errorCodeOr(refreshErr, ErrorCodeUpstreamUnavailable)
+		markContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if markErr := application.config.Repository.FailCatalogRefresh(
+			markContext, generation, string(code), application.config.Now().UTC(),
+		); markErr != nil {
+			return errors.Join(refreshErr, markErr)
+		}
+		return refreshErr
+	}
 	catalog, err := application.config.CatalogSource.Refresh(ctx)
 	if err != nil {
-		return preserveCatalogSourceError("connector catalog refresh failed", err)
+		return failRefresh(preserveCatalogSourceError("connector catalog refresh failed", err))
 	}
-	for _, release := range catalog.Releases {
-		if err := ValidateReleaseShape(release); err != nil {
+	releases, err := validateCatalogSnapshot(catalog)
+	if err != nil {
+		return failRefresh(err)
+	}
+	var applied bool
+	err = application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		applied, err = tx.ReplaceCatalogSnapshot(generation, catalog, application.config.Now().UTC())
+		if err != nil || !applied {
 			return err
 		}
-		if release.Status != ReleaseStatusAvailable {
-			return invalidManifest("active catalog releases must have available status", nil)
+		storedOperation, err := tx.Operation(operation.OperationID)
+		if err != nil {
+			return err
 		}
-	}
-	applied, err := application.applyCatalogFetch(fetchSequence, func() error {
-		return application.config.Repository.Transaction(ctx, func(tx Transaction) error {
-			storedOperation, err := tx.Operation(operation.OperationID)
+		existing, err := tx.Connectors()
+		if err != nil {
+			return err
+		}
+		byKey := make(map[string]Connector, len(existing))
+		for _, connector := range existing {
+			byKey[connector.Key] = connector
+		}
+		revision := tx.AdvanceRevision()
+		accepted := make(map[string]bool, len(releases))
+		for _, release := range releases {
+			accepted[release.ConnectorKey] = true
+			connector, ok := byKey[release.ConnectorKey]
+			if !ok {
+				connector = newCatalogConnector(release)
+			}
+			connector.Authorization = authorizationForManifest(connector.Authorization, release.Manifest.AuthorizationKind)
+			connector.Release = release
+			compatibility, err := application.compatibilityFor(release.Manifest)
 			if err != nil {
 				return err
 			}
-			existing, err := tx.Connectors()
-			if err != nil {
+			connector.Compatibility = compatibility
+			connector.Revision = revision
+			if err := tx.SaveConnector(connector); err != nil {
 				return err
 			}
-			byKey := make(map[string]Connector, len(existing))
-			for _, connector := range existing {
-				byKey[connector.Key] = connector
+		}
+		for _, connector := range existing {
+			if accepted[connector.Key] {
+				continue
 			}
-			revision := tx.AdvanceRevision()
-			accepted := make(map[string]bool, len(catalog.Releases))
-			for _, release := range catalog.Releases {
-				accepted[release.ConnectorKey] = true
-				connector, ok := byKey[release.ConnectorKey]
-				if !ok {
-					connector = newCatalogConnector(release)
-				}
-				connector.Authorization = authorizationForManifest(connector.Authorization, release.Manifest.AuthorizationKind)
-				connector.Release = release
-				compatibility, err := application.compatibilityFor(release.Manifest)
-				if err != nil {
+			if connector.Installation.State == InstallationStateNotInstalled {
+				if err := tx.DeleteConnector(connector.Key); err != nil {
 					return err
 				}
-				connector.Compatibility = compatibility
-				connector.Revision = revision
-				if err := tx.SaveConnector(connector); err != nil {
-					return err
-				}
+				continue
 			}
-			for _, connector := range existing {
-				if accepted[connector.Key] {
-					continue
-				}
-				if connector.Installation.State == InstallationStateNotInstalled {
-					if err := tx.DeleteConnector(connector.Key); err != nil {
-						return err
-					}
-					continue
-				}
-				connector.Compatibility = Compatibility{
-					State:  CompatibilityStateUnsupportedVersion,
-					Reason: "removed_from_catalog",
-				}
-				connector.Revision = revision
-				if err := tx.SaveConnector(connector); err != nil {
-					return err
-				}
+			connector.Compatibility = Compatibility{
+				State:  CompatibilityStateUnsupportedVersion,
+				Reason: "removed_from_catalog",
 			}
-			storedOperation.State = OperationStateCompleted
-			storedOperation.Stage = OperationStageCompleted
-			storedOperation.UpdatedAt = application.config.Now().UTC()
-			if err := tx.SaveOperation(storedOperation); err != nil {
+			connector.Revision = revision
+			if err := tx.SaveConnector(connector); err != nil {
 				return err
 			}
-			if err := tx.SaveCatalogRevision(catalog.SourceRevision); err != nil {
-				return err
-			}
-			if err := tx.SetCatalogState(CatalogStateReady); err != nil {
-				return err
-			}
-			return tx.EnqueueConnectorMarketChanged(ChangedEvent{
-				OperationID: storedOperation.OperationID,
-				Revision:    revision,
-			})
+		}
+		storedOperation.State = OperationStateCompleted
+		storedOperation.Stage = OperationStageCompleted
+		storedOperation.UpdatedAt = application.config.Now().UTC()
+		if err := tx.SaveOperation(storedOperation); err != nil {
+			return err
+		}
+		return tx.EnqueueConnectorMarketChanged(ChangedEvent{
+			OperationID: storedOperation.OperationID,
+			Revision:    revision,
 		})
 	})
 	if err != nil {
-		return err
+		return failRefresh(err)
 	}
 	if !applied {
 		return application.completeSupersededCatalogRefresh(ctx, operation.OperationID)
 	}
 	return nil
+}
+
+func validateCatalogSnapshot(snapshot CatalogSnapshot) ([]Release, error) {
+	if len(snapshot.Categories) == 0 {
+		return nil, invalidManifest("connector catalog has no categories", nil)
+	}
+	categoryIDs := make(map[string]struct{}, len(snapshot.Categories))
+	for _, category := range snapshot.Categories {
+		if strings.TrimSpace(category.CategoryID) == "" ||
+			(category.Kind != "category" && category.Kind != "featured") || category.ItemCount < 0 {
+			return nil, invalidManifest("connector catalog contains an invalid category", nil)
+		}
+		if _, exists := categoryIDs[category.CategoryID]; exists {
+			return nil, invalidManifest("connector catalog contains duplicate categories", nil)
+		}
+		categoryIDs[category.CategoryID] = struct{}{}
+	}
+	releasesByKey := make(map[string]Release, len(snapshot.Entries))
+	placements := make(map[string]map[int]struct{})
+	sectionConnectors := make(map[string]map[string]struct{})
+	sectionCounts := make(map[string]int64, len(snapshot.Categories))
+	for _, entry := range snapshot.Entries {
+		if _, exists := categoryIDs[entry.SectionID]; !exists {
+			return nil, invalidManifest("connector catalog placement section is unknown", nil)
+		}
+		if _, exists := categoryIDs[entry.CategoryID]; !exists {
+			return nil, invalidManifest("connector catalog placement category is unknown", nil)
+		}
+		if entry.Order < 0 {
+			return nil, invalidManifest("connector catalog placement order is invalid", nil)
+		}
+		if placements[entry.SectionID] == nil {
+			placements[entry.SectionID] = make(map[int]struct{})
+		}
+		if _, exists := placements[entry.SectionID][entry.Order]; exists {
+			return nil, invalidManifest("connector catalog contains duplicate placement order", nil)
+		}
+		placements[entry.SectionID][entry.Order] = struct{}{}
+		if sectionConnectors[entry.SectionID] == nil {
+			sectionConnectors[entry.SectionID] = make(map[string]struct{})
+		}
+		if _, exists := sectionConnectors[entry.SectionID][entry.Release.ConnectorKey]; exists {
+			return nil, invalidManifest("connector catalog contains duplicate section placements", nil)
+		}
+		sectionConnectors[entry.SectionID][entry.Release.ConnectorKey] = struct{}{}
+		sectionCounts[entry.SectionID]++
+		if err := ValidateReleaseShape(entry.Release); err != nil {
+			return nil, err
+		}
+		if entry.Release.Status != ReleaseStatusAvailable {
+			return nil, invalidManifest("active catalog releases must have available status", nil)
+		}
+		if existing, exists := releasesByKey[entry.Release.ConnectorKey]; exists && !reflect.DeepEqual(existing, entry.Release) {
+			return nil, invalidManifest("connector catalog contains conflicting releases", nil)
+		}
+		releasesByKey[entry.Release.ConnectorKey] = entry.Release
+	}
+	for _, category := range snapshot.Categories {
+		if sectionCounts[category.CategoryID] != category.ItemCount {
+			return nil, invalidManifest("connector catalog category count does not match its placements", nil)
+		}
+	}
+	keys := make([]string, 0, len(releasesByKey))
+	for key := range releasesByKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	releases := make([]Release, 0, len(keys))
+	for _, key := range keys {
+		releases = append(releases, releasesByKey[key])
+	}
+	return releases, nil
 }
 
 func (application *Application) completeSupersededCatalogRefresh(ctx context.Context, operationID string) error {
@@ -667,12 +748,7 @@ func (application *Application) failOperation(ctx context.Context, operationID s
 		operation.Stage = OperationStageFailed
 		operation.FailureCode = string(code)
 		operation.UpdatedAt = application.config.Now().UTC()
-		if operation.Kind == OperationKindRefreshCatalog {
-			// Preserve the last-known-good connector projection on refresh failure.
-			if err := tx.SetCatalogState(CatalogStateStale); err != nil {
-				return err
-			}
-		} else if operation.ConnectorKey != "" {
+		if operation.Kind != OperationKindRefreshCatalog && operation.ConnectorKey != "" {
 			connector, err := tx.Connector(operation.ConnectorKey)
 			if err != nil && !errors.Is(err, ErrNotFound) {
 				return err

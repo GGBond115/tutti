@@ -1411,6 +1411,30 @@ func (e ConnectorMarketAuthorizationState) Valid() bool {
 	}
 }
 
+// Defines values for ConnectorMarketCatalogFreshnessState.
+const (
+	ConnectorMarketCatalogFreshnessStateFresh       ConnectorMarketCatalogFreshnessState = "fresh"
+	ConnectorMarketCatalogFreshnessStateRefreshing  ConnectorMarketCatalogFreshnessState = "refreshing"
+	ConnectorMarketCatalogFreshnessStateStale       ConnectorMarketCatalogFreshnessState = "stale"
+	ConnectorMarketCatalogFreshnessStateUnavailable ConnectorMarketCatalogFreshnessState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ConnectorMarketCatalogFreshnessState enum.
+func (e ConnectorMarketCatalogFreshnessState) Valid() bool {
+	switch e {
+	case ConnectorMarketCatalogFreshnessStateFresh:
+		return true
+	case ConnectorMarketCatalogFreshnessStateRefreshing:
+		return true
+	case ConnectorMarketCatalogFreshnessStateStale:
+		return true
+	case ConnectorMarketCatalogFreshnessStateUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectorMarketCatalogState.
 const (
 	ConnectorMarketCatalogStateFailed     ConnectorMarketCatalogState = "failed"
@@ -6292,6 +6316,19 @@ type ConnectorMarketAuthorizationResponse struct {
 // ConnectorMarketAuthorizationState defines model for ConnectorMarketAuthorizationState.
 type ConnectorMarketAuthorizationState string
 
+// ConnectorMarketCatalogFreshness defines model for ConnectorMarketCatalogFreshness.
+type ConnectorMarketCatalogFreshness struct {
+	AcceptedAt     *time.Time                           `json:"acceptedAt,omitempty"`
+	LastFailure    *string                              `json:"lastFailure,omitempty"`
+	SnapshotId     *string                              `json:"snapshotId,omitempty"`
+	SourceRevision *string                              `json:"sourceRevision,omitempty"`
+	StaleSince     *time.Time                           `json:"staleSince,omitempty"`
+	State          ConnectorMarketCatalogFreshnessState `json:"state"`
+}
+
+// ConnectorMarketCatalogFreshnessState defines model for ConnectorMarketCatalogFreshnessState.
+type ConnectorMarketCatalogFreshnessState string
+
 // ConnectorMarketCatalogItem defines model for ConnectorMarketCatalogItem.
 type ConnectorMarketCatalogItem struct {
 	CategoryId string                   `json:"categoryId"`
@@ -6492,12 +6529,13 @@ type ConnectorMarketReleaseStatus string
 
 // ConnectorMarketSnapshot defines model for ConnectorMarketSnapshot.
 type ConnectorMarketSnapshot struct {
-	CatalogState   ConnectorMarketCatalogState `json:"catalogState"`
-	Connectors     []ConnectorMarketConnector  `json:"connectors"`
-	EventCursor    int64                       `json:"eventCursor"`
-	Operations     []ConnectorMarketOperation  `json:"operations"`
-	Revision       int64                       `json:"revision"`
-	SourceRevision *string                     `json:"sourceRevision,omitempty"`
+	CatalogFreshness *ConnectorMarketCatalogFreshness `json:"catalogFreshness,omitempty"`
+	CatalogState     ConnectorMarketCatalogState      `json:"catalogState"`
+	Connectors       []ConnectorMarketConnector       `json:"connectors"`
+	EventCursor      int64                            `json:"eventCursor"`
+	Operations       []ConnectorMarketOperation       `json:"operations"`
+	Revision         int64                            `json:"revision"`
+	SourceRevision   *string                          `json:"sourceRevision,omitempty"`
 }
 
 // CopyWorkspaceFileEntryRequest defines model for CopyWorkspaceFileEntryRequest.

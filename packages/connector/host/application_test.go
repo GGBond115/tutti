@@ -1765,7 +1765,9 @@ func TestApplicationRefreshRejectsUnknownImplementation(t *testing.T) {
 	scheduler := &memoryScheduler{}
 	application := newTestApplication(t, repository, scheduler, &memoryInstallRuntime{}, CatalogSnapshot{
 		SourceRevision: "catalog-2",
-		Releases:       []Release{testReleaseWithImplementation("future-connector", "2.0.0", "future_runtime")},
+		Categories:     []CatalogCategory{{CategoryID: "development", Kind: "category", ItemCount: 1}},
+		Entries: []CatalogEntry{{SectionID: "development", CategoryID: "development",
+			Release: testReleaseWithImplementation("future-connector", "2.0.0", "future_runtime")}},
 	})
 	accepted, err := application.RefreshCatalog(context.Background(), Mutation{
 		ClientRequestID:  "refresh-1",
@@ -1796,48 +1798,10 @@ func TestApplicationRejectsStaleRevisionBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestApplicationCatalogPageCachesNewConnectorForImmediateInstall(t *testing.T) {
+func TestApplicationCatalogPageReturnsUnavailableWithoutLastGoodSnapshot(t *testing.T) {
 	repository := newMemoryRepository()
-	release := testReleaseWithImplementation("github", "1.0.0", ImplementationKindManagedStdio)
-	source := catalogSourceStub{page: CatalogSourcePage{
-		SectionID:     "development",
-		Entries:       []CatalogEntry{{CategoryID: "development", Release: release}},
-		NextPageToken: "next-page",
-	}}
-	application := newTestApplicationWithCatalogSource(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, source)
-
-	page, err := application.ListCatalogPage(context.Background(), CatalogPageQuery{
-		SectionID: "development", PageSize: 20,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if page.Revision != 1 || page.NextPageToken != "next-page" || len(page.Items) != 1 || page.Items[0].Connector.Key != "github" {
-		t.Fatalf("page = %#v", page)
-	}
-	if _, err := repository.Connector(context.Background(), "github"); err != nil {
-		t.Fatalf("cached connector: %v", err)
-	}
-
-	repeated, err := application.ListCatalogPage(context.Background(), CatalogPageQuery{SectionID: "development", PageSize: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if repeated.Revision != 1 || repository.revision != 1 {
-		t.Fatalf("repeated page revision = %d, repository revision = %d", repeated.Revision, repository.revision)
-	}
-}
-
-func TestApplicationCatalogPagePreservesManifestErrors(t *testing.T) {
-	repository := newMemoryRepository()
-	sourceError := invalidManifest("permission scope is invalid", nil)
-	application := newTestApplicationWithCatalogSource(
-		t,
-		repository,
-		&memoryScheduler{},
-		&memoryInstallRuntime{},
-		failingCatalogSource{pageError: sourceError},
-	)
+	repository.catalogView.Freshness = CatalogFreshness{State: CatalogFreshnessUnavailable, LastFailure: "request_timeout"}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
 
 	_, err := application.ListCatalogPage(context.Background(), CatalogPageQuery{
 		SectionID: "development", PageSize: 20,
@@ -1846,29 +1810,7 @@ func TestApplicationCatalogPagePreservesManifestErrors(t *testing.T) {
 	if !errors.As(err, &domainError) {
 		t.Fatalf("error = %v, want DomainError", err)
 	}
-	if domainError.Code != ErrorCodeInvalidManifest || domainError.Retryable {
-		t.Fatalf("domain error = %#v", domainError)
-	}
-}
-
-func TestApplicationCatalogPageClassifiesTransportErrorsAsRetryable(t *testing.T) {
-	repository := newMemoryRepository()
-	application := newTestApplicationWithCatalogSource(
-		t,
-		repository,
-		&memoryScheduler{},
-		&memoryInstallRuntime{},
-		failingCatalogSource{pageError: errors.New("request timeout")},
-	)
-
-	_, err := application.ListCatalogPage(context.Background(), CatalogPageQuery{
-		SectionID: "development", PageSize: 20,
-	})
-	var domainError *DomainError
-	if !errors.As(err, &domainError) {
-		t.Fatalf("error = %v, want DomainError", err)
-	}
-	if domainError.Code != ErrorCodeUpstreamUnavailable || !domainError.Retryable {
+	if domainError.Code != ErrorCodeUnavailable || !domainError.Retryable {
 		t.Fatalf("domain error = %#v", domainError)
 	}
 }
@@ -2146,48 +2088,20 @@ func testReleaseWithImplementation(key, version, implementationKind string) Rele
 
 type catalogSourceFunc func(context.Context) (CatalogSnapshot, error)
 
-func (catalogSourceFunc) ListCategories(context.Context) ([]CatalogCategory, error) {
-	return nil, nil
-}
-
-func (catalogSourceFunc) ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error) {
-	return CatalogSourcePage{}, nil
-}
-
 func (source catalogSourceFunc) Refresh(ctx context.Context) (CatalogSnapshot, error) {
 	return source(ctx)
 }
 
 type catalogSourceStub struct {
-	categories []CatalogCategory
-	page       CatalogSourcePage
-	snapshot   CatalogSnapshot
+	snapshot CatalogSnapshot
 }
 
 type failingCatalogSource struct {
-	categoriesError error
-	pageError       error
-	refreshError    error
-}
-
-func (source failingCatalogSource) ListCategories(context.Context) ([]CatalogCategory, error) {
-	return nil, source.categoriesError
-}
-
-func (source failingCatalogSource) ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error) {
-	return CatalogSourcePage{}, source.pageError
+	refreshError error
 }
 
 func (source failingCatalogSource) Refresh(context.Context) (CatalogSnapshot, error) {
 	return CatalogSnapshot{}, source.refreshError
-}
-
-func (source catalogSourceStub) ListCategories(context.Context) ([]CatalogCategory, error) {
-	return source.categories, nil
-}
-
-func (source catalogSourceStub) ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error) {
-	return source.page, nil
 }
 
 func (source catalogSourceStub) Refresh(context.Context) (CatalogSnapshot, error) {
@@ -2614,6 +2528,8 @@ func (compatibilityEvaluatorStub) Evaluate(Manifest) Compatibility {
 type memoryRepository struct {
 	revision                         uint64
 	catalogState                     CatalogState
+	catalogView                      CatalogView
+	catalogGeneration                uint64
 	sourceRevision                   string
 	connectors                       map[string]Connector
 	operations                       map[string]Operation
@@ -2631,7 +2547,8 @@ type memoryRepository struct {
 
 func newMemoryRepository(connectors ...Connector) *memoryRepository {
 	repository := &memoryRepository{
-		catalogState:        CatalogStateStale,
+		catalogState:        CatalogStateReady,
+		catalogView:         CatalogView{Freshness: CatalogFreshness{State: CatalogFreshnessFresh, SnapshotID: "test-catalog"}, ListingsBySection: map[string][]CatalogListing{}},
 		connectors:          map[string]Connector{},
 		operations:          map[string]Operation{},
 		runtimeConvergences: map[string]RuntimeConvergence{},
@@ -2657,12 +2574,45 @@ func (repository *memoryRepository) Snapshot(_ context.Context) (Snapshot, error
 		operations = append(operations, operation)
 	}
 	return Snapshot{
-		CatalogState:   repository.catalogState,
-		Connectors:     connectors,
-		Operations:     operations,
-		Revision:       repository.revision,
-		SourceRevision: repository.sourceRevision,
+		CatalogState:     repository.catalogState,
+		CatalogFreshness: repository.catalogView.Freshness,
+		Connectors:       connectors,
+		Operations:       operations,
+		Revision:         repository.revision,
+		SourceRevision:   repository.sourceRevision,
 	}, nil
+}
+
+func (repository *memoryRepository) CatalogView(context.Context) (CatalogView, error) {
+	view := repository.catalogView
+	view.Revision = repository.revision
+	return view, nil
+}
+
+func (repository *memoryRepository) BeginCatalogRefresh(context.Context, time.Time) (uint64, error) {
+	repository.catalogGeneration++
+	repository.catalogView.Freshness.State = CatalogFreshnessRefreshing
+	repository.catalogState = CatalogStateRefreshing
+	return repository.catalogGeneration, nil
+}
+
+func (repository *memoryRepository) FailCatalogRefresh(_ context.Context, generation uint64, failureCode string, now time.Time) error {
+	if generation != repository.catalogGeneration {
+		return nil
+	}
+	repository.catalogView.Freshness.LastFailure = failureCode
+	if repository.catalogView.Freshness.SnapshotID == "" {
+		repository.catalogView.Freshness.State = CatalogFreshnessUnavailable
+		repository.catalogState = CatalogStateFailed
+		return nil
+	}
+	repository.catalogView.Freshness.State = CatalogFreshnessStale
+	if repository.catalogView.Freshness.StaleSince == nil {
+		staleSince := now.UTC()
+		repository.catalogView.Freshness.StaleSince = &staleSince
+	}
+	repository.catalogState = CatalogStateStale
+	return nil
 }
 
 func (repository *memoryRepository) UnresolvedAuthorizationSessionOperations(_ context.Context, scope OperationScope) ([]Operation, error) {
@@ -2994,6 +2944,8 @@ func (repository *memoryRepository) Transaction(ctx context.Context, fn func(Tra
 		revision:            repository.revision,
 		catalogState:        repository.catalogState,
 		sourceRevision:      repository.sourceRevision,
+		catalogView:         repository.catalogView,
+		catalogGeneration:   repository.catalogGeneration,
 		connectors:          cloneConnectors(repository.connectors),
 		operations:          cloneOperations(repository.operations),
 		runtimeConvergences: cloneRuntimeConvergences(repository.runtimeConvergences),
@@ -3005,6 +2957,7 @@ func (repository *memoryRepository) Transaction(ctx context.Context, fn func(Tra
 	repository.revision = transaction.revision
 	repository.catalogState = transaction.catalogState
 	repository.sourceRevision = transaction.sourceRevision
+	repository.catalogView = transaction.catalogView
 	repository.connectors = transaction.connectors
 	repository.operations = transaction.operations
 	repository.runtimeConvergences = transaction.runtimeConvergences
@@ -3026,6 +2979,8 @@ type memoryTransaction struct {
 	revision            uint64
 	catalogState        CatalogState
 	sourceRevision      string
+	catalogView         CatalogView
+	catalogGeneration   uint64
 	connectors          map[string]Connector
 	operations          map[string]Operation
 	runtimeConvergences map[string]RuntimeConvergence
@@ -3085,18 +3040,49 @@ func (transaction *memoryTransaction) ActiveOperation(connectorKey string) (*Ope
 	return nil, nil
 }
 
-func (transaction *memoryTransaction) SaveCatalogRevision(sourceRevision string) error {
-	transaction.sourceRevision = sourceRevision
-	return nil
+func (transaction *memoryTransaction) CatalogFreshness() (CatalogFreshness, error) {
+	return transaction.catalogView.Freshness, nil
 }
 
-func (transaction *memoryTransaction) SetCatalogState(state CatalogState) error {
-	transaction.catalogState = state
-	return nil
+func (transaction *memoryTransaction) ReplaceCatalogSnapshot(generation uint64, snapshot CatalogSnapshot, acceptedAt time.Time) (bool, error) {
+	if generation != transaction.catalogGeneration {
+		return false, nil
+	}
+	view := CatalogView{
+		Freshness: CatalogFreshness{State: CatalogFreshnessFresh, SnapshotID: fmt.Sprintf("catalog-%d", generation),
+			SourceRevision: snapshot.SourceRevision, AcceptedAt: timePointer(acceptedAt.UTC())},
+		Categories: append([]CatalogCategory(nil), snapshot.Categories...), ListingsBySection: map[string][]CatalogListing{},
+	}
+	for _, entry := range snapshot.Entries {
+		connector := newCatalogConnector(entry.Release)
+		if projection, ok := transaction.connectors[entry.Release.ConnectorKey]; ok {
+			connector.Installation = projection.Installation
+			connector.Authorization = projection.Authorization
+			connector.Compatibility = projection.Compatibility
+			connector.Revision = projection.Revision
+		}
+		view.ListingsBySection[entry.SectionID] = append(view.ListingsBySection[entry.SectionID], CatalogListing{
+			CategoryID: entry.CategoryID, Featured: entry.Featured, Connector: connector,
+		})
+	}
+	transaction.catalogView = view
+	transaction.catalogState = CatalogStateReady
+	transaction.sourceRevision = snapshot.SourceRevision
+	return true, nil
 }
 
 func (transaction *memoryTransaction) SaveConnector(connector Connector) error {
 	transaction.connectors[connector.Key] = connector
+	for sectionID, listings := range transaction.catalogView.ListingsBySection {
+		for index := range listings {
+			if listings[index].Connector.Key == connector.Key {
+				catalogRelease := listings[index].Connector.Release
+				listings[index].Connector = connector
+				listings[index].Connector.Release = catalogRelease
+			}
+		}
+		transaction.catalogView.ListingsBySection[sectionID] = listings
+	}
 	return nil
 }
 

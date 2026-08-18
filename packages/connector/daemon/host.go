@@ -49,7 +49,6 @@ type Host struct {
 	authorizationScopeWake      chan struct{}
 	runtimeRecoveryWake         chan struct{}
 	runtimePhysicalWake         chan struct{}
-	catalogWorkerWake           chan struct{}
 	lifecycleMu                 sync.Mutex
 	lifecycleState              LifecycleState
 	workers                     *workerGroup
@@ -60,6 +59,7 @@ type Host struct {
 	bootstrapped                bool
 	bootstrapScope              market.OperationScope
 	catalogRefreshInitialDelay  time.Duration
+	catalogRetryJitter          func(time.Duration) time.Duration
 	repository                  market.Repository
 	implementationHost          market.ImplementationHost
 	physicalRoutes              market.RouteObservation
@@ -129,7 +129,6 @@ func NewHost(config HostConfig) (*Host, error) {
 		authorizationScopeWake:      make(chan struct{}, 1),
 		runtimeRecoveryWake:         make(chan struct{}, 1),
 		runtimePhysicalWake:         make(chan struct{}, 1),
-		catalogWorkerWake:           make(chan struct{}, 1),
 		lifecycleState:              LifecycleStateCreated,
 		closeDone:                   make(chan struct{}),
 		repository:                  config.Repository,
@@ -137,6 +136,7 @@ func NewHost(config HostConfig) (*Host, error) {
 		physicalRoutes:              physicalRoutes,
 		physicalAntiEntropyInterval: physicalAntiEntropyInterval,
 		physicalAntiEntropyJitter:   fullJitterDuration,
+		catalogRetryJitter:          fullJitterDuration,
 		activationGate:              activationGate,
 		publication:                 config.Publication,
 		authorizationSnapshots:      config.AuthorizationSnapshots,
@@ -328,7 +328,6 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	if err := host.requireRunning(); err != nil {
 		return err
 	}
-	host.notifyCatalogWorker()
 	host.bootstrapMu.Lock()
 	defer host.bootstrapMu.Unlock()
 	sameScope := host.bootstrapScope == scope
@@ -773,68 +772,47 @@ func (host *Host) refreshAndWait(ctx context.Context) error {
 	}
 }
 
-func (host *Host) notifyCatalogWorker() {
-	select {
-	case host.catalogWorkerWake <- struct{}{}:
-	default:
-	}
-}
-
 func (host *Host) runCatalogRefreshWorker(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-host.catalogWorkerWake:
-	}
-	bootstrapRetry := time.Second
-	catalogRetry := host.catalogRefreshInitialDelay
+	delay := host.catalogRefreshInitialDelay
+	backoff := time.Minute
 	for {
-		host.bootstrapMu.Lock()
-		bootstrapped := host.bootstrapped
-		scope := host.bootstrapScope
-		host.bootstrapMu.Unlock()
-		if !bootstrapped {
-			timer := time.NewTimer(bootstrapRetry)
+		if delay > 0 {
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
 				return
 			case <-timer.C:
 			}
-			bootstrapContext, cancel := context.WithTimeout(ctx, 45*time.Second)
-			err := host.BootstrapForScope(bootstrapContext, scope)
-			cancel()
-			if err != nil && !errors.Is(err, context.Canceled) {
-				slog.Warn("connector market bootstrap retry failed", "error", err)
-				if bootstrapRetry < time.Minute {
-					bootstrapRetry *= 2
-				}
-			} else {
-				bootstrapRetry = time.Second
-			}
-			continue
-		}
-		timer := time.NewTimer(catalogRetry)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
 		}
 		refreshContext, cancel := context.WithTimeout(ctx, 45*time.Second)
 		err := host.refreshAndWait(refreshContext)
 		cancel()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("connector market scheduled refresh failed", "error", err)
-			if catalogRetry < time.Minute {
-				catalogRetry = time.Minute
-			} else if catalogRetry < 5*time.Minute {
-				catalogRetry *= 2
+			if backoff < 5*time.Minute {
+				backoff *= 2
+				if backoff > 5*time.Minute {
+					backoff = 5 * time.Minute
+				}
 			}
+			delay = host.catalogRetryDelay(backoff)
 			continue
 		}
-		catalogRetry = time.Minute
+		backoff = time.Minute
+		delay = host.catalogRetryDelay(time.Minute)
 	}
+}
+
+func (host *Host) catalogRetryDelay(base time.Duration) time.Duration {
+	delay := host.catalogRetryJitter(base)
+	if delay < base/2 {
+		return base / 2
+	}
+	if delay > base {
+		return base
+	}
+	return delay
 }
 
 func (host *Host) Close(ctx context.Context) error {

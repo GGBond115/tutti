@@ -91,6 +91,54 @@ func (store *Store) migrate(ctx context.Context) error {
 )`,
 		`INSERT INTO connector_market_metadata (id, revision, catalog_state, source_revision)
 VALUES (1, 0, 'stale', '') ON CONFLICT(id) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS connector_market_catalog_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  active_snapshot_id TEXT,
+  fetch_generation INTEGER NOT NULL DEFAULT 0 CHECK (fetch_generation >= 0),
+  applied_generation INTEGER NOT NULL DEFAULT 0 CHECK (applied_generation >= 0),
+  freshness_state TEXT NOT NULL CHECK (freshness_state IN ('unavailable', 'refreshing', 'fresh', 'stale')),
+  stale_since_unix_ms INTEGER,
+  last_failure_code TEXT NOT NULL DEFAULT ''
+)`,
+		`INSERT INTO connector_market_catalog_state
+(id, active_snapshot_id, fetch_generation, applied_generation, freshness_state, stale_since_unix_ms, last_failure_code)
+VALUES (1, NULL, 0, 0, 'unavailable', NULL, '') ON CONFLICT(id) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS connector_market_catalog_snapshots (
+  snapshot_id TEXT PRIMARY KEY,
+  source_revision TEXT NOT NULL,
+  accepted_at_unix_ms INTEGER NOT NULL
+)`,
+		`CREATE TABLE IF NOT EXISTS connector_market_catalog_categories (
+  snapshot_id TEXT NOT NULL,
+  category_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  item_count INTEGER NOT NULL,
+  display_name_zh TEXT NOT NULL,
+  display_name_en TEXT NOT NULL,
+  PRIMARY KEY (snapshot_id, category_id),
+  FOREIGN KEY (snapshot_id) REFERENCES connector_market_catalog_snapshots(snapshot_id) ON DELETE CASCADE
+)`,
+		`CREATE TABLE IF NOT EXISTS connector_market_catalog_releases (
+  snapshot_id TEXT NOT NULL,
+  connector_key TEXT NOT NULL,
+  release_json TEXT NOT NULL,
+  PRIMARY KEY (snapshot_id, connector_key),
+  FOREIGN KEY (snapshot_id) REFERENCES connector_market_catalog_snapshots(snapshot_id) ON DELETE CASCADE
+)`,
+		`CREATE TABLE IF NOT EXISTS connector_market_catalog_placements (
+  snapshot_id TEXT NOT NULL,
+  section_id TEXT NOT NULL,
+  placement_order INTEGER NOT NULL,
+  category_id TEXT NOT NULL,
+  connector_key TEXT NOT NULL,
+  featured INTEGER NOT NULL CHECK (featured IN (0, 1)),
+  PRIMARY KEY (snapshot_id, section_id, placement_order),
+  FOREIGN KEY (snapshot_id) REFERENCES connector_market_catalog_snapshots(snapshot_id) ON DELETE CASCADE,
+  FOREIGN KEY (snapshot_id, connector_key) REFERENCES connector_market_catalog_releases(snapshot_id, connector_key) ON DELETE CASCADE
+)`,
+		`CREATE INDEX IF NOT EXISTS connector_market_catalog_placements_section
+ON connector_market_catalog_placements(snapshot_id, section_id, placement_order)`,
 		`CREATE TABLE IF NOT EXISTS connector_market_connectors (
   connector_key TEXT PRIMARY KEY,
   connector_json TEXT NOT NULL
@@ -158,6 +206,70 @@ func (store *Store) Snapshot(ctx context.Context) (market.Snapshot, error) {
 	return store.snapshot(ctx, "")
 }
 
+func (store *Store) CatalogView(ctx context.Context) (market.CatalogView, error) {
+	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return market.CatalogView{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	view, err := readCatalogView(ctx, tx)
+	if err != nil {
+		return market.CatalogView{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return market.CatalogView{}, err
+	}
+	return view, nil
+}
+
+func (store *Store) BeginCatalogRefresh(ctx context.Context, _ time.Time) (uint64, error) {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var generation uint64
+	if err := tx.QueryRowContext(ctx, `
+UPDATE connector_market_catalog_state
+SET fetch_generation = fetch_generation + 1, freshness_state = 'refreshing'
+WHERE id = ?
+RETURNING fetch_generation`, metadataID).Scan(&generation); err != nil {
+		return 0, fmt.Errorf("begin connector catalog refresh: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return generation, nil
+}
+
+func (store *Store) FailCatalogRefresh(ctx context.Context, generation uint64, failureCode string, now time.Time) error {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `
+UPDATE connector_market_catalog_state
+SET freshness_state = CASE WHEN active_snapshot_id IS NULL THEN 'unavailable' ELSE 'stale' END,
+    stale_since_unix_ms = CASE
+      WHEN active_snapshot_id IS NULL THEN NULL
+      ELSE COALESCE(stale_since_unix_ms, ?)
+    END,
+    last_failure_code = ?
+WHERE id = ? AND fetch_generation = ?`, now.UTC().UnixMilli(), strings.TrimSpace(failureCode), metadataID, generation)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return tx.Commit()
+	}
+	return tx.Commit()
+}
+
 // SnapshotForScope reads market state and the account authorization overlay
 // from one SQLite snapshot, so its revision/event cursor describe exactly the
 // projection returned to the renderer.
@@ -172,12 +284,17 @@ func (store *Store) snapshot(ctx context.Context, accountID string) (market.Snap
 	}
 	defer func() { _ = tx.Rollback() }()
 	var result market.Snapshot
-	if err := tx.QueryRowContext(ctx, `
-SELECT revision, catalog_state, source_revision
-FROM connector_market_metadata WHERE id = ?`, metadataID).
-		Scan(&result.Revision, &result.CatalogState, &result.SourceRevision); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT revision FROM connector_market_metadata WHERE id = ?`, metadataID).
+		Scan(&result.Revision); err != nil {
 		return market.Snapshot{}, fmt.Errorf("read connector market metadata: %w", err)
 	}
+	freshness, err := readCatalogFreshness(ctx, tx)
+	if err != nil {
+		return market.Snapshot{}, err
+	}
+	result.CatalogFreshness = freshness
+	result.CatalogState = legacyCatalogState(freshness.State)
+	result.SourceRevision = freshness.SourceRevision
 	connectors, err := listConnectorsOn(ctx, tx)
 	if err != nil {
 		return market.Snapshot{}, err
@@ -201,6 +318,151 @@ FROM connector_market_metadata WHERE id = ?`, metadataID).
 		return market.Snapshot{}, err
 	}
 	return result, nil
+}
+
+func legacyCatalogState(state market.CatalogFreshnessState) market.CatalogState {
+	switch state {
+	case market.CatalogFreshnessFresh:
+		return market.CatalogStateReady
+	case market.CatalogFreshnessRefreshing:
+		return market.CatalogStateRefreshing
+	case market.CatalogFreshnessStale:
+		return market.CatalogStateStale
+	default:
+		return market.CatalogStateFailed
+	}
+}
+
+type catalogQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func readCatalogFreshness(ctx context.Context, queryer catalogQueryer) (market.CatalogFreshness, error) {
+	var freshness market.CatalogFreshness
+	var snapshotID sql.NullString
+	var sourceRevision sql.NullString
+	var acceptedAtMS sql.NullInt64
+	var staleSinceMS sql.NullInt64
+	if err := queryer.QueryRowContext(ctx, `
+SELECT state.freshness_state, state.active_snapshot_id, snapshot.source_revision,
+       snapshot.accepted_at_unix_ms, state.stale_since_unix_ms, state.last_failure_code
+FROM connector_market_catalog_state state
+LEFT JOIN connector_market_catalog_snapshots snapshot ON snapshot.snapshot_id = state.active_snapshot_id
+WHERE state.id = ?`, metadataID).Scan(
+		&freshness.State, &snapshotID, &sourceRevision, &acceptedAtMS, &staleSinceMS, &freshness.LastFailure,
+	); err != nil {
+		return market.CatalogFreshness{}, fmt.Errorf("read connector catalog freshness: %w", err)
+	}
+	if snapshotID.Valid {
+		freshness.SnapshotID = snapshotID.String
+	}
+	if sourceRevision.Valid {
+		freshness.SourceRevision = sourceRevision.String
+	}
+	if acceptedAtMS.Valid {
+		acceptedAt := time.UnixMilli(acceptedAtMS.Int64).UTC()
+		freshness.AcceptedAt = &acceptedAt
+	}
+	if staleSinceMS.Valid {
+		staleSince := time.UnixMilli(staleSinceMS.Int64).UTC()
+		freshness.StaleSince = &staleSince
+	}
+	return freshness, nil
+}
+
+func readCatalogView(ctx context.Context, tx *sql.Tx) (market.CatalogView, error) {
+	freshness, err := readCatalogFreshness(ctx, tx)
+	if err != nil {
+		return market.CatalogView{}, err
+	}
+	view := market.CatalogView{Freshness: freshness, ListingsBySection: make(map[string][]market.CatalogListing)}
+	if err := tx.QueryRowContext(ctx, `SELECT revision FROM connector_market_metadata WHERE id = ?`, metadataID).Scan(&view.Revision); err != nil {
+		return market.CatalogView{}, err
+	}
+	if freshness.SnapshotID == "" {
+		view.Categories = []market.CatalogCategory{}
+		return view, nil
+	}
+	categoryRows, err := tx.QueryContext(ctx, `
+SELECT category_id, kind, sort_order, item_count, display_name_zh, display_name_en
+FROM connector_market_catalog_categories
+WHERE snapshot_id = ?
+ORDER BY sort_order, category_id`, freshness.SnapshotID)
+	if err != nil {
+		return market.CatalogView{}, err
+	}
+	for categoryRows.Next() {
+		var category market.CatalogCategory
+		if err := categoryRows.Scan(&category.CategoryID, &category.Kind, &category.SortOrder, &category.ItemCount,
+			&category.DisplayNameZH, &category.DisplayNameEN); err != nil {
+			_ = categoryRows.Close()
+			return market.CatalogView{}, err
+		}
+		view.Categories = append(view.Categories, category)
+	}
+	if err := categoryRows.Close(); err != nil {
+		return market.CatalogView{}, err
+	}
+	if err := categoryRows.Err(); err != nil {
+		return market.CatalogView{}, err
+	}
+	if view.Categories == nil {
+		view.Categories = []market.CatalogCategory{}
+	}
+	listingRows, err := tx.QueryContext(ctx, `
+SELECT placement.section_id, placement.category_id, placement.featured, release.release_json, connector.connector_json
+FROM connector_market_catalog_placements placement
+JOIN connector_market_catalog_releases release
+  ON release.snapshot_id = placement.snapshot_id AND release.connector_key = placement.connector_key
+LEFT JOIN connector_market_connectors connector ON connector.connector_key = placement.connector_key
+WHERE placement.snapshot_id = ?
+ORDER BY placement.section_id, placement.placement_order`, freshness.SnapshotID)
+	if err != nil {
+		return market.CatalogView{}, err
+	}
+	for listingRows.Next() {
+		var sectionID string
+		var listing market.CatalogListing
+		var featured int
+		var releasePayload string
+		var connectorPayload sql.NullString
+		if err := listingRows.Scan(&sectionID, &listing.CategoryID, &featured, &releasePayload, &connectorPayload); err != nil {
+			_ = listingRows.Close()
+			return market.CatalogView{}, err
+		}
+		if err := json.Unmarshal([]byte(releasePayload), &listing.Connector.Release); err != nil {
+			_ = listingRows.Close()
+			return market.CatalogView{}, err
+		}
+		listing.Connector.Key = listing.Connector.Release.ConnectorKey
+		listing.Connector.Installation.State = market.InstallationStateNotInstalled
+		listing.Connector.Compatibility.State = market.CompatibilityStateSupported
+		listing.Connector.Authorization.State = market.AuthorizationStateDisconnected
+		if listing.Connector.Release.Manifest.AuthorizationKind == "none" {
+			listing.Connector.Authorization.State = market.AuthorizationStateNotRequired
+		}
+		if connectorPayload.Valid {
+			var projection market.Connector
+			if err := json.Unmarshal([]byte(connectorPayload.String), &projection); err != nil {
+				_ = listingRows.Close()
+				return market.CatalogView{}, err
+			}
+			listing.Connector.Installation = projection.Installation
+			listing.Connector.Authorization = projection.Authorization
+			listing.Connector.Compatibility = projection.Compatibility
+			listing.Connector.Revision = projection.Revision
+		}
+		listing.Featured = featured != 0
+		view.ListingsBySection[sectionID] = append(view.ListingsBySection[sectionID], listing)
+	}
+	if err := listingRows.Close(); err != nil {
+		return market.CatalogView{}, err
+	}
+	if err := listingRows.Err(); err != nil {
+		return market.CatalogView{}, err
+	}
+	return view, nil
 }
 
 func (store *Store) Connector(ctx context.Context, connectorKey string) (market.Connector, error) {
@@ -607,16 +869,95 @@ WHERE connector_key IN ('', ?) AND state IN ('accepted', 'running') LIMIT 1`
 	return &operation, err
 }
 
-func (transaction *transaction) SaveCatalogRevision(sourceRevision string) error {
-	_, err := transaction.tx.ExecContext(transaction.ctx, `
-UPDATE connector_market_metadata SET source_revision = ? WHERE id = ?`, sourceRevision, metadataID)
-	return err
+func (transaction *transaction) CatalogFreshness() (market.CatalogFreshness, error) {
+	return readCatalogFreshness(transaction.ctx, transaction.tx)
 }
 
-func (transaction *transaction) SetCatalogState(state market.CatalogState) error {
-	_, err := transaction.tx.ExecContext(transaction.ctx, `
-UPDATE connector_market_metadata SET catalog_state = ? WHERE id = ?`, state, metadataID)
-	return err
+func (transaction *transaction) ReplaceCatalogSnapshot(
+	generation uint64,
+	snapshot market.CatalogSnapshot,
+	acceptedAt time.Time,
+) (bool, error) {
+	var currentGeneration uint64
+	var appliedGeneration uint64
+	var previousSnapshotID sql.NullString
+	if err := transaction.tx.QueryRowContext(transaction.ctx, `
+SELECT fetch_generation, applied_generation, active_snapshot_id
+FROM connector_market_catalog_state WHERE id = ?`, metadataID).
+		Scan(&currentGeneration, &appliedGeneration, &previousSnapshotID); err != nil {
+		return false, err
+	}
+	if generation != currentGeneration || generation <= appliedGeneration {
+		return false, nil
+	}
+	snapshotID := fmt.Sprintf("catalog-%d", generation)
+	if _, err := transaction.tx.ExecContext(transaction.ctx, `
+INSERT INTO connector_market_catalog_snapshots (snapshot_id, source_revision, accepted_at_unix_ms)
+VALUES (?, ?, ?)`, snapshotID, strings.TrimSpace(snapshot.SourceRevision), acceptedAt.UTC().UnixMilli()); err != nil {
+		return false, err
+	}
+	for _, category := range snapshot.Categories {
+		if _, err := transaction.tx.ExecContext(transaction.ctx, `
+INSERT INTO connector_market_catalog_categories
+(snapshot_id, category_id, kind, sort_order, item_count, display_name_zh, display_name_en)
+VALUES (?, ?, ?, ?, ?, ?, ?)`, snapshotID, category.CategoryID, category.Kind, category.SortOrder,
+			category.ItemCount, category.DisplayNameZH, category.DisplayNameEN); err != nil {
+			return false, err
+		}
+	}
+	releases := make(map[string]market.Release, len(snapshot.Entries))
+	for _, entry := range snapshot.Entries {
+		releases[entry.Release.ConnectorKey] = entry.Release
+	}
+	for connectorKey, release := range releases {
+		payload, err := json.Marshal(release)
+		if err != nil {
+			return false, err
+		}
+		if _, err := transaction.tx.ExecContext(transaction.ctx, `
+INSERT INTO connector_market_catalog_releases (snapshot_id, connector_key, release_json)
+VALUES (?, ?, ?)`, snapshotID, connectorKey, string(payload)); err != nil {
+			return false, err
+		}
+	}
+	for _, entry := range snapshot.Entries {
+		if _, err := transaction.tx.ExecContext(transaction.ctx, `
+INSERT INTO connector_market_catalog_placements
+(snapshot_id, section_id, placement_order, category_id, connector_key, featured)
+VALUES (?, ?, ?, ?, ?, ?)`, snapshotID, entry.SectionID, entry.Order, entry.CategoryID,
+			entry.Release.ConnectorKey, boolInt(entry.Featured)); err != nil {
+			return false, err
+		}
+	}
+	result, err := transaction.tx.ExecContext(transaction.ctx, `
+UPDATE connector_market_catalog_state
+SET active_snapshot_id = ?, applied_generation = ?, freshness_state = 'fresh',
+    stale_since_unix_ms = NULL, last_failure_code = ''
+WHERE id = ? AND fetch_generation = ? AND applied_generation < ?`, snapshotID, generation, metadataID, generation, generation)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if changed == 0 {
+		return false, nil
+	}
+	if previousSnapshotID.Valid && previousSnapshotID.String != snapshotID {
+		if _, err := transaction.tx.ExecContext(transaction.ctx, `
+DELETE FROM connector_market_catalog_snapshots WHERE snapshot_id = ?`, previousSnapshotID.String); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (transaction *transaction) SaveConnector(connector market.Connector) error {

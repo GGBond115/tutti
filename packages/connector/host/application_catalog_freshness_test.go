@@ -2,72 +2,47 @@ package host
 
 import (
 	"context"
-	"sync/atomic"
+	"errors"
 	"testing"
+	"time"
 )
 
-type outOfOrderCatalogSource struct {
-	oldRelease   Release
-	newRelease   Release
-	firstStarted chan struct{}
-	releaseFirst chan struct{}
-	calls        atomic.Int32
-}
-
-func (*outOfOrderCatalogSource) ListCategories(context.Context) ([]CatalogCategory, error) {
-	return nil, nil
-}
-
-func (source *outOfOrderCatalogSource) ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error) {
-	if source.calls.Add(1) == 1 {
-		close(source.firstStarted)
-		<-source.releaseFirst
-		return CatalogSourcePage{SectionID: "featured", Entries: []CatalogEntry{{
-			CategoryID: "featured", Featured: true, Release: source.oldRelease,
-		}}}, nil
+func TestInstallRequiresFreshCatalogSnapshot(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		freshness CatalogFreshness
+	}{
+		{name: "unavailable", freshness: CatalogFreshness{State: CatalogFreshnessUnavailable}},
+		{name: "stale", freshness: CatalogFreshness{State: CatalogFreshnessStale, SnapshotID: "catalog-1"}},
+		{name: "refreshing after stale", freshness: CatalogFreshness{State: CatalogFreshnessRefreshing, SnapshotID: "catalog-1", StaleSince: timePointer(time.Now())}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository := newMemoryRepository(testConnector("github"))
+			repository.catalogView.Freshness = test.freshness
+			application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+			_, err := application.Install(context.Background(), ConnectorMutation{
+				Mutation: Mutation{ClientRequestID: "install-1"}, ConnectorKey: "github",
+			})
+			var domainError *DomainError
+			if !errors.As(err, &domainError) || domainError.Code != ErrorCodeUpstreamUnavailable || !domainError.Retryable {
+				t.Fatalf("error = %#v", err)
+			}
+			if len(repository.operations) != 0 {
+				t.Fatalf("operations = %#v", repository.operations)
+			}
+		})
 	}
-	return CatalogSourcePage{SectionID: "featured", Entries: []CatalogEntry{{
-		CategoryID: "featured", Featured: true, Release: source.newRelease,
-	}}}, nil
 }
 
-func (*outOfOrderCatalogSource) Refresh(context.Context) (CatalogSnapshot, error) {
-	return CatalogSnapshot{}, nil
-}
-
-func TestCatalogFetchFenceDropsSlowOlderPage(t *testing.T) {
-	oldRelease := testConnector("github").Release
-	newRelease := oldRelease
-	newRelease.Version = "2.0.0"
-	newRelease.ReleaseID = "github@2.0.0"
-	newRelease.ReleaseDigest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	newRelease.ManifestDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-	source := &outOfOrderCatalogSource{
-		oldRelease: oldRelease, newRelease: newRelease,
-		firstStarted: make(chan struct{}), releaseFirst: make(chan struct{}),
-	}
+func TestInstallAllowsInitialRefreshWithAcceptedSnapshot(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
+	repository.catalogView.Freshness = CatalogFreshness{State: CatalogFreshnessRefreshing, SnapshotID: "catalog-1"}
 	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
-	application.config.CatalogSource = source
-	query := CatalogPageQuery{SectionID: "featured", PageSize: 20}
-	firstDone := make(chan error, 1)
-	go func() {
-		_, err := application.ListCatalogPage(context.Background(), query)
-		firstDone <- err
-	}()
-	<-source.firstStarted
-	if _, err := application.ListCatalogPage(context.Background(), query); err != nil {
+	if _, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation: Mutation{ClientRequestID: "install-1"}, ConnectorKey: "github",
+	}); err != nil {
 		t.Fatal(err)
-	}
-	close(source.releaseFirst)
-	if err := <-firstDone; err != nil {
-		t.Fatal(err)
-	}
-	stored, err := repository.Connector(context.Background(), "github")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Release.ReleaseDigest != newRelease.ReleaseDigest {
-		t.Fatalf("slow old page replaced newer catalog state: %#v", stored.Release)
 	}
 }
+
+func timePointer(value time.Time) *time.Time { return &value }

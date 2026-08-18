@@ -16959,6 +16959,12 @@ components:
             - succeeded
             - failed
             - canceled
+          x-enum-varnames:
+            - WorkspaceWorkflowOperationStatusPending
+            - WorkspaceWorkflowOperationStatusRunning
+            - WorkspaceWorkflowOperationStatusSucceeded
+            - WorkspaceWorkflowOperationStatusFailed
+            - WorkspaceWorkflowOperationStatusCanceled
         revisionId:
           type: string
           format: uuid

@@ -3,15 +3,83 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	marketv1 "github.com/tutti-os/tutti/packages/clients/market-go/generated/sandbox/v1"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+type mutatingCatalogClient struct {
+	t         *testing.T
+	itemCalls int
+}
+
+func (client *mutatingCatalogClient) ListMarketCategories(context.Context, *marketv1.ListMarketCategoriesRequest, ...khttp.CallOption) (*marketv1.ListMarketCategoriesReply, error) {
+	return &marketv1.ListMarketCategoriesReply{MarketType: "overseas", Categories: []*marketv1.MarketCategory{{
+		CategoryId: "development", Kind: "category", ItemCount: 2, DisplayNameEn: "Development",
+	}}}, nil
+}
+
+func (client *mutatingCatalogClient) ListMarketItems(_ context.Context, request *marketv1.ListMarketItemsRequest, _ ...khttp.CallOption) (*marketv1.ListMarketItemsReply, error) {
+	client.itemCalls++
+	version := "1.0.0"
+	if client.itemCalls >= 3 {
+		version = "2.0.0"
+	}
+	if request.GetPageToken() == "page-2" {
+		item := validGeneratedCatalogItem(client.t, "slack", "1.0.0")
+		return &marketv1.ListMarketItemsReply{MarketType: "overseas", Items: []*marketv1.PublicMarketItem{item}}, nil
+	}
+	item := validGeneratedCatalogItem(client.t, "github", version)
+	return &marketv1.ListMarketItemsReply{MarketType: "overseas", Items: []*marketv1.PublicMarketItem{item}, NextPageToken: "page-2"}, nil
+}
+
+func (*mutatingCatalogClient) GetMarketItem(context.Context, *marketv1.GetMarketItemRequest, ...khttp.CallOption) (*marketv1.GetMarketItemReply, error) {
+	return nil, errors.New("unexpected GetMarketItem")
+}
+
+func (*mutatingCatalogClient) ResolveMarketArtifactDownload(context.Context, *marketv1.ResolveMarketArtifactDownloadRequest, ...khttp.CallOption) (*marketv1.ResolveMarketArtifactDownloadReply, error) {
+	return nil, errors.New("unexpected ResolveMarketArtifactDownload")
+}
+
+func TestCatalogSourceRejectsMutationBetweenPaginatedFullReads(t *testing.T) {
+	client := &mutatingCatalogClient{t: t}
+	source := &CatalogSource{expectedMarketType: "overseas", marketClient: client, executionTarget: "darwin-arm64"}
+	_, err := source.Refresh(context.Background())
+	var domainError *market.DomainError
+	if !errors.As(err, &domainError) || domainError.Code != market.ErrorCodeUpstreamUnavailable || !domainError.Retryable {
+		t.Fatalf("error = %#v", err)
+	}
+	if client.itemCalls != 4 {
+		t.Fatalf("item calls = %d, want 4", client.itemCalls)
+	}
+}
+
+func validGeneratedCatalogItem(t *testing.T, key, version string) *marketv1.PublicMarketItem {
+	t.Helper()
+	manifest := map[string]any{
+		"schemaVersion": "2", "itemType": "connector", "itemKey": key, "version": version,
+		"display": map[string]any{"name": key, "iconUrl": "data:image/png;base64,iVBORw0KGgo="},
+		"payload": map[string]any{
+			"permissions": []any{}, "packageManifestSha256": strings.Repeat("b", 64),
+			"authorization": map[string]any{"kind": "none"}, "compatibility": map[string]any{},
+			"implementation": map[string]any{"kind": "managed_stdio", "managedStdio": map[string]any{
+				"runtime": map[string]any{"language": "node", "profile": "connector-node-static", "abi": "node20-darwin-arm64"},
+				"mcp":     map[string]any{"entrypoint": "bin/connector.js"},
+			}},
+		},
+	}
+	item := generatedMarketItem(t, manifest, key, version)
+	item.CategoryId = "development"
+	item.Artifact.ReleaseDigest = strings.Repeat(map[bool]string{true: "e", false: "d"}[version == "2.0.0"], 64)
+	return item
+}
 
 func TestCatalogSourceMapsServerDescriptorWithoutDeprecatedArtifactKey(t *testing.T) {
 	itemCalls := 0
@@ -34,7 +102,7 @@ func TestCatalogSourceMapsServerDescriptorWithoutDeprecatedArtifactKey(t *testin
 			return
 		}
 		itemCalls++
-		if request.URL.Path != "/v1/market/items" || request.URL.Query().Get("sectionId") != "developer-tools" || request.URL.Query().Get("pageSize") != "100" {
+		if request.URL.Path != "/v1/market/items" || request.URL.Query().Get("pageSize") != "100" {
 			t.Fatalf("request path=%q query=%q", request.URL.Path, request.URL.RawQuery)
 		}
 		_, _ = writer.Write([]byte(`{
@@ -102,10 +170,10 @@ func TestCatalogSourceMapsServerDescriptorWithoutDeprecatedArtifactKey(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Releases) != 1 || result.SourceRevision == "" {
+	if len(result.Categories) != 2 || len(result.Entries) != 2 || result.SourceRevision != "" {
 		t.Fatalf("snapshot = %#v", result)
 	}
-	got := result.Releases[0]
+	got := result.Entries[0].Release
 	if got.ConnectorKey != "github" || got.ReleaseID != "github@1.0.0" || got.Manifest.SchemaVersion != "1" ||
 		got.ReleaseDigest != strings.Repeat("d", 64) ||
 		got.ManifestDigest != strings.Repeat("b", 64) || got.Artifact.SizeBytes != 123 || got.Artifact.MediaType != "application/zip" ||
@@ -114,18 +182,12 @@ func TestCatalogSourceMapsServerDescriptorWithoutDeprecatedArtifactKey(t *testin
 		got.Manifest.Implementation.ManagedStdio.MCP.Entrypoint != "bin/github.js" {
 		t.Fatalf("release = %#v", got)
 	}
-	categories, err := source.ListCategories(context.Background())
-	if err != nil || len(categories) != 2 || categories[1].CategoryID != "developer-tools" ||
-		categories[1].DisplayNameZH != "开发者工具" || categories[1].DisplayNameEN != "Developer Tools" {
-		t.Fatalf("categories = %#v; error = %v", categories, err)
+	if result.Categories[1].CategoryID != "developer-tools" || result.Categories[1].DisplayNameZH != "开发者工具" ||
+		result.Categories[1].DisplayNameEN != "Developer Tools" || result.Entries[1].Release.Artifact.SHA256 != strings.Repeat("c", 64) {
+		t.Fatalf("snapshot = %#v", result)
 	}
-	page, err := source.ListPage(context.Background(), market.CatalogSourcePageQuery{SectionID: "developer-tools", PageSize: 100})
-	if err != nil || len(page.Entries) != 1 || page.Entries[0].Release.ConnectorKey != "github" ||
-		page.Entries[0].Release.Version != "1.0.0" || page.Entries[0].Release.Artifact.SHA256 != strings.Repeat("c", 64) {
-		t.Fatalf("page=%#v error=%v", page, err)
-	}
-	if itemCalls != 2 {
-		t.Fatalf("market item requests = %d, want 2", itemCalls)
+	if itemCalls != 4 {
+		t.Fatalf("market item requests = %d, want 4", itemCalls)
 	}
 }
 
@@ -320,7 +382,7 @@ func TestCatalogSourcePreservesGatewayBasePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.ListCategories(context.Background()); err != nil {
+	if _, err := source.fetchCategories(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -347,7 +409,7 @@ func TestCatalogSourceRequiresServerNamesForDynamicCategories(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = source.ListCategories(context.Background())
+			_, err = source.fetchCategories(context.Background())
 			if test.wantError && err == nil {
 				t.Fatal("expected unnamed dynamic category error")
 			}

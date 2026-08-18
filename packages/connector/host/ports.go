@@ -12,8 +12,6 @@ var (
 )
 
 type CatalogSource interface {
-	ListCategories(context.Context) ([]CatalogCategory, error)
-	ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error)
 	Refresh(context.Context) (CatalogSnapshot, error)
 }
 
@@ -30,12 +28,6 @@ type ArtifactDownload struct {
 	SHA256        string
 	SizeBytes     int64
 	MediaType     string
-}
-
-type CatalogSourcePageQuery struct {
-	SectionID string
-	PageSize  int
-	PageToken string
 }
 
 type CatalogInstallationFilter string
@@ -61,15 +53,11 @@ type CatalogCategory struct {
 }
 
 type CatalogEntry struct {
+	SectionID  string  `json:"sectionId"`
 	CategoryID string  `json:"categoryId"`
 	Featured   bool    `json:"featured"`
+	Order      int     `json:"order"`
 	Release    Release `json:"release"`
-}
-
-type CatalogSourcePage struct {
-	SectionID     string
-	Entries       []CatalogEntry
-	NextPageToken string
 }
 
 type CatalogListing struct {
@@ -87,11 +75,22 @@ type CatalogPage struct {
 
 type CatalogSnapshot struct {
 	SourceRevision string
-	Releases       []Release
+	Categories     []CatalogCategory
+	Entries        []CatalogEntry
+}
+
+type CatalogView struct {
+	Freshness         CatalogFreshness
+	Categories        []CatalogCategory
+	ListingsBySection map[string][]CatalogListing
+	Revision          uint64
 }
 
 type Repository interface {
 	Snapshot(ctx context.Context) (Snapshot, error)
+	CatalogView(ctx context.Context) (CatalogView, error)
+	BeginCatalogRefresh(ctx context.Context, now time.Time) (uint64, error)
+	FailCatalogRefresh(ctx context.Context, generation uint64, failureCode string, now time.Time) error
 	Connector(ctx context.Context, connectorKey string) (Connector, error)
 	Operation(ctx context.Context, operationID string) (Operation, error)
 	OperationForScope(ctx context.Context, scope OperationScope, operationID string) (Operation, error)
@@ -124,8 +123,8 @@ type Transaction interface {
 	Operation(operationID string) (Operation, error)
 	OperationByClientRequestID(ownerAccountID, clientRequestID string) (*Operation, error)
 	ActiveOperation(connectorKey string) (*Operation, error)
-	SaveCatalogRevision(sourceRevision string) error
-	SetCatalogState(state CatalogState) error
+	CatalogFreshness() (CatalogFreshness, error)
+	ReplaceCatalogSnapshot(generation uint64, snapshot CatalogSnapshot, acceptedAt time.Time) (bool, error)
 	SaveConnector(Connector) error
 	DeleteConnector(connectorKey string) error
 	SaveOperation(Operation) error

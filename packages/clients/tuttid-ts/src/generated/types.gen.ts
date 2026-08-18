@@ -4837,6 +4837,7 @@ export type ConnectorMarketCatalogPage = {
 
 export type ConnectorMarketSnapshot = {
   catalogState: ConnectorMarketCatalogState;
+  catalogFreshness?: ConnectorMarketCatalogFreshness;
   connectors: Array<ConnectorMarketConnector>;
   operations: Array<ConnectorMarketOperation>;
   revision: number;
@@ -5008,6 +5009,21 @@ export type ConnectorMarketCatalogState =
   | "refreshing"
   | "stale"
   | "failed";
+
+export type ConnectorMarketCatalogFreshness = {
+  state: ConnectorMarketCatalogFreshnessState;
+  snapshotId?: string;
+  sourceRevision?: string;
+  acceptedAt?: string;
+  staleSince?: string;
+  lastFailure?: string;
+};
+
+export type ConnectorMarketCatalogFreshnessState =
+  | "unavailable"
+  | "refreshing"
+  | "fresh"
+  | "stale";
 
 export type ConnectorMarketInstallationState =
   | "not_installed"

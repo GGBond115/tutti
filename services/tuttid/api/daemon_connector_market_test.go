@@ -79,14 +79,18 @@ func (service stubConnectorMarketService) ListCatalogPage(ctx context.Context, q
 }
 
 func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T) {
+	acceptedAt := time.Date(2026, 8, 18, 1, 2, 3, 0, time.UTC)
+	staleSince := acceptedAt.Add(time.Hour)
 	service := stubConnectorMarketService{
 		snapshotFn: func(_ context.Context) (market.Snapshot, error) {
 			return market.Snapshot{
-				CatalogState:   market.CatalogStateReady,
-				Connectors:     []market.Connector{connectorMarketTestConnector()},
-				Operations:     []market.Operation{},
-				Revision:       7,
-				SourceRevision: "sha256:catalog",
+				CatalogState: market.CatalogStateStale,
+				CatalogFreshness: market.CatalogFreshness{
+					State: market.CatalogFreshnessStale, SnapshotID: "catalog-7", SourceRevision: "server-revision-7",
+					AcceptedAt: &acceptedAt, StaleSince: &staleSince, LastFailure: "connector_market_upstream_unavailable",
+				},
+				Connectors: []market.Connector{connectorMarketTestConnector()}, Operations: []market.Operation{},
+				Revision: 7, SourceRevision: "server-revision-7",
 			}, nil
 		},
 	}
@@ -100,6 +104,12 @@ func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T)
 
 	var raw map[string]any
 	decodeGeneratedRouteResponse(t, recorder, &raw)
+	freshness := raw["catalogFreshness"].(map[string]any)
+	if freshness["state"] != string(market.CatalogFreshnessStale) || freshness["snapshotId"] != "catalog-7" ||
+		freshness["sourceRevision"] != "server-revision-7" || freshness["acceptedAt"] != acceptedAt.Format(time.RFC3339) ||
+		freshness["staleSince"] != staleSince.Format(time.RFC3339) || freshness["lastFailure"] != "connector_market_upstream_unavailable" {
+		t.Fatalf("catalog freshness = %#v", freshness)
+	}
 	connectors := raw["connectors"].([]any)
 	connector := connectors[0].(map[string]any)
 	release := connector["release"].(map[string]any)

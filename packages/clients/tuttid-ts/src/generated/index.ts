@@ -553,6 +553,8 @@ export type {
   ConnectorMarketAuthorizationRequestWritable,
   ConnectorMarketAuthorizationResponse,
   ConnectorMarketAuthorizationState,
+  ConnectorMarketCatalogFreshness,
+  ConnectorMarketCatalogFreshnessState,
   ConnectorMarketCatalogItem,
   ConnectorMarketCatalogPage,
   ConnectorMarketCatalogState,

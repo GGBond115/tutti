@@ -185,25 +185,65 @@ func TestActivationGateRejectsInactiveAccountScope(t *testing.T) {
 }
 
 type countingCatalogSource struct {
-	release    market.Release
-	refreshes  int
-	refreshErr error
-}
-
-func (*countingCatalogSource) ListCategories(context.Context) ([]market.CatalogCategory, error) {
-	return nil, nil
-}
-
-func (*countingCatalogSource) ListPage(context.Context, market.CatalogSourcePageQuery) (market.CatalogSourcePage, error) {
-	return market.CatalogSourcePage{}, nil
+	release         market.Release
+	refreshes       int
+	refreshErr      error
+	refreshObserved chan struct{}
 }
 
 func (source *countingCatalogSource) Refresh(context.Context) (market.CatalogSnapshot, error) {
 	source.refreshes++
+	if source.refreshObserved != nil {
+		select {
+		case source.refreshObserved <- struct{}{}:
+		default:
+		}
+	}
 	if source.refreshErr != nil {
 		return market.CatalogSnapshot{}, source.refreshErr
 	}
-	return market.CatalogSnapshot{SourceRevision: "source-1", Releases: []market.Release{source.release}}, nil
+	return market.CatalogSnapshot{SourceRevision: "source-1",
+		Categories: []market.CatalogCategory{{CategoryID: "development", Kind: "category", ItemCount: 1}},
+		Entries:    []market.CatalogEntry{{SectionID: "development", CategoryID: "development", Release: source.release}}}, nil
+}
+
+func TestStartRefreshesCatalogWithoutBootstrap(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store, err := marketdata.Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	source := &countingCatalogSource{
+		release: hostTestRelease(), refreshErr: errors.New("offline"), refreshObserved: make(chan struct{}, 1),
+	}
+	runtime := &activationGateDelegate{}
+	host, err := NewHost(HostConfig{
+		Repository: store, CatalogSource: source, ReleaseInstallations: runtime, ImplementationHost: runtime,
+		Authorization: unavailableAuthorization{}, Compatibility: rejectingCompatibility{},
+		ImplementationRegistry: market.NewImplementationRegistry(nil), Outbox: store, Lifecycle: store,
+		Publisher: discardChangedEventPublisher{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-source.refreshObserved:
+	case <-time.After(2 * time.Second):
+		t.Fatal("catalog refresh did not start after Host.Start")
+	}
+	if host.bootstrapped {
+		t.Fatal("catalog worker bootstrapped the runtime")
+	}
+	closeContext, closeCancel := context.WithTimeout(context.Background(), time.Second)
+	defer closeCancel()
+	if err := host.Close(closeContext); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type discardChangedEventPublisher struct{}
