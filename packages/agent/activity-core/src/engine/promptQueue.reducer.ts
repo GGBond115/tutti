@@ -54,7 +54,6 @@ import {
 import type { RootEngineReducerResult } from "./rootReducer.types.ts";
 
 const NO_COMMANDS: readonly EngineCommand[] = [];
-const AGENT_PROCESS_CLEANUP_PENDING_ERROR = "agent.process_cleanup_pending";
 // Send on an inactive Claude/Codex session includes full Resume/Start before
 // Exec acceptance. Keep this aligned with new-session activation (90s) so a
 // large restore is not aborted inside the 120s prompt confirmation window.
@@ -460,26 +459,6 @@ function settleQueueCommand(
       })
     };
   }
-  if (isPreExecutionSendFailure(intent)) {
-    const record = compactQueueRecord({
-      ...current,
-      failedPromptId: null,
-      failureMessage: null,
-      inFlight: null,
-      prompts: current.prompts.filter(
-        (prompt) => prompt.id !== inFlight.promptId
-      ),
-      sendNextPromptId:
-        current.sendNextPromptId === inFlight.promptId
-          ? null
-          : current.sendNextPromptId
-    });
-    return result(
-      record
-        ? replaceRecord(state, agentSessionId, record)
-        : deleteRecord(state, agentSessionId)
-    );
-  }
   return result(
     replaceRecord(state, agentSessionId, {
       ...current,
@@ -505,20 +484,6 @@ function isNoActiveTurnSendFailure(intent: EngineIntent): boolean {
     errorCode === "agent.no_active_turn" ||
     errorReason === "agent.session_no_active_turn" ||
     errorCode === "agent.session_no_active_turn"
-  );
-}
-
-function isPreExecutionSendFailure(intent: EngineIntent): boolean {
-  if (
-    intent.type !== "engine/commandResult" ||
-    intent.commandType !== "queue/sendPrompt" ||
-    intent.outcome !== "failed"
-  ) {
-    return false;
-  }
-  return (
-    intent.errorCode?.trim() === AGENT_PROCESS_CLEANUP_PENDING_ERROR ||
-    intent.errorReason?.trim() === AGENT_PROCESS_CLEANUP_PENDING_ERROR
   );
 }
 
