@@ -129,7 +129,7 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 
 "Agent handoff decisions belong to `$tutti-handoff`.",
 
-"Generic subagent/delegate/worker/parallel-review requests use the current provider's native subagent or collaboration mechanism when available; use `$tutti-handoff` only for an explicit separate Tutti AgentGUI/Host Agent handoff or `mention://agent-target/...`.",
+"Generic subagents use native tools; Tutti handoffs use `$tutti-handoff`.",
 
 		"tutti-dev connector available --json",
 		"Connector aliases `lark-cli=Lark CLI|飞书|Feishu|Lark|Lark Suite`",
@@ -251,7 +251,7 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 		t.Fatal("missing recommended system prompt")
 	}
 	for _, expected := range []string{
-		"Generic subagent/delegate/worker/parallel-review requests use the current provider's native subagent or collaboration mechanism when available; use `$tutti-handoff` only for an explicit separate Tutti AgentGUI/Host Agent handoff or `mention://agent-target/...`.",
+		"Generic subagents use provider-native tools; `$tutti-handoff` is for explicit Tutti handoffs or `mention://agent-target/...`.",
 	} {
 		if !strings.Contains(bundle.RecommendedSystemPrompt.Content, expected) {
 			t.Fatalf("recommended system prompt missing routing boundary %q: %q", expected, bundle.RecommendedSystemPrompt.Content)
