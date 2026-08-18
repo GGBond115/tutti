@@ -79,7 +79,7 @@ func TestProviderSkillsRenderFromCommandSnapshot(t *testing.T) {
 
 "Generic provider-native subagent requests are not Tutti handoffs",
 
-"Use the current provider`'s native subagent or collaboration mechanism when available",
+"Use the current provider's native subagent or collaboration mechanism when available",
 
 "This skill and the `tutti agent ...` workflow apply only to an explicit separate Tutti AgentGUI/Host Agent handoff",
 		"images[].localPath",
@@ -159,7 +159,7 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 	}
 	if !strings.Contains(claude, "Claude Code `Monitor` tool is disabled") ||
 		!strings.Contains(claude, "localhost/IPC") ||
-		strings.Contains(claude, "sandbox_permissions=require_escalated") || !strings.Contains(claude, "current provider`'s native subagent or collaboration mechanism") {
+		strings.Contains(claude, "sandbox_permissions=require_escalated") || !strings.Contains(claude, "current provider's native subagent or collaboration mechanism") {
 		t.Fatalf("claude policy has wrong provider execution rules: %s", claude)
 	}
 }
