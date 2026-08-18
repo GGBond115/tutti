@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,13 +32,21 @@ type CatalogSourceConfig struct {
 	AuthorizeRequest   RequestAuthorizer
 	// ExecutionTarget selects a Connector v3 target. Empty defaults to the
 	// daemon process GOOS/GOARCH, which is the correct target for desktop Tutti.
-	ExecutionTarget string
+	ExecutionTarget    string
+	HostProduct        string
+	HostVersion        string
+	MaxConnectorSchema int
+	HostCapabilities   []string
 }
 
 type CatalogSource struct {
 	expectedMarketType string
 	marketClient       marketv1.MarketServiceHTTPClient
 	executionTarget    string
+	hostProduct        string
+	hostVersion        string
+	maxConnectorSchema int
+	hostCapabilities   []string
 }
 
 var _ market.CatalogSource = (*CatalogSource)(nil)
@@ -46,14 +55,6 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	expectedMarketType := strings.ToLower(strings.TrimSpace(config.ExpectedMarketType))
 	if expectedMarketType != "domestic" && expectedMarketType != "overseas" {
 		return nil, errors.New("connector market type must be domestic or overseas")
-	}
-	client, err := marketclient.New(marketclient.Config{
-		BaseURL:        config.BaseURL,
-		HTTPClient:     config.HTTPClient,
-		PrepareRequest: marketclient.PrepareRequestFunc(config.AuthorizeRequest),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("configure connector market client: %w", err)
 	}
 	executionTarget := strings.TrimSpace(config.ExecutionTarget)
 	var executionTargetErr error
@@ -65,7 +66,44 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	if executionTargetErr != nil {
 		return nil, executionTargetErr
 	}
-	return &CatalogSource{expectedMarketType: expectedMarketType, marketClient: client, executionTarget: executionTarget}, nil
+	source := &CatalogSource{
+		expectedMarketType: expectedMarketType,
+		executionTarget:    executionTarget,
+		hostProduct:        strings.TrimSpace(config.HostProduct),
+		hostVersion:        strings.TrimSpace(config.HostVersion),
+		maxConnectorSchema: config.MaxConnectorSchema,
+		hostCapabilities:   append([]string(nil), config.HostCapabilities...),
+	}
+	client, err := marketclient.New(marketclient.Config{
+		BaseURL:        config.BaseURL,
+		HTTPClient:     config.HTTPClient,
+		PrepareRequest: source.prepareRequest(config.AuthorizeRequest),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure connector market client: %w", err)
+	}
+	source.marketClient = client
+	return source, nil
+}
+
+func (source *CatalogSource) prepareRequest(authorize RequestAuthorizer) marketclient.PrepareRequestFunc {
+	return func(request *http.Request) error {
+		if source != nil && strings.TrimSpace(source.hostProduct) != "" && strings.TrimSpace(source.hostVersion) != "" && source.maxConnectorSchema > 0 {
+			query := request.URL.Query()
+			query.Set("hostProduct", source.hostProduct)
+			query.Set("hostVersion", source.hostVersion)
+			query.Set("executionTarget", source.executionTarget)
+			query.Set("maxConnectorSchema", strconv.Itoa(source.maxConnectorSchema))
+			for _, capability := range source.hostCapabilities {
+				query.Add("hostCapabilities", capability)
+			}
+			request.URL.RawQuery = query.Encode()
+		}
+		if authorize != nil {
+			return authorize(request)
+		}
+		return nil
+	}
 }
 
 func (source *CatalogSource) Refresh(ctx context.Context) (market.CatalogSnapshot, error) {
