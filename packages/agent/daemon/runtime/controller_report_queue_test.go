@@ -178,6 +178,25 @@ func TestReportRequestQueueCoalescesInterleavedSessionsIndependently(t *testing.
 	}
 }
 
+func BenchmarkReportRequestQueueInterleavedSessionBarriers(b *testing.B) {
+	const sessionCount = 1024
+	for iteration := 0; iteration < b.N; iteration++ {
+		queue := newReportRequestQueue()
+		for session := 0; session < sessionCount; session++ {
+			sessionID := fmt.Sprintf("session-%d", session)
+			queue.enqueue(streamingRequestForSession(sessionID, 1))
+			barrier := terminalRequestForSession(sessionID, 2)
+			barrier.done = make(chan error, 1)
+			queue.enqueue(barrier)
+		}
+		for {
+			if _, ok := queue.dequeue(); !ok {
+				break
+			}
+		}
+	}
+}
+
 func streamingRequestForSession(sessionID string, seq uint64) reportRequest {
 	report := streamingReport("assistant-"+sessionID, seq, fmt.Sprintf("content-%d", seq))
 	report.Source.AgentID = sessionID

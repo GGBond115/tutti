@@ -106,8 +106,8 @@ func (a *standardACPAdapter) applySessionConfigOptions(
 	startResult json.RawMessage,
 ) error {
 	settings := session.SettingsValue()
-	if validate := a.config.validateStartupSettings; validate != nil {
-		if err := validate(session); err != nil {
+	if validate := a.config.validateSettings; validate != nil {
+		if err := validate(session, SessionSettingsPatch{}); err != nil {
 			return fmt.Errorf("agent session ACP startup settings are invalid: %w", err)
 		}
 	}
@@ -399,6 +399,11 @@ func (a *standardACPAdapter) ValidateSessionSettings(session Session, patch Sess
 	if a == nil {
 		return nil
 	}
+	if validate := a.config.validateSettings; validate != nil {
+		if err := validate(session, patch); err != nil {
+			return fmt.Errorf("agent session ACP settings are invalid: %w", err)
+		}
+	}
 	_, builtInProvider := providerregistry.Find(a.config.provider)
 	if builtInProvider {
 		return nil
@@ -468,6 +473,11 @@ func (a *standardACPAdapter) ApplySessionSettings(
 	session Session,
 	patch SessionSettingsPatch,
 ) error {
+	if validate := a.config.validateSettings; validate != nil {
+		if err := validate(session, patch); err != nil {
+			return fmt.Errorf("agent session ACP settings are invalid: %w", err)
+		}
+	}
 	if a.RequiresNewSessionForSettings(session, patch) {
 		return ErrSessionSettingsRequireNewSession
 	}
@@ -653,10 +663,17 @@ func (a *standardACPAdapter) SessionState(session Session) SessionStateSnapshot 
 		snapshot.RuntimeContext["commands"] = agentSessionCommandNames(state.availableCommands)
 		snapshot.RuntimeContext["availableCommands"] = agentSessionCommandsRuntimeContext(state.availableCommands)
 	}
-	if config := canonicalACPConfigForRuntimeContext(state.configOptions); len(config) > 0 {
+	config := canonicalACPConfigForRuntimeContext(state.configOptions)
+	if filter := a.config.filterRuntimeConfigOptionValues; filter != nil {
+		config = filter(session, config)
+	}
+	if len(config) > 0 {
 		snapshot.RuntimeContext["config"] = config
 	}
 	configOptionDescriptors := canonicalACPConfigOptionDescriptorsForRuntimeContext(state.configOptionDescriptors)
+	if filter := a.config.filterRuntimeConfigOptionDescriptors; filter != nil {
+		configOptionDescriptors = filter(session, configOptionDescriptors)
+	}
 	if len(configOptionDescriptors) > 0 {
 		snapshot.RuntimeContext["configOptions"] = configOptionDescriptors
 	}
@@ -687,7 +704,7 @@ func (a *standardACPAdapter) SessionState(session Session) SessionStateSnapshot 
 			session.Settings,
 			session.Provider,
 			session.PermissionModeID,
-			state.configOptions,
+			config,
 			a.effectiveModelConfigOptionID(),
 			strings.TrimSpace(a.config.reasoningConfigOptionID),
 		)
@@ -696,7 +713,7 @@ func (a *standardACPAdapter) SessionState(session Session) SessionStateSnapshot 
 			session.Settings,
 			session.Provider,
 			session.PermissionModeID,
-			state.configOptions,
+			config,
 			true,
 		)
 	}

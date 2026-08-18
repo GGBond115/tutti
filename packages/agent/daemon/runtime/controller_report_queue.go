@@ -95,27 +95,28 @@ func (q *reportRequestQueue) dequeue() (reportRequest, bool) {
 // Without this exception, a busy stream can keep the single report worker
 // occupied long enough for reportSessionBeforePublish to time out.
 func (q *reportRequestQueue) nextDequeueIndexLocked() int {
+	seenSessionKeys := make(map[string]struct{})
+	if q.head < len(q.items) && q.items[q.head] != nil {
+		if sessionKey := queuedReportSessionKey(q.items[q.head].report); sessionKey != "" {
+			seenSessionKeys[sessionKey] = struct{}{}
+		}
+	}
 	for index := q.head + 1; index < len(q.items); index++ {
 		candidate := q.items[index]
-		if candidate == nil || !isReportBarrierRequest(*candidate) {
+		if candidate == nil {
 			continue
 		}
 		sessionKey := queuedReportSessionKey(candidate.report)
-		if sessionKey == "" || q.hasEarlierSessionReportLocked(index, sessionKey) {
-			continue
+		if isReportBarrierRequest(*candidate) && sessionKey != "" {
+			if _, hasEarlier := seenSessionKeys[sessionKey]; !hasEarlier {
+				return index
+			}
 		}
-		return index
+		if sessionKey != "" {
+			seenSessionKeys[sessionKey] = struct{}{}
+		}
 	}
 	return q.head
-}
-
-func (q *reportRequestQueue) hasEarlierSessionReportLocked(index int, sessionKey string) bool {
-	for earlier := q.head; earlier < index; earlier++ {
-		if queuedReportSessionKey(q.items[earlier].report) == sessionKey {
-			return true
-		}
-	}
-	return false
 }
 
 func isReportBarrierRequest(request reportRequest) bool {
