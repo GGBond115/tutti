@@ -33,7 +33,7 @@ func (h *Host) resolveCreateRuntimeRailEnvironment(
 	if err != nil {
 		return nil, nil, err
 	}
-	env, err := withAgentRailPlacementEnvironment(prepared.Env, prepared.Cwd, placement)
+	env, err := runtimeEnvironmentForRailPlacement(prepared.Env, prepared.AppServer, prepared.Cwd, placement)
 	if err != nil {
 		return nil, nil, err
 	}

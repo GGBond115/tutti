@@ -592,6 +592,41 @@ func TestServiceCreateUsesAllocatedCwdForOpenCodeCatalogAndRuntime(t *testing.T)
 	}
 }
 
+func TestServiceCreatePassesResolvedCwdPreparationToCodexCatalog(t *testing.T) {
+	runtime := newFakeRuntime()
+	service := newTestService(runtime)
+	allocated := filepath.Join(t.TempDir(), "session")
+	service.SessionDirectoryAllocator = &recordingSessionDirectoryAllocator{path: allocated}
+	reasoningIntensity := 50
+	catalogInputs := []AgentModelCatalogInput{}
+	service.ModelCatalog = fakeModelCatalog{
+		inputs: &catalogInputs,
+		result: AgentModelCatalogResult{
+			Provider: "codex",
+			Models: []AgentModelOption{{
+				ID:        "gpt-5.6-luna",
+				IsDefault: true,
+			}},
+		},
+	}
+
+	if _, err := service.Create(context.Background(), "ws-1", CreateSessionInput{
+		AgentSessionID:     "48484848-4848-4848-8484-484848484848",
+		AgentTargetID:      agenttargetbiz.IDLocalCodex,
+		Provider:           "codex",
+		ReasoningIntensity: &reasoningIntensity,
+	}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if len(catalogInputs) != 1 {
+		t.Fatalf("model catalog queries = %#v, want one request-scoped lookup", catalogInputs)
+	}
+	input := catalogInputs[0]
+	if input.Cwd != allocated || input.Preparation == nil || input.Preparation.Cwd != allocated || input.Preparation.Provider != "codex" || !input.Preparation.SkipSkills {
+		t.Fatalf("model catalog input = %#v, want resolved cwd and exact preparation", input)
+	}
+}
+
 func TestServiceCreateReleasesAllocatedCwdWhenOpenCodeValidationFails(t *testing.T) {
 	runtime := newFakeRuntime()
 	service := newTestService(runtime)

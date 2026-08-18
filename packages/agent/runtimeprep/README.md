@@ -40,11 +40,19 @@ fresh runtime generation, and the exact process-transport instance scope.
 `Prepare` then returns `PreparedRuntime.AppServer`: a stable process profile
 plus a per-Thread environment and instruction overlay. The process profile
 contains only the provider home and process-stable Skill/PATH inputs. Session,
-workspace, cwd, MCP headers, invocation data, and model-plan credentials remain
-in the Thread overlay. A product launch adapter must implement
+workspace, cwd, canonical rail placement, MCP headers, invocation data, and
+model-plan credentials remain in the Thread overlay. A product launch adapter must implement
 `AppServerLaunchLeaseProvider` transfer and pass both cleanup callbacks to the
 daemon app-server adapter. Thread cleanup removes only the Session run root;
 process cleanup reclaims the profile root after its final acquisition.
+
+Model-only catalog probes may set `PrepareInput.SkipSkills` to avoid
+materializing Session skills while still producing the explicit shared process
+profile and Thread overlay shape required by the app-server adapter. This is a
+catalog optimization only; a live Session must use the complete preparation.
+When a live Session reuses a profile created by a model probe, `Prepare`
+incrementally upgrades that profile's provider Skill materialization before
+returning the live Session overlay.
 
 The provider-native home is a separate durable owner on the shared app-server
 path. Codex-compatible preparation derives `ProviderStateID` from the stable
@@ -73,9 +81,10 @@ Thread developer overlay carries the saver routing policy.
 When an existing Session has a persisted legacy home authority, migration first
 uses that exact path. If it is absent, runtimeprep checks only the managed
 Session run home, known `agent.codexHome` aliases, and bounded old
-`appserver-profile-*` roots. It validates `session_meta.payload.id` or
-`session_id`, requires one unique rollout, and atomically installs only that
-JSONL file. An ordinary runtime with a missing exact rollout fails preparation;
+`appserver-profile-*` roots. It validates `session_meta.payload.id` as the
+provider thread identity. A missing `id` cannot identify a rollout and is
+rejected; it requires one unique rollout and atomically installs only that JSONL
+file. An ordinary runtime with a missing exact rollout fails preparation;
 imported Sessions retain Host's explicit recreate policy.
 Every existing source ancestor is checked with `Lstat`; a symlinked legacy
 ancestor is rejected, and multiple matching legacy sources fail closed.

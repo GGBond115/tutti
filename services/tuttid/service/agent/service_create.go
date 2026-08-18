@@ -136,9 +136,9 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		return createSessionFailureResult(input, err)
 	}
 	input.Cwd = stringPointer(cwd)
-	allocatedSessionDirectory := requestedCwdMissing && s.SessionDirectoryAllocator != nil && strings.TrimSpace(cwd) != ""
-	keepSessionDirectory := !allocatedSessionDirectory
-	if allocatedSessionDirectory {
+	ctx = s.withCreateModelCatalogPreparation(ctx, workspaceID, provider, cwd, input)
+	keepSessionDirectory := !requestedCwdMissing || s.SessionDirectoryAllocator == nil || strings.TrimSpace(cwd) == ""
+	if !keepSessionDirectory {
 		allocatedSessionDirectory := cwd
 		defer func() {
 			if !keepSessionDirectory {

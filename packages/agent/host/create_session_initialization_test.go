@@ -245,10 +245,21 @@ func TestCreateSessionPassesPreparedAppServerDTOToRuntime(t *testing.T) {
 	got := runtime.startInput.AppServer
 	if got == nil || got.ProviderStateID != "provider-state-account-a" || got.ExecutionHostID != "device-1" || got.RuntimeGeneration != "runtime-1" ||
 		got.TransportScopeID != "transport-1" || got.ProcessProfileDigest != "profile-1" ||
-		len(got.ProcessEnv) != 1 || len(got.ThreadEnv) != 1 ||
+		len(got.ProcessEnv) != 1 || len(got.ThreadEnv) != 3 ||
 		len(got.ModelProviderCredentials) != 1 ||
 		got.ModelProviderCredentials[0].BearerToken != "session-token" {
 		t.Fatalf("runtime AppServer DTO = %#v", got)
+	}
+	if cwd, _ := testEnvironmentValue(got.ThreadEnv, AgentCWDEnvironmentVariable); cwd != "/workspace" {
+		t.Fatalf("runtime AppServer thread cwd = %q, env=%#v", cwd, got.ThreadEnv)
+	}
+	encodedPlacement, ok := testEnvironmentValue(got.ThreadEnv, AgentRailPlacementEnvironmentVariable)
+	if !ok {
+		t.Fatalf("runtime AppServer thread rail placement missing: %#v", got.ThreadEnv)
+	}
+	placement, err := ParseAgentRailPlacementEnvironment(encodedPlacement)
+	if err != nil || placement.Kind != RailPlacementKindProject || placement.ProjectPath != "/workspace" {
+		t.Fatalf("runtime AppServer thread rail placement = %#v, error=%v", placement, err)
 	}
 	if runtime.startInput.RuntimeContext[providerStateIDRuntimeContextKey] != "provider-state-account-a" {
 		t.Fatalf("runtime context provider state ID = %#v", runtime.startInput.RuntimeContext)

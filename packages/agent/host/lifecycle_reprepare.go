@@ -93,7 +93,7 @@ func (h *Host) reprepareRuntimeSession(
 	if prepared.Settings != nil {
 		settings = *prepared.Settings
 	}
-	prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.Cwd, canonicalSession)
+	prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.AppServer, prepared.Cwd, canonicalSession)
 	if err != nil {
 		return ProviderRuntimeSession{}, err
 	}

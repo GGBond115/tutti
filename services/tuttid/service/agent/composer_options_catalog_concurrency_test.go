@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -160,6 +162,43 @@ func TestServiceGetComposerOptionsUsesIndependentCatalogThreadLeases(t *testing.
 	if modelPreparation.Provider != capabilityPreparation.Provider || modelPreparation.Cwd != capabilityPreparation.Cwd ||
 		modelPreparation.AgentTargetID != capabilityPreparation.AgentTargetID {
 		t.Fatalf("catalog process identity inputs diverged: model=%#v capability=%#v", modelPreparation, capabilityPreparation)
+	}
+	if !modelPreparation.SkipSkills || capabilityPreparation.SkipSkills {
+		t.Fatalf("catalog skill preparation = model:%t capability:%t, want model skipped and capability enabled", modelPreparation.SkipSkills, capabilityPreparation.SkipSkills)
+	}
+}
+
+func TestServiceGetComposerOptionsUsesStableCwdForNoProjectModelCatalog(t *testing.T) {
+	modelPreparations := make(chan *runtimeprep.PrepareInput, 1)
+	service := newIsolatedAgentService(newFakeRuntime())
+	stateDir := t.TempDir()
+	service.WorktreeStateDir = stateDir
+	allocator := &recordingSessionDirectoryAllocator{path: filepath.Join(t.TempDir(), "session")}
+	service.SessionDirectoryAllocator = allocator
+	service.ModelCatalog = preparationRecordingModelCatalog{preparations: modelPreparations}
+
+	if _, err := service.GetComposerOptions(context.Background(), ComposerOptionsInput{
+		Provider:               "codex",
+		IgnoreModelPlanBinding: true,
+	}); err != nil {
+		t.Fatalf("GetComposerOptions returned error: %v", err)
+	}
+	preparation := <-modelPreparations
+	if preparation == nil {
+		t.Fatal("model catalog preparation = nil")
+	}
+	wantCwd := filepath.Join(stateDir, "agent", "catalog", "codex")
+	if preparation.Provider != "codex" || preparation.Cwd != wantCwd {
+		t.Fatalf("model catalog preparation = %#v, want provider codex and cwd %q", preparation, wantCwd)
+	}
+	if !preparation.SkipSkills {
+		t.Fatal("model catalog preparation SkipSkills = false, want true")
+	}
+	if _, err := os.Stat(wantCwd); err != nil {
+		t.Fatalf("stable catalog cwd stat error = %v", err)
+	}
+	if allocator.calls != 0 {
+		t.Fatalf("session directory allocations = %d, want none", allocator.calls)
 	}
 }
 

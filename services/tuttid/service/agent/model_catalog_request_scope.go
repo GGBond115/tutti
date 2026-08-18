@@ -5,10 +5,12 @@ import (
 	"strings"
 	"sync"
 
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	"github.com/tutti-os/tutti/services/tuttid/biz/agentprovider"
 )
 
 type requestScopedAgentModelCatalogKey struct{}
+type requestScopedAgentModelCatalogPreparationKey struct{}
 
 type requestScopedAgentModelCatalog struct {
 	delegate AgentModelCatalog
@@ -31,6 +33,13 @@ func withRequestScopedAgentModelCatalog(ctx context.Context, catalog AgentModelC
 	})
 }
 
+func withRequestScopedAgentModelCatalogPreparation(ctx context.Context, preparation *runtimeprep.PrepareInput) context.Context {
+	if preparation == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, requestScopedAgentModelCatalogPreparationKey{}, preparation)
+}
+
 func (s *Service) modelCatalogForContext(ctx context.Context) AgentModelCatalog {
 	if catalog, ok := ctx.Value(requestScopedAgentModelCatalogKey{}).(AgentModelCatalog); ok && catalog != nil {
 		return catalog
@@ -44,6 +53,14 @@ func (s *Service) modelCatalogForContext(ctx context.Context) AgentModelCatalog 
 func (c *requestScopedAgentModelCatalog) ListModels(ctx context.Context, input AgentModelCatalogInput) (AgentModelCatalogResult, error) {
 	input.Provider = agentprovider.Normalize(input.Provider)
 	input.Cwd = strings.TrimSpace(input.Cwd)
+	if input.Preparation == nil {
+		if preparation, ok := ctx.Value(requestScopedAgentModelCatalogPreparationKey{}).(*runtimeprep.PrepareInput); ok &&
+			preparation != nil &&
+			agentprovider.Normalize(preparation.Provider) == input.Provider &&
+			strings.TrimSpace(preparation.Cwd) == input.Cwd {
+			input.Preparation = preparation
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if entry, ok := c.entries[input]; ok {

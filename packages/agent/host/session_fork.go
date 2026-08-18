@@ -709,7 +709,7 @@ func (h *Host) sessionForkRuntimeSource(
 		if live, found := h.runtime.Session(session.WorkspaceID, session.ID); found {
 			cloned := cloneSessionForkRuntimeSource(live)
 			var err error
-			cloned.Env, err = runtimeEnvironmentForCanonicalSession(cloned.Env, cloned.Cwd, session)
+			cloned.Env, err = runtimeEnvironmentForCanonicalSession(cloned.Env, cloned.AppServer, cloned.Cwd, session)
 			if err != nil {
 				return ProviderRuntimeSession{}, err
 			}
@@ -731,7 +731,7 @@ func (h *Host) sessionForkRuntimeSource(
 	if prepared.Settings != nil {
 		settings = *prepared.Settings
 	}
-	runtimeEnv, err := runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.Cwd, session)
+	runtimeEnv, err := runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.AppServer, prepared.Cwd, session)
 	if err != nil {
 		return ProviderRuntimeSession{}, err
 	}

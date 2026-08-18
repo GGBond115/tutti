@@ -2,6 +2,7 @@ package runtimeprep
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -952,6 +953,70 @@ func writeTestCodexRollout(t *testing.T, path, providerSessionID string) {
 	}
 	content := `{"timestamp":"2026-07-28T03:38:33.521Z","type":"session_meta","payload":{"session_id":"` +
 		providerSessionID + `","id":"` + providerSessionID + `"}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"task_started"}}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCodexProviderStateResumesParentWhenSubagentRolloutSharesHome(t *testing.T) {
+	stateDir := t.TempDir()
+	setTestHome(t, t.TempDir())
+	preparer := newTestPreparer(stateDir)
+	preparer.AppServerScope = AppServerProfileScope{
+		ExecutionHostID: "host-1", RuntimeGeneration: "generation-1", TransportScopeID: "transport-1",
+	}
+	store := LocalStore{StateDir: stateDir}
+	input := PrepareInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "parent-session", AgentTargetID: "target-1",
+		Provider: "codex", ProviderSessionID: "provider-parent", Cwd: t.TempDir(), CLICommand: "tutti",
+		ProviderTargetRef: map[string]any{"accountAuthority": "account-a"},
+	}
+	stateID, err := StableProviderStateID(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot, err := store.ProviderStateRoot(stateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentPath := filepath.Join(stateRoot, codexHomeDirectory, "sessions", "2026", "08", "parent.jsonl")
+	childPath := filepath.Join(stateRoot, codexHomeDirectory, "sessions", "2026", "08", "child.jsonl")
+	writeTestCodexRollout(t, parentPath, "provider-parent")
+	writeTestCodexSubagentRollout(t, childPath, "provider-child", "provider-parent")
+
+	input.ProviderStateID = stateID
+	if _, err := preparer.Prepare(t.Context(), input); err != nil {
+		t.Fatalf("parent resume with shared subagent rollout failed: %v", err)
+	}
+	if path, _, _, err := findCodexRollout(t.Context(), filepath.Join(stateRoot, codexHomeDirectory), "provider-child", false); err != nil || path != childPath {
+		t.Fatalf("child rollout lookup path=%q error=%v, want %q", path, err, childPath)
+	}
+}
+
+func TestCodexRolloutIdentityRequiresID(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "sessions", "2026", "08", "legacy.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"type":"session_meta","payload":{"session_id":"legacy-provider"}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"task_started"}}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if found, _, _, err := findCodexRollout(t.Context(), home, "legacy-provider", false); !errors.Is(err, errCodexRolloutNotFound) || found != "" {
+		t.Fatalf("session_meta without id lookup path=%q error=%v, want not found", found, err)
+	}
+}
+
+func writeTestCodexSubagentRollout(t *testing.T, path, providerSessionID, parentProviderSessionID string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"timestamp":"2026-07-28T03:38:33.521Z","type":"session_meta","payload":{"session_id":"` +
+		parentProviderSessionID + `","id":"` + providerSessionID + `","parent_thread_id":"` + parentProviderSessionID + `"}}` + "\n" +
 		`{"type":"event_msg","payload":{"type":"task_started"}}` + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)

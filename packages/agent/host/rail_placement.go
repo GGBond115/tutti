@@ -93,6 +93,7 @@ func railPlacementFromSession(session storesqlite.Session) (*RailPlacement, erro
 
 func runtimeEnvironmentForCanonicalSession(
 	env []string,
+	appServer *AppServerRuntimePreparation,
 	cwd string,
 	session storesqlite.Session,
 ) ([]string, error) {
@@ -100,7 +101,27 @@ func runtimeEnvironmentForCanonicalSession(
 	if err != nil {
 		return nil, err
 	}
-	return withAgentRailPlacementEnvironment(env, cwd, placement)
+	return runtimeEnvironmentForRailPlacement(env, appServer, cwd, placement)
+}
+
+func runtimeEnvironmentForRailPlacement(
+	env []string,
+	appServer *AppServerRuntimePreparation,
+	cwd string,
+	placement *RailPlacement,
+) ([]string, error) {
+	env, err := withAgentRailPlacementEnvironment(env, cwd, placement)
+	if err != nil {
+		return nil, err
+	}
+	if appServer == nil {
+		return env, nil
+	}
+	appServer.ThreadEnv, err = withAgentRailPlacementEnvironment(appServer.ThreadEnv, cwd, placement)
+	if err != nil {
+		return nil, err
+	}
+	return env, nil
 }
 
 // GetSessionWithRailPlacement reads one canonical Session only when its

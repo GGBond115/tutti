@@ -27,6 +27,7 @@ type appServerPreparedProfile struct {
 	env                []string
 	provider           string
 	providerCleanup    func(context.Context) error
+	skillsPrepared     bool
 	references         int
 	providerCleaned    bool
 	rootCleaned        bool
@@ -106,6 +107,11 @@ func (p *DefaultPreparer) acquireAppServerProfile(
 				delete(p.appServerProfiles, key)
 			}
 		} else {
+			if !input.SkipSkills && !profile.skillsPrepared {
+				if err := p.upgradeAppServerProfileSkills(ctx, profile, input, store); err != nil {
+					return nil, err
+				}
+			}
 			profile.references++
 			return profile, nil
 		}
@@ -153,10 +159,63 @@ func (p *DefaultPreparer) acquireAppServerProfile(
 	profile := &appServerPreparedProfile{
 		key: key, digest: digest, syntheticSessionID: syntheticSessionID,
 		runtimeRoot: runtimeRoot, cwd: result.Cwd, env: processEnv,
-		provider: strings.TrimSpace(input.Provider), providerCleanup: result.Cleanup, references: 1,
+		provider: strings.TrimSpace(input.Provider), providerCleanup: result.Cleanup,
+		skillsPrepared: !input.SkipSkills, references: 1,
 	}
 	p.appServerProfiles[key] = profile
 	return profile, nil
+}
+
+// upgradeAppServerProfileSkills completes the process-level part that a
+// model-only probe intentionally omitted. The profile key stays unchanged so
+// an already running compatible app-server remains the same physical process;
+// the provider home is upgraded in place before the real Session starts.
+func (p *DefaultPreparer) upgradeAppServerProfileSkills(
+	ctx context.Context,
+	profile *appServerPreparedProfile,
+	input PrepareInput,
+	store RuntimeStore,
+) error {
+	if profile == nil || profile.skillsPrepared {
+		return nil
+	}
+	profileInput := appServerProcessPrepareInput(input, profile.syntheticSessionID, p.StateDir)
+	profileInput.SkipSkills = false
+	provider := p.provider(profileInput)
+	if provider == nil {
+		profile.skillsPrepared = true
+		return nil
+	}
+	result, err := provider.Prepare(ctx, ProviderPrepareInput{
+		PrepareInput: profileInput,
+		RuntimeRoot:  profile.runtimeRoot,
+		Store:        store,
+	})
+	if err != nil {
+		return fmt.Errorf("upgrade app-server process profile skills: %w", err)
+	}
+	processEnv := appServerStableProcessEnvironment(
+		append(defaultRuntimeEnv(profileInput, p.StateDir), result.Env...),
+		profileInput.Provider,
+	)
+	if err := removeAppServerProfileInstructions(processEnv, profileInput.Provider); err != nil {
+		if result.Cleanup != nil {
+			_ = result.Cleanup(ctx)
+		}
+		return err
+	}
+	if result.Cleanup != nil {
+		previousCleanup := profile.providerCleanup
+		profile.providerCleanup = func(cleanupCtx context.Context) error {
+			var cleanupErr error
+			if previousCleanup != nil {
+				cleanupErr = previousCleanup(cleanupCtx)
+			}
+			return errors.Join(cleanupErr, result.Cleanup(cleanupCtx))
+		}
+	}
+	profile.skillsPrepared = true
+	return nil
 }
 
 func (p *DefaultPreparer) appServerProfileKey(input PrepareInput) (string, error) {

@@ -27,11 +27,13 @@ design:
 - scripted subprocess tests cover process reuse, Thread routing, detach,
   cancellation, connection retirement, and generation fencing; product tests
   cross the real temporary filesystem and default tuttid composition seams;
-- Composer model and capability probes use the same complete runtime
-  preparation as live Sessions. They receive independent one-time Thread
-  lease identities while retaining the same process-profile fingerprint, so
-  concurrent probes cannot release each other's Thread preparation or spawn a
-  second compatible app-server;
+- Composer model probes use a lightweight runtime preparation that skips
+  Session Skills; a later live Session upgrades the matching process profile in
+  place before creating its own Thread overlay. Capability probes keep the
+  complete Skill preparation. All probes receive independent one-time Thread
+  lease identities while retaining the same compatible process-profile
+  fingerprint, so concurrent probes cannot release each other's Thread
+  preparation or spawn a second compatible app-server;
 - the native Windows workflow selects the daemon, runtimeprep, Host DTO, and
   tuttid composition evidence.
 
@@ -437,7 +439,7 @@ type ProviderRuntimePreparation struct {
 
 | Process profile: shared connection identity | Thread overlay: one provider Thread |
 | ------------------------------------------- | ----------------------------------- |
-| provider executable and version             | cwd                                 |
+| provider executable and version             | cwd and canonical rail placement    |
 | launch argv and transport mode              | model and reasoning effort          |
 | stable provider home                        | sandbox and approval policy         |
 | account/auth authority                      | base/developer instructions         |
@@ -762,8 +764,9 @@ the Room attachment fence: detaching the first Room can terminate every process
 registered to that attachment. Therefore the first tsh Process Profile must
 include the attachment/runtime-generation identity and may include `RoomID`.
 It may share one app-server only among Agent Sessions inside the same
-Room/attachment runtime. Room, Agent Session credentials, cwd, connector proof,
-MCP headers, and instructions still stay out of the shared process environment.
+Room/attachment runtime. Room, Agent Session credentials, cwd, canonical rail
+placement, connector proof, MCP headers, and instructions still stay out of the
+shared process environment.
 
 Cross-Room sharing is not part of the first tsh adaptation. It requires a new
 runtime-generation-level transport registry whose lifetime is independent of

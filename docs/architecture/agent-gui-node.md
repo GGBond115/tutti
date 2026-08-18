@@ -246,6 +246,14 @@ the Session (or delivery becomes uncertain); any earlier catalog, plan,
 reasoning, preparation, or runtime failure releases it so failed requests cannot
 consume the allocator's daily name space.
 
+Before Create, a no-project Composer options request uses a stable daemon-owned
+catalog directory for cwd-sensitive app-server model or capability probes. This
+keeps repeated options requests on the same catalog/preparation scope without
+allocating Session directories. Model probes skip Session skill materialization
+but still produce the shared app-server process profile; capability probes and
+the later Create path retain full skill/thread preparation. The later Create
+allocation remains the frozen launch cwd for the actual Session.
+
 Composer model catalogs are daemon-owned snapshots. A provider auth/config
 change invalidates the snapshot and closes its provider app-server session, but
 the daemon may return the last known list as stale while refreshing it in the
@@ -1857,7 +1865,9 @@ Model-only app-server catalog probes are a separate read path: they request
 contract's `SkipSkills` flag. These probes do not create a live Session and
 must not resolve or materialize provider Skill directories. A Composer-options
 read that returns both models and Skills keeps the normal Skill preparation
-path.
+path. If a later live Session hits the same shared process profile, runtimeprep
+upgrades that profile in place with the omitted skills before handing back the
+Session's own Thread overlay; it does not start a second compatible app-server.
 
 Tutti Desktop's slash connector section is a local catalog projection,
 not a Provider connector catalog. `services/tuttid/service/agent` reads the

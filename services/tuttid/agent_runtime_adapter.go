@@ -53,7 +53,11 @@ func (a agentRuntimeAdapter) ListAppServerCatalog(
 		return agentservice.AppServerCatalogResult{}, errors.New("app-server catalog runtime preparer is unavailable")
 	}
 	preparation := *input.Preparation
-	preparation.SkipSkills = false
+	// A model-only catalog probe intentionally skips Session skills. Capability
+	// catalog requests still need the complete skill projection.
+	if requestSet := strings.TrimSpace(input.RequestSet); requestSet != "" && requestSet != "model" {
+		preparation.SkipSkills = false
+	}
 	prepared, err := a.preparer.Prepare(ctx, preparation)
 	if err != nil {
 		return agentservice.AppServerCatalogResult{}, err

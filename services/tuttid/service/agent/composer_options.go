@@ -199,6 +199,11 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 	if provider == "" {
 		return ComposerOptions{}, ErrInvalidArgument
 	}
+	catalogCwd, err := s.resolveComposerCatalogCwd(input, provider, section)
+	if err != nil {
+		return ComposerOptions{}, err
+	}
+	input.Cwd = catalogCwd
 	if agentTargetID != "" && s.AgentComposerDefaultsReader != nil {
 		defaults, err := s.AgentComposerDefaultsReader.GetAgentComposerDefaultsForTarget(ctx, agentTargetID)
 		if err != nil {

@@ -449,7 +449,7 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 	if prepared.Settings != nil {
 		settings = *prepared.Settings
 	}
-	if prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.Cwd, canonicalSession); err != nil {
+	if prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.AppServer, prepared.Cwd, canonicalSession); err != nil {
 		return ProviderRuntimeSession{}, err
 	}
 	runtimeContext := runtimeContextWithProviderStateID(

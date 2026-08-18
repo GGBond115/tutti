@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
+	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	agentprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
@@ -88,7 +89,8 @@ func appServerProcessLaunchEnvironment(launch, thread, profile []string) []strin
 	}
 	for _, key := range []string{
 		"CODEX_HOME", "TUTTI_AGENT_HOME", agentprep.ModelPlanAPIKeyEnv,
-		"TUTTI_WORKSPACE_ID", "TUTTI_AGENT_SESSION_ID", "TUTTI_AGENT_CWD",
+		"TUTTI_WORKSPACE_ID", "TUTTI_AGENT_SESSION_ID", agenthost.AgentCWDEnvironmentVariable,
+		agenthost.AgentRailPlacementEnvironmentVariable,
 	} {
 		removed[key] = struct{}{}
 	}

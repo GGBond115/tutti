@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
+	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	agentprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 )
 
@@ -39,6 +40,8 @@ func TestAgentAppServerProviderLaunchPreparerSeparatesProcessAndThreadInputs(t *
 		Provider: "codex", Command: []string{"codex", "app-server"}, CWD: "/session/cwd",
 		Env: []string{
 			"TUTTI_AGENT_ROUTING=1", "TUTTI_WORKSPACE_ID=workspace-1", "TUTTI_AGENT_SESSION_ID=session-1",
+			agenthost.AgentCWDEnvironmentVariable + "=/session/cwd",
+			agenthost.AgentRailPlacementEnvironmentVariable + "={\"version\":1,\"kind\":\"project\",\"projectPath\":\"/workspace\",\"sectionKey\":\"project:/workspace\"}",
 			agentprep.ModelPlanAPIKeyEnv + "=secret", "RESOLVED_RUNTIME=stable",
 		},
 		Session: agentruntime.Session{
@@ -68,7 +71,8 @@ func TestAgentAppServerProviderLaunchPreparerSeparatesProcessAndThreadInputs(t *
 		!strings.Contains(processEnv, "RESOLVED_RUNTIME=stable") || !strings.Contains(processEnv, "TUTTI_AGENT_ROUTING=1") {
 		t.Fatalf("stable process env missing: %s", processEnv)
 	}
-	if strings.Contains(processEnv, "session-1") || strings.Contains(processEnv, "secret") || strings.Contains(processEnv, "workspace-1") {
+	if strings.Contains(processEnv, "session-1") || strings.Contains(processEnv, "secret") || strings.Contains(processEnv, "workspace-1") ||
+		strings.Contains(processEnv, agenthost.AgentCWDEnvironmentVariable) || strings.Contains(processEnv, agenthost.AgentRailPlacementEnvironmentVariable) {
 		t.Fatalf("Session value leaked into process env: %s", processEnv)
 	}
 	overlay := result.AppServer.ThreadOverlay

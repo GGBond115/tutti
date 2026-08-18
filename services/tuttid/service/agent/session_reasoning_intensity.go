@@ -31,7 +31,7 @@ func (s *Service) applyCreateSessionReasoningIntensity(
 
 	values := reasoningEffortValuesForProvider(provider)
 	if composerProviderUsesModelReasoningCatalog(provider) {
-		catalog, ok := composerModelOptionsFromCatalog(ctx, s.ModelCatalog, provider, "", model)
+		catalog, ok := composerModelOptionsFromCatalog(ctx, s.modelCatalogForContext(ctx), provider, value(input.Cwd), model)
 		if ok && catalog.Selection.ReasoningEffortsAdvertised {
 			values = make([]string, 0, len(catalog.Selection.ReasoningEfforts))
 			for _, option := range catalog.Selection.ReasoningEfforts {

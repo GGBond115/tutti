@@ -208,6 +208,100 @@ func TestAppServerPreparationSharesProcessProfileAndIsolatesThreadOverlay(t *tes
 	}
 }
 
+func TestAppServerPreparationModelProbeSharesProcessWithLiveSession(t *testing.T) {
+	stateDir := t.TempDir()
+	setTestHome(t, t.TempDir())
+	preparer := newTestPreparer(stateDir)
+	preparer.AppServerScope = AppServerProfileScope{
+		ExecutionHostID: "device-1", RuntimeGeneration: "runtime-1", TransportScopeID: "transport-1",
+	}
+	base := PrepareInput{
+		WorkspaceID: "workspace-1", AgentTargetID: "target-1", Provider: "codex", Cwd: t.TempDir(),
+	}
+	modelProbe := base
+	modelProbe.AgentSessionID = "catalog-model"
+	modelProbe.SkipSkills = true
+	liveSession := base
+	liveSession.AgentSessionID = "live-session"
+	modelPrepared, err := preparer.Prepare(t.Context(), modelProbe)
+	if err != nil {
+		t.Fatalf("model probe Prepare() error = %v", err)
+	}
+	if modelPrepared.AppServer == nil {
+		t.Fatal("model probe AppServer = nil")
+	}
+	modelProfileHome := appServerEnvironmentValue(modelPrepared.AppServer.ProcessEnv, "CODEX_HOME")
+	if _, err := os.Stat(filepath.Join(modelProfileHome, "skills", "tutti-cli", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("model probe materialized live Session skills before upgrade, err=%v", err)
+	}
+	livePrepared, err := preparer.Prepare(t.Context(), liveSession)
+	if err != nil {
+		t.Fatalf("live Session Prepare() error = %v", err)
+	}
+	if modelPrepared.AppServer == nil || livePrepared.AppServer == nil {
+		t.Fatalf("app-server preparations = %#v/%#v", modelPrepared.AppServer, livePrepared.AppServer)
+	}
+	if modelPrepared.AppServer.ProcessProfileDigest != livePrepared.AppServer.ProcessProfileDigest {
+		t.Fatalf("model probe and live Session process profiles differ: %q/%q", modelPrepared.AppServer.ProcessProfileDigest, livePrepared.AppServer.ProcessProfileDigest)
+	}
+	if !strings.Contains(strings.Join(modelPrepared.AppServer.ThreadEnv, "\n"), "TUTTI_AGENT_SESSION_ID=catalog-model") ||
+		!strings.Contains(strings.Join(livePrepared.AppServer.ThreadEnv, "\n"), "TUTTI_AGENT_SESSION_ID=live-session") {
+		t.Fatalf("thread overlays lost Session identity: model=%#v live=%#v", modelPrepared.AppServer.ThreadEnv, livePrepared.AppServer.ThreadEnv)
+	}
+	profileHome := appServerEnvironmentValue(livePrepared.AppServer.ProcessEnv, "CODEX_HOME")
+	if _, err := os.Stat(filepath.Join(profileHome, "skills", "tutti-cli", "SKILL.md")); err != nil {
+		t.Fatalf("live Session did not upgrade the model probe profile with skills: %v", err)
+	}
+	if err := preparer.Cleanup(t.Context(), CleanupInput{WorkspaceID: base.WorkspaceID, AgentSessionID: modelProbe.AgentSessionID}); err != nil {
+		t.Fatalf("cleanup model probe: %v", err)
+	}
+	if err := preparer.Cleanup(t.Context(), CleanupInput{WorkspaceID: base.WorkspaceID, AgentSessionID: liveSession.AgentSessionID}); err != nil {
+		t.Fatalf("cleanup live Session: %v", err)
+	}
+}
+
+func TestTuttiAgentAppServerPreparationUpgradesModelProbeBeforeLiveSession(t *testing.T) {
+	stateDir := t.TempDir()
+	setTestHome(t, t.TempDir())
+	preparer := newTestPreparer(stateDir)
+	preparer.RegisterProvider(TuttiAgentPreparer{})
+	preparer.AppServerScope = AppServerProfileScope{
+		ExecutionHostID: "device-1", RuntimeGeneration: "runtime-1", TransportScopeID: "transport-1",
+	}
+	base := PrepareInput{
+		WorkspaceID: "workspace-1", AgentTargetID: "target-1", Provider: "tutti-agent", Cwd: t.TempDir(),
+	}
+	modelProbe := base
+	modelProbe.AgentSessionID = "catalog-model"
+	modelProbe.SkipSkills = true
+	liveSession := base
+	liveSession.AgentSessionID = "live-session"
+	modelPrepared, err := preparer.Prepare(t.Context(), modelProbe)
+	if err != nil {
+		t.Fatalf("model probe Prepare() error = %v", err)
+	}
+	livePrepared, err := preparer.Prepare(t.Context(), liveSession)
+	if err != nil {
+		t.Fatalf("live Session Prepare() error = %v", err)
+	}
+	if modelPrepared.AppServer == nil || livePrepared.AppServer == nil {
+		t.Fatalf("app-server preparations = %#v/%#v", modelPrepared.AppServer, livePrepared.AppServer)
+	}
+	if modelPrepared.AppServer.ProcessProfileDigest != livePrepared.AppServer.ProcessProfileDigest {
+		t.Fatalf("model probe and live Session process profiles differ: %q/%q", modelPrepared.AppServer.ProcessProfileDigest, livePrepared.AppServer.ProcessProfileDigest)
+	}
+	profileHome := appServerEnvironmentValue(livePrepared.AppServer.ProcessEnv, "TUTTI_AGENT_HOME")
+	if _, err := os.Stat(filepath.Join(profileHome, "skills", "tutti-cli", "SKILL.md")); err != nil {
+		t.Fatalf("live Session did not upgrade the model probe profile with skills: %v", err)
+	}
+	if err := preparer.Cleanup(t.Context(), CleanupInput{WorkspaceID: base.WorkspaceID, AgentSessionID: modelProbe.AgentSessionID}); err != nil {
+		t.Fatalf("cleanup model probe: %v", err)
+	}
+	if err := preparer.Cleanup(t.Context(), CleanupInput{WorkspaceID: base.WorkspaceID, AgentSessionID: liveSession.AgentSessionID}); err != nil {
+		t.Fatalf("cleanup live Session: %v", err)
+	}
+}
+
 func TestAppServerPreparationSupportsTuttiAgentProvider(t *testing.T) {
 	stateDir := t.TempDir()
 	setTestHome(t, t.TempDir())

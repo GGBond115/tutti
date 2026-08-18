@@ -400,9 +400,7 @@ func inspectCodexRollout(
 				}
 				if recordCount == 0 {
 					metadata = record
-					metadataMatches = record.Type == "session_meta" &&
-						(strings.TrimSpace(record.Payload.ID) == targetProviderSessionID ||
-							strings.TrimSpace(record.Payload.SessionID) == targetProviderSessionID)
+					metadataMatches = codexRolloutMetadataMatches(record, targetProviderSessionID)
 				}
 				recordCount++
 			}
@@ -424,6 +422,17 @@ func inspectCodexRollout(
 		return false, fingerprint, nil
 	}
 	return metadataMatches, fingerprint, nil
+}
+
+func codexRolloutMetadataMatches(record codexRolloutMetadata, targetProviderSessionID string) bool {
+	if record.Type != "session_meta" {
+		return false
+	}
+	// A provider-native subagent keeps the parent thread in session_id while
+	// its own thread identity is stored in id. session_id is lineage metadata,
+	// not a fallback identity; a rollout without id cannot be identified safely.
+	id := strings.TrimSpace(record.Payload.ID)
+	return id != "" && id == targetProviderSessionID
 }
 
 func makeCodexRolloutFingerprint(size int64, sum []byte) codexRolloutFingerprint {
