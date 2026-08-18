@@ -2,20 +2,20 @@ import type {
   AgentActivityUsage,
   AgentActivityComposerOptionsLoadStatus,
   CanonicalAgentSession,
-  SessionRuntimeAvailability
+  SessionRuntimeAvailability,
 } from "@tutti-os/agent-activity-core";
 import type {
   AgentGUINodeData,
   AgentGUIProvider,
   AgentGUIProviderRailMode,
   AgentGUIProviderReadinessGate,
-  AgentGUIAgentTarget
+  AgentGUIAgentTarget,
 } from "../../../types";
 import type {
   AgentGUIApprovalRequest,
   AgentGUIConversationSummary,
   AgentGUIConversationUserProject,
-  AgentGUIInteractivePrompt
+  AgentGUIInteractivePrompt,
 } from "./agentGuiConversationModel";
 import type { AgentGUIConversationFilter } from "./agentGuiConversationFilter";
 import type { AgentGUIConversationRailRevealRequest } from "./agentGuiConversationRailViewState";
@@ -24,7 +24,7 @@ import type {
   AgentSessionComposerSettings,
   AgentSessionPermissionConfig,
   AgentSessionReasoningEffort,
-  AgentSessionSpeed
+  AgentSessionSpeed,
 } from "../../../shared/agentSessionTypes";
 import type { AgentSlashCommandPolicy } from "./agentSlashCommandProviderPolicy";
 import type { AgentConversationVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
@@ -34,7 +34,7 @@ import { AGENT_PASTED_TEXT_BLOCK_KIND } from "../../../shared/pastedTextKinds";
 
 export {
   AGENT_PASTED_TEXT_BLOCK_KIND,
-  AGENT_PASTED_TEXT_MENTION_KIND
+  AGENT_PASTED_TEXT_MENTION_KIND,
 } from "../../../shared/pastedTextKinds";
 
 export interface AgentGUISessionChrome {
@@ -132,10 +132,6 @@ export interface AgentGUIComposerModelChoiceHistoryVM {
 export interface AgentGUIProviderSkillOption {
   name: string;
   trigger: string;
-  /** Stable daemon connector key used for host-owned setup navigation. */
-  connectorKey?: string;
-  /** Presentation icon projected by the connector catalog. */
-  iconUrl?: string;
   /** Daemon-issued invocation contract; never infer this from provider id. */
   invocation?: "promptItem" | "textTrigger";
   sourceKind:
@@ -144,18 +140,11 @@ export interface AgentGUIProviderSkillOption {
     | "bundled"
     | "plugin"
     | "system"
-    | "tutti-injected"
-    | "connector";
+    | "tutti-injected";
   description?: string;
   pluginName?: string;
   path?: string;
-  kind?: "skill" | "connector";
-  status?:
-    | "available"
-    | "disabled"
-    | "authRequired"
-    | "setupRequired"
-    | "unsupported";
+  kind?: "skill";
 }
 
 export interface AgentComposerTextBlock {
@@ -214,14 +203,17 @@ export type AgentComposerAttachmentBlock =
   | AgentComposerImageBlock
   | AgentComposerFileBlock;
 
-export interface AgentComposerConnectorBlock {
-  type: "connector";
-  connectorKey: string;
+export interface AgentComposerPrimaryCapabilityBlock {
+  type: "primary-capability";
+  /** Stable, host-owned identity. AgentGUI never parses its meaning. */
+  id: string;
+  /** Opaque provider wire block, interpreted only by the owning host adapter. */
+  payload: Readonly<Record<string, unknown>>;
 }
 
 export type AgentComposerSupplementaryBlock =
   | AgentComposerAttachmentBlock
-  | AgentComposerConnectorBlock;
+  | AgentComposerPrimaryCapabilityBlock;
 
 export type AgentComposerDraftBlock =
   | AgentComposerTextBlock
@@ -229,7 +221,7 @@ export type AgentComposerDraftBlock =
 
 export type AgentComposerDraftContent = [
   AgentComposerTextBlock,
-  ...AgentComposerSupplementaryBlock[]
+  ...AgentComposerSupplementaryBlock[],
 ];
 
 /** One atomic, unsent composer message. */
@@ -252,8 +244,8 @@ export type AgentComposerDraftLargeText = Omit<
   AgentComposerPastedTextBlock,
   "type" | "kind"
 >;
-export type AgentComposerDraftConnector = Omit<
-  AgentComposerConnectorBlock,
+export type AgentComposerDraftPrimaryCapability = Omit<
+  AgentComposerPrimaryCapabilityBlock,
   "type"
 >;
 
@@ -351,8 +343,6 @@ export interface AgentGUIComposerSettingsVM {
   composerOptionsLoadStatus?: AgentActivityComposerOptionsLoadStatus;
   /** Initial slash command and capability catalog request is in flight. */
   isCapabilityOptionsLoading?: boolean;
-  /** Local Connector Market projection is being loaded or refreshed. */
-  isConnectorOptionsLoading?: boolean;
   isModelOptionsLoading?: boolean;
   /** Device-local model recents/favorites identity and catalog testimony. */
   modelChoiceHistory?: AgentGUIComposerModelChoiceHistoryVM;

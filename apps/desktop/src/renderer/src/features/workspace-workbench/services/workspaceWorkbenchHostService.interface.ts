@@ -93,12 +93,7 @@ export interface WorkspaceWorkbenchBodyRendererContext {
 
 export type WorkspaceWorkbenchCapabilitySettingsTarget =
   | "browserUse"
-  | "computerUse"
-  | {
-      kind: "connector";
-      connectorKey: string;
-      action?: "open";
-    };
+  | "computerUse";
 
 export interface WorkspaceBrowserPageOpenInput {
   surfaceNodeIds: readonly string[];

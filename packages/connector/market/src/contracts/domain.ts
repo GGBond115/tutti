@@ -23,6 +23,15 @@ export type ConnectorCompatibilityState =
 
 export type ConnectorCatalogState = "ready" | "refreshing" | "stale" | "failed";
 
+export interface ConnectorCatalogFreshness {
+  state: "unavailable" | "refreshing" | "fresh" | "stale";
+  snapshotId?: string;
+  sourceRevision?: string;
+  acceptedAt?: string;
+  staleSince?: string;
+  lastFailure?: string;
+}
+
 export type ConnectorOperationKind =
   | "refresh_catalog"
   | "install"
@@ -205,6 +214,8 @@ export interface ConnectorOperationTarget {
 
 export interface ConnectorMarketSnapshot {
   catalogState: ConnectorCatalogState;
+  /** Optional for one-version compatibility with daemons predating freshness. */
+  catalogFreshness?: ConnectorCatalogFreshness;
   connectors: Connector[];
   operations: ConnectorOperation[];
   revision: number;

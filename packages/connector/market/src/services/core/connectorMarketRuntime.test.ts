@@ -9,6 +9,7 @@ import type {
   ConnectorMarketSnapshot
 } from "../../contracts/index.ts";
 import { ConnectorMarketModule } from "./connectorMarketModule.ts";
+import { getConnectorRendererModel } from "../../composition/renderer/connectorRendererModelAdapter.ts";
 
 test("module activation runs all service startup jobs before ready", async () => {
   let snapshotLoads = 0;
@@ -58,11 +59,24 @@ test("module activation runs all service startup jobs before ready", async () =>
   assert.equal(module.lifecycle.phase, "ready");
   assert.equal(snapshotLoads, 1);
   assert.equal(subscriptions, 1);
-  assert.equal(module.root.uiState.dataStore.started, true);
-  assert.equal(module.root.view.dataStore.status, "ready");
-  assert.deepEqual(module.root.view.dataStore.sections[0]?.connectorKeys, [
-    "github"
-  ]);
+  assert.equal(module.rendererPorts.uiState.dataStore.started, true);
+  assert.equal(module.rendererPorts.view.dataStore.status, "ready");
+  assert.deepEqual(
+    module.rendererPorts.view.dataStore.sections[0]?.connectorKeys,
+    ["github"]
+  );
+  assert.strictEqual(module.rendererPorts, module.rendererPorts);
+  assert.equal("start" in module.rendererPorts.market, false);
+  assert.equal("ensureLoaded" in module.rendererPorts.market, false);
+  assert.equal("dispose" in module.rendererPorts.market, false);
+  assert.equal("start" in module.rendererPorts.uiState, false);
+  assert.equal("dispose" in module.rendererPorts.uiState, false);
+  assert.equal("start" in module.rendererPorts.view, false);
+  assert.equal("dispose" in module.rendererPorts.view, false);
+  assert.strictEqual(
+    getConnectorRendererModel(module.rendererPorts),
+    getConnectorRendererModel(module.rendererPorts)
+  );
 
   module.dispose();
   assert.equal(module.lifecycle.phase, "disposed");
@@ -98,11 +112,11 @@ test("module activation skips market requests until the host admits them", async
   assert.equal(categoryLoads, 0);
 
   requestAllowed = true;
-  await module.root.market.reload();
+  await module.rendererPorts.market.reload();
 
   assert.equal(snapshotLoads, 1);
   assert.equal(categoryLoads, 1);
-  assert.equal(module.root.view.dataStore.status, "empty");
+  assert.equal(module.rendererPorts.view.dataStore.status, "empty");
   module.dispose();
 });
 
@@ -126,7 +140,7 @@ test("module activation remains ready when optional catalog synchronization fail
   await module.activate(new InstantiationService());
 
   assert.equal(module.lifecycle.phase, "ready");
-  assert.equal(module.root.market.dataStore.loadState, "error");
+  assert.equal(module.rendererPorts.market.dataStore.loadState, "error");
   assert.equal(unsubscriptions, 0);
   module.dispose();
   assert.equal(module.lifecycle.phase, "disposed");
@@ -167,18 +181,18 @@ test("one dialog host projects authorization and management as mutually exclusiv
   });
 
   await module.activate(new InstantiationService());
-  const dialogKind = () => module.root.view.dataStore.dialog?.kind;
-  module.root.uiState.openConnector("github");
+  const dialogKind = () => module.rendererPorts.view.dataStore.dialog?.kind;
+  module.rendererPorts.uiState.openConnector("github");
   assert.equal(dialogKind(), "authorization");
 
-  module.root.uiState.openConnector("notion");
+  module.rendererPorts.uiState.openConnector("notion");
   assert.equal(dialogKind(), "management");
 
-  module.root.uiState.requestUninstall("github");
+  module.rendererPorts.uiState.requestUninstall("github");
   assert.equal(dialogKind(), "uninstall_confirmation");
 
-  module.root.uiState.closeDialog();
-  assert.equal(module.root.view.dataStore.dialog, null);
+  module.rendererPorts.uiState.closeDialog();
+  assert.equal(module.rendererPorts.view.dataStore.dialog, null);
   module.dispose();
 });
 
@@ -202,11 +216,17 @@ test("a failed first install remains available for retry", async () => {
   });
 
   await module.activate(new InstantiationService());
-  assert.equal(module.root.view.dataStore.availableCount, 1);
-  assert.equal(module.root.view.dataStore.installedCount, 0);
-  assert.equal(module.root.view.dataStore.cardsByKey.github?.action, "install");
-  module.root.uiState.openConnector("github");
-  assert.equal(module.root.view.dataStore.dialog?.kind, "installation");
+  assert.equal(module.rendererPorts.view.dataStore.availableCount, 1);
+  assert.equal(module.rendererPorts.view.dataStore.installedCount, 0);
+  assert.equal(
+    module.rendererPorts.view.dataStore.cardsByKey.github?.action,
+    "install"
+  );
+  module.rendererPorts.uiState.openConnector("github");
+  assert.equal(
+    module.rendererPorts.view.dataStore.dialog?.kind,
+    "installation"
+  );
   module.dispose();
 });
 

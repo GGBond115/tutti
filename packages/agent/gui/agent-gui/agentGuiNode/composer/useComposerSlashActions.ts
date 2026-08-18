@@ -419,18 +419,6 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
 
   const selectSkill = useCallback(
     (skill: AgentGUIProviderSkillOption): void => {
-      const isConnector =
-        skill.sourceKind === "connector" || skill.kind === "connector";
-      if (isConnector && skill.status !== "available") {
-        if (skill.status !== "unsupported" && skill.connectorKey) {
-          onCapabilitySettingsRequest?.({
-            kind: "connector",
-            connectorKey: skill.connectorKey
-          });
-        }
-        setIsPaletteOpen(false);
-        return;
-      }
       const trigger = skillTriggerForPrefix(skill, skillQueryMatch?.prefix);
       const replacedDraft =
         trigger && skillQueryMatch && promptBeforeSelection !== ""
@@ -453,13 +441,7 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
       );
       setIsPaletteOpen(false);
     },
-    [
-      draftContent,
-      onCapabilitySettingsRequest,
-      onDraftContentChange,
-      promptBeforeSelection,
-      skillQueryMatch
-    ]
+    [draftContent, onDraftContentChange, promptBeforeSelection, skillQueryMatch]
   );
 
   const submitCurrentPrompt = useStableEventCallback(

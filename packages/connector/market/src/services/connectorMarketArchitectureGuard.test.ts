@@ -19,8 +19,8 @@ test("connector market services do not depend on React", () => {
   );
 });
 
-test("connector market UI does not construct services or import host transports", () => {
-  const uiDirectory = join(sourceDirectory, "ui");
+test("connector renderer does not construct services or import host transports", () => {
+  const uiDirectory = join(sourceDirectory, "renderer", "components");
   const forbidden = [
     /new\s+ConnectorMarket\w*Service\s*\(/,
     /@tutti-os\/client-tuttid-ts/,
@@ -39,7 +39,13 @@ test("connector market UI does not construct services or import host transports"
 
 test("connector authorization starts only from the explicit dialog action", () => {
   const dialogsSource = readFileSync(
-    join(sourceDirectory, "ui", "dialogs", "ConnectorMarketDialogs.tsx"),
+    join(
+      sourceDirectory,
+      "renderer",
+      "components",
+      "dialogs",
+      "ConnectorMarketDialogs.tsx"
+    ),
     "utf8"
   );
 

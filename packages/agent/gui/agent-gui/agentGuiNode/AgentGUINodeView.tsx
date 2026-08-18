@@ -151,7 +151,8 @@ export function AgentGUINodeView({
   resolveMentionReferenceTarget = null,
   resolveWorkspaceReferenceInitialTarget = null,
   workspaceAppIcons = EMPTY_WORKSPACE_APP_ICONS,
-  renderComposerFooterAccessory
+  renderComposerFooterAccessory,
+  renderPrimaryCapability
 }: AgentGUINodeViewProps): React.JSX.Element {
   "use memo";
   const isAgentProviderReady = isAgentGUIProviderReady(
@@ -734,6 +735,7 @@ export function AgentGUINodeView({
                 workspaceAppIcons={effectiveWorkspaceAppIcons}
                 workspaceUserProjectI18n={workspaceUserProjectI18n}
                 renderComposerFooterAccessory={renderComposerFooterAccessory}
+                renderPrimaryCapability={renderPrimaryCapability}
               />
             </AgentConversationClockProvider>
           </section>

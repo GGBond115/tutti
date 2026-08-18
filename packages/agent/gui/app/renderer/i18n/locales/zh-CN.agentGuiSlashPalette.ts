@@ -6,9 +6,5 @@ export const zhCNAgentGuiSlashPalette = {
   slashPaletteCapabilitiesLoading: "能力加载中…",
   slashPaletteSkillsGroup: "技能",
   slashPalettePluginsGroup: "插件",
-  slashPaletteConnectorsGroup: "连接器",
-  slashPaletteConnectorConnected: "已授权",
-  slashPaletteConnectorNotConnected: "安装",
-  slashPaletteConnectorUnsupported: "不支持",
   slashPaletteMcpGroup: "MCP"
 } as const;

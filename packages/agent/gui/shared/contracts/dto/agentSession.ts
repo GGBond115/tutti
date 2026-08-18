@@ -106,23 +106,7 @@ export interface AgentHostExecAgentSessionInput {
   content: AgentPromptContentBlock[];
 }
 
-export interface AgentPromptContentBlock {
-  type: "text" | "image" | "file" | "skill" | "mention" | "connector";
-  text?: string;
-  mimeType?: "image/png" | "image/jpeg" | "image/webp" | string;
-  data?: string;
-  url?: string;
-  attachmentId?: string;
-  name?: string;
-  path?: string;
-  connectorKey?: string;
-  uri?: string;
-  hostPath?: string;
-  uploadStatus?: string;
-  assetId?: string;
-  kind?: string;
-  sizeBytes?: number;
-}
+export type AgentPromptContentBlock = ActivityPromptContentBlock;
 
 export interface AgentHostExecAgentSessionResult {
   agentSessionId: string;
@@ -224,3 +208,4 @@ export interface AgentHostAgentSessionEventStreamLease {
   leaseId: string;
   retained: boolean;
 }
+import type { AgentPromptContentBlock as ActivityPromptContentBlock } from "@tutti-os/agent-activity-core";

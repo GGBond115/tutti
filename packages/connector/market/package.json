@@ -6,8 +6,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./authorization": "./src/authorization/index.ts",
     "./contracts": "./src/contracts/index.ts",
+    "./composition": "./src/composition/index.ts",
     "./core": "./src/services/core/index.ts",
     "./i18n": "./src/i18n/index.ts",
     "./openapi/connector-market.v1.yaml": "./openapi/connector-market.v1.yaml",
@@ -62,13 +62,13 @@
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js"
       },
-      "./authorization": {
-        "types": "./dist/authorization/index.d.ts",
-        "import": "./dist/authorization/index.js"
-      },
       "./contracts": {
         "types": "./dist/contracts/index.d.ts",
         "import": "./dist/contracts/index.js"
+      },
+      "./composition": {
+        "types": "./dist/composition/index.d.ts",
+        "import": "./dist/composition/index.js"
       },
       "./core": {
         "types": "./dist/core/index.d.ts",
@@ -92,7 +92,32 @@
         "import": "./dist/ui/index.js"
       }
     },
-    "types": "./dist/index.d.ts"
+    "types": "./dist/index.d.ts",
+    "typesVersions": {
+      "*": {
+        "contracts": [
+          "./dist/contracts/index.d.ts"
+        ],
+        "composition": [
+          "./dist/composition/index.d.ts"
+        ],
+        "core": [
+          "./dist/core/index.d.ts"
+        ],
+        "i18n": [
+          "./dist/i18n/index.d.ts"
+        ],
+        "renderer": [
+          "./dist/renderer/index.d.ts"
+        ],
+        "services": [
+          "./dist/services/index.d.ts"
+        ],
+        "ui": [
+          "./dist/ui/index.d.ts"
+        ]
+      }
+    }
   },
   "tutti": {
     "tailwindSourceRoot": "src"

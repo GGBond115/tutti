@@ -355,11 +355,11 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
   const container = new InstantiationService(registry.makeCollection());
   await connectorMarketModule.activate(container);
   let connectorMarketRevision =
-    connectorMarketModule.root.market.dataStore.revision;
+    connectorMarketModule.rendererPorts.market.dataStore.revision;
   const disposeConnectorMarketAgentSync = subscribe(
-    connectorMarketModule.root.market.dataStore,
+    connectorMarketModule.rendererPorts.market.dataStore,
     () => {
-      const revision = connectorMarketModule.root.market.dataStore.revision;
+      const revision = connectorMarketModule.rendererPorts.market.dataStore.revision;
       if (revision === connectorMarketRevision) {
         return;
       }
@@ -380,7 +380,7 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
       }
       connectorMarketAccountAuthenticated = authenticated;
       if (authenticated) {
-        void connectorMarketModule.root.market.reload().catch(() => undefined);
+        void connectorMarketModule.rendererPorts.market.reload().catch(() => undefined);
       }
     }
   );
@@ -393,7 +393,7 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
       if (!resumed || connectorMarketResumeRefresh) {
         return;
       }
-      const refresh = connectorMarketModule.root.market
+      const refresh = connectorMarketModule.rendererPorts.market
         .reload()
         .catch(() => undefined)
         .finally(() => {

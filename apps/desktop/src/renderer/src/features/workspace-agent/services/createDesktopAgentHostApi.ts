@@ -353,19 +353,9 @@ export function createDesktopAgentHostApi({
             type: "agent-composer-defaults-invalidated"
           });
         });
-      const disposeConnectorCatalog =
-        agentActivityService.onConnectorCatalogInvalidated((event) => {
-          listener({
-            ...(event.connectorKey ? { connectorKey: event.connectorKey } : {}),
-            revision: event.revision,
-            scope: "global",
-            type: "agent-connector-catalog-invalidated"
-          });
-        });
       return () => {
         disposeModelCatalog();
         disposeComposerDefaults();
-        disposeConnectorCatalog();
       };
     },
     persistence: {

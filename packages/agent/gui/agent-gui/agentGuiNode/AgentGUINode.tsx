@@ -153,6 +153,7 @@ export const AgentGUINode = memo(function AgentGUINode({
   const {
     agentConfigAccount: renderAgentConfigAccount,
     agentTargetInfo: renderAgentTargetInfo,
+    primaryCapability: renderPrimaryCapability,
     composerFooterAccessory: renderComposerFooterAccessory,
     projectDirectoryPickerHeaderActions:
       renderProjectDirectoryPickerHeaderActions,
@@ -597,6 +598,7 @@ export const AgentGUINode = memo(function AgentGUINode({
                 renderReferencePickerSidebarActions
               }
               renderComposerFooterAccessory={renderComposerFooterAccessory}
+              renderPrimaryCapability={renderPrimaryCapability}
             />
           );
         }}

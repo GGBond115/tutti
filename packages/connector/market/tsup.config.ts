@@ -5,8 +5,8 @@ export default defineConfig({
   dts: true,
   entry: {
     index: "src/index.ts",
-    "authorization/index": "src/authorization/index.ts",
     "contracts/index": "src/contracts/index.ts",
+    "composition/index": "src/composition/index.ts",
     "core/index": "src/services/core/index.ts",
     "i18n/index": "src/i18n/index.ts",
     "renderer/index": "src/renderer/index.ts",

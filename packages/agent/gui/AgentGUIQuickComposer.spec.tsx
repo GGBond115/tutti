@@ -14,12 +14,12 @@ const agentTargets = [
     agentTargetId: "agent:codex",
     iconUrl: "/codex.png",
     label: "Codex",
-    provider: "codex"
-  }
+    provider: "codex",
+  },
 ] satisfies AgentGUIQuickComposerAgentTarget[];
 
 const capabilitiesByAgentTargetId = {
-  "agent:codex": { imageInput: true, workspaceReferences: true }
+  "agent:codex": { imageInput: true, workspaceReferences: true },
 } as const;
 
 const composerOptions = {
@@ -28,27 +28,27 @@ const composerOptions = {
     modelOptionsAuthoritative: true,
     planModeExclusiveWithPermissionMode: false,
     prewarmDraftSession: false,
-    refreshModelOptionsAfterSettings: true
+    refreshModelOptionsAfterSettings: true,
   },
   capabilities: null,
   effectiveSettings: {
     model: "gpt-5.6-sol",
-    reasoningEffort: "high"
+    reasoningEffort: "high",
   },
   loadedAtUnixMs: 1,
   modelConfigurable: true,
   models: [
     { label: "GPT-5.6-Sol", value: "gpt-5.6-sol" },
-    { label: "GPT-5.5", value: "gpt-5.5" }
+    { label: "GPT-5.5", value: "gpt-5.5" },
   ],
   provider: "codex",
   reasoningConfigurable: true,
   reasoningEfforts: [
     { label: "Medium", value: "medium" },
-    { label: "High", value: "high" }
+    { label: "High", value: "high" },
   ],
   skills: [],
-  speeds: []
+  speeds: [],
 } satisfies AgentActivityComposerOptions;
 
 beforeEach(() => {
@@ -67,13 +67,13 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[data-testid="agent-gui-composer-send"]'
-      )?.disabled
+        '[data-testid="agent-gui-composer-send"]',
+      )?.disabled,
     ).toBe(true);
 
     rerender(
@@ -86,12 +86,12 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[data-testid="agent-gui-composer-send"]'
-      )?.disabled
+        '[data-testid="agent-gui-composer-send"]',
+      )?.disabled,
     ).toBe(true);
   });
 
@@ -107,19 +107,19 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={onSubmit}
-      />
+      />,
     );
 
     fireEvent.click(
       container.querySelector<HTMLButtonElement>(
-        '[data-testid="agent-gui-composer-send"]'
-      )!
+        '[data-testid="agent-gui-composer-send"]',
+      )!,
     );
 
     expect(onSubmit).toHaveBeenCalledWith({
       agentTargetId: "agent:codex",
       content: [{ text: "Inspect this", type: "text" }],
-      displayPrompt: "Inspect this"
+      displayPrompt: "Inspect this",
     });
   });
 
@@ -133,7 +133,7 @@ describe("AgentGUIQuickComposer", () => {
           loading: false,
           onChange: onSettingsChange,
           options: composerOptions,
-          value: { model: "gpt-5.6-sol", reasoningEffort: "high" }
+          value: { model: "gpt-5.6-sol", reasoningEffort: "high" },
         }}
         content={[{ text: "Inspect this", type: "text" }]}
         selectedAgentTargetId="agent:codex"
@@ -141,11 +141,11 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     const trigger = container.querySelector<HTMLButtonElement>(
-      '[data-agent-model-reasoning-trigger="true"]'
+      '[data-agent-model-reasoning-trigger="true"]',
     );
     expect(trigger).toHaveTextContent("GPT-5.6-Sol");
     expect(trigger).toHaveTextContent("High");
@@ -153,37 +153,37 @@ describe("AgentGUIQuickComposer", () => {
     fireEvent.pointerDown(trigger!, { button: 0, ctrlKey: false });
     await waitFor(() =>
       expect(
-        document.querySelector('[data-agent-model-value="gpt-5.5"]')
-      ).not.toBeNull()
+        document.querySelector('[data-agent-model-value="gpt-5.5"]'),
+      ).not.toBeNull(),
     );
     fireEvent.pointerDown(
       document.querySelector<HTMLElement>(
-        '[data-agent-model-value="gpt-5.5"]'
+        '[data-agent-model-value="gpt-5.5"]',
       )!,
-      { button: 0 }
+      { button: 0 },
     );
 
     expect(onSettingsChange).toHaveBeenCalledWith({ model: "gpt-5.5" });
     expect(
       globalThis.localStorage.getItem(
-        "agent-gui:composer-model-recents:agent:codex"
-      )
+        "agent-gui:composer-model-recents:agent:codex",
+      ),
     ).toBe('["gpt-5.5"]');
     expect(
       globalThis.localStorage.getItem(
-        "agent-gui:composer-model-recents:default"
-      )
+        "agent-gui:composer-model-recents:default",
+      ),
     ).toBeNull();
   });
 
   it("migrates legacy model history into the exact selected target", async () => {
     globalThis.localStorage.setItem(
       "agent-gui:composer-model-recents:default",
-      '["obsolete-model","gpt-5.5"]'
+      '["obsolete-model","gpt-5.5"]',
     );
     globalThis.localStorage.setItem(
       "agent-gui:composer-model-favorites:default",
-      '["gpt-5.5"]'
+      '["gpt-5.5"]',
     );
     const { container } = render(
       <AgentGUIQuickComposer
@@ -193,7 +193,7 @@ describe("AgentGUIQuickComposer", () => {
           loading: false,
           onChange: vi.fn(),
           options: composerOptions,
-          value: { model: "gpt-5.6-sol", reasoningEffort: "high" }
+          value: { model: "gpt-5.6-sol", reasoningEffort: "high" },
         }}
         content={[{ text: "Inspect this", type: "text" }]}
         selectedAgentTargetId="agent:codex"
@@ -201,42 +201,42 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     fireEvent.pointerDown(
       container.querySelector<HTMLButtonElement>(
-        '[data-agent-model-reasoning-trigger="true"]'
+        '[data-agent-model-reasoning-trigger="true"]',
       )!,
-      { button: 0, ctrlKey: false }
+      { button: 0, ctrlKey: false },
     );
 
     await waitFor(() => {
       expect(
         globalThis.localStorage.getItem(
-          "agent-gui:composer-model-recents:agent:codex"
-        )
+          "agent-gui:composer-model-recents:agent:codex",
+        ),
       ).toBe('["gpt-5.5"]');
       expect(
         globalThis.localStorage.getItem(
-          "agent-gui:composer-model-favorites:agent:codex"
-        )
+          "agent-gui:composer-model-favorites:agent:codex",
+        ),
       ).toBe('["gpt-5.5"]');
     });
     expect(
       globalThis.localStorage.getItem(
-        "agent-gui:composer-model-recents:default"
-      )
+        "agent-gui:composer-model-recents:default",
+      ),
     ).toBeNull();
     expect(
       globalThis.localStorage.getItem(
-        "agent-gui:composer-model-favorites:default"
-      )
+        "agent-gui:composer-model-favorites:default",
+      ),
     ).toBeNull();
     expect(
       document.querySelector(
-        '[data-agent-model-value="gpt-5.5"] [data-agent-model-favorite-toggle="true"]'
-      )
+        '[data-agent-model-value="gpt-5.5"] [data-agent-model-favorite-toggle="true"]',
+      ),
     ).toHaveAttribute("data-favorited", "true");
   });
 
@@ -248,7 +248,7 @@ describe("AgentGUIQuickComposer", () => {
       projectLocked: false,
       provider: "codex",
       selectedProjectPath: null,
-      settings: {}
+      settings: {},
     });
 
     expect(projected.modelChoiceHistory).toEqual({
@@ -257,8 +257,8 @@ describe("AgentGUIQuickComposer", () => {
         authoritative: true,
         effectiveModel: "gpt-5.6-sol",
         loading: true,
-        models: [{ value: "gpt-5.6-sol" }, { value: "gpt-5.5" }]
-      }
+        models: [{ value: "gpt-5.6-sol" }, { value: "gpt-5.5" }],
+      },
     });
   });
 
@@ -271,7 +271,7 @@ describe("AgentGUIQuickComposer", () => {
           loading: true,
           onChange: vi.fn(),
           options: null,
-          value: {}
+          value: {},
         }}
         content={[{ text: "Inspect this", type: "text" }]}
         selectedAgentTargetId="agent:codex"
@@ -280,29 +280,29 @@ describe("AgentGUIQuickComposer", () => {
         onContentChange={vi.fn()}
         onRequestWorkspaceReferences={vi.fn().mockResolvedValue({
           files: [],
-          mentionItems: []
+          mentionItems: [],
         })}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     expect(
-      container.querySelector<HTMLElement>('[role="textbox"]')
+      container.querySelector<HTMLElement>('[role="textbox"]'),
     ).toHaveAttribute("aria-disabled", "false");
     expect(
       container
         .querySelector('[data-agent-reference-add-icon="true"]')
-        ?.closest("button")
+        ?.closest("button"),
     ).not.toBeDisabled();
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[data-agent-model-reasoning-trigger="true"]'
-      )
+        '[data-agent-model-reasoning-trigger="true"]',
+      ),
     ).toBeDisabled();
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[data-testid="agent-gui-composer-send"]'
-      )
+        '[data-testid="agent-gui-composer-send"]',
+      ),
     ).toBeDisabled();
   });
 
@@ -317,11 +317,11 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     expect(
-      container.querySelector('[data-agent-model-reasoning-trigger="true"]')
+      container.querySelector('[data-agent-model-reasoning-trigger="true"]'),
     ).toBeNull();
   });
 
@@ -334,12 +334,12 @@ describe("AgentGUIQuickComposer", () => {
           {
             agentTargetId: "agent:claude",
             label: "Claude Code",
-            provider: "claude-code"
-          }
+            provider: "claude-code",
+          },
         ]}
         capabilitiesByAgentTargetId={{
           ...capabilitiesByAgentTargetId,
-          "agent:claude": { imageInput: true, workspaceReferences: true }
+          "agent:claude": { imageInput: true, workspaceReferences: true },
         }}
         content={[{ text: "Inspect this", type: "text" }]}
         selectedAgentTargetId="agent:codex"
@@ -347,7 +347,7 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={onAgentTargetChange}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     fireEvent.click(screen.getByRole("combobox", { name: "Switch provider" }));
@@ -361,8 +361,8 @@ describe("AgentGUIQuickComposer", () => {
       {
         data: "iVBORw0KGgo=",
         mimeType: "image/png" as const,
-        type: "image" as const
-      }
+        type: "image" as const,
+      },
     ];
     const { container, rerender } = render(
       <AgentGUIQuickComposer
@@ -374,10 +374,10 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
     const send = container.querySelector<HTMLButtonElement>(
-      '[data-testid="agent-gui-composer-send"]'
+      '[data-testid="agent-gui-composer-send"]',
     );
     expect(send?.disabled).toBe(true);
 
@@ -385,7 +385,7 @@ describe("AgentGUIQuickComposer", () => {
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
         capabilitiesByAgentTargetId={{
-          "agent:codex": { imageInput: false, workspaceReferences: true }
+          "agent:codex": { imageInput: false, workspaceReferences: true },
         }}
         content={imageContent}
         selectedAgentTargetId="agent:codex"
@@ -393,14 +393,14 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
     expect(send?.disabled).toBe(true);
   });
 
   it("uses a host-injected i18n runtime", () => {
     const i18n = createI18nRuntime({
-      dictionaries: [agentGuiI18nResources.en]
+      dictionaries: [agentGuiI18nResources.en],
     });
     const translate = vi.spyOn(i18n, "t");
     render(
@@ -414,12 +414,12 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     expect(translate).toHaveBeenCalledWith(
       "agentHost.agentGui.initialPlaceholder",
-      expect.any(Object)
+      expect.any(Object),
     );
   });
 
@@ -435,19 +435,19 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     const composer = container.querySelector(
-      'form[data-layout="embedded"][data-fill-available-height="true"]'
+      'form[data-layout="embedded"][data-fill-available-height="true"]',
     );
 
     expect(composer).not.toBeNull();
     expect(
-      composer?.querySelector(".agent-gui-node__rich-text-editor-surface")
+      composer?.querySelector(".agent-gui-node__rich-text-editor-surface"),
     ).not.toBeNull();
     expect(
-      composer?.querySelector(".agent-gui-node__rich-text-editor-content")
+      composer?.querySelector(".agent-gui-node__rich-text-editor-content"),
     ).not.toBeNull();
   });
 
@@ -462,29 +462,29 @@ describe("AgentGUIQuickComposer", () => {
             data: "iVBORw0KGgo=",
             mimeType: "image/png",
             name: "screenshot.png",
-            type: "image"
-          }
+            type: "image",
+          },
         ]}
         selectedAgentTargetId="agent:codex"
         workspaceId="workspace:test"
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     const composer = container.querySelector<HTMLFormElement>(
-      'form[data-layout="embedded"]'
+      'form[data-layout="embedded"]',
     );
     const promptInputArea = composer?.querySelector(
-      ".agent-gui-node__composer-prompt-input-area"
+      ".agent-gui-node__composer-prompt-input-area",
     );
 
     expect(composer).not.toBeNull();
     expect(
       promptInputArea?.querySelector(
-        '[data-testid="agent-gui-composer-image-draft"]'
-      )
+        '[data-testid="agent-gui-composer-image-draft"]',
+      ),
     ).not.toBeNull();
   });
 
@@ -500,14 +500,14 @@ describe("AgentGUIQuickComposer", () => {
         onContentChange={vi.fn()}
         onRequestWorkspaceReferences={vi.fn().mockResolvedValue({
           files: [],
-          mentionItems: []
+          mentionItems: [],
         })}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     const addIcon = container.querySelector(
-      '[data-agent-reference-add-icon="true"]'
+      '[data-agent-reference-add-icon="true"]',
     );
     expect(addIcon?.closest("button")?.hasAttribute("disabled")).toBe(false);
   });
@@ -517,7 +517,7 @@ describe("AgentGUIQuickComposer", () => {
       id: "project-alpha",
       label: "Alpha",
       path: "/workspace/alpha",
-      pinnedAtUnixMs: 0
+      pinnedAtUnixMs: 0,
     };
     const { container } = render(
       <AgentGUIQuickComposer
@@ -532,33 +532,33 @@ describe("AgentGUIQuickComposer", () => {
           prepareSelection: vi.fn().mockResolvedValue({
             isSelectedPathMissing: false,
             projects: [project],
-            selection: { kind: "none" }
+            selection: { kind: "none" },
           }),
           selectDirectory: vi.fn().mockResolvedValue({ path: project.path }),
-          use: vi.fn().mockResolvedValue(project)
+          use: vi.fn().mockResolvedValue(project),
         }}
         workspaceId="workspace:test"
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onProjectPathChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     const noProjectIcon = container.querySelector(
-      '[data-agent-project-trigger-no-workspace-icon="true"]'
+      '[data-agent-project-trigger-no-workspace-icon="true"]',
     );
 
     await waitFor(() =>
       expect(noProjectIcon?.closest("button")?.hasAttribute("disabled")).toBe(
-        false
-      )
+        false,
+      ),
     );
     expect(noProjectIcon?.closest("button")).toHaveTextContent("不使用项目");
     expect(
       container
         .querySelector(".agent-gui-node__composer-footer")
-        ?.contains(noProjectIcon)
+        ?.contains(noProjectIcon),
     ).toBe(true);
   });
 
@@ -570,20 +570,20 @@ describe("AgentGUIQuickComposer", () => {
         content={[{ text: "", type: "text" }]}
         selectedAgentTargetId="agent:codex"
         selectProjectDirectory={vi.fn().mockResolvedValue({
-          path: "/workspace/alpha"
+          path: "/workspace/alpha",
         })}
         workspaceId="workspace:test"
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onProjectPathChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     expect(
       container.querySelector(
-        '[data-agent-project-trigger-no-workspace-icon="true"]'
-      )
+        '[data-agent-project-trigger-no-workspace-icon="true"]',
+      ),
     ).toBeNull();
   });
 
@@ -601,15 +601,15 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     const scope = container.querySelector(".agent-gui-node__shell");
     const accessory = container.querySelector(
-      '[data-testid="quick-composer-action-accessory"]'
+      '[data-testid="quick-composer-action-accessory"]',
     );
     const send = container.querySelector(
-      '[data-testid="agent-gui-composer-send"]'
+      '[data-testid="agent-gui-composer-send"]',
     );
 
     expect(scope).not.toBeNull();
@@ -632,43 +632,22 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     const footer = container.querySelector(
-      ".agent-gui-node__composer-footer-right"
+      ".agent-gui-node__composer-footer-right",
     );
     const accessory = container.querySelector(
-      '[data-testid="quick-composer-footer-accessory"]'
+      '[data-testid="quick-composer-footer-accessory"]',
     );
     const send = container.querySelector(
-      '[data-testid="agent-gui-composer-send"]'
+      '[data-testid="agent-gui-composer-send"]',
     );
 
     expect(footer?.contains(accessory)).toBe(true);
     expect(footer?.contains(send)).toBe(true);
     expect(accessory?.parentElement).toBe(send?.parentElement);
-  });
-
-  it("hides the connector capability control quick-composer hosts cannot service", () => {
-    const { container } = render(
-      <AgentGUIQuickComposer
-        agentTargets={agentTargets}
-        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
-        content={[{ text: "Inspect this", type: "text" }]}
-        selectedAgentTargetId="agent:codex"
-        workspaceId="workspace:test"
-        onAgentTargetChange={vi.fn()}
-        onContentChange={vi.fn()}
-        onSubmit={vi.fn()}
-      />
-    );
-
-    expect(
-      container.querySelector(
-        '[data-testid="agent-gui-composer-connectors-trigger"]'
-      )
-    ).toBeNull();
   });
 
   it("installs the mention service supplied by the embedding host", () => {
@@ -682,11 +661,11 @@ describe("AgentGUIQuickComposer", () => {
       toInsertResult: (item) => ({
         href: `/workspace/${item.id}`,
         kind: "markdown-link",
-        label: item.label
-      })
+        label: item.label,
+      }),
     };
     const mentionService = createRichTextMentionService({
-      providers: [provider]
+      providers: [provider],
     });
     const listProviders = vi.spyOn(mentionService, "listProviders");
     const { unmount } = render(
@@ -700,7 +679,7 @@ describe("AgentGUIQuickComposer", () => {
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
         onSubmit={vi.fn()}
-      />
+      />,
     );
 
     expect(listProviders).toHaveBeenCalled();

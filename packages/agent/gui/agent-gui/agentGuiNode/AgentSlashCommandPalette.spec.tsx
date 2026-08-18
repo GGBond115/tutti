@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AgentSlashCommandPalette } from "./AgentSlashCommandPalette";
 
@@ -14,10 +14,6 @@ describe("AgentSlashCommandPalette", () => {
         capabilitiesGroupLabel="Capabilities"
         skillsGroupLabel="Skills"
         pluginsGroupLabel="Plugins"
-        connectorsGroupLabel="Connectors"
-        connectorConnectedLabel="Connected"
-        connectorNotConnectedLabel="Not connected"
-        connectorUnsupportedLabel="Unsupported"
         mcpGroupLabel="MCP"
         highlightedIndex={0}
         entries={[
@@ -64,10 +60,6 @@ describe("AgentSlashCommandPalette", () => {
         capabilitiesGroupLabel="Capabilities"
         skillsGroupLabel="Skills"
         pluginsGroupLabel="Plugins"
-        connectorsGroupLabel="Connectors"
-        connectorConnectedLabel="Connected"
-        connectorNotConnectedLabel="Not connected"
-        connectorUnsupportedLabel="Unsupported"
         mcpGroupLabel="MCP"
         highlightedIndex={0}
         entries={[
@@ -115,10 +107,6 @@ describe("AgentSlashCommandPalette", () => {
         capabilitiesGroupLabel="Capabilities"
         skillsGroupLabel="Skills"
         pluginsGroupLabel="Plugins"
-        connectorsGroupLabel="Connectors"
-        connectorConnectedLabel="Connected"
-        connectorNotConnectedLabel="Not connected"
-        connectorUnsupportedLabel="Unsupported"
         mcpGroupLabel="MCP"
         highlightedIndex={0}
         entries={[
@@ -151,110 +139,5 @@ describe("AgentSlashCommandPalette", () => {
 
     expect(onSelectCapability).not.toHaveBeenCalled();
     expect(onSelectCapabilitySettings).not.toHaveBeenCalled();
-  });
-
-  it("separates catalog skills, plugins, and connectors into source groups", () => {
-    const onSelectSkill = vi.fn();
-    render(
-      <AgentSlashCommandPalette
-        label="Slash commands"
-        commandsGroupLabel="Commands"
-        capabilitiesGroupLabel="Capabilities"
-        skillsGroupLabel="Skills"
-        pluginsGroupLabel="Plugins"
-        connectorsGroupLabel="Connectors"
-        connectorConnectedLabel="Connected"
-        connectorNotConnectedLabel="Not connected"
-        connectorUnsupportedLabel="Unsupported"
-        mcpGroupLabel="MCP"
-        highlightedIndex={0}
-        entries={[
-          {
-            type: "skill",
-            key: "skill:catalog-review",
-            label: "catalog-review",
-            skill: {
-              name: "catalog-review",
-              trigger: "$catalog-review",
-              sourceKind: "plugin",
-              kind: "skill"
-            }
-          },
-          {
-            type: "skill",
-            key: "skill:plugin-review",
-            label: "plugin-review",
-            skill: {
-              name: "plugin-review",
-              trigger: "$plugin-review",
-              sourceKind: "plugin",
-              pluginName: "review-tools"
-            }
-          },
-          {
-            type: "skill",
-            key: "skill:google-drive",
-            label: "google-drive",
-            skill: {
-              name: "Google Drive",
-              connectorKey: "google-drive",
-              iconUrl: "data:image/png;base64,ZHJpdmU=",
-              trigger: "$google-drive",
-              sourceKind: "connector",
-              kind: "connector",
-              status: "available"
-            }
-          },
-          {
-            type: "skill",
-            key: "skill:notion",
-            label: "Notion",
-            skill: {
-              name: "Notion",
-              connectorKey: "notion",
-              trigger: "/notion",
-              sourceKind: "connector",
-              kind: "connector",
-              status: "setupRequired"
-            }
-          }
-        ]}
-        onHighlightChange={vi.fn()}
-        onSelect={vi.fn()}
-        onSelectCapability={vi.fn()}
-        onSelectSkill={onSelectSkill}
-      />
-    );
-
-    expect(screen.getByText("Skills")).toBeInTheDocument();
-    expect(screen.getByText("Plugins")).toBeInTheDocument();
-    expect(screen.getByText("Connectors")).toHaveClass(
-      "mt-3",
-      "pt-3",
-      "before:inset-x-3",
-      "before:border-t",
-      "before:border-[var(--border-1)]"
-    );
-    expect(screen.getByText("Connected")).toHaveClass(
-      "text-[var(--state-success)]"
-    );
-    const googleDriveOption = screen.getByRole("option", {
-      name: /google-drive/i
-    });
-    const googleDriveIcon = googleDriveOption.querySelector("img");
-    expect(googleDriveIcon).toHaveAttribute(
-      "src",
-      "data:image/png;base64,ZHJpdmU="
-    );
-    expect(googleDriveOption.querySelector("svg")).toBeNull();
-
-    fireEvent.error(googleDriveIcon!);
-
-    expect(googleDriveOption.querySelector("img")).toBeNull();
-    expect(googleDriveOption.querySelector("svg")).toBeInTheDocument();
-    screen.getByRole("button", { name: "Not connected" }).click();
-    expect(onSelectSkill).toHaveBeenCalledWith(
-      expect.objectContaining({ connectorKey: "notion" })
-    );
   });
 });

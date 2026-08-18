@@ -7,10 +7,6 @@ import {
   useSyncExternalStore
 } from "react";
 import { useService } from "@tutti-os/infra/di";
-import {
-  IConnectorMarketModule,
-  openConnectorMarketDialog
-} from "@tutti-os/connector-market/services";
 import type {
   WorkspaceAgentProvider,
   WorkspaceSummary
@@ -39,10 +35,6 @@ import { useWorkspaceFileManagerService } from "@renderer/features/workspace-fil
 import { IWorkspaceFilePreviewSurfaceHost } from "@renderer/features/workspace-file-preview";
 import { useTranslation } from "@renderer/i18n";
 import { createWorkspaceWorkbenchDesktopI18nRuntime } from "@shared/i18n";
-import {
-  isFeatureEnabled,
-  LAB_CONNECTORS_FLAG
-} from "../../../../../shared/featureFlags/catalog.ts";
 import type {
   DesktopDockIconStyle,
   DesktopFeatureFlags,
@@ -160,7 +152,6 @@ export function useWorkspaceWorkbenchShellRuntime({
     useWorkspaceAppCenterService();
   const { state: desktopPreferencesState } = useDesktopPreferencesService();
   const { service: workspaceSettingsService } = useWorkspaceSettingsService();
-  const connectorMarketModule = useService(IConnectorMarketModule);
   const agentsService = useService(IAgentsService);
   const workspaceAppSurfaceHost = useService(IWorkspaceAppSurfaceHost);
   const workspaceFilePreviewSurfaceHost = useService(
@@ -185,27 +176,6 @@ export function useWorkspaceWorkbenchShellRuntime({
   );
   const handleCapabilitySettingsRequest = useCallback(
     (target: WorkspaceWorkbenchCapabilitySettingsTarget) => {
-      if (typeof target !== "string") {
-        const featureFlags =
-          desktopPreferencesState.changingFeatureFlags ??
-          desktopPreferencesState.featureFlags;
-        if (!isFeatureEnabled(featureFlags, LAB_CONNECTORS_FLAG)) {
-          return;
-        }
-        if (target.action === "open") {
-          void openConnectorMarketDialog(
-            connectorMarketModule.root,
-            target.connectorKey
-          ).catch(() => undefined);
-          return;
-        }
-        workspaceSettingsService.openPanel(
-          { id: state.workspace.id },
-          { pane: "connectors" }
-        );
-        connectorMarketModule.root.uiState.openConnector(target.connectorKey);
-        return;
-      }
       workspaceSettingsService.openPanel(
         { id: state.workspace.id },
         {
@@ -214,13 +184,7 @@ export function useWorkspaceWorkbenchShellRuntime({
         }
       );
     },
-    [
-      connectorMarketModule,
-      desktopPreferencesState.changingFeatureFlags,
-      desktopPreferencesState.featureFlags,
-      state.workspace.id,
-      workspaceSettingsService
-    ]
+    [state.workspace.id, workspaceSettingsService]
   );
   const shellRuntimeControllerRef =
     useRef<WorkspaceWorkbenchShellRuntimeController | null>(null);

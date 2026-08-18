@@ -74,7 +74,7 @@ export function useAgentGUIControllerRefs(
   const loadDraftComposerOptionsRef = useRef<
     (options?: {
       force?: boolean;
-      section?: "core" | "capabilities" | "connectors";
+      section?: "core" | "capabilities";
       waitForFreshModelCatalog?: boolean;
     }) => void
   >(() => {});

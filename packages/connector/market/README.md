@@ -8,14 +8,13 @@ The package owns the TypeScript and renderer side of the shared boundary:
 - `openapi/connector-market.v1.yaml`: the HTTP fragment composed by each host
   daemon's aggregate OpenAPI document
 - `contracts`: host-neutral backend, event, domain, and error contracts
-- `authorization`: the declarative authorization adapter and replaceable
-  View/Event renderer boundary
-- `core`: the renderer module lifecycle and stable Root boundary
+- `core`: the application module lifecycle and stable narrow composition ports
 - `services`: a module-scoped Root, Runtime, lifecycle, StartupJobs, Valtio
   domain services, and host adapter contracts
-- `ui`: the reusable catalog, authorization dialog, connected-state management
-  dialog, and compact composer entry built only from `@tutti-os/ui-system`
-- `renderer`: a compatibility alias for `ui`
+- `renderer`: the canonical catalog, authorization dialog, connected-state
+  management dialog, and compact composer entry built only from
+  `@tutti-os/ui-system`
+- `ui`: a one-release compile-time compatibility re-export of `renderer`
 - `i18n`: the connector-market resource bundle and scoped runtime factory
 
 The package does not construct an HTTP client, read Electron globals, choose a
@@ -33,11 +32,11 @@ secret field to the existing authorization backend input. Runtime header,
 endpoint, environment, and credential-storage bindings never enter the UI
 protocol.
 
-Hosts may inject an `authorizationRenderer` into `ConnectorMarketPanel` or
-`ConnectorMarketDialogHost`. Without an override, Connector Market renders the
-same protocol with its UI System-based default renderer. A missing interaction
-on a legacy `api_key` Connector uses the centralized one-secret compatibility
-adapter; an explicitly invalid interaction fails closed.
+Connector Market renders the protocol with its Connector-owned UI System
+renderer. A missing interaction on a legacy `api_key` Connector uses the
+centralized one-secret compatibility adapter; an explicitly invalid
+interaction fails closed. QR payloads are encoded by the application/view
+projection and reach React only as a closed image data URL.
 
 When a newly received Authorization View is an `external_link` or
 `device_code`, Connector Market opens its activation or verification URL once.
@@ -81,7 +80,8 @@ service re-reads the authoritative daemon snapshot before publishing new state.
 Hosts whose market requires authentication must provide `canRequest`. A false
 result keeps startup, reconnect, resume, and command paths transport-silent
 while still allowing the module lifecycle to reach `ready`; after the host
-observes an authenticated transition it calls `root.market.reload()`.
+observes an authenticated transition it calls
+`connectorMarketModule.rendererPorts.market.reload()`.
 When an install intent arrives while requests are not admitted, the Market
 service invokes the optional `requestInstallAdmission` host hook and rechecks
 admission. A host may use this hook to open its account login flow. The install
@@ -130,28 +130,25 @@ created -> starting -> synchronizing -> materializing -> ready
              +-- MarketServiceStartupJob + UiStateServiceStartupJob
 ```
 
-`ConnectorMarketRoot` is the only surface passed to React. The renderer reads
-the render-ready View store at leaf components and sends intent to UiState or
-Market services. React never constructs services, starts transports, loads
-data, or owns disposal. Disposing the module disposes the child container and
-all services in dependency-safe order.
+The outer composition adapts the module's narrow application ports into one
+window-scoped readonly `ConnectorRendererModel`. Compact Composer React receives
+only that model; it cannot access lifecycle or mutable Root services, construct
+services, or own model disposal. The Desktop Connector composition creates that
+model once per window module and shares it across Workspace and Standalone Agent
+surfaces.
 
 ### Composer entry
 
-Hosts render `ConnectorComposerMenu` from `@tutti-os/connector-market/ui` with
-a host-neutral list of connector keys, display metadata, and setup status.
-AgentGUI is one adapter from its capability-option contract into that list; the
-shared component does not import AgentGUI or host settings code. Item selection
-must be routed through `openConnectorMarketDialog` from
-`@tutti-os/connector-market/services`, which loads the authoritative View before
-opening the package-owned installation, authorization, management, or blocked
-dialog. The bounded quick list places connected connectors first while
-preserving the host order within connected and remaining groups. The compact
-trigger previews authorized connected connectors independently from the current
-draft selection; selection continues to control only structured prompt content.
-“More connectors” is a separate host navigation callback.
+Hosts render `ConnectorComposerEntry` from
+`@tutti-os/connector-market/renderer`. Connector owns the readonly model,
+complete status projection, i18n, selection rules, and a closed semantic event
+union. AgentGUI supplies only a neutral target/draft slot. Desktop chooses the
+catalog or dialog container after receiving an event. Missing Shared Agent
+policy fails closed; local Agents use the validated catalog. Only `connected`
+items can be newly selected. `/ui` temporarily re-exports `/renderer` and is
+not a runtime fallback.
 
-Mount one `ConnectorMarketDialogHost` per renderer window/application
+Mount one `ConnectorDialogHost` per renderer window/application
 container, not per composer entry or settings page. Multiple entries share the
 same Root and therefore the same modal state machine.
 

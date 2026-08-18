@@ -81,7 +81,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   onRequestGitBranches,
   onRequestComposerFocus,
   workspaceAppIcons = EMPTY_WORKSPACE_APP_ICONS,
-  renderComposerFooterAccessory
+  renderComposerFooterAccessory,
+  renderPrimaryCapability
 }: AgentGUIDetailPaneProps): React.JSX.Element {
   "use memo";
   const viewModel = {
@@ -630,9 +631,10 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const bottomDockComposerProps = useMemo<AgentComposerProps>(
     () => ({
       ...baseComposerProps,
-      footerAccessory: composerFooterAccessory
+      footerAccessory: composerFooterAccessory,
+      primaryCapabilityRenderer: renderPrimaryCapability
     }),
-    [baseComposerProps, composerFooterAccessory]
+    [baseComposerProps, composerFooterAccessory, renderPrimaryCapability]
   );
   const emptyHeroComposerProps = useMemo<AgentComposerProps>(
     () => ({

@@ -83,6 +83,7 @@ interface ConnectorDialogBaseView {
 export interface ConnectorAuthorizationDialogView extends ConnectorDialogBaseView {
   authorizationInteraction?: unknown;
   authorizationKind: string;
+  authorizationQrCodeDataUrl?: string;
   authorizationView?: AuthorizationViewEnvelopeV1;
   authorizing: boolean;
   brokeredAuthorization: boolean;

@@ -27,6 +27,10 @@ import {
   workbenchFocusInputActivationType
 } from "@tutti-os/workbench-surface";
 import { useTranslation } from "@renderer/i18n";
+import { createConnectorMarketI18nRuntime } from "@tutti-os/connector-market/i18n";
+import { getConnectorRendererModel } from "@tutti-os/connector-market/composition";
+import { type ConnectorRendererEventSink } from "@tutti-os/connector-market/renderer";
+import { IConnectorMarketModule } from "@tutti-os/connector-market/services";
 import { useDesktopPreferencesService } from "@renderer/features/desktop-preferences/ui/useDesktopPreferencesService";
 import { buildDesktopCommerceErrorPresentation } from "./desktopCommerceErrorPresentation";
 import { Toast } from "@renderer/lib/toast";
@@ -83,6 +87,9 @@ import {
 import { useDesktopAgentGUISessionLaunchModePreference } from "./useDesktopAgentGUISessionLaunchModePreference.ts";
 import { IAgentEnvService } from "../services/agentEnvService.interface.ts";
 import { preloadDesktopAgentGuiMentionBrowse } from "../services/preloadDesktopAgentGuiMentionBrowse.ts";
+import { DesktopConnectorPrimaryCapabilityBridge } from "../../connector-market/ui/DesktopConnectorPrimaryCapabilityBridge.tsx";
+import { handleDesktopConnectorRendererEvent } from "../../connector-market/services/desktopConnectorRendererEventHandler.ts";
+import { useWorkspaceSettingsService } from "../../workspace-workbench/ui/useWorkspaceSettingsService.ts";
 import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "../services/desktopAgentGuiIdentity.ts";
 import {
   AGENT_SESSION_RECORDING_FLAG,
@@ -147,6 +154,15 @@ function DesktopAgentGUISurfaceImpl({
   const replayRuntimeActive =
     runtimeApi?.isAgentSessionReplayRuntime?.() === true;
   const { i18n, locale } = useTranslation();
+  const connectorMarketModule = useService(IConnectorMarketModule);
+  const { service: workspaceSettingsService } = useWorkspaceSettingsService();
+  const connectorRendererModel = getConnectorRendererModel(
+    connectorMarketModule.rendererPorts
+  );
+  const connectorMarketI18n = useMemo(
+    () => createConnectorMarketI18nRuntime(i18n),
+    [i18n]
+  );
   const commerceEnabled = hasDesktopLocalTuttiAgent(agents);
   const { accountState, handleAgentConfigMenuOpen, renderAgentConfigAccount } =
     useDesktopAgentConfigCommerce(commerceEnabled);
@@ -564,9 +580,6 @@ function DesktopAgentGUISurfaceImpl({
         installed: computerUseStatus?.installed ?? null,
         presentationSupported: true
       },
-      connectors: {
-        enabled: isFeatureEnabled(featureFlags, LAB_CONNECTORS_FLAG)
-      },
       tuttiMode: {
         enabled: true
       }
@@ -577,6 +590,45 @@ function DesktopAgentGUISurfaceImpl({
     desktopPreferencesState.changingFeatureFlags,
     desktopPreferencesState.featureFlags
   ]);
+  const connectorsEnabled = isFeatureEnabled(
+    desktopPreferencesState.changingFeatureFlags ??
+      desktopPreferencesState.featureFlags,
+    LAB_CONNECTORS_FLAG
+  );
+  const handleConnectorRendererEvent = useCallback<ConnectorRendererEventSink>(
+    (event) =>
+      handleDesktopConnectorRendererEvent(event, {
+        openCatalog: () => {
+          workspaceSettingsService.openPanel(
+            { id: workspaceId },
+            { pane: "connectors" }
+          );
+        },
+        openConnector: async (connectorKey) => {
+          connectorRendererModel.commands.openConnector(connectorKey);
+        }
+      }),
+    [connectorRendererModel, workspaceId, workspaceSettingsService]
+  );
+  const renderPrimaryCapability = useCallback<
+    NonNullable<AgentGUIProps["renderSlots"]["primaryCapability"]>
+  >(
+    (context) =>
+      connectorsEnabled ? (
+        <DesktopConnectorPrimaryCapabilityBridge
+          context={context}
+          i18n={connectorMarketI18n}
+          model={connectorRendererModel}
+          onEvent={handleConnectorRendererEvent}
+        />
+      ) : null,
+    [
+      connectorMarketI18n,
+      connectorRendererModel,
+      connectorsEnabled,
+      handleConnectorRendererEvent
+    ]
+  );
   const handleAgentEnvPanelOpen = useCallback<
     NonNullable<AgentGUIProps["hostActions"]["onAgentEnvPanelOpen"]>
   >((input) => agentEnvService.open(input), [agentEnvService]);
@@ -700,6 +752,7 @@ function DesktopAgentGUISurfaceImpl({
     renderSlots: {
       agentConfigAccount: renderAgentConfigAccount,
       composerFooterAccessory: renderComposerFooterAccessory,
+      primaryCapability: renderPrimaryCapability,
       sidebarFooter: renderSidebarFooter
     }
   });

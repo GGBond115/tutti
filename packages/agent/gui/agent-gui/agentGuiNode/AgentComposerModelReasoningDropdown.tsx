@@ -89,7 +89,7 @@ export function AgentModelReasoningDropdown({
    */
   modelHistoryTargetId?: string | null;
   onRetryComposerOptions?: (options?: {
-    section?: "core" | "capabilities" | "connectors";
+    section?: "core" | "capabilities";
     waitForFreshModelCatalog?: boolean;
   }) => void;
   onSettingsChange: (patch: {

@@ -17,6 +17,10 @@ export type {
   AgentGUIReferenceProvenanceFilterCatalog
 } from "./AgentGUI";
 export type { AgentGUIAgentConfigMenuContext } from "./agent-gui/agentGuiNode/AgentGUINode.types";
+export type {
+  AgentGUIPrimaryCapabilityRenderer,
+  AgentGUIPrimaryCapabilitySlotContext
+} from "./agent-gui/agentGuiNode/view/AgentGUIPrimaryCapabilitySlot.types";
 export type { AgentGUISessionLaunchMode } from "./agent-gui/agentGuiNode/model/agentSessionLaunchMode";
 export { AgentGUIConfigAccountFallbackSuppressed } from "./agent-gui/agentGuiNode/view/AgentGUIAccountConfig";
 export type {

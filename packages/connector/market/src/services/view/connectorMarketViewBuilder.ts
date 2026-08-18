@@ -9,6 +9,7 @@ import type {
   ConnectorDialogView,
   ConnectorMarketViewState
 } from "./connectorMarketViewTypes.ts";
+import { projectAuthorizationQrCodeDataUrl } from "./connectorAuthorizationQrCode.ts";
 
 export function buildConnectorMarketView(
   market: ConnectorMarketStoreState,
@@ -79,7 +80,8 @@ export function buildConnectorMarketView(
       buildConnectorCardView(
         connector,
         market.operationsByConnectorKey[connector.key]?.stage ?? null,
-        market.pendingInstallationsByConnectorKey[connector.key] === true
+        market.pendingInstallationsByConnectorKey[connector.key] === true,
+        catalogMutationsAllowed(market)
       )
     ])
   );
@@ -112,7 +114,8 @@ export function buildConnectorMarketView(
         : null,
       uiState.dialog
         ? market.authorizationViewsByConnectorKey[uiState.dialog.connectorKey]
-        : undefined
+        : undefined,
+      catalogMutationsAllowed(market)
     ),
     installedCount,
     refreshing: market.catalogState === "refreshing",
@@ -139,6 +142,12 @@ export function buildConnectorMarketView(
   };
 }
 
+function catalogMutationsAllowed(market: ConnectorMarketStoreState): boolean {
+  return (
+    market.loadState === "ready" && market.catalogMutationState === "allowed"
+  );
+}
+
 function buildCatalogErrorView(
   error: ConnectorMarketStoreState["lastError"]
 ): ConnectorCatalogErrorView | null {
@@ -160,7 +169,8 @@ function buildCatalogErrorView(
 function buildConnectorCardView(
   connector: Connector,
   operationStage: ConnectorCardView["operationStage"],
-  pendingInstallation: boolean
+  pendingInstallation: boolean,
+  catalogMutationsAllowed: boolean
 ): ConnectorCardView {
   const busy = connectorMutationBusy(
     connector,
@@ -185,8 +195,10 @@ function buildConnectorCardView(
       : busy
         ? "busy"
         : !installed
-          ? "install"
-          : !currentReleaseInstalled
+          ? catalogMutationsAllowed
+            ? "install"
+            : "unavailable"
+          : !currentReleaseInstalled && catalogMutationsAllowed
             ? "update"
             : requiresAuthorization
               ? "authorize"
@@ -210,8 +222,10 @@ function buildConnectorCardView(
           ? "updating"
           : "installing"
         : !installed
-          ? "not_installed"
-          : !currentReleaseInstalled
+          ? catalogMutationsAllowed
+            ? "not_installed"
+            : "unavailable"
+          : !currentReleaseInstalled && catalogMutationsAllowed
             ? "update_available"
             : requiresAuthorization
               ? "authorization_required"
@@ -226,7 +240,8 @@ function buildConnectorDialogView(
   pendingAuthorization: boolean,
   pendingInstallation: boolean,
   operationStage: ConnectorCardView["operationStage"],
-  authorizationView?: AuthorizationViewEnvelopeV1
+  authorizationView: AuthorizationViewEnvelopeV1 | undefined,
+  catalogMutationsAllowed: boolean
 ): ConnectorDialogView | null {
   if (!connector) {
     return null;
@@ -260,7 +275,14 @@ function buildConnectorDialogView(
   const installed = connectorHasInstalledArtifact(connector);
   const currentReleaseInstalled =
     connectorHasCurrentReleaseInstalled(connector);
-  if (!installed || !currentReleaseInstalled) {
+  if (!installed && !catalogMutationsAllowed) {
+    return {
+      ...base,
+      kind: "blocked",
+      reason: "connector_catalog_stale"
+    };
+  }
+  if (!installed || (!currentReleaseInstalled && catalogMutationsAllowed)) {
     return {
       ...base,
       installing:
@@ -276,6 +298,8 @@ function buildConnectorDialogView(
       authorizationInteraction:
         connector.release.manifest.authorizationInteraction,
       authorizationKind: connector.release.manifest.authorizationKind,
+      authorizationQrCodeDataUrl:
+        projectAuthorizationQrCodeDataUrl(authorizationView),
       authorizationView,
       authorizing,
       brokeredAuthorization:

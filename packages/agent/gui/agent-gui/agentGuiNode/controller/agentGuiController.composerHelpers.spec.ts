@@ -118,17 +118,17 @@ describe("descriptor-backed skill invocation", () => {
     ]);
   });
 
-  it("projects local connector capabilities with connection status", () => {
+  it("keeps non-skill capabilities out of the generic skill projection", () => {
     const options = {
       provider: "tutti-agent",
       behavior: {},
       skills: [],
       capabilityCatalog: [
         {
-          id: "connector:github",
-          name: "github",
-          label: "GitHub",
-          kind: "connector",
+          id: "calendar",
+          name: "calendar",
+          label: "Calendar",
+          kind: "host-extension",
           status: "available",
           trigger: "/github",
           invocation: "textTrigger",
@@ -137,10 +137,10 @@ describe("descriptor-backed skill invocation", () => {
           source: "local-db"
         },
         {
-          id: "connector:notion",
-          name: "notion",
-          label: "Notion",
-          kind: "connector",
+          id: "documents",
+          name: "documents",
+          label: "Documents",
+          kind: "host-extension",
           status: "authRequired",
           trigger: "/notion",
           invocation: "textTrigger",
@@ -149,28 +149,7 @@ describe("descriptor-backed skill invocation", () => {
       ]
     } as unknown as AgentActivityComposerOptions;
 
-    expect(providerSkillsFromComposerOptions(options)).toEqual([
-      {
-        name: "GitHub",
-        connectorKey: "github",
-        trigger: "/github",
-        invocation: "textTrigger",
-        sourceKind: "connector",
-        kind: "connector",
-        status: "available",
-        iconUrl: "data:image/png;base64,Z2l0aHVi",
-        description: "Repositories and pull requests"
-      },
-      {
-        name: "Notion",
-        connectorKey: "notion",
-        trigger: "/notion",
-        invocation: "textTrigger",
-        sourceKind: "connector",
-        kind: "connector",
-        status: "authRequired"
-      }
-    ]);
+    expect(providerSkillsFromComposerOptions(options)).toEqual([]);
   });
 });
 

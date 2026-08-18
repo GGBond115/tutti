@@ -46,6 +46,7 @@ import type {
 } from "../../../workspaceWorkflow";
 import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
+import type { AgentGUIPrimaryCapabilityRenderer } from "./AgentGUIPrimaryCapabilitySlot.types";
 import type { AgentGUISessionLaunchMode } from "../model/agentSessionLaunchMode";
 import type { AgentProjectDropdownOptions } from "../AgentComposerProjectMenu";
 export type AgentMentionReferenceTargetResolver = (
@@ -339,10 +340,6 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   slashPaletteCapabilitiesLoading: string;
   slashPaletteSkillsGroup: string;
   slashPalettePluginsGroup: string;
-  slashPaletteConnectorsGroup: string;
-  slashPaletteConnectorConnected: string;
-  slashPaletteConnectorNotConnected: string;
-  slashPaletteConnectorUnsupported: string;
   slashPaletteMcpGroup: string;
   slashCommandCompactLabel: string;
   slashCommandContextLabel: string;
@@ -427,14 +424,6 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   addReference: string;
   addContent: string;
   addContentResourcePanel: string;
-  addContentConnectors: string;
-  addContentConnectorConnected: string;
-  addContentConnectorConnect: string;
-  addContentConnectorAuthorize: string;
-  addContentConnectorEmpty: string;
-  addContentConnectorLoading: string;
-  addContentConnectorMore: string;
-  addContentConnectorSelected: string;
   referenceWorkspaceFiles: string;
   handoffConversation: string;
   handoffConversationTooltip: string;
@@ -761,6 +750,7 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   resolveWorkspaceReferenceInitialTarget?: AgentWorkspaceReferenceInitialTargetResolver | null;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   renderComposerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
+  renderPrimaryCapability?: AgentGUIPrimaryCapabilityRenderer;
 }
 export type { AgentGUIDetailPaneProps } from "./AgentGUIDetailPane.types";
 

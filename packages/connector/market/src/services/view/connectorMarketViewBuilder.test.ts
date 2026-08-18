@@ -14,8 +14,17 @@ const uiState: ConnectorMarketUiState = {
   started: true
 };
 
-test("maps manifest failures to a non-technical catalog error", () => {
+function createReadyConnectorMarketStoreState() {
   const market = createConnectorMarketStoreState();
+  market.loadState = "ready";
+  market.catalogState = "ready";
+  market.catalogFreshness = { state: "fresh" };
+  market.catalogMutationState = "allowed";
+  return market;
+}
+
+test("maps manifest failures to a non-technical catalog error", () => {
+  const market = createReadyConnectorMarketStoreState();
   market.loadState = "error";
   market.lastError = {
     code: "connector_manifest_invalid",
@@ -33,7 +42,7 @@ test("maps manifest failures to a non-technical catalog error", () => {
 });
 
 test("maps retryable upstream failures to an unavailable catalog error", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   market.loadState = "error";
   market.lastError = {
     code: "connector_market_upstream_unavailable",
@@ -50,7 +59,7 @@ test("maps retryable upstream failures to an unavailable catalog error", () => {
 });
 
 test("keeps a failed catalog section visible without failing the whole view", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   market.loadState = "ready";
   market.catalogSections = [
     {
@@ -72,7 +81,7 @@ test("keeps a failed catalog section visible without failing the whole view", ()
 });
 
 test("projects server-owned category names into the renderer view", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   market.loadState = "ready";
   market.catalogSections = [
     {
@@ -95,7 +104,7 @@ test("projects server-owned category names into the renderer view", () => {
 });
 
 test("keeps connector details open through installation and advances to authorization", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   market.connectorKeys = [connector.key];
   market.connectorsByKey[connector.key] = connector;
@@ -190,7 +199,7 @@ test("keeps connector details open through installation and advances to authoriz
 });
 
 test("preserves the connector authorization interaction for the dialog", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   const interaction = {
     protocol: "tutti.connector.authorization.declarative.v1",
@@ -236,7 +245,7 @@ test("preserves the connector authorization interaction for the dialog", () => {
 });
 
 test("marks managed credential brokers for managed authorization handling", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     installedReleaseDigest: connector.release.releaseDigest,
@@ -259,7 +268,7 @@ test("marks managed credential brokers for managed authorization handling", () =
 });
 
 test("keeps a physical repair in the available segment until installation completes", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     installedReleaseDigest: connector.release.releaseDigest,
@@ -313,7 +322,7 @@ test("keeps a physical repair in the available segment until installation comple
 });
 
 test("requires an installed connector to update before authorization when the active release changes", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     installedReleaseDigest:
@@ -354,8 +363,87 @@ test("requires an installed connector to update before authorization when the ac
   assert.equal(updating.cardsByKey[connector.key]?.status, "updating");
 });
 
+test("stale last-good catalog never offers install for an uninstalled connector", () => {
+  const market = createReadyConnectorMarketStoreState();
+  const connector = connectorFixture();
+  market.loadState = "ready";
+  market.catalogState = "stale";
+  market.catalogFreshness = {
+    state: "stale",
+    snapshotId: "last-good",
+    staleSince: "2026-08-18T01:00:00Z"
+  };
+  market.catalogMutationState = "blocked";
+  market.connectorKeys = [connector.key];
+  market.connectorsByKey[connector.key] = connector;
+
+  const view = buildConnectorMarketView(market, {
+    ...uiState,
+    dialog: { connectorKey: connector.key, kind: "connector" }
+  });
+
+  assert.equal(view.cardsByKey[connector.key]?.action, "unavailable");
+  assert.equal(view.cardsByKey[connector.key]?.status, "unavailable");
+  assert.deepEqual(view.dialog, {
+    connectorKey: connector.key,
+    description: connector.release.manifest.description,
+    displayName: connector.release.manifest.displayName,
+    iconUrl: connector.release.manifest.iconUrl,
+    kind: "blocked",
+    permissions: [{ id: "repositories", name: "repositories" }],
+    reason: "connector_catalog_stale"
+  });
+});
+
+test("loading with a retained connector never reopens install", () => {
+  const market = createReadyConnectorMarketStoreState();
+  const connector = connectorFixture();
+  market.loadState = "loading";
+  market.connectorKeys = [connector.key];
+  market.connectorsByKey[connector.key] = connector;
+
+  const view = buildConnectorMarketView(market, uiState);
+
+  assert.equal(view.cardsByKey[connector.key]?.action, "unavailable");
+  assert.equal(view.cardsByKey[connector.key]?.status, "unavailable");
+});
+
+test("stale update metadata preserves connected management mutations", () => {
+  const market = createReadyConnectorMarketStoreState();
+  const connector = connectorFixture();
+  connector.installation = {
+    installedReleaseDigest:
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    installedReleaseId: "github@0.9.0",
+    installedVersion: "0.9.0",
+    state: "installed"
+  };
+  connector.authorization = { state: "connected" };
+  market.loadState = "ready";
+  market.catalogState = "refreshing";
+  market.catalogFreshness = {
+    state: "refreshing",
+    snapshotId: "last-good",
+    staleSince: "2026-08-18T01:00:00Z"
+  };
+  market.catalogMutationState = "blocked";
+  market.connectorKeys = [connector.key];
+  market.connectorsByKey[connector.key] = connector;
+
+  const view = buildConnectorMarketView(market, {
+    ...uiState,
+    dialog: { connectorKey: connector.key, kind: "connector" },
+    segment: "installed"
+  });
+
+  assert.equal(view.cardsByKey[connector.key]?.action, "disconnect");
+  assert.equal(view.cardsByKey[connector.key]?.status, "connected");
+  assert.equal(view.cardsByKey[connector.key]?.canUninstall, true);
+  assert.equal(view.dialog?.kind, "management");
+});
+
 test("exposes disconnect directly for an authorized connector", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     installedReleaseDigest: connector.release.releaseDigest,
@@ -388,7 +476,7 @@ test("exposes disconnect directly for an authorized connector", () => {
 });
 
 test("keeps authorization-free connectors on the management action", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     installedReleaseDigest: connector.release.releaseDigest,
@@ -408,7 +496,7 @@ test("keeps authorization-free connectors on the management action", () => {
 });
 
 test("projects an uninstall confirmation independently from authorization state", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     installedReleaseDigest: connector.release.releaseDigest,
@@ -432,7 +520,7 @@ test("projects an uninstall confirmation independently from authorization state"
 });
 
 test("disables uninstall controls while one connector mutation is active", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     installedReleaseDigest: connector.release.releaseDigest,
@@ -479,7 +567,7 @@ test("disables uninstall controls while one connector mutation is active", () =>
 });
 
 test("offers repair when calibration finds the installed implementation absent", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     failureCode: "connector_installation_absent",
@@ -508,7 +596,7 @@ test("offers repair when calibration finds the installed implementation absent",
 });
 
 test("offers repair when the installed implementation is invalid", () => {
-  const market = createConnectorMarketStoreState();
+  const market = createReadyConnectorMarketStoreState();
   const connector = connectorFixture();
   connector.installation = {
     failureCode: "connector_installation_invalid",

@@ -38,11 +38,11 @@ import { AgentSessionLaunchModeSelect } from "./AgentSessionLaunchModeSelect";
 import { AgentQuickPromptPopover } from "./quickPrompts/AgentQuickPromptPopover";
 import {
   agentComposerDraftHasContent,
-  agentComposerDraftConnectors,
   agentComposerDraftImages,
   agentComposerDraftPrompt,
   updateAgentComposerDraft
 } from "../model/agentComposerDraft";
+import { agentComposerDraftPrimaryCapabilities } from "../model/agentComposerDraftPrimaryCapabilities";
 
 export function AgentComposerView(
   input: AgentComposerViewProps
@@ -89,7 +89,8 @@ export function AgentComposerView(
     hasCompactableContext = true
   } = input.props;
   const draftImages = agentComposerDraftImages(draftContent);
-  const draftConnectors = agentComposerDraftConnectors(draftContent);
+  const selectedPrimaryCapabilities =
+    agentComposerDraftPrimaryCapabilities(draftContent);
   const slashStatusAgentSessionId = slashStatus?.agentSessionId ?? null;
   const draftPrompt = agentComposerDraftPrompt(draftContent);
   const { availableCapabilities, slashPaletteEntries, slashQuery } =
@@ -130,9 +131,8 @@ export function AgentComposerView(
     handlePastedLargeText,
     handleWorkspaceReferencePicker,
     removeDraftImage,
-    removeDraftConnector,
     removeDraftLargeText,
-    setDraftConnectorSelected
+    setPrimaryCapabilitySelected
   } = input.attachments;
   const {
     composerClassName,
@@ -182,6 +182,27 @@ export function AgentComposerView(
   );
   const showComposerActionInFooter =
     isHeroLayout || input.props.composerActionPlacement === "footer";
+  const primaryCapabilityTarget = input.props.selectedAgentTarget;
+  const primaryCapability =
+    input.props.primaryCapabilityRenderer && primaryCapabilityTarget
+      ? input.props.primaryCapabilityRenderer({
+          disabled: composerControlsHardDisabled,
+          target: {
+            agentTargetId:
+              primaryCapabilityTarget.agentTargetId?.trim() ||
+              primaryCapabilityTarget.targetId,
+            ownership:
+              primaryCapabilityTarget.ownership === "shared" ||
+              primaryCapabilityTarget.ref.kind === "shared-agent"
+                ? "shared"
+                : "self"
+          },
+          draft: {
+            selectedCapabilities: selectedPrimaryCapabilities,
+            setSelected: setPrimaryCapabilitySelected
+          }
+        })
+      : null;
   const showProjectSelectorInFooter =
     !isHeroLayout && input.props.showProjectSelectorInFooter === true;
   const projectSelectorNode =
@@ -372,13 +393,10 @@ export function AgentComposerView(
                 style={promptInputAreaStyle}
               >
                 <ComposerDraftAttachments
-                  availableSkills={availableSkills}
-                  draftConnectors={draftConnectors}
                   draftImages={draftImages}
                   draftLargeTexts={visibleDraftLargeTexts}
                   removeLabel={labels.removeMention}
                   onRemoveImage={removeDraftImage}
-                  onRemoveConnector={removeDraftConnector}
                   onRemoveLargeText={removeDraftLargeText}
                   onExpandLargeText={expandDraftLargeTextToPrompt}
                 />
@@ -545,14 +563,6 @@ export function AgentComposerView(
                 }
                 skillsGroupLabel={labels.slashPaletteSkillsGroup}
                 pluginsGroupLabel={labels.slashPalettePluginsGroup}
-                connectorsGroupLabel={labels.slashPaletteConnectorsGroup}
-                connectorConnectedLabel={labels.slashPaletteConnectorConnected}
-                connectorNotConnectedLabel={
-                  labels.slashPaletteConnectorNotConnected
-                }
-                connectorUnsupportedLabel={
-                  labels.slashPaletteConnectorUnsupported
-                }
                 mcpGroupLabel={labels.slashPaletteMcpGroup}
                 onHighlightChange={input.setHighlightedIndex}
                 onSelect={selectCommand}
@@ -639,9 +649,7 @@ export function AgentComposerView(
             showComposerAction={showComposerActionInFooter}
             isGoalModeActive={input.isGoalModeActive}
             isPlanModeActive={input.isPlanModeActive}
-            connectorsVisible={
-              input.props.capabilityMenuState?.connectors?.enabled !== false
-            }
+            primaryCapability={primaryCapability}
             onClearPlanMode={input.onClearPlanMode}
             composerAction={composerActionNode}
             projectControl={
@@ -672,15 +680,7 @@ export function AgentComposerView(
             menuViewportTopInset={input.props.menuViewportTopInset}
             onProviderSelect={onProviderSelect}
             onLinkAction={onLinkAction}
-            availableSkills={availableSkills}
-            selectedConnectorKeys={draftConnectors.map(
-              (connector) => connector.connectorKey
-            )}
-            onConnectorSelected={setDraftConnectorSelected}
             onRetryComposerOptions={input.props.onRetryComposerOptions}
-            onCapabilitySettingsRequest={
-              input.props.onCapabilitySettingsRequest
-            }
             onRequestWorkspaceReferences={onRequestWorkspaceReferences}
             onWorkspaceReferencePicker={handleWorkspaceReferencePicker}
             onMentionPaletteButton={handleMentionPaletteButton}

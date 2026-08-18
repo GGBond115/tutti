@@ -219,43 +219,28 @@ export function providerSkillsFromComposerOptions(
     )
   );
   return dedupeProviderSkills([
-    ...options.skills.map((skill) => ({
+    ...options.skills.filter(isGenericSkillOption).map((skill) => ({
       ...skill,
       ...(invocationByTrigger.get(skill.trigger)
         ? { invocation: invocationByTrigger.get(skill.trigger) }
         : {})
     })),
     ...(options.capabilityCatalog ?? [])
-      .filter((capability) => {
-        if (capability.kind === "connector") {
-          return (
-            capability.invocation !== "none" && Boolean(capability.trigger)
-          );
-        }
-        return (
+      .filter(
+        (capability) =>
           capability.kind === "skill" &&
           capability.invocation === "promptItem" &&
           capability.status === "available" &&
           Boolean(capability.trigger) &&
           Boolean(capability.path)
-        );
-      })
+      )
       .map((capability): AgentGUIProviderSkillOption => {
-        const isConnector = capability.kind === "connector";
         return {
-          name: isConnector ? capability.label : capability.name,
-          ...(isConnector ? { connectorKey: capability.name } : {}),
+          name: capability.name,
           trigger: capability.trigger!,
-          invocation:
-            capability.invocation === "textTrigger"
-              ? "textTrigger"
-              : "promptItem",
-          sourceKind: isConnector ? "connector" : "plugin",
-          kind: isConnector ? "connector" : "skill",
-          ...(isConnector ? { status: capability.status } : {}),
-          ...(isConnector && capability.iconUrl
-            ? { iconUrl: capability.iconUrl }
-            : {}),
+          invocation: "promptItem",
+          sourceKind: "plugin",
+          kind: "skill",
           ...(capability.description
             ? { description: capability.description }
             : {}),
@@ -274,17 +259,32 @@ export function areProviderSkillOptionsEqual(
 ): boolean {
   return (
     left.name === right.name &&
-    left.connectorKey === right.connectorKey &&
-    left.iconUrl === right.iconUrl &&
     left.trigger === right.trigger &&
     left.invocation === right.invocation &&
     left.sourceKind === right.sourceKind &&
     left.description === right.description &&
     left.pluginName === right.pluginName &&
     left.path === right.path &&
-    left.kind === right.kind &&
-    left.status === right.status
+    left.kind === right.kind
   );
+}
+
+const GENERIC_SKILL_SOURCE_KINDS = new Set([
+  "project",
+  "personal",
+  "bundled",
+  "plugin",
+  "system",
+  "tutti-injected"
+]);
+
+function isGenericSkillOption(
+  skill: AgentActivityComposerOptions["skills"][number]
+): skill is AgentActivityComposerOptions["skills"][number] &
+  AgentGUIProviderSkillOption {
+  return GENERIC_SKILL_SOURCE_KINDS.has(skill.sourceKind) && skill.kind !== undefined
+    ? skill.kind === "skill"
+    : GENERIC_SKILL_SOURCE_KINDS.has(skill.sourceKind);
 }
 
 export function areProviderSkillOptionListsEqual(

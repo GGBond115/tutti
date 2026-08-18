@@ -15,18 +15,6 @@ export function agentSlashPaletteLabels(t: TranslateFn) {
     ),
     slashPaletteSkillsGroup: t("agentHost.agentGui.slashPaletteSkillsGroup"),
     slashPalettePluginsGroup: t("agentHost.agentGui.slashPalettePluginsGroup"),
-    slashPaletteConnectorsGroup: t(
-      "agentHost.agentGui.slashPaletteConnectorsGroup"
-    ),
-    slashPaletteConnectorConnected: t(
-      "agentHost.agentGui.slashPaletteConnectorConnected"
-    ),
-    slashPaletteConnectorNotConnected: t(
-      "agentHost.agentGui.slashPaletteConnectorNotConnected"
-    ),
-    slashPaletteConnectorUnsupported: t(
-      "agentHost.agentGui.slashPaletteConnectorUnsupported"
-    ),
     slashPaletteMcpGroup: t("agentHost.agentGui.slashPaletteMcpGroup")
   };
 }

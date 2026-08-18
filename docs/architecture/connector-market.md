@@ -271,21 +271,17 @@ verification and preparation complete.
 The staging and active directories must be on the same filesystem when atomic
 rename is used. Activation failure preserves the previous active version. The
 implementation host removes orphan staging and ready execution snapshots at
-startup before restoring routes after an unclean shutdown. The daemon resolves
-the artifact key against its configured artifact base URL. The
-production base URL is the public-assets CloudFront prefix
-`https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/`; CloudFront
-serves immutable versioned objects from the private `tsh-public-assets` S3
-origin. The daemon never addresses S3 directly. The Tutti desktop host uses an
-ordinary direct GET without workspace identity. A split control-plane/runtime
-host may instead issue a short-lived presigned artifact grant under the frozen
-account scope and let its runtime machine download directly. The grant is not
-persisted or logged. Both modes verify the immutable object version, release
-digest, artifact digest, and size before installation. Operations persist the
-artifact key, release identity, object version, digest, and size. Staging and
-local integration may override the CDN prefix
-with `TUTTI_CONNECTOR_ARTIFACT_BASE_URL`; production should leave the public
-CloudFront default in place.
+startup before restoring routes after an unclean shutdown. The catalog consumes
+the server-owned release digest and immutable artifact descriptor exactly; it
+does not derive release identity. Immediately before install, the authenticated
+Market client exchanges that digest for one short-lived HTTPS download URL.
+The signed URL is neither persisted nor logged, and the deprecated artifact key
+is retained only as compatibility metadata, never as a URL input. The runtime
+rejects expired, unsafe, overlong, or identity-mismatched resolutions, preserves
+the host redirect policy, and verifies the downloaded byte size and SHA-256
+before extraction or installation. A split control-plane/runtime host carries
+the same descriptor and verified bytes across its data-plane boundary without
+exposing storage object keys as a client protocol.
 
 `connector/host` owns the implementation-host port and durable reconcile
 semantics; `connector/runtime` owns portable artifact and managed-runtime
@@ -549,8 +545,9 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
 - Market, UiState, and View each have one StartupJob; the Market job places an
   initial-load barrier in `synchronizing`, and View materialization starts only
   after that barrier resolves
-- `ConnectorMarketRoot` exposes the three stable services to renderer context;
-  React never resolves or constructs individual services
+- `ConnectorMarketRoot` remains internal compatibility composition for the
+  catalog/dialog surface; the composer receives only a stable readonly
+  `ConnectorRendererModel`
 - every service exposes a `readonly dataStore = proxy(...)` as its only writable
   state source, and only its owning service mutates it
 - asynchronous responses are fenced by request sequence, service generation,
@@ -584,20 +581,25 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
   uses `@tutti-os/ui-system`, and owns no transport, startup, disposal, or
   business-state reconciliation
 
-Compact composer surfaces reuse `ConnectorComposerMenu` from the shared UI
-entrypoint. The menu consumes only a host-neutral projection of connector key,
-name, icon, and setup state; AgentGUI maps its provider-neutral capability
-options into that projection and retains only placement plus its Tutti Mode
-fallback. Selecting one item emits a semantic connector-open intent. The host
-executes `openConnectorMarketDialog(root, connectorKey)`, which waits for the
-authoritative market view, rejects invalid or unknown keys, and then advances
-the package-owned dialog state machine. Before applying the bounded quick-list
-limit, the shared menu stably groups connected connectors ahead of connectors
-that still require authorization or setup; each group preserves host catalog
-order. Its compact trigger previews the installed and authorized group without
-requiring those connectors to be selected in the current draft; draft selection
-continues to control only structured prompt content. Selecting “more” remains
-host navigation because settings/workbench location is product-owned.
+Compact composer surfaces render `ConnectorComposerEntry` from the canonical
+`@tutti-os/connector-market/renderer` entrypoint. Connector owns its readonly
+snapshot projection, ten-state vocabulary, i18n, ordering, selection admission,
+and closed semantic events. Only `connected` may be newly selected; unknown
+states and missing Shared Agent policy fail closed. Local Agents use the
+validated catalog, while Shared Agents require an explicit
+`supportedConnectorKeys` policy. A stale catalog is exposed as stale metadata
+and does not reinterpret an exact physically-ready installed Connector as
+degraded. `degraded` comes only from runtime/availability observation.
+
+AgentGUI supplies one neutral `primaryCapability` placement with exact target
+identity and an opaque draft-key mutation port. It does not map Connector
+status, labels, settings, navigation, or package types. Desktop maps that slot
+through one shared Workspace/Standalone bridge. “More”, detail, authorization,
+external URL, account admission, and try intents cross a closed event union;
+the host chooses the product container without inferring command success.
+
+`/renderer` is canonical. `/ui` is one-release compile-time re-export only and
+contains no second implementation or runtime fallback.
 
 Every renderer window mounts exactly one `ConnectorMarketDialogHost` alongside
 its other window-level panel hosts. Composer entries and catalog cards never
@@ -657,10 +659,11 @@ adapters, activates it as part of workspace startup, and renders its shared
 panel from Settings > Agent > Connectors. Event-stream reconnect causes an
 authoritative snapshot reload.
 
-The registered Tutti Host reads the ordinary TSH market item API, downloads an
-artifact directly from the configured artifact base URL, verifies its declared
-SHA-256 and size, retains only the current archive plus one replaceable
-candidate, prepares an installed snapshot, selects the local
+The registered Tutti Host reads the ordinary TSH market item API, consumes its
+server-owned release digest, archive media type, SHA-256, and size, and resolves
+an authenticated short-lived HTTPS download immediately before installation.
+It retains only the current verified archive plus one replaceable candidate,
+prepares an installed snapshot, selects the local
 Node/Python runtime, installs typed Node CLI packages into a private shared-store
 layout when requested, and exposes one daemon-owned MCP/CLI runtime per installed
 connector connection. Installation commits before runtime publication;

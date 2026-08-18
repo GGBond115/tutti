@@ -159,12 +159,7 @@ export function normalizePromptContentBlocks(
       }
       continue;
     }
-    if (block.type === "connector") {
-      const connectorKey = block.connectorKey?.trim();
-      if (connectorKey && /^[a-z][a-z0-9._-]{0,127}$/.test(connectorKey)) {
-        result.push({ type: "connector", connectorKey });
-      }
-    }
+    result.push({ ...block });
   }
   return result;
 }

@@ -12,7 +12,8 @@ import { useService } from "@tutti-os/infra/di";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import { INotificationService } from "@tutti-os/ui-notifications";
 import { createConnectorMarketI18nRuntime } from "@tutti-os/connector-market/i18n";
-import { ConnectorMarketPanel } from "@tutti-os/connector-market/ui";
+import { ConnectorMarketPanel } from "@tutti-os/connector-market/renderer";
+import { getConnectorRendererModel } from "@tutti-os/connector-market/composition";
 import { IConnectorMarketModule } from "@tutti-os/connector-market/services";
 import type {
   DesktopComputerUseActionResult,
@@ -498,7 +499,9 @@ export function WorkspaceSettingsPanel({
                     locale={desktopPreferencesState.locale}
                     onError={handleConnectorMarketError}
                     onTryConnector={() => settingsService.closePanel()}
-                    root={connectorMarketModule.root}
+                    model={getConnectorRendererModel(
+                      connectorMarketModule.rendererPorts
+                    )}
                   />
                 ) : settingsState.agentTab === "customAgents" ? (
                   <SettingsRows>

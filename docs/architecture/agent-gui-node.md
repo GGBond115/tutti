@@ -255,17 +255,13 @@ concurrent catalog loads, reuses a warm app-server session, and publishes the
 existing catalog invalidation hint after a successful refresh so open composers
 can converge without owning provider or cache policy.
 
-Connector capability catalogs follow the same projection boundary. Each host
-reads its authoritative local Connector Market snapshot, then uses
-`packages/agent/daemon/composercatalog` to map manifest identity, icon,
-installation, compatibility, and authorization state into the closed Composer
-capability contract. Host transports only serialize that projection and route
-semantic open intents; they must not duplicate Connector readiness rules or
-derive Composer entries from renderer-local market state. The snapshot uses the
-host's current account scope so Composer status and prompt admission include the
-same authorization overlay as Connector Market management. Connector Market
-change events invalidate retained Composer options, while a menu open may still
-force an authoritative reread as a recovery path.
+Connector presentation does not enter the generic Composer-options palette.
+AgentGUI exposes only a neutral `renderSlots.primaryCapability` placement with
+exact target identity, ownership, disabled state, and opaque selected draft
+keys. Connector Renderer consumes its own authoritative Market snapshot and
+Agent policy port. Local Agents default to the validated catalog; Shared Agents
+require an explicit supported-key policy and fail closed while that policy is
+missing, loading, stale, or unknown.
 
 Settings that affect provider preparation are immutable after launch. The
 daemon validates them against current product policy and resolved provider
@@ -1859,23 +1855,11 @@ must not resolve or materialize provider Skill directories. A Composer-options
 read that returns both models and Skills keeps the normal Skill preparation
 path.
 
-Tutti Desktop's slash connector section is a local catalog projection,
-not a Provider connector catalog. `services/tuttid/service/agent` reads the
-daemon-owned connector-market application through its read-only snapshot port;
-the Agent service never opens or receives the underlying repository directly.
-It projects manifest presentation (including the catalog icon) plus installation,
-authorization, and compatibility into a provider-neutral capability option, and
-replaces any Provider-reported connector capabilities before returning composer
-options. This keeps installable connectors visible in the slash menu while
-ensuring that only installed and authorized connectors can be invoked. AgentGUI
-does not scan external MCP, plugin, or package-manager configuration and does not
-infer installation from a remote market response.
-
-Authorization and draft selection are separate facts. Selected connectors are
-stored as semantic draft blocks, rendered as removable chips, and submitted as
-structured prompt content without synthesizing slash text. The compact Composer
-trigger previews installed and authorized connectors independently from draft
-selection, while preserving selected connectors first in that bounded preview.
+Connector is not a slash-palette group and is never projected as a generic
+Skill. Connector Renderer owns the compact entry and previews; authorization,
+runtime readiness, Agent support, and draft selection remain separate facts.
+AgentGUI does not scan external MCP, plugin, package-manager, or Market state,
+and does not render Connector-specific chips, status, labels, or retry UI.
 
 The device-global `lab.connectors` UI-preference flag controls whether that
 projection is returned. The daemon fails closed when the preference is absent
@@ -1888,20 +1872,17 @@ converge on the next canonical read without exposing stale entries. The flag
 does not uninstall connectors, stop their runtimes, or reject an already
 structured connector prompt.
 
-Desktop also projects the flag through AgentGUI's existing host-owned
-capability-menu state. The primary footer capability slot renders the
-Connectors menu only when `lab.connectors` is on; otherwise it is omitted.
+Desktop decides whether to inject the neutral primary-capability renderer. The
+slot renders the Connector-owned entry only when `lab.connectors` is on;
+otherwise it returns `null` and no fallback appears.
 Tutti Mode remains available through the slash-command surface, but has no
 dedicated footer entry. The same footer serves both the home hero and
 existing-session dock, so the two AgentGUI contexts cannot drift.
-The menu implementation and its host-neutral connector item contract belong to
-`@tutti-os/connector-market/ui`. AgentGUI owns only the capability-option
-mapping, Composer placement, canonical option refresh request, and Tutti Mode
-fallback. Its existing `onCapabilitySettingsRequest` host port emits the exact
-connector key; the host delegates that intent to Connector Market's shared open
-use case and mounts one window-level Connector Market dialog host. AgentGUI
-does not load Connector Market state, construct its Root, or mount a dialog per
-Composer.
+The entry, state machine, copy, and events belong to
+`@tutti-os/connector-market/renderer`. AgentGUI owns only the neutral placement
+and generic draft mutation. Desktop and Standalone share one bridge and one
+closed event handler, and every window mounts one dialog host. Connector events
+do not travel through `onCapabilitySettingsRequest`.
 
 ### 5.3 Agent Directory and setup
 
@@ -2410,6 +2391,11 @@ otherwise recover interactively.
 | `hostCapabilities` | host catalog, readiness, menus, icons     |
 | `hostActions`      | host mutations, Workbench/window actions  |
 | `renderSlots`      | narrow product-neutral presentation slots |
+
+`renderSlots.primaryCapability` is optional. AgentGUI passes an exact target
+and opaque selected-key draft port, performs no capability-specific filtering,
+and renders nothing when the slot is omitted or returns `null`. Its function
+reference participates in node memo equality and Desktop stable-host projection.
 
 `AgentToolBrowserPanel` owns its BrowserNode feature, surface identity, and
 tab state. It also owns the single browser chrome instance for that surface.

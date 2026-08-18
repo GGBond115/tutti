@@ -7,7 +7,7 @@ import type {
 import type { AgentMentionSearchController } from "../AgentMentionSearchController";
 import type { AgentRichTextEditorHandle } from "../agentRichText/AgentRichTextEditor";
 import type { AgentComposerProps } from "./AgentComposer.types";
-import type { useComposerDraftAttachmentsWithConnectors } from "./useComposerDraftAttachmentsWithConnectors";
+import type { useComposerDraftAttachmentsWithPrimaryCapability } from "./useComposerDraftAttachmentsWithPrimaryCapability";
 import type { useComposerFocusAndDrop } from "./useComposerFocusAndDrop";
 import type { useComposerLayout } from "./useComposerLayout";
 import type { useComposerMentionActions } from "./useComposerMentionActions";
@@ -25,7 +25,9 @@ export interface AgentComposerViewProps {
   mentionFrame: ReturnType<typeof useMentionPaletteFrame>;
   slashActions: ReturnType<typeof useComposerSlashActions>;
   mentionActions: ReturnType<typeof useComposerMentionActions>;
-  attachments: ReturnType<typeof useComposerDraftAttachmentsWithConnectors>;
+  attachments: ReturnType<
+    typeof useComposerDraftAttachmentsWithPrimaryCapability
+  >;
   providerState: ReturnType<typeof useComposerProviderTargets>;
   focusAndDrop: ReturnType<typeof useComposerFocusAndDrop>;
   layout: ReturnType<typeof useComposerLayout>;

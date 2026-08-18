@@ -893,6 +893,11 @@ typed composer capability contract and must remain an unknown/loading state.
 Core capability booleans must not be reconstructed from private
 `runtimeContext` fields or represented as plugin/tool entries in the composer
 capability catalog.
+Connector presentation is not part of that generic catalog in AgentGUI. The
+Desktop composition injects Connector Renderer through the neutral
+`primaryCapability` slot, and Connector owns its catalog/policy projection.
+Provider or daemon Connector rows must not reappear as generic Skills or slash
+entries.
 The activity snapshot also exposes the composer-options request lifecycle per
 opaque target key and per independent section. `core` contains model,
 reasoning, speed, permission, and effective-settings data; `capabilities`

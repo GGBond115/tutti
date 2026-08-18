@@ -45,37 +45,6 @@ export function promptForProviderSkills(input: {
   return prompt;
 }
 
-export function projectLocalConnectorPrompt(input: {
-  prompt: string;
-  skills: readonly AgentGUIProviderSkillOption[];
-}): { prompt: string; connectorKeys: string[] } {
-  let prompt = input.prompt;
-  const connectorKeys: string[] = [];
-  const seen = new Set<string>();
-  for (const skill of input.skills) {
-    const connectorKey = skill.connectorKey?.trim();
-    if (
-      !connectorKey ||
-      skill.sourceKind !== "connector" ||
-      skill.kind !== "connector" ||
-      skill.invocation !== "textTrigger" ||
-      skill.status !== "available"
-    ) {
-      continue;
-    }
-    const trigger = skillTriggerForPrefix(skill, "/");
-    if (!trigger || !promptHasTrigger(prompt, trigger)) {
-      continue;
-    }
-    prompt = removePromptTrigger(prompt, trigger);
-    if (!seen.has(connectorKey)) {
-      seen.add(connectorKey);
-      connectorKeys.push(connectorKey);
-    }
-  }
-  return { prompt: prompt.trim(), connectorKeys };
-}
-
 export function skillDescriptionForDisplay(
   description: string | undefined
 ): string | undefined {

@@ -42,7 +42,7 @@ export function useAgentGUIComposerOptionsSync(input: {
   loadDraftComposerOptionsRef: RefObject<
     (options?: {
       force?: boolean;
-      section?: "core" | "capabilities" | "connectors";
+      section?: "core" | "capabilities";
       waitForFreshModelCatalog?: boolean;
     }) => void
   >;
@@ -70,7 +70,7 @@ export function useAgentGUIComposerOptionsSync(input: {
         allowWhileCreating?: boolean;
         excludePersistentDefaults?: boolean;
         force?: boolean;
-        section?: "core" | "capabilities" | "connectors";
+        section?: "core" | "capabilities";
         waitForFreshModelCatalog?: boolean;
         reconcileAcknowledgedDefaults?: boolean;
         settings?: AgentSessionComposerSettings;
@@ -123,7 +123,7 @@ export function useAgentGUIComposerOptionsSync(input: {
         section
       });
       return Promise.resolve(composerOptions).then((returnedOptions) => {
-        if (section === "capabilities" || section === "connectors") {
+        if (section === "capabilities") {
           return;
         }
         const loadedOptions =
@@ -154,7 +154,7 @@ export function useAgentGUIComposerOptionsSync(input: {
   const loadDraftComposerOptions = useCallback(
     (options?: {
       force?: boolean;
-      section?: "core" | "capabilities" | "connectors";
+      section?: "core" | "capabilities";
       waitForFreshModelCatalog?: boolean;
     }) => {
       void loadComposerOptionsForTarget(
@@ -229,13 +229,8 @@ export function useAgentGUIComposerOptionsSync(input: {
         input.loadSessionState(activeId);
       }
     );
-    const disposeConnectorCatalog = subscribe(
-      "agent-connector-catalog-invalidated",
-      () => loadDraftComposerOptions({ force: true, section: "connectors" })
-    );
     return () => {
       disposeModelCatalog();
-      disposeConnectorCatalog();
     };
   }, [input.loadSessionState, loadDraftComposerOptions]);
 

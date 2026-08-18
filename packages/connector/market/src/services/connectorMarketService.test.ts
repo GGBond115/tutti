@@ -91,6 +91,13 @@ function backendWith(
   };
 }
 
+function admitFreshCatalog(service: ConnectorMarketService): void {
+  service.dataStore.loadState = "ready";
+  service.dataStore.catalogState = "ready";
+  service.dataStore.catalogFreshness = { state: "fresh" };
+  service.dataStore.catalogMutationState = "allowed";
+}
+
 test("exposes commands directly on a class service and state through dataStore", async () => {
   const service = new ConnectorMarketService({
     backend: backendWith({
@@ -494,6 +501,7 @@ test("rejects overlapping mutations for one connector", async () => {
     backend: backendWith({ installConnector: async () => install.promise }),
     createRequestId: () => "request-1"
   });
+  admitFreshCatalog(service);
   const first = service.install("github");
   assert.equal(
     service.dataStore.pendingInstallationsByConnectorKey.github,
@@ -562,6 +570,7 @@ test("requests host admission instead of installing when account access is unava
       admissionRequests += 1;
     }
   });
+  admitFreshCatalog(service);
 
   assert.equal(await service.install("github"), "not_admitted");
   assert.equal(admissionRequests, 1);
@@ -575,11 +584,134 @@ test("requests host admission instead of installing when account access is unava
   service.dispose();
 });
 
+test("rejects install and update mutations from a stale last-good catalog", async () => {
+  let admissionRequests = 0;
+  let installCalls = 0;
+  const stale = connector("github", 1);
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      installConnector: async () => {
+        installCalls += 1;
+        throw new Error("stale catalog mutation must not reach the backend");
+      }
+    }),
+    canRequest: () => false,
+    requestInstallAdmission: () => {
+      admissionRequests += 1;
+    }
+  });
+  service.dataStore.loadState = "error";
+  service.dataStore.connectorKeys = [stale.key];
+  service.dataStore.connectorsByKey[stale.key] = stale;
+
+  await assert.rejects(
+    service.install(stale.key),
+    ConnectorMarketRequestUnavailableError
+  );
+
+  stale.installation = {
+    installedReleaseDigest:
+      "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    state: "installed"
+  };
+  await assert.rejects(
+    service.install(stale.key),
+    ConnectorMarketRequestUnavailableError
+  );
+  assert.equal(admissionRequests, 0);
+  assert.equal(installCalls, 0);
+  service.dispose();
+});
+
+test("preserves stale admission while an accepted snapshot is refreshing", async () => {
+  let installCalls = 0;
+  const stale = connector("github", 1);
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => ({
+        ...snapshot(3, [stale]),
+        catalogState: "refreshing",
+        catalogFreshness: {
+          state: "refreshing",
+          snapshotId: "last-good",
+          staleSince: "2026-08-18T01:00:00Z"
+        }
+      }),
+      installConnector: async () => {
+        installCalls += 1;
+        throw new Error("stale refresh must not reach the backend");
+      }
+    })
+  });
+
+  await service.ensureLoaded();
+
+  assert.equal(service.dataStore.loadState, "ready");
+  assert.equal(service.dataStore.catalogMutationState, "blocked");
+  assert.equal(
+    service.dataStore.catalogFreshness.staleSince,
+    "2026-08-18T01:00:00Z"
+  );
+  await assert.rejects(
+    service.install(stale.key),
+    ConnectorMarketRequestUnavailableError
+  );
+  assert.equal(installCalls, 0);
+  service.dispose();
+});
+
+test("allows mutation from a refreshing accepted snapshot without staleSince", async () => {
+  const available = connector("github", 1);
+  const installed = {
+    ...available,
+    installation: { state: "installed" as const }
+  };
+  let installCalls = 0;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => ({
+        ...snapshot(3, [available]),
+        catalogState: "refreshing",
+        catalogFreshness: {
+          state: "refreshing",
+          snapshotId: "accepted-snapshot"
+        }
+      }),
+      installConnector: async (input) => {
+        installCalls += 1;
+        return {
+          connector: installed,
+          operation: {
+            operationId: "install-fresh-refreshing",
+            clientRequestId: input.clientRequestId,
+            connectorKey: available.key,
+            kind: "install",
+            state: "completed",
+            stage: "completed",
+            attempt: 1,
+            createdAt: "2026-08-18T01:00:00Z",
+            updatedAt: "2026-08-18T01:00:01Z"
+          },
+          revision: 4
+        };
+      }
+    })
+  });
+
+  await service.ensureLoaded();
+
+  assert.equal(service.dataStore.catalogMutationState, "allowed");
+  assert.equal(await service.install(available.key), "installed");
+  assert.equal(installCalls, 1);
+  service.dispose();
+});
+
 test("clears the projected pending installation when install fails", async () => {
   const install = deferred<never>();
   const service = new ConnectorMarketService({
     backend: backendWith({ installConnector: async () => install.promise })
   });
+  admitFreshCatalog(service);
 
   const pending = service.install("github");
   assert.equal(
@@ -673,6 +805,7 @@ test("does not resolve install success when an accepted operation later fails", 
     }),
     waitForOperationPoll: async () => undefined
   });
+  admitFreshCatalog(service);
 
   await assert.rejects(service.install("github"), (error: unknown) => {
     return (
@@ -872,6 +1005,7 @@ test("polls an accepted connector operation to terminal state when its event is 
     }),
     waitForOperationPoll: async () => undefined
   });
+  admitFreshCatalog(service);
 
   await service.install("github");
   await waitFor(
@@ -935,6 +1069,7 @@ test("stops operation polling after a permanent read error and reconciles once",
       pollWaits += 1;
     }
   });
+  admitFreshCatalog(service);
 
   await service.install("github");
   await waitFor(() => service.dataStore.lastError !== null);

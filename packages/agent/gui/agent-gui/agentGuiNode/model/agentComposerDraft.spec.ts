@@ -16,7 +16,7 @@ import {
   extractPastedTextArchivePaths,
   linkifyPastedTextReferences,
   normalizeAgentPromptContentBlocks,
-  projectAgentComposerDraftSubmission
+  projectAgentComposerDraftSubmission,
 } from "./agentComposerDraft";
 import { createAgentComposerFileMentionMarkdown } from "../agentRichText/agentMentionMarkdown";
 
@@ -29,26 +29,26 @@ describe("agentComposerDraft", () => {
           id: "image-1",
           name: "screen.png",
           mimeType: "image/png",
-          previewUrl: "blob:image-1"
-        }
+          previewUrl: "blob:image-1",
+        },
       ],
       files: [{ id: "file-1", name: "notes.md" }],
       largeTexts: [
-        { id: "paste-1", name: "pasted-text.txt", text: "long body" }
-      ]
+        { id: "paste-1", name: "pasted-text.txt", text: "long body" },
+      ],
     });
 
     expect(draft.map((block) => block.type)).toEqual([
       "text",
       "image",
       "file",
-      "file"
+      "file",
     ]);
     expect(draft[2]).toMatchObject({ type: "file", kind: "file" });
     expect(draft[3]).toMatchObject({
       type: "file",
       kind: "pasted-text",
-      text: "long body"
+      text: "long body",
     });
   });
 
@@ -61,32 +61,32 @@ describe("agentComposerDraft", () => {
           mimeType: "image/png",
           url: ` ${signedUrl} `,
           attachmentId: " attachment-1 ",
-          name: " screenshot.png "
-        }
-      ])
+          name: " screenshot.png ",
+        },
+      ]),
     ).toEqual([
       {
         type: "image",
         mimeType: "image/png",
         url: signedUrl,
         attachmentId: "attachment-1",
-        name: "screenshot.png"
-      }
+        name: "screenshot.png",
+      },
     ]);
     expect(
       normalizeAgentPromptContentBlocks([
         {
           type: "image",
           mimeType: "image/png",
-          url: "http://example.com/a.png"
+          url: "http://example.com/a.png",
         },
         {
           type: "image",
           mimeType: "image/png",
           url: signedUrl,
-          data: "aW1hZ2U="
-        }
-      ])
+          data: "aW1hZ2U=",
+        },
+      ]),
     ).toEqual([]);
   });
 
@@ -101,8 +101,8 @@ describe("agentComposerDraft", () => {
         uri: "object://shared.txt",
         url: "https://assets.example/shared.txt",
         uploadStatus: "uploaded",
-        kind: "file"
-      }
+        kind: "file",
+      },
     ];
 
     const draft = agentPromptContentToComposerDraft(content, "restored");
@@ -112,14 +112,14 @@ describe("agentComposerDraft", () => {
         assetId: "asset-1",
         uri: "object://shared.txt",
         url: "https://assets.example/shared.txt",
-        uploadStatus: "uploaded"
-      })
+        uploadStatus: "uploaded",
+      }),
     ]);
     expect(agentComposerDraftToPromptContent({ draft, skills: [] })).toEqual([
       {
         type: "text",
-        text: "[@shared.txt](https://assets.example/shared.txt)"
-      }
+        text: "[@shared.txt](https://assets.example/shared.txt)",
+      },
     ]);
   });
 
@@ -127,26 +127,26 @@ describe("agentComposerDraft", () => {
     const firstMention = createAgentComposerFileMentionMarkdown({
       id: "file-1",
       name: "first.pdf",
-      status: "ready"
+      status: "ready",
     });
     const secondMention = createAgentComposerFileMentionMarkdown({
       id: "file-2",
       name: "second.txt",
-      status: "ready"
+      status: "ready",
     });
     const draft = buildAgentComposerDraft({
       prompt: `before ${firstMention} middle ${secondMention} after`,
       files: [
         { id: "file-1", name: "first.pdf", path: "/runtime/first.pdf" },
-        { id: "file-2", name: "second.txt", path: "/runtime/second.txt" }
-      ]
+        { id: "file-2", name: "second.txt", path: "/runtime/second.txt" },
+      ],
     });
 
     expect(agentComposerDraftToPromptContent({ draft, skills: [] })).toEqual([
       {
         type: "text",
-        text: "before [@first.pdf](/runtime/first.pdf) middle [@second.txt](/runtime/second.txt) after"
-      }
+        text: "before [@first.pdf](/runtime/first.pdf) middle [@second.txt](/runtime/second.txt) after",
+      },
     ]);
   });
 
@@ -154,7 +154,7 @@ describe("agentComposerDraft", () => {
     const mention = createAgentComposerFileMentionMarkdown({
       id: "file-1",
       name: "report.pdf",
-      status: "ready"
+      status: "ready",
     });
     const draft = buildAgentComposerDraft({
       prompt: `summarize ${mention}`,
@@ -162,18 +162,18 @@ describe("agentComposerDraft", () => {
         {
           id: "file-1",
           name: "report.pdf",
-          path: "/runtime/report.pdf"
-        }
-      ]
+          path: "/runtime/report.pdf",
+        },
+      ],
     });
 
     expect(projectAgentComposerDraftSubmission({ draft, skills: [] })).toEqual({
       content: [
         {
           type: "text",
-          text: "summarize [@report.pdf](/runtime/report.pdf)"
-        }
-      ]
+          text: "summarize [@report.pdf](/runtime/report.pdf)",
+        },
+      ],
     });
     expect(agentComposerDraftDisplayPrompt(draft)).toBeUndefined();
   });
@@ -182,7 +182,7 @@ describe("agentComposerDraft", () => {
     const fileMention = createAgentComposerFileMentionMarkdown({
       id: "file-1",
       name: "notes.md",
-      status: "ready"
+      status: "ready",
     });
     const draft = buildAgentComposerDraft({
       prompt: `/review-code ${fileMention}`,
@@ -190,9 +190,9 @@ describe("agentComposerDraft", () => {
         {
           id: "file-1",
           name: "notes.md",
-          path: "/runtime/notes.md"
-        }
-      ]
+          path: "/runtime/notes.md",
+        },
+      ],
     });
 
     expect(
@@ -204,35 +204,37 @@ describe("agentComposerDraft", () => {
             trigger: "$review-code",
             invocation: "promptItem",
             sourceKind: "personal",
-            path: "/skills/review-code/SKILL.md"
-          }
-        ]
-      })
+            path: "/skills/review-code/SKILL.md",
+          },
+        ],
+      }),
     ).toEqual({
       content: [
         {
           type: "text",
-          text: "$review-code [@notes.md](/runtime/notes.md)"
+          text: "$review-code [@notes.md](/runtime/notes.md)",
         },
         {
           type: "skill",
           name: "review-code",
-          path: "/skills/review-code/SKILL.md"
-        }
+          path: "/skills/review-code/SKILL.md",
+        },
       ],
-      displayPrompt: `/review-code [@notes.md](/runtime/notes.md)`
+      displayPrompt: `/review-code [@notes.md](/runtime/notes.md)`,
     });
   });
 
   it("does not submit or count a file registry entry without an editor mention", () => {
     const draft = buildAgentComposerDraft({
       prompt: "",
-      files: [{ id: "file-1", name: "orphan.pdf", path: "/runtime/orphan.pdf" }]
+      files: [
+        { id: "file-1", name: "orphan.pdf", path: "/runtime/orphan.pdf" },
+      ],
     });
 
     expect(agentComposerDraftHasContent(draft)).toBe(false);
     expect(agentComposerDraftToPromptContent({ draft, skills: [] })).toEqual(
-      []
+      [],
     );
   });
 
@@ -241,8 +243,8 @@ describe("agentComposerDraft", () => {
       prompt: createAgentComposerFileMentionMarkdown({
         id: "missing-file",
         name: "missing.pdf",
-        status: "ready"
-      })
+        status: "ready",
+      }),
     });
 
     expect(agentComposerDraftHasContent(draft)).toBe(false);
@@ -255,20 +257,20 @@ describe("agentComposerDraft", () => {
         type: "file" as const,
         kind: "file",
         name: "report.pdf",
-        path: "/runtime/report.pdf"
+        path: "/runtime/report.pdf",
       },
-      { type: "text" as const, text: "after" }
+      { type: "text" as const, text: "after" },
     ];
     const draft = agentPromptContentToComposerDraft(content, "queued");
 
     expect(agentComposerDraftPrompt(draft)).toContain(
-      "mention://composer-file/queued:file:0"
+      "mention://composer-file/queued:file:0",
     );
     expect(agentComposerDraftToPromptContent({ draft, skills: [] })).toEqual([
       {
         type: "text",
-        text: "before[@report.pdf](/runtime/report.pdf)after"
-      }
+        text: "before[@report.pdf](/runtime/report.pdf)after",
+      },
     ]);
   });
 
@@ -279,8 +281,8 @@ describe("agentComposerDraft", () => {
     expect(
       agentComposerDraftToPromptContent({
         draft,
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([]);
   });
 
@@ -288,8 +290,8 @@ describe("agentComposerDraft", () => {
     expect(
       agentComposerDraftToPromptContent({
         draft: buildAgentComposerDraft({ prompt: "  run tests  " }),
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([{ type: "text", text: "run tests" }]);
   });
 
@@ -299,12 +301,12 @@ describe("agentComposerDraft", () => {
       "[@div](mention://browser-element/browser-element%3A2?path=%2Ftmp%2Fdiv.txt&tag=div&workspaceId=workspace-1) 22222222";
 
     expect(
-      agentComposerDraftDisplayPrompt(buildAgentComposerDraft({ prompt }))
+      agentComposerDraftDisplayPrompt(buildAgentComposerDraft({ prompt })),
     ).toBe(prompt);
     expect(
       agentComposerDraftDisplayPrompt(
-        buildAgentComposerDraft({ prompt: "ordinary text" })
-      )
+        buildAgentComposerDraft({ prompt: "ordinary text" }),
+      ),
     ).toBeUndefined();
   });
 
@@ -312,7 +314,7 @@ describe("agentComposerDraft", () => {
     expect(
       agentComposerDraftToPromptContent({
         draft: buildAgentComposerDraft({
-          prompt: "/review-code inspect this"
+          prompt: "/review-code inspect this",
         }),
         skills: [
           {
@@ -320,17 +322,17 @@ describe("agentComposerDraft", () => {
             trigger: "$review-code",
             invocation: "promptItem",
             sourceKind: "personal",
-            path: "/skills/review-code/SKILL.md"
-          }
-        ]
-      })
+            path: "/skills/review-code/SKILL.md",
+          },
+        ],
+      }),
     ).toEqual([
       { type: "text", text: "$review-code inspect this" },
       {
         type: "skill",
         name: "review-code",
-        path: "/skills/review-code/SKILL.md"
-      }
+        path: "/skills/review-code/SKILL.md",
+      },
     ]);
   });
 
@@ -338,7 +340,7 @@ describe("agentComposerDraft", () => {
     expect(
       projectAgentComposerDraftSubmission({
         draft: buildAgentComposerDraft({
-          prompt: "/review-code inspect this"
+          prompt: "/review-code inspect this",
         }),
         skills: [
           {
@@ -346,20 +348,20 @@ describe("agentComposerDraft", () => {
             trigger: "$review-code",
             invocation: "promptItem",
             sourceKind: "personal",
-            path: "/skills/review-code/SKILL.md"
-          }
-        ]
-      })
+            path: "/skills/review-code/SKILL.md",
+          },
+        ],
+      }),
     ).toEqual({
       content: [
         { type: "text", text: "$review-code inspect this" },
         {
           type: "skill",
           name: "review-code",
-          path: "/skills/review-code/SKILL.md"
-        }
+          path: "/skills/review-code/SKILL.md",
+        },
       ],
-      displayPrompt: "/review-code inspect this"
+      displayPrompt: "/review-code inspect this",
     });
   });
 
@@ -372,63 +374,27 @@ describe("agentComposerDraft", () => {
             name: "foo",
             trigger: "/foo",
             invocation: "textTrigger",
-            sourceKind: "plugin"
-          }
-        ]
-      })
+            sourceKind: "plugin",
+          },
+        ],
+      }),
     ).toEqual({
       content: [{ type: "text", text: "/foo inspect this" }],
-      displayPrompt: "$foo inspect this"
+      displayPrompt: "$foo inspect this",
     });
   });
 
-  it("projects a selected local connector into a structured prompt block", () => {
-    expect(
-      projectAgentComposerDraftSubmission({
-        draft: buildAgentComposerDraft({
-          prompt: "/lark-cli list my calendar events"
-        }),
-        skills: [
-          {
-            name: "lark-cli",
-            trigger: "/lark-cli",
-            connectorKey: "lark-cli",
-            invocation: "textTrigger",
-            sourceKind: "connector",
-            kind: "connector",
-            status: "available"
-          }
-        ]
-      })
-    ).toEqual({
-      content: [
-        { type: "text", text: "list my calendar events" },
-        { type: "connector", connectorKey: "lark-cli" }
-      ],
-      displayPrompt: "/lark-cli list my calendar events"
-    });
-  });
-
-  it("allows a local connector-only submission", () => {
-    expect(
-      projectAgentComposerDraftSubmission({
-        draft: buildAgentComposerDraft({ prompt: "/lark-cli" }),
-        skills: [
-          {
-            name: "lark-cli",
-            trigger: "/lark-cli",
-            connectorKey: "lark-cli",
-            invocation: "textTrigger",
-            sourceKind: "connector",
-            kind: "connector",
-            status: "available"
-          }
-        ]
-      })
-    ).toEqual({
-      content: [{ type: "connector", connectorKey: "lark-cli" }],
-      displayPrompt: "/lark-cli"
-    });
+  it("round-trips an opaque primary capability wire block", () => {
+    const payload = { type: "host-extension", key: "calendar" };
+    const draft = agentPromptContentToComposerDraft(
+      [payload] as unknown as Parameters<
+        typeof agentPromptContentToComposerDraft
+      >[0],
+      "restore",
+    );
+    expect(agentComposerDraftToPromptContent({ draft, skills: [] })).toEqual([
+      payload,
+    ]);
   });
 
   it("omits display prompts for native skill prefixes and ordinary text", () => {
@@ -437,31 +403,31 @@ describe("agentComposerDraft", () => {
       trigger: "$review-code",
       invocation: "promptItem" as const,
       sourceKind: "personal" as const,
-      path: "/skills/review-code/SKILL.md"
+      path: "/skills/review-code/SKILL.md",
     };
 
     expect(
       projectAgentComposerDraftSubmission({
         draft: buildAgentComposerDraft({
-          prompt: "$review-code inspect this"
+          prompt: "$review-code inspect this",
         }),
-        skills: [skill]
-      })
+        skills: [skill],
+      }),
     ).toEqual({
       content: [
         { type: "text", text: "$review-code inspect this" },
         {
           type: "skill",
           name: "review-code",
-          path: "/skills/review-code/SKILL.md"
-        }
-      ]
+          path: "/skills/review-code/SKILL.md",
+        },
+      ],
     });
     expect(
       projectAgentComposerDraftSubmission({
         draft: buildAgentComposerDraft({ prompt: "inspect this" }),
-        skills: [skill]
-      })
+        skills: [skill],
+      }),
     ).toEqual({ content: [{ type: "text", text: "inspect this" }] });
   });
 
@@ -474,9 +440,9 @@ describe("agentComposerDraft", () => {
           name: "pasted-text.txt",
           text: "first line\nsecond line",
           sizeBytes: 22,
-          path: "/archive/aa/deadbeef.txt"
-        }
-      ]
+          path: "/archive/aa/deadbeef.txt",
+        },
+      ],
     });
 
     expect(projectAgentComposerDraftSubmission({ draft, skills: [] })).toEqual({
@@ -487,11 +453,11 @@ describe("agentComposerDraft", () => {
           kind: "pasted-text",
           path: "/archive/aa/deadbeef.txt",
           name: "first line…",
-          sizeBytes: 22
-        }
+          sizeBytes: 22,
+        },
       ],
       displayPrompt:
-        "Summarize this\n[@first line…](mention://pasted-text/11111111-1111-4111-8111-111111111111?path=%2Farchive%2Faa%2Fdeadbeef.txt&size=22)"
+        "Summarize this\n[@first line…](mention://pasted-text/11111111-1111-4111-8111-111111111111?path=%2Farchive%2Faa%2Fdeadbeef.txt&size=22)",
     });
   });
 
@@ -504,7 +470,7 @@ describe("agentComposerDraft", () => {
         name: "pasted-text.txt",
         text: "first line shared",
         sizeBytes: 22,
-        uploading: true
+        uploading: true,
       },
       {
         name: "pasted-text.txt",
@@ -512,17 +478,17 @@ describe("agentComposerDraft", () => {
         assetId: "asset-1",
         uri: "object://shared/pasted.txt",
         uploadStatus: "uploaded",
-        url: signedUrl
-      }
+        url: signedUrl,
+      },
     );
     const draft = buildAgentComposerDraft({
       prompt: "",
-      largeTexts: [staged]
+      largeTexts: [staged],
     });
 
     const submission = projectAgentComposerDraftSubmission({
       draft,
-      skills: []
+      skills: [],
     });
 
     expect(submission).toEqual({
@@ -536,11 +502,11 @@ describe("agentComposerDraft", () => {
           assetId: "asset-1",
           uri: "object://shared/pasted.txt",
           uploadStatus: "uploaded",
-          url: signedUrl
-        }
+          url: signedUrl,
+        },
       ],
       displayPrompt:
-        "[@first line…](mention://pasted-text/22222222-2222-4222-8222-222222222222?presentation=remote)"
+        "[@first line…](mention://pasted-text/22222222-2222-4222-8222-222222222222?presentation=remote)",
     });
     expect(submission.displayPrompt).not.toContain(signedUrl);
     expect(submission.displayPrompt).not.toContain("asset-1");
@@ -557,9 +523,9 @@ describe("agentComposerDraft", () => {
           name: "pasted-text.txt",
           text: "first line\nsecond line",
           sizeBytes: 22,
-          path: "/archive/aa/deadbeef.txt"
-        }
-      ]
+          path: "/archive/aa/deadbeef.txt",
+        },
+      ],
     });
 
     expect(agentComposerDraftHasContent(draft)).toBe(true);
@@ -567,13 +533,13 @@ describe("agentComposerDraft", () => {
     // pasted-text mention link (path + size in the href) so the host can render
     // a clickable chip; the raw text body never enters it.
     expect(agentComposerDraftDisplayPrompt(draft)).toBe(
-      "Summarize this\n[@first line…](mention://pasted-text/11111111-1111-4111-8111-111111111111?path=%2Farchive%2Faa%2Fdeadbeef.txt&size=22)"
+      "Summarize this\n[@first line…](mention://pasted-text/11111111-1111-4111-8111-111111111111?path=%2Farchive%2Faa%2Fdeadbeef.txt&size=22)",
     );
     expect(
       agentComposerDraftToPromptContent({
         draft,
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       { type: "text", text: "Summarize this" },
       {
@@ -583,8 +549,8 @@ describe("agentComposerDraft", () => {
         // Block name carries the preview (first chars + ellipsis) so the
         // send-time instruction can persist it in content.
         name: "first line…",
-        sizeBytes: 22
-      }
+        sizeBytes: 22,
+      },
     ]);
     // No translated instruction and no inlined body enter the submitted text.
     expect(agentComposerDraftSubmittedText(draft)).toBe("Summarize this");
@@ -599,9 +565,9 @@ describe("agentComposerDraft", () => {
           id: "22222222-2222-4222-8222-222222222222",
           name: "pasted-text.txt",
           text: "still uploading",
-          uploading: true
-        }
-      ]
+          uploading: true,
+        },
+      ],
     });
     const errored = buildAgentComposerDraft({
       prompt: "",
@@ -611,9 +577,9 @@ describe("agentComposerDraft", () => {
           id: "33333333-3333-4333-8333-333333333333",
           name: "pasted-text.txt",
           text: "failed",
-          uploadError: "disk full"
-        }
-      ]
+          uploadError: "disk full",
+        },
+      ],
     });
 
     // A pending/errored chip still counts as content (so the composer is not
@@ -622,14 +588,14 @@ describe("agentComposerDraft", () => {
     expect(
       agentComposerDraftToPromptContent({
         draft: uploading,
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([]);
     expect(
       agentComposerDraftToPromptContent({
         draft: errored,
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([]);
   });
 
@@ -642,10 +608,10 @@ describe("agentComposerDraft", () => {
           kind: "pasted-text",
           path: "/archive/aa/deadbeef.txt",
           name: "pasted-text.txt",
-          sizeBytes: 22
-        }
+          sizeBytes: 22,
+        },
       ],
-      "restore-1"
+      "restore-1",
     );
 
     expect(agentComposerDraftPrompt(draft)).toBe("Summarize this");
@@ -653,7 +619,7 @@ describe("agentComposerDraft", () => {
     expect(agentComposerDraftLargeTexts(draft)).toHaveLength(1);
     expect(agentComposerDraftLargeTexts(draft)[0]).toMatchObject({
       text: "",
-      path: "/archive/aa/deadbeef.txt"
+      path: "/archive/aa/deadbeef.txt",
     });
     expect(agentComposerDraftHasContent(draft)).toBe(true);
     expect(agentComposerDraftLargeTexts(draft)[0]).toMatchObject({
@@ -661,7 +627,7 @@ describe("agentComposerDraft", () => {
       name: "pasted-text.txt",
       path: "/archive/aa/deadbeef.txt",
       sizeBytes: 22,
-      text: ""
+      text: "",
     });
   });
 
@@ -674,8 +640,8 @@ describe("agentComposerDraft", () => {
         type: "file" as const,
         kind: "pasted-text",
         path: "/archive/aa/deadbeef.txt",
-        name: "first line"
-      }
+        name: "first line",
+      },
     ];
 
     // The pasted-text file block is stripped and replaced by the instruction
@@ -684,22 +650,22 @@ describe("agentComposerDraft", () => {
       materializePastedTextInstructions(content, {
         header: () => "Referenced pasted text files:",
         line: (preview, path) =>
-          `- pasted text file "${preview}": ${path}. Read this file before continuing.`
-      })
+          `- pasted text file "${preview}": ${path}. Read this file before continuing.`,
+      }),
     ).toEqual([
       { type: "text", text: "Summarize this" },
       {
         type: "text",
-        text: 'Referenced pasted text files:\n- pasted text file "first line": /archive/aa/deadbeef.txt. Read this file before continuing.'
-      }
+        text: 'Referenced pasted text files:\n- pasted text file "first line": /archive/aa/deadbeef.txt. Read this file before continuing.',
+      },
     ]);
 
     // No pasted-text blocks → content returned unchanged.
     expect(
       materializePastedTextInstructions([{ type: "text", text: "hi" }], {
         header: () => "H",
-        line: (_preview, path) => path
-      })
+        line: (_preview, path) => path,
+      }),
     ).toEqual([{ type: "text", text: "hi" }]);
   });
 
@@ -717,15 +683,15 @@ describe("agentComposerDraft", () => {
         assetId: "asset-1",
         uri: "object://shared/pasted.txt",
         uploadStatus: "uploaded",
-        url: "https://assets.example/shared/pasted.txt?signature=short-lived"
-      }
+        url: "https://assets.example/shared/pasted.txt?signature=short-lived",
+      },
     ];
 
     expect(
       materializePastedTextInstructions(content, {
         header: () => "Referenced pasted text files:",
-        line: (preview, path) => `${preview}: ${path}`
-      })
+        line: (preview, path) => `${preview}: ${path}`,
+      }),
     ).toEqual([
       { type: "text", text: "Summarize this" },
       {
@@ -737,13 +703,13 @@ describe("agentComposerDraft", () => {
         assetId: "asset-1",
         uri: "object://shared/pasted.txt",
         uploadStatus: "uploaded",
-        url: "https://assets.example/shared/pasted.txt?signature=short-lived"
-      }
+        url: "https://assets.example/shared/pasted.txt?signature=short-lived",
+      },
     ]);
 
     const restored = agentPromptContentToComposerDraft(
       content,
-      "remote-restore"
+      "remote-restore",
     );
     expect(agentComposerDraftHasContent(restored)).toBe(true);
     expect(agentComposerDraftLargeTexts(restored)).toEqual([
@@ -751,16 +717,16 @@ describe("agentComposerDraft", () => {
         url: "https://assets.example/shared/pasted.txt?signature=short-lived",
         assetId: "asset-1",
         uri: "object://shared/pasted.txt",
-        uploadStatus: "uploaded"
-      })
+        uploadStatus: "uploaded",
+      }),
     ]);
   });
 
-  it("adds codex app-server prompt items for referenced skills and connectors", () => {
+  it("adds codex app-server prompt items for referenced skills", () => {
     expect(
       agentComposerDraftToPromptContent({
         draft: buildAgentComposerDraft({
-          prompt: "$review $github check this"
+          prompt: "$review check this",
         }),
         skills: [
           {
@@ -769,22 +735,13 @@ describe("agentComposerDraft", () => {
             invocation: "promptItem",
             sourceKind: "plugin",
             path: "/tmp/review/SKILL.md",
-            kind: "skill"
+            kind: "skill",
           },
-          {
-            name: "GitHub",
-            trigger: "$github",
-            invocation: "promptItem",
-            sourceKind: "connector",
-            path: "app://github",
-            kind: "connector"
-          }
-        ]
-      })
+        ],
+      }),
     ).toEqual([
-      { type: "text", text: "$review $github check this" },
+      { type: "text", text: "$review check this" },
       { type: "skill", name: "review", path: "/tmp/review/SKILL.md" },
-      { type: "mention", name: "GitHub", path: "app://github" }
     ]);
   });
 
@@ -799,19 +756,19 @@ describe("agentComposerDraft", () => {
               name: "screen.png",
               mimeType: "image/png",
               data: "aW1hZ2U=",
-              previewUrl: "data:image/png;base64,aW1hZ2U="
-            }
-          ]
+              previewUrl: "data:image/png;base64,aW1hZ2U=",
+            },
+          ],
         }),
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       {
         type: "image",
         mimeType: "image/png",
         data: "aW1hZ2U=",
-        name: "screen.png"
-      }
+        name: "screen.png",
+      },
     ]);
   });
 
@@ -824,10 +781,10 @@ describe("agentComposerDraft", () => {
           mimeType: "image/webp",
           url,
           attachmentId: "attachment-remote",
-          name: "screen.webp"
-        }
+          name: "screen.webp",
+        },
       ],
-      "remote"
+      "remote",
     );
 
     expect(agentComposerDraftImages(draft)).toEqual([
@@ -837,22 +794,22 @@ describe("agentComposerDraft", () => {
         mimeType: "image/webp",
         attachmentId: "attachment-remote",
         url,
-        previewUrl: url
-      }
+        previewUrl: url,
+      },
     ]);
     expect(
       agentComposerDraftToPromptContent({
         draft,
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       {
         type: "image",
         mimeType: "image/webp",
         attachmentId: "attachment-remote",
         url,
-        name: "screen.webp"
-      }
+        name: "screen.webp",
+      },
     ]);
   });
 
@@ -864,10 +821,10 @@ describe("agentComposerDraft", () => {
           type: "image",
           mimeType: "image/png",
           url,
-          name: "queued.png"
-        }
+          name: "queued.png",
+        },
       ],
-      "queued"
+      "queued",
     );
 
     expect(agentComposerDraftImages(draft)).toEqual([
@@ -876,21 +833,21 @@ describe("agentComposerDraft", () => {
         name: "queued.png",
         mimeType: "image/png",
         url,
-        previewUrl: url
-      }
+        previewUrl: url,
+      },
     ]);
     expect(
       agentComposerDraftToPromptContent({
         draft,
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       {
         type: "image",
         mimeType: "image/png",
         url,
-        name: "queued.png"
-      }
+        name: "queued.png",
+      },
     ]);
   });
 
@@ -905,19 +862,19 @@ describe("agentComposerDraft", () => {
               name: "screen.png",
               mimeType: "image/png",
               attachmentId: "attachment-1",
-              previewUrl: "data:image/png;base64,aW1hZ2U="
-            }
-          ]
+              previewUrl: "data:image/png;base64,aW1hZ2U=",
+            },
+          ],
         }),
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       {
         type: "image",
         mimeType: "image/png",
         attachmentId: "attachment-1",
-        name: "screen.png"
-      }
+        name: "screen.png",
+      },
     ]);
   });
 
@@ -932,19 +889,19 @@ describe("agentComposerDraft", () => {
               name: "screen.png",
               mimeType: "image/png",
               path: "/var/cache/tsh/local-assets/workspace-1/user-1/screen.png",
-              previewUrl: "data:image/png;base64,aW1hZ2U="
-            }
-          ]
+              previewUrl: "data:image/png;base64,aW1hZ2U=",
+            },
+          ],
         }),
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       {
         type: "image",
         mimeType: "image/png",
         path: "/var/cache/tsh/local-assets/workspace-1/user-1/screen.png",
-        name: "screen.png"
-      }
+        name: "screen.png",
+      },
     ]);
   });
 
@@ -960,7 +917,7 @@ describe("agentComposerDraft", () => {
               mimeType: "image/png",
               data: "aW1hZ2U=",
               previewUrl: "data:image/png;base64,aW1hZ2U=",
-              uploading: true
+              uploading: true,
             },
             {
               id: "image-2",
@@ -968,12 +925,12 @@ describe("agentComposerDraft", () => {
               mimeType: "image/png",
               data: "aW1hZ2U=",
               previewUrl: "data:image/png;base64,aW1hZ2U=",
-              uploadError: "failed"
-            }
-          ]
+              uploadError: "failed",
+            },
+          ],
         }),
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([]);
   });
 
@@ -985,10 +942,10 @@ describe("agentComposerDraft", () => {
           type: "image",
           mimeType: "image/png",
           data: "aW1hZ2U=",
-          name: "panel.png"
-        }
+          name: "panel.png",
+        },
       ],
-      "restore-queued-1"
+      "restore-queued-1",
     );
 
     expect(draft).toEqual(
@@ -1001,10 +958,10 @@ describe("agentComposerDraft", () => {
             name: "panel.png",
             mimeType: "image/png",
             data: "aW1hZ2U=",
-            previewUrl: "data:image/png;base64,aW1hZ2U="
-          }
-        ]
-      })
+            previewUrl: "data:image/png;base64,aW1hZ2U=",
+          },
+        ],
+      }),
     );
   });
 
@@ -1015,10 +972,10 @@ describe("agentComposerDraft", () => {
           type: "image",
           mimeType: "image/png",
           path: "/var/cache/tsh/local-assets/workspace-1/user-1/panel.png",
-          name: "panel.png"
-        }
+          name: "panel.png",
+        },
       ],
-      "restore-queued-1"
+      "restore-queued-1",
     );
 
     expect(draft).toEqual(
@@ -1031,10 +988,10 @@ describe("agentComposerDraft", () => {
             name: "panel.png",
             mimeType: "image/png",
             path: "/var/cache/tsh/local-assets/workspace-1/user-1/panel.png",
-            previewUrl: ""
-          }
-        ]
-      })
+            previewUrl: "",
+          },
+        ],
+      }),
     );
   });
 
@@ -1045,10 +1002,10 @@ describe("agentComposerDraft", () => {
           type: "image",
           mimeType: "image/png",
           attachmentId: "attachment-1",
-          name: "panel.png"
-        }
+          name: "panel.png",
+        },
       ],
-      "restore-queued-1"
+      "restore-queued-1",
     );
 
     expect(draft).toEqual(
@@ -1061,10 +1018,10 @@ describe("agentComposerDraft", () => {
             name: "panel.png",
             mimeType: "image/png",
             attachmentId: "attachment-1",
-            previewUrl: ""
-          }
-        ]
-      })
+            previewUrl: "",
+          },
+        ],
+      }),
     );
   });
 
@@ -1075,7 +1032,7 @@ describe("agentComposerDraft", () => {
           prompt: createAgentComposerFileMentionMarkdown({
             id: "file-1",
             name: "report.pdf",
-            status: "ready"
+            status: "ready",
           }),
           images: [],
           files: [
@@ -1086,17 +1043,17 @@ describe("agentComposerDraft", () => {
               path: "/var/cache/tsh/local-assets/workspace-1/user-1/report.pdf",
               hostPath: "/Users/me/report.pdf",
               assetId: "asset-1",
-              sizeBytes: 42
-            }
-          ]
+              sizeBytes: 42,
+            },
+          ],
         }),
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       {
         type: "text",
-        text: "[@report.pdf](/var/cache/tsh/local-assets/workspace-1/user-1/report.pdf)"
-      }
+        text: "[@report.pdf](/var/cache/tsh/local-assets/workspace-1/user-1/report.pdf)",
+      },
     ]);
   });
 
@@ -1105,8 +1062,8 @@ describe("agentComposerDraft", () => {
       agentPromptContentDisplayText([
         { type: "text", text: "first" },
         { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
-        { type: "text", text: "second" }
-      ])
+        { type: "text", text: "second" },
+      ]),
     ).toBe("first\nsecond");
   });
 
@@ -1115,7 +1072,7 @@ describe("agentComposerDraft", () => {
       "Referenced pasted text files:\n" +
       '- pasted text file "first line": /Users/z/Library/Application Support/Tutti-dev/agent-prompt-assets/room-1/ab/deadbeef.txt. Read this file before continuing.';
     expect(extractPastedTextArchivePaths(text)).toEqual([
-      "/Users/z/Library/Application Support/Tutti-dev/agent-prompt-assets/room-1/ab/deadbeef.txt"
+      "/Users/z/Library/Application Support/Tutti-dev/agent-prompt-assets/room-1/ab/deadbeef.txt",
     ]);
   });
 
@@ -1127,13 +1084,13 @@ describe("agentComposerDraft", () => {
     // keeps the quoted preview as its label and the path in the href — matching
     // the optimistic display.
     expect(linkifyPastedTextReferences(text)).toBe(
-      "[@first line](mention://pasted-text/ref-0?path=%2Fhome%2Fu%2Fagent-prompt-assets%2Fr%2Fab%2Fdeadbeef.txt)"
+      "[@first line](mention://pasted-text/ref-0?path=%2Fhome%2Fu%2Fagent-prompt-assets%2Fr%2Fab%2Fdeadbeef.txt)",
     );
   });
 
   it("leaves text without pasted-text references unchanged", () => {
     expect(linkifyPastedTextReferences("just a normal message")).toBe(
-      "just a normal message"
+      "just a normal message",
     );
   });
 });

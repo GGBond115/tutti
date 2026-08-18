@@ -115,13 +115,6 @@ export interface AgentHostAgentComposerDefaultsInvalidatedEvent extends AgentHos
   agentTargetId: string;
 }
 
-export interface AgentHostAgentConnectorCatalogInvalidatedEvent extends AgentHostEventBase {
-  scope: "global";
-  type: "agent-connector-catalog-invalidated";
-  connectorKey?: string;
-  revision: number;
-}
-
 export type AgentHostEventScope = "global" | "room" | "window";
 
 interface AgentHostEventBase {
@@ -272,5 +265,4 @@ export type AgentHostEvent =
   | AgentHostManagedAgentsStateEvent
   | AgentHostManagedAgentActionProgressEvent
   | AgentHostAgentComposerDefaultsInvalidatedEvent
-  | AgentHostAgentConnectorCatalogInvalidatedEvent
   | AgentHostAgentModelCatalogInvalidatedEvent;

@@ -262,6 +262,12 @@ export class ConnectorMarketService implements IConnectorMarketService {
       .catch((error) => {
         if (this.isCurrent(generation)) {
           this.dataStore.catalogState = "failed";
+          this.dataStore.catalogFreshness = {
+            ...this.dataStore.catalogFreshness,
+            state:
+              this.dataStore.connectorKeys.length > 0 ? "stale" : "unavailable"
+          };
+          this.dataStore.catalogMutationState = "blocked";
           this.recordError(error);
         }
         throw error;
@@ -311,14 +317,25 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (this.disposed) {
       return "not_admitted";
     }
+    this.assertCatalogMutationAvailable();
     if (!this.canRequest()) {
       await this.dependencies.requestInstallAdmission?.();
     }
     if (this.disposed || !this.canRequest()) {
       return "not_admitted";
     }
+    this.assertCatalogMutationAvailable();
     const installed = await this.installConnector(connectorKey);
     return installed ? "installed" : "not_admitted";
+  }
+
+  private assertCatalogMutationAvailable(): void {
+    if (
+      this.dataStore.loadState !== "ready" ||
+      this.dataStore.catalogMutationState !== "allowed"
+    ) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
   }
 
   private installConnector(connectorKey: string): Promise<boolean> {

@@ -90,16 +90,6 @@ export function useComposerPaletteCatalog({
     editorHandleRef.current?.getPromptTextBeforeSelection() ?? "";
   const skillQueryDraft = promptBeforeSelection || paletteDraftPrompt;
   const skillQueryMatch = getAgentComposerTriggerQueryMatch(skillQueryDraft);
-  const presentationSkills = useMemo(
-    () =>
-      capabilityMenuState?.connectors?.enabled === false
-        ? availableSkills.filter(
-            (skill) =>
-              skill.sourceKind !== "connector" && skill.kind !== "connector"
-          )
-        : availableSkills,
-    [availableSkills, capabilityMenuState?.connectors?.enabled]
-  );
   const resolvedSlashCommands = useMemo(
     () =>
       resolveSlashCommandsForProvider({
@@ -141,11 +131,11 @@ export function useComposerPaletteCatalog({
       skillQueryMatch === null
         ? []
         : filterProviderSkillsForTrigger({
-            skills: presentationSkills,
+            skills: availableSkills,
             query: skillQueryMatch.query,
             triggerPrefix: skillQueryMatch.prefix
           }),
-    [presentationSkills, skillQueryMatch]
+    [availableSkills, skillQueryMatch]
   );
   const availableCapabilities = useMemo<AgentCapabilityTokenOption[]>(() => {
     if (capabilityControlsReadOnly) {
@@ -269,20 +259,7 @@ export function useComposerPaletteCatalog({
         };
       }
     );
-    const connectorEntries = skillEntries.filter(
-      (entry) =>
-        entry.type === "skill" &&
-        (entry.skill.sourceKind === "connector" ||
-          entry.skill.kind === "connector")
-    );
-    const nonConnectorSkillEntries = skillEntries.filter(
-      (entry) => !connectorEntries.includes(entry)
-    );
-    return [
-      ...commandEntries,
-      ...connectorEntries,
-      ...nonConnectorSkillEntries
-    ];
+    return [...commandEntries, ...skillEntries];
   }, [
     capabilityMenuState?.browserUse?.connectionMode,
     capabilityMenuState?.computerUse?.authorization,

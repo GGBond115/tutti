@@ -67,20 +67,10 @@ export function useAgentGUIComposerCapabilities(
         "capabilities"
       )
   );
-  const connectorsLoadStatus = useEngineSelector(input.sessionEngine, (state) =>
-    selectComposerOptionsSectionLoadStatus(
-      state,
-      composerTargetKey,
-      "connectors"
-    )
-  );
   const composerOptionsLoading = Boolean(
     composerTargetKey &&
     (capabilitiesLoadStatus === "loading" ||
       (!providerComposerOptions && composerOptionsLoadStatus === "loading"))
-  );
-  const connectorOptionsLoading = Boolean(
-    composerTargetKey && connectorsLoadStatus === "loading"
   );
   const defaultReasoningEffort: AgentSessionReasoningEffort | null = "high";
   const sessionCapabilities = input.activeEngineSession?.capabilities ?? null;
@@ -170,7 +160,6 @@ export function useAgentGUIComposerCapabilities(
     composerSupport,
     composerOptionsLoadStatus,
     composerOptionsLoading,
-    connectorOptionsLoading,
     composerTargetData,
     defaultReasoningEffort,
     goalPauseSupported:

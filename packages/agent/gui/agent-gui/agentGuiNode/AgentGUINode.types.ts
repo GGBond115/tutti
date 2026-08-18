@@ -43,6 +43,7 @@ import type {
   AgentMentionReferenceTargetResolver,
   AgentWorkspaceReferenceInitialTargetResolver
 } from "./AgentGUINodeView";
+import type { AgentGUIPrimaryCapabilityRenderer } from "./view/AgentGUIPrimaryCapabilitySlot.types";
 import type { AgentVisibleErrorOverrides } from "../../shared/agentEnv/agentErrorPresentation";
 import type {
   AgentComposerCapabilityMenuState,
@@ -239,6 +240,11 @@ export interface AgentGUIAgentConfigMenuContext {
 }
 
 export interface AgentGUINodeRenderSlots {
+  /**
+   * Optional product-neutral primary Composer capability surface. AgentGUI
+   * supplies only exact target identity and its generic draft selection port.
+   */
+  primaryCapability?: AgentGUIPrimaryCapabilityRenderer;
   /** Host-owned controls appended to the composer footer. */
   composerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
   /**
@@ -493,6 +499,7 @@ export function areAgentGUINodePropsEqual(
     pa.onConversationRailLayoutChange === na.onConversationRailLayoutChange &&
     ps.agentConfigAccount === ns.agentConfigAccount &&
     ps.agentTargetInfo === ns.agentTargetInfo &&
+    ps.primaryCapability === ns.primaryCapability &&
     ps.composerFooterAccessory === ns.composerFooterAccessory &&
     ps.providerRailEmpty === ns.providerRailEmpty &&
     ps.projectDirectoryPickerHeaderActions ===

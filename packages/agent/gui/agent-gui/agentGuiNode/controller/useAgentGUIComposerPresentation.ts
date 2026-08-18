@@ -52,7 +52,6 @@ interface UseAgentGUIComposerPresentationInput {
   composerSupport: ReturnType<typeof composerSettingsSupportFromOptions>;
   composerOptionsLoadStatus?: AgentActivityComposerOptionsLoadStatus;
   composerOptionsLoading: boolean;
-  connectorOptionsLoading: boolean;
   composerTargetProvider: AgentGUIProvider;
   codexSaverModeEntryEnabled?: boolean;
   data: AgentGUINodeData;
@@ -255,7 +254,6 @@ export function useAgentGUIComposerPresentation(
       composerOptionsLoadStatus: input.composerOptionsLoadStatus,
       isSettingsLoading: !hasACPSettings && !composerOptionsError,
       isCapabilityOptionsLoading: input.composerOptionsLoading,
-      isConnectorOptionsLoading: input.connectorOptionsLoading,
       isModelOptionsLoading: isForegroundModelOptionsLoading({
         modelOptionsLoading: input.providerComposerOptions?.modelOptionsLoading,
         selection: activeSessionModelSelection,
@@ -370,7 +368,6 @@ export function useAgentGUIComposerPresentation(
     input.composerSupport,
     input.composerOptionsLoadStatus,
     input.composerOptionsLoading,
-    input.connectorOptionsLoading,
     input.composerTargetData,
     input.composerTargetProvider,
     input.providerComposerOptions,

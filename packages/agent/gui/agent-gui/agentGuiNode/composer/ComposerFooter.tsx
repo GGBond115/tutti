@@ -32,7 +32,6 @@ import {
   resolveComposerProviderTargetIconUrl
 } from "./AgentComposerChrome";
 import { AgentHandoffMenu } from "./AgentHandoffMenu";
-import { ComposerPrimaryCapabilityControl } from "./ComposerPrimaryCapabilityControl";
 
 interface Props {
   workspaceId: string;
@@ -51,7 +50,7 @@ interface Props {
   showComposerAction: boolean;
   isGoalModeActive: boolean;
   isPlanModeActive: boolean;
-  connectorsVisible: boolean;
+  primaryCapability?: ReactNode;
   composerAction: ReactNode;
   projectControl?: ReactNode;
   quickPromptControl?: ReactNode;
@@ -72,11 +71,7 @@ interface Props {
   menuViewportTopInset?: number;
   onProviderSelect: AgentComposerProps["onProviderSelect"];
   onLinkAction: AgentComposerProps["onLinkAction"];
-  availableSkills: AgentComposerProps["availableSkills"];
-  selectedConnectorKeys: readonly string[];
-  onConnectorSelected: (connectorKey: string, selected: boolean) => void;
   onRetryComposerOptions?: AgentComposerProps["onRetryComposerOptions"];
-  onCapabilitySettingsRequest: AgentComposerProps["onCapabilitySettingsRequest"];
   onRequestWorkspaceReferences: AgentComposerProps["onRequestWorkspaceReferences"];
   onWorkspaceReferencePicker: () => void;
   onMentionPaletteButton: () => void;
@@ -104,7 +99,7 @@ export function ComposerFooter({
   showComposerAction,
   isGoalModeActive,
   isPlanModeActive,
-  connectorsVisible,
+  primaryCapability,
   composerAction,
   projectControl,
   quickPromptControl,
@@ -125,11 +120,7 @@ export function ComposerFooter({
   menuViewportTopInset = 8,
   onProviderSelect,
   onLinkAction,
-  availableSkills,
   onRetryComposerOptions,
-  selectedConnectorKeys,
-  onConnectorSelected,
-  onCapabilitySettingsRequest,
   onRequestWorkspaceReferences,
   onWorkspaceReferencePicker: handleWorkspaceReferencePicker,
   onMentionPaletteButton: handleMentionPaletteButton,
@@ -213,17 +204,7 @@ export function ComposerFooter({
               </Tooltip>
             </TooltipProvider>
           </div>
-          <ComposerPrimaryCapabilityControl
-            availableSkills={availableSkills}
-            connectorsVisible={connectorsVisible}
-            disabled={composerControlsHardDisabled}
-            labels={labels}
-            loading={composerSettings.isConnectorOptionsLoading === true}
-            onRetryComposerOptions={onRetryComposerOptions}
-            onCapabilitySettingsRequest={onCapabilitySettingsRequest}
-            onConnectorSelected={onConnectorSelected}
-            selectedConnectorKeys={selectedConnectorKeys}
-          />
+          {primaryCapability}
           {showHandoffSelect ? (
             <AgentHandoffMenu
               disabled={handoffDisabled}

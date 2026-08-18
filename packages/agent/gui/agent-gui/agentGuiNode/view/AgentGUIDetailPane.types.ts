@@ -18,6 +18,7 @@ import type {
   AgentGUIViewLabels
 } from "./AgentGUINodeView.types";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
+import type { AgentGUIPrimaryCapabilityRenderer } from "./AgentGUIPrimaryCapabilitySlot.types";
 
 type AgentGUIDetailExternalPromptProps = Pick<
   AgentComposerProps,
@@ -80,4 +81,5 @@ export interface AgentGUIDetailPaneProps extends AgentGUIDetailExternalPromptPro
   onRequestComposerFocus: () => void;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   renderComposerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
+  renderPrimaryCapability?: AgentGUIPrimaryCapabilityRenderer;
 }

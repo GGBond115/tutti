@@ -1,47 +1,51 @@
 import { describe, expect, it } from "vitest";
 import {
-  appendAgentGUIComposerConnector,
+  appendAgentGUIComposerPrimaryCapability,
   appendAgentGUIComposerFiles,
   appendAgentGUIComposerPrompt,
   resolveAgentGUIComposerAppendRequest,
-  type AgentGUIComposerAppendRequest
+  type AgentGUIComposerAppendRequest,
 } from "./useAgentGUIComposerAppendRequest";
 import {
   agentComposerDraftFiles,
-  agentComposerDraftConnectors,
+  agentComposerDraftPrimaryCapabilities,
   agentComposerDraftPrompt,
   agentComposerDraftToPromptContent,
-  buildAgentComposerDraft
+  buildAgentComposerDraft,
 } from "../model/agentComposerDraft";
 
 const existingFile = {
   id: "existing",
   name: "existing.txt",
-  path: "/tmp/existing.txt"
+  path: "/tmp/existing.txt",
 };
 const archivedContextFile = {
   id: "archived-context-1",
   mimeType: "text/plain",
   name: "context.txt",
   path: "/tmp/context.txt",
-  sizeBytes: 42
+  sizeBytes: 42,
 };
 
-describe("appendAgentGUIComposerConnector", () => {
-  it("selects a connector semantically without changing the typed prompt", () => {
+describe("appendAgentGUIComposerPrimaryCapability", () => {
+  it("appends an opaque host capability without changing the typed prompt", () => {
     const draft = buildAgentComposerDraft({ prompt: "Summarize my workspace" });
-    const next = appendAgentGUIComposerConnector(draft, "notion");
+    const capability = {
+      id: "calendar",
+      payload: { type: "host-extension", key: "calendar" },
+    };
+    const next = appendAgentGUIComposerPrimaryCapability(draft, capability);
 
     expect(agentComposerDraftPrompt(next)).toBe("Summarize my workspace");
-    expect(agentComposerDraftConnectors(next)).toEqual([
-      { connectorKey: "notion" }
-    ]);
-    expect(appendAgentGUIComposerConnector(next, "notion")).toBe(next);
+    expect(agentComposerDraftPrimaryCapabilities(next)).toEqual([capability]);
+    expect(appendAgentGUIComposerPrimaryCapability(next, capability)).toBe(
+      next,
+    );
     expect(
-      agentComposerDraftToPromptContent({ draft: next, skills: [] })
+      agentComposerDraftToPromptContent({ draft: next, skills: [] }),
     ).toEqual([
       { type: "text", text: "Summarize my workspace" },
-      { type: "connector", connectorKey: "notion" }
+      capability.payload,
     ]);
   });
 });
@@ -50,27 +54,27 @@ describe("appendAgentGUIComposerFiles", () => {
   it("preserves the public files contract and appends landed attachments", () => {
     const draft = buildAgentComposerDraft({
       files: [existingFile],
-      prompt: "Fix this element"
+      prompt: "Fix this element",
     });
     const next = appendAgentGUIComposerFiles(draft, [archivedContextFile]);
 
     expect(agentComposerDraftPrompt(next)).toBe("Fix this element");
     expect(agentComposerDraftFiles(next)).toEqual([
       existingFile,
-      archivedContextFile
+      archivedContextFile,
     ]);
   });
 
   it("deduplicates appended attachments by id", () => {
     const draft = buildAgentComposerDraft({
       files: [archivedContextFile],
-      prompt: ""
+      prompt: "",
     });
 
     expect(
       agentComposerDraftFiles(
-        appendAgentGUIComposerFiles(draft, [archivedContextFile])
-      )
+        appendAgentGUIComposerFiles(draft, [archivedContextFile]),
+      ),
     ).toEqual([archivedContextFile]);
   });
 });
@@ -94,52 +98,55 @@ describe("appendAgentGUIComposerPrompt", () => {
       "[@div](mention://browser-element/browser-element%3A2?path=%2Ftmp%2Fdiv.txt&tag=div&workspaceId=workspace-1)";
     const withFirst = appendAgentGUIComposerPrompt(
       buildAgentComposerDraft({ prompt: "Review these" }),
-      first
+      first,
     );
     const withBoth = appendAgentGUIComposerPrompt(withFirst, second);
 
     expect(agentComposerDraftPrompt(withBoth)).toBe(
-      `Review these ${first} ${second} `
+      `Review these ${first} ${second} `,
     );
     expect(
-      agentComposerDraftToPromptContent({ draft: withBoth, skills: [] })
+      agentComposerDraftToPromptContent({ draft: withBoth, skills: [] }),
     ).toEqual([
       {
         type: "text",
-        text: `Review these ${first} ${second}`
-      }
+        text: `Review these ${first} ${second}`,
+      },
     ]);
     expect(agentComposerDraftFiles(withBoth)).toHaveLength(0);
   });
 });
 
 describe("resolveAgentGUIComposerAppendRequest", () => {
-  it("routes a connector selection to the exact active draft once", () => {
+  it("routes an opaque capability selection to the exact active draft once", () => {
     const request: AgentGUIComposerAppendRequest = {
       agentSessionId: "session-1",
-      connectorKey: "notion",
-      sequence: 9
+      primaryCapability: {
+        id: "calendar",
+        payload: { type: "host-extension", key: "calendar" },
+      },
+      sequence: 9,
     };
     const resolved = resolveAgentGUIComposerAppendRequest({
       activeConversationId: "session-1",
       draftByScopeKey: {
-        "session:session-1": buildAgentComposerDraft({ prompt: "Keep me" })
+        "session:session-1": buildAgentComposerDraft({ prompt: "Keep me" }),
       },
       handledSequence: null,
-      request
+      request,
     });
 
     expect(agentComposerDraftPrompt(resolved!.nextDraft)).toBe("Keep me");
-    expect(agentComposerDraftConnectors(resolved!.nextDraft)).toEqual([
-      { connectorKey: "notion" }
+    expect(agentComposerDraftPrimaryCapabilities(resolved!.nextDraft)).toEqual([
+      request.primaryCapability,
     ]);
     expect(
       resolveAgentGUIComposerAppendRequest({
         activeConversationId: "session-1",
         draftByScopeKey: { "session:session-1": resolved!.nextDraft },
         handledSequence: 9,
-        request
-      })
+        request,
+      }),
     ).toBeNull();
   });
 
@@ -147,7 +154,7 @@ describe("resolveAgentGUIComposerAppendRequest", () => {
     const request: AgentGUIComposerAppendRequest = {
       agentSessionId: "source-session",
       prompt: "Modify the managed issue",
-      sequence: 8
+      sequence: 8,
     };
 
     expect(
@@ -155,47 +162,47 @@ describe("resolveAgentGUIComposerAppendRequest", () => {
         activeConversationId: "other-session",
         draftByScopeKey: {
           "session:other-session": buildAgentComposerDraft({
-            prompt: "Keep this draft"
-          })
+            prompt: "Keep this draft",
+          }),
         },
         handledSequence: null,
-        request
-      })
+        request,
+      }),
     ).toBeNull();
 
     const resolved = resolveAgentGUIComposerAppendRequest({
       activeConversationId: "source-session",
       draftByScopeKey: {
         "session:source-session": buildAgentComposerDraft({
-          prompt: "Existing source draft"
-        })
+          prompt: "Existing source draft",
+        }),
       },
       handledSequence: null,
-      request
+      request,
     });
     expect(agentComposerDraftPrompt(resolved!.nextDraft)).toBe(
-      "Existing source draft Modify the managed issue "
+      "Existing source draft Modify the managed issue ",
     );
   });
 
   it("keeps legacy external file requests as draft attachments", () => {
     const request: AgentGUIComposerAppendRequest = {
       files: [archivedContextFile],
-      sequence: 6
+      sequence: 6,
     };
 
     const resolved = resolveAgentGUIComposerAppendRequest({
       activeConversationId: "session-1",
       draftByScopeKey: {
-        "session:session-1": buildAgentComposerDraft({ prompt: "Keep me" })
+        "session:session-1": buildAgentComposerDraft({ prompt: "Keep me" }),
       },
       handledSequence: null,
-      request
+      request,
     });
 
     expect(agentComposerDraftPrompt(resolved!.nextDraft)).toBe("Keep me");
     expect(agentComposerDraftFiles(resolved!.nextDraft)).toEqual([
-      archivedContextFile
+      archivedContextFile,
     ]);
   });
 
@@ -205,39 +212,39 @@ describe("resolveAgentGUIComposerAppendRequest", () => {
       "[@a](mention://browser-element/browser-element%3A1?path=%2Ftmp%2Fbrowser-element.txt&tag=a&workspaceId=workspace-1)";
     const request: AgentGUIComposerAppendRequest = {
       prompt: browserElementMention,
-      sequence: 7
+      sequence: 7,
     };
 
     const resolved = resolveAgentGUIComposerAppendRequest({
       activeConversationId: "session-1",
       draftByScopeKey: { "session:session-1": initialDraft },
       handledSequence: null,
-      request
+      request,
     });
 
     expect(resolved?.draftKey).toBe("session:session-1");
     expect(agentComposerDraftPrompt(resolved!.nextDraft)).toContain(
-      "mention://browser-element/"
+      "mention://browser-element/",
     );
     expect(agentComposerDraftFiles(resolved!.nextDraft)).toHaveLength(0);
     expect(
       agentComposerDraftToPromptContent({
         draft: resolved!.nextDraft,
-        skills: []
-      })
+        skills: [],
+      }),
     ).toEqual([
       expect.objectContaining({
         type: "text",
-        text: expect.stringContaining("mention://browser-element/")
-      })
+        text: expect.stringContaining("mention://browser-element/"),
+      }),
     ]);
     expect(
       resolveAgentGUIComposerAppendRequest({
         activeConversationId: "session-1",
         draftByScopeKey: { "session:session-1": resolved!.nextDraft },
         handledSequence: 7,
-        request
-      })
+        request,
+      }),
     ).toBeNull();
   });
 });

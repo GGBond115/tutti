@@ -1,5 +1,6 @@
-import { ConnectorMarketDialogHost } from "@tutti-os/connector-market/ui";
+import { ConnectorDialogHost } from "@tutti-os/connector-market/renderer";
 import { createConnectorMarketI18nRuntime } from "@tutti-os/connector-market/i18n";
+import { getConnectorRendererModel } from "@tutti-os/connector-market/composition";
 import { IConnectorMarketModule } from "@tutti-os/connector-market/services";
 import { useService } from "@tutti-os/infra/di";
 import { INotificationService } from "@tutti-os/ui-notifications";
@@ -23,12 +24,12 @@ export function WorkspaceConnectorMarketDialogHost() {
   );
 
   return (
-    <ConnectorMarketDialogHost
+    <ConnectorDialogHost
       i18n={i18n}
       locale={locale}
       onError={handleError}
       onTryConnector={() => settingsService.closePanel()}
-      root={connectorMarketModule.root}
+      model={getConnectorRendererModel(connectorMarketModule.rendererPorts)}
     />
   );
 }

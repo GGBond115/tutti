@@ -108,15 +108,16 @@ describe("createOptimisticPromptMessage", () => {
 });
 
 describe("normalizePromptContentBlocks", () => {
-  it("preserves a valid structured local connector selection", () => {
+  it("preserves a host-owned opaque prompt extension", () => {
+    const extension = { type: "host-extension", key: "calendar" };
     expect(
       normalizePromptContentBlocks([
         { type: "text", text: "list my calendar events" },
-        { type: "connector", connectorKey: " lark-cli " }
-      ])
+        extension
+      ] as unknown as Parameters<typeof normalizePromptContentBlocks>[0])
     ).toEqual([
       { type: "text", text: "list my calendar events" },
-      { type: "connector", connectorKey: "lark-cli" }
+      extension
     ]);
   });
 });

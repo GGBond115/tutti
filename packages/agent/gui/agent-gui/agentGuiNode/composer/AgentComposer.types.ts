@@ -1,5 +1,6 @@
 import type { AgentSessionCommand } from "../../../shared/agentSessionTypes";
 import type { ReactNode } from "react";
+import type { AgentGUIPrimaryCapabilityRenderer } from "../view/AgentGUIPrimaryCapabilitySlot.types";
 import type { UiLanguage } from "../../../contexts/settings/domain/agentSettings";
 import type {
   AgentConversationPromptVM,
@@ -132,6 +133,7 @@ export interface AgentComposerProps {
   /** Shows the canonical new-Session project selector in a non-hero footer. */
   showProjectSelectorInFooter?: boolean;
   footerAccessory?: ReactNode;
+  primaryCapabilityRenderer?: AgentGUIPrimaryCapabilityRenderer;
   agentTargets?: readonly AgentGUIAgentTarget[];
   handoffAgentTargets?: readonly AgentGUIAgentTarget[];
   showHandoffTargetOwnershipLabels?: boolean;
@@ -279,10 +281,6 @@ export interface AgentComposerProps {
     slashPaletteCapabilitiesLoading: string;
     slashPaletteSkillsGroup: string;
     slashPalettePluginsGroup: string;
-    slashPaletteConnectorsGroup: string;
-    slashPaletteConnectorConnected: string;
-    slashPaletteConnectorNotConnected: string;
-    slashPaletteConnectorUnsupported: string;
     slashPaletteMcpGroup: string;
     slashCommandCompactLabel: string;
     slashCommandContextLabel: string;
@@ -363,14 +361,6 @@ export interface AgentComposerProps {
     addReference: string;
     addContent: string;
     addContentResourcePanel: string;
-    addContentConnectors: string;
-    addContentConnectorConnected: string;
-    addContentConnectorConnect: string;
-    addContentConnectorAuthorize: string;
-    addContentConnectorEmpty: string;
-    addContentConnectorLoading: string;
-    addContentConnectorMore: string;
-    addContentConnectorSelected: string;
     referenceWorkspaceFiles: string;
     handoffConversation: string;
     handoffConversationTooltip: string;
@@ -426,7 +416,7 @@ export interface AgentComposerProps {
   }) => void;
   /** Retries or explicitly refreshes the target-scoped composer options. */
   onRetryComposerOptions?: (options?: {
-    section?: "core" | "capabilities" | "connectors";
+    section?: "core" | "capabilities";
     waitForFreshModelCatalog?: boolean;
   }) => void;
   onTuttiModeChange?: (active: boolean) => void;
@@ -486,13 +476,10 @@ export interface AgentComposerProps {
   referenceProvenanceFilters?: AgentComposerReferenceProvenanceFilters | null;
 }
 
-export type AgentComposerCapabilitySettingsTarget =
-  | Exclude<AgentSlashCommandCapability["capability"], "tutti">
-  | {
-      kind: "connector";
-      connectorKey: string;
-      action?: "open";
-    };
+export type AgentComposerCapabilitySettingsTarget = Exclude<
+  AgentSlashCommandCapability["capability"],
+  "tutti"
+>;
 
 export interface AgentComposerCapabilityMenuState {
   browserUse?: {
@@ -503,13 +490,6 @@ export interface AgentComposerCapabilityMenuState {
     installed?: boolean | null;
     /** Host can present the computer-use setup surface. Fail closed. */
     presentationSupported?: boolean | null;
-  };
-  /**
-   * Host-owned connector visibility override. Missing preserves the existing
-   * catalog behavior for hosts that have not adopted this optional field.
-   */
-  connectors?: {
-    enabled?: boolean | null;
   };
   tuttiMode?: {
     enabled?: boolean | null;
