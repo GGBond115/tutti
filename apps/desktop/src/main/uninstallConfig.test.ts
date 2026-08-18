@@ -4,7 +4,7 @@ import test from "node:test";
 
 test("Windows uninstall removes only marker-owned CLI shims and preserves user state", async () => {
   const packageJson = JSON.parse(
-    await readFile(new URL("../../package.json", import.meta.url), "utf8")
+    await readFile(new URL("../../package.json", import.meta.url), "utf8"),
   ) as {
     build?: { nsis?: { include?: string; deleteAppDataOnUninstall?: boolean } };
   };
@@ -13,12 +13,12 @@ test("Windows uninstall removes only marker-owned CLI shims and preserves user s
 
   const include = await readFile(
     new URL("../../build/installer.nsh", import.meta.url),
-    "utf8"
+    "utf8",
   );
   assert.match(include, /rem Tutti CLI shim/);
   assert.match(
     include,
-    /!ifdef BUILD_UNINSTALLER[\s\S]*Function un\.RemoveOwnedTuttiShim[\s\S]*FunctionEnd[\s\S]*!endif/
+    /!ifdef BUILD_UNINSTALLER[\s\S]*Function un\.RemoveOwnedTuttiShim[\s\S]*FunctionEnd[\s\S]*!endif/,
   );
   assert.match(include, /\$PROFILE\\\.tutti\\bin\\tutti\.cmd/);
   assert.match(include, /\$PROFILE\\\.local\\bin\\tutti\.cmd/);
@@ -30,33 +30,33 @@ test("Windows uninstall removes only marker-owned CLI shims and preserves user s
   assert.match(include, /DeleteRegKey HKCU "Software\\Classes\\tutti"/);
   assert.match(
     include,
-    /\$\{GetOptions\} \$0 "--delete-app-data" \$1[\s\S]*Goto deleteUserState/
+    /\$\{GetOptions\} \$0 "--delete-app-data" \$1[\s\S]*Goto deleteUserState/,
   );
   assert.match(
     include,
-    /\$\{GetOptions\} \$0 "\/S" \$1[\s\S]*Goto preserveUserState/
+    /\$\{GetOptions\} \$0 "\/S" \$1[\s\S]*Goto preserveUserState/,
   );
   assert.match(
     include,
-    /\$\{GetOptions\} \$0 "--updated" \$1[\s\S]*Goto preserveUserState/
+    /\$\{GetOptions\} \$0 "--updated" \$1[\s\S]*Goto preserveUserState/,
   );
   assert.match(
     include,
-    /IDYES deleteUserState IDNO preserveUserState\s+Abort "Uninstall canceled\."/
+    /IDYES deleteUserState IDNO preserveUserState\s+Abort "Uninstall canceled\."/,
   );
   assert.ok(
-    include.indexOf('Abort "Uninstall canceled."') <
-      include.indexOf('Push "$PROFILE\\.tutti\\bin\\tutti.cmd"')
+    include.indexOf("Abort \"Uninstall canceled.\"") <
+      include.indexOf('Push "$PROFILE\\.tutti\\bin\\tutti.cmd"'),
   );
 });
 
 test("Windows install rewrites shortcuts to the current installation", async () => {
   const include = await readFile(
     new URL("../../build/installer.nsh", import.meta.url),
-    "utf8"
+    "utf8",
   );
   assert.match(
     include,
-    /!macro customInstall[\s\S]*CreateShortCut "\$DESKTOP\\Tutti\.lnk" "\$INSTDIR\\Tutti\.exe"[\s\S]*CreateShortCut "\$SMPROGRAMS\\Tutti\.lnk" "\$INSTDIR\\Tutti\.exe"[\s\S]*!macroend/
+    /!macro customInstall[\s\S]*CreateShortCut "\$DESKTOP\\Tutti\.lnk" "\$INSTDIR\\Tutti\.exe"[\s\S]*CreateShortCut "\$SMPROGRAMS\\Tutti\.lnk" "\$INSTDIR\\Tutti\.exe"[\s\S]*!macroend/,
   );
 });

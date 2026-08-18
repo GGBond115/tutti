@@ -40,14 +40,14 @@ provider resolver -> one absolute executable
 
 ## Repository and module changes
 
-| Repository/module               | Change                                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `tutti` Desktop packaging       | Stage one official compressed `uv` archive per packaged architecture; inject `TUTTI_BUNDLED_UV_ROOT`.  |
-| `tutti` agent extension service | Verify size/SHA, safely extract packaged `uv`, keep verified cache and network fallback.               |
-| `tutti` runtime command         | Split native proxy reads into Darwin/Windows/other build-tagged files; keep merge policy shared.       |
-| `tutti` agent status            | Resolve a complete managed npm binary once and reuse it across OpenCode consumers.                     |
-| Kimi extension                  | Pin install to `0.34.0`, require local `>=0.34.0 <1.0.0`, and verify API-key `session/new`.            |
-| Hermes extension                | Document that the host owns `uv`; keep Hermes/Python installation dynamic and the package declarative. |
+| Repository/module | Change |
+| --- | --- |
+| `tutti` Desktop packaging | Stage one official compressed `uv` archive per packaged architecture; inject `TUTTI_BUNDLED_UV_ROOT`. |
+| `tutti` agent extension service | Verify size/SHA, safely extract packaged `uv`, keep verified cache and network fallback. |
+| `tutti` runtime command | Split native proxy reads into Darwin/Windows/other build-tagged files; keep merge policy shared. |
+| `tutti` agent status | Resolve a complete managed npm binary once and reuse it across OpenCode consumers. |
+| Kimi extension | Pin install to `0.34.0`, require local `>=0.34.0 <1.0.0`, and verify API-key `session/new`. |
+| Hermes extension | Document that the host owns `uv`; keep Hermes/Python installation dynamic and the package declarative. |
 
 No public HTTP API or persisted-data schema is added. The only new interface is
 the internal Desktop-to-daemon environment variable `TUTTI_BUNDLED_UV_ROOT`.

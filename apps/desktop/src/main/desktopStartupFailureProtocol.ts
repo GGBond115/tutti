@@ -1,7 +1,7 @@
 import {
   classifyDesktopErrorCode,
   desktopErrorCodes,
-  formatErrorMessage
+  formatErrorMessage,
 } from "../shared/errors/desktopErrors.ts";
 
 export const desktopStartupFailurePrefix = "[tutti-desktop-startup-failed] ";
@@ -20,12 +20,12 @@ export function desktopStartupFailure(error: unknown): DesktopStartupFailure {
   return {
     ...(cause ? { cause } : {}),
     code: classifyDesktopErrorCode(error),
-    message: formatErrorMessage(error)
+    message: formatErrorMessage(error),
   };
 }
 
 export function isDaemonStartupFailure(
-  failure: DesktopStartupFailure
+  failure: DesktopStartupFailure,
 ): boolean {
   return (
     failure.code === desktopErrorCodes.daemonUnavailable ||
@@ -36,7 +36,7 @@ export function isDaemonStartupFailure(
 }
 
 function structuredCause(
-  value: unknown
+  value: unknown,
 ): { code: string; message: string } | null {
   const cause = value as { code?: unknown; message?: unknown };
   if (
@@ -51,6 +51,6 @@ function structuredCause(
   }
   return {
     code: cause.code.trim(),
-    message: cause.message.trim()
+    message: cause.message.trim(),
   };
 }

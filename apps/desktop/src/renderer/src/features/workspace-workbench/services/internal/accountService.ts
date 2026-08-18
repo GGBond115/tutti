@@ -1,6 +1,6 @@
 import {
   isTuttidTransportError,
-  type TuttidClient
+  type TuttidClient,
 } from "@tutti-os/client-tuttid-ts";
 import type { DesktopHostFilesApi } from "@preload/types";
 import type { IAccountService } from "../accountService.interface";
@@ -114,12 +114,12 @@ export class AccountService implements IAccountService {
     if (summary?.registration_credits_reward?.id === rewardID) {
       this.store.productSummary = {
         ...summary,
-        registration_credits_reward: null
+        registration_credits_reward: null,
       };
     }
     try {
       await this.dependencies.tuttidClient.dismissAccountRegistrationCreditsReward(
-        rewardID
+        rewardID,
       );
     } catch (error) {
       this.store.productSummaryError = readAccountError(error);
@@ -182,7 +182,7 @@ export class AccountService implements IAccountService {
     const attempt = {
       attemptID: started.attempt_id,
       expiresAt: started.expires_at,
-      loginURL: started.login_url
+      loginURL: started.login_url,
     };
     this.activeLoginAttempt = attempt;
     return attempt;
@@ -206,7 +206,7 @@ export class AccountService implements IAccountService {
           throw error;
         }
         await (this.dependencies.delay ?? defaultDelay)(
-          loginDaemonRetryDelaysMs[attempt]!
+          loginDaemonRetryDelaysMs[attempt]!,
         );
       }
     }
@@ -236,7 +236,7 @@ export class AccountService implements IAccountService {
 
   private async pollLoginStatus(
     attempt: ActiveLoginAttempt,
-    generation: number
+    generation: number,
   ): Promise<void> {
     try {
       while (
@@ -245,7 +245,7 @@ export class AccountService implements IAccountService {
       ) {
         const status =
           await this.dependencies.tuttidClient.getAccountLoginStatus(
-            attempt.attemptID
+            attempt.attemptID,
           );
         if (this.loginGeneration !== generation) {
           return;
@@ -292,7 +292,7 @@ function isDaemonTransportFailure(error: unknown): boolean {
   if (isTuttidTransportError(error)) return true;
   const message = error instanceof Error ? error.message : String(error);
   return /failed to fetch|fetch failed|econnrefused|econnreset|socket hang up/i.test(
-    message
+    message,
   );
 }
 

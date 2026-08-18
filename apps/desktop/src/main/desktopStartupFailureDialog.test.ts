@@ -3,7 +3,7 @@ import test from "node:test";
 import { showDesktopStartupFailureDialog } from "./desktopStartupFailureDialog.ts";
 import {
   desktopStartupFailure,
-  isDaemonStartupFailure
+  isDaemonStartupFailure,
 } from "./desktopStartupFailureProtocol.ts";
 import { desktopErrorCodes } from "../shared/errors/desktopErrors.ts";
 
@@ -22,7 +22,7 @@ test("startup failure dialog explains preserved data and opens logs", async () =
     async showMessageBox(options) {
       detail = options.detail;
       return { response: 0 };
-    }
+    },
   });
 
   assert.match(detail, /数据未被删除/);
@@ -43,7 +43,7 @@ test("startup failure dialog does not suggest a Windows-only reset elsewhere", a
     async showMessageBox(options) {
       detail = options.detail;
       return { response: 1 };
-    }
+    },
   });
 
   assert.doesNotMatch(detail, /uninstall/i);
@@ -63,7 +63,7 @@ test("generic bootstrap failures never recommend deleting user data", async () =
     async showMessageBox(options) {
       detail = options.detail;
       return { response: 1 };
-    }
+    },
   });
 
   assert.doesNotMatch(detail, /删除全部用户数据/);
@@ -74,23 +74,23 @@ test("only classified daemon startup failures enable clean-reset guidance", () =
   const daemonError = new Error("listener unavailable", {
     cause: {
       code: desktopErrorCodes.managedProcessStderr,
-      message: "file is not a database"
-    }
+      message: "file is not a database",
+    },
   });
   assert.equal(
     isDaemonStartupFailure(desktopStartupFailure(daemonError)),
-    true
+    true,
   );
   assert.equal(
     isDaemonStartupFailure(desktopStartupFailure(new Error("window failed"))),
-    false
+    false,
   );
   const noStderrExit = Object.assign(
     new Error("tuttid exited before it published listener info"),
-    { code: desktopErrorCodes.managedProcessError }
+    { code: desktopErrorCodes.managedProcessError },
   );
   assert.equal(
     isDaemonStartupFailure(desktopStartupFailure(noStderrExit)),
-    true
+    true,
   );
 });

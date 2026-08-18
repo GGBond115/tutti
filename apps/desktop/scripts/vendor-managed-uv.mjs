@@ -11,9 +11,7 @@ const defaults = JSON.parse(
 );
 const uv = defaults.agentRuntimeTools?.uv;
 if (!uv?.version || !Array.isArray(uv.artifacts)) {
-  throw new Error(
-    "config/tutti.defaults.json has no managed uv artifact catalog"
-  );
+  throw new Error("config/tutti.defaults.json has no managed uv artifact catalog");
 }
 
 const platforms = parsePlatformArguments(process.argv.slice(2));
@@ -25,8 +23,7 @@ await rm(outputRoot, { recursive: true, force: true });
 
 for (const platform of platforms) {
   const artifact = uv.artifacts.find((entry) => entry.platform === platform);
-  if (!artifact)
-    throw new Error(`managed uv catalog does not contain ${platform}`);
+  if (!artifact) throw new Error(`managed uv catalog does not contain ${platform}`);
   const targetDir = join(outputRoot, platform, uv.version);
   const target = join(targetDir, basename(artifact.url));
   const source = await resolveArchive(artifact);
@@ -57,9 +54,7 @@ function parsePlatformArguments(args) {
     .map((value) => value.trim())
     .filter(Boolean);
   if (values.length === 0 || values.length !== args.length) {
-    throw new Error(
-      "provide one or more --platform=<runtime-platform> arguments"
-    );
+    throw new Error("provide one or more --platform=<runtime-platform> arguments");
   }
   return [...new Set(values)];
 }
@@ -82,8 +77,7 @@ async function resolveArchive(artifact) {
     await rm(path, { force: true });
   }
   const response = await fetch(artifact.url, { redirect: "follow" });
-  if (!response.ok)
-    throw new Error(`download ${artifact.url}: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`download ${artifact.url}: HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, bytes, { flag: "wx" });
@@ -111,16 +105,10 @@ async function copyVerifiedArchive(source, target, artifact) {
 async function verifyArchive(path, artifact) {
   const info = await stat(path);
   if (!info.isFile() || info.size !== artifact.sizeBytes) {
-    throw new Error(
-      `uv archive size mismatch for ${path}: got ${info.size}, want ${artifact.sizeBytes}`
-    );
+    throw new Error(`uv archive size mismatch for ${path}: got ${info.size}, want ${artifact.sizeBytes}`);
   }
-  const actual = createHash("sha256")
-    .update(await readFile(path))
-    .digest("hex");
+  const actual = createHash("sha256").update(await readFile(path)).digest("hex");
   if (actual !== artifact.sha256) {
-    throw new Error(
-      `uv archive checksum mismatch for ${path}: got ${actual}, want ${artifact.sha256}`
-    );
+    throw new Error(`uv archive checksum mismatch for ${path}: got ${actual}, want ${artifact.sha256}`);
   }
 }

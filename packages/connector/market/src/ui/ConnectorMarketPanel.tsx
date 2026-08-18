@@ -36,7 +36,10 @@ export function ConnectorMarketPanel({
       root={root}
     >
       <section
-        className={cn("flex min-h-0 flex-1 flex-col gap-5", className)}
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-5",
+          className
+        )}
         data-testid="connector-market-panel"
       >
         <header className="shrink-0">
@@ -44,9 +47,7 @@ export function ConnectorMarketPanel({
             {i18n.t("description")}
           </p>
         </header>
-        <div>
-          <ConnectorMarketToolbar />
-        </div>
+        <div><ConnectorMarketToolbar /></div>
         <ConnectorCatalog />
       </section>
     </ConnectorMarketRootProvider>

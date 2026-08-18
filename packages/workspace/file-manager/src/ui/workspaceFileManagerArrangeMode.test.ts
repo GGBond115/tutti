@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WorkspaceFileEntry } from "../services/workspaceFileManagerTypes.ts";
-import { sortWorkspaceFileEntriesForArrangeMode } from "./workspaceFileManagerArrangeMode.ts";
+import {
+  sortWorkspaceFileEntriesForArrangeMode
+} from "./workspaceFileManagerArrangeMode.ts";
 
 function createEntry(
   overrides: Partial<WorkspaceFileEntry> = {}

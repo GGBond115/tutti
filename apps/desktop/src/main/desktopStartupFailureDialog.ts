@@ -16,7 +16,7 @@ export interface DesktopStartupFailureDialogDependencies {
 }
 
 export async function showDesktopStartupFailureDialog(
-  dependencies: DesktopStartupFailureDialogDependencies
+  dependencies: DesktopStartupFailureDialogDependencies,
 ): Promise<void> {
   const chinese = dependencies.locale.toLowerCase().startsWith("zh");
   const openLogs = chinese ? "打开日志目录" : "Open logs folder";
@@ -40,7 +40,7 @@ export async function showDesktopStartupFailureDialog(
     detail,
     message: chinese ? "Tutti 无法启动" : "Tutti could not start",
     title: "Tutti",
-    type: "error"
+    type: "error",
   });
   if (result.response === 0) {
     await dependencies.openPath(dependencies.logsDirectory);
