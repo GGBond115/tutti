@@ -140,9 +140,10 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     available: analyticsDebugAvailable,
     eventStreamClient: tuttidEventStreamClient
   });
+  const workspaceUiMode = routeView === "agent" ? "agent" : "os";
   const reporterService = registerReporterServices(registry, {
     tuttidClient,
-    mode: routeView === "agent" ? "agent" : "os"
+    mode: workspaceUiMode
   });
   const reportPredefinePageview = shouldReportPredefinePageview(
     window.location.search
@@ -264,6 +265,7 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     terminalCommandRunner: createAgentProviderTerminalCommandRunner(
       desktopApi.runtime
     ),
+    uiMode: workspaceUiMode,
     windowLifecycle,
     workspaceId: activeWorkspaceID,
     workspaceUserProjectService
