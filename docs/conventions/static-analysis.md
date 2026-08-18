@@ -317,10 +317,23 @@ loop instead of discovering violations only in `check:full`.
 Connector production code cannot import Agent, AgentGUI, Desktop, TSH, preload,
 or host client implementation surfaces, and cross-workspace TypeScript imports
 must use declared package exports. The pinned generated Market client has one
-narrow exception: only the Connector Market catalog source adapter may consume
-it. AgentGUI is scanned as a complete package and may expose only the neutral
+narrow exception: only `packages/connector/market/source` may consume it;
+`packages/connector/daemon/catalog_source.go` is not an exception. AgentGUI is
+scanned as a complete package and may expose only the neutral
 `primaryCapability` contract; Connector imports, identifiers, and legacy
 `{ type: "connector", connectorKey }` wire vocabulary are rejected.
+
+The check also encodes the Connector Go dependency DAG. `contracts` has no
+Connector dependencies; `application` may depend only on `contracts` and may
+not import repository-generated transport. `runtime`, `store-sqlite`, and
+`market/source` implement application ports and may depend only on
+`application` and `contracts`. `daemon` may depend on `application`,
+`contracts`, and `market/source`, but none of those modules may depend back on
+`daemon`. Production imports outside these directed edges fail the check. The
+legacy `github.com/tutti-os/tutti/packages/connector/host` import and module
+path is forbidden across every Go source and `go.mod`; restoring a compatibility
+package under `packages/connector/host` fails even before another module imports
+it.
 
 The same check walks the Connector renderer import graph. Renderer code may
 depend only on Connector-owned renderer, contract, application-port and i18n
@@ -331,8 +344,9 @@ renderer. For public Connector TypeScript packages, workspace exports, tsup
 entries, publish exports, declaration entries, and `typesVersions` are compared
 bidirectionally. During the compatibility window, `./renderer` is canonical and
 `./ui` must contain only a re-export of it. Fixture tests keep known legacy
-imports, wire shapes, dependency leaks, missing build entries, and unpublished
-exports as negative controls.
+imports, every prohibited Go dependency direction, generated-transport leaks,
+wire shapes, dependency leaks, missing build entries, and unpublished exports
+as negative controls.
 
 The boundary lane is selected for changes under `packages/connector` or
 `packages/agent/gui`, and for its checker, tests, or root script
@@ -516,8 +530,10 @@ The current root entrypoint runs the linter from:
 - `packages/appcli/core`
 - `packages/clients/device-authority-go`
 - `packages/clients/market-go`
+- `packages/connector/application`
+- `packages/connector/contracts`
 - `packages/connector/daemon`
-- `packages/connector/host`
+- `packages/connector/market/source`
 - `packages/connector/runtime`
 - `packages/connector/store-sqlite`
 - `packages/device-link`

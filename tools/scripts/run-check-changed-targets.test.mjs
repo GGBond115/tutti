@@ -7,7 +7,8 @@ import {
   discoverGoModuleRoots,
   isBuiltinGenerateRequired,
   resolveGoModuleRoot,
-  resolveGoValidationTargets
+  resolveGoValidationTargets,
+  selectGoLintModuleRoots
 } from "./run-check-changed-targets.mjs";
 
 const goModuleRoots = [
@@ -17,8 +18,10 @@ const goModuleRoots = [
   "packages/agent/store-sqlite",
   "packages/agent/store-sqlite/canonical",
   "packages/clients/market-go",
+  "packages/connector/application",
+  "packages/connector/contracts",
   "packages/connector/daemon",
-  "packages/connector/host",
+  "packages/connector/market/source",
   "packages/connector/runtime",
   "packages/connector/store-sqlite",
   "packages/device-link",
@@ -35,7 +38,9 @@ describe("discoverGoModuleRoots", () => {
         status: 0,
         stdout: JSON.stringify({
           Use: [
-            { DiskPath: "./packages/connector/host" },
+            { DiskPath: "./packages/connector/application" },
+            { DiskPath: "./packages/connector/contracts" },
+            { DiskPath: "./packages/connector/market/source" },
             { DiskPath: "./packages/agent/session-replay" },
             { DiskPath: "./services/tuttid" }
           ]
@@ -45,9 +50,32 @@ describe("discoverGoModuleRoots", () => {
 
     assert.deepEqual(roots, [
       "packages/agent/session-replay",
-      "packages/connector/host",
+      "packages/connector/application",
+      "packages/connector/contracts",
+      "packages/connector/market/source",
       "services/tuttid"
     ]);
+  });
+});
+
+describe("selectGoLintModuleRoots", () => {
+  it("lints the split Connector modules and excludes the removed Host module", () => {
+    const selected = selectGoLintModuleRoots([
+      ...goModuleRoots,
+      "packages/connector/host"
+    ]);
+
+    for (const moduleRoot of [
+      "packages/connector/application",
+      "packages/connector/contracts",
+      "packages/connector/market/source"
+    ]) {
+      assert.ok(
+        selected.includes(moduleRoot),
+        `${moduleRoot} was not selected`
+      );
+    }
+    assert.ok(!selected.includes("packages/connector/host"));
   });
 });
 
@@ -73,10 +101,24 @@ describe("resolveGoModuleRoot", () => {
     );
     assert.equal(
       resolveGoModuleRoot(
-        "packages/connector/host/application.go",
+        "packages/connector/application/application.go",
         goModuleRoots
       ),
-      "packages/connector/host"
+      "packages/connector/application"
+    );
+    assert.equal(
+      resolveGoModuleRoot(
+        "packages/connector/contracts/types.go",
+        goModuleRoots
+      ),
+      "packages/connector/contracts"
+    );
+    assert.equal(
+      resolveGoModuleRoot(
+        "packages/connector/market/source/source.go",
+        goModuleRoots
+      ),
+      "packages/connector/market/source"
     );
     assert.equal(
       resolveGoModuleRoot(

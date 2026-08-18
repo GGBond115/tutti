@@ -32,6 +32,24 @@ const ignoredDirectoryNames = new Set([
   "out",
   "vendor"
 ]);
+const connectorGoImportPrefix = "github.com/tutti-os/tutti/packages/connector/";
+const legacyConnectorHostImport = `${connectorGoImportPrefix}host`;
+const connectorGoModules = [
+  "market/source",
+  "store-sqlite",
+  "application",
+  "contracts",
+  "daemon",
+  "runtime"
+];
+const allowedConnectorGoDependencies = new Map([
+  ["contracts", new Set()],
+  ["application", new Set(["contracts"])],
+  ["daemon", new Set(["application", "contracts", "market/source"])],
+  ["runtime", new Set(["application", "contracts"])],
+  ["store-sqlite", new Set(["application", "contracts"])],
+  ["market/source", new Set(["application", "contracts"])]
+]);
 
 if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
   const workspaceRoot =
@@ -69,6 +87,7 @@ export function inspectConnectorBoundaries(workspaceRoot) {
     inspectAgentGuiProductionFile({ file, root, violations });
   }
 
+  inspectLegacyConnectorHost({ root, violations });
   inspectRendererGraph({ root, violations });
   inspectConnectorPackageParity({ root, violations });
   return deduplicateViolations(violations).sort((left, right) =>
@@ -89,6 +108,14 @@ function inspectConnectorProductionFile({
   const imports = importSpecifiers(file, source);
 
   for (const imported of imports) {
+    if (file.endsWith(".go")) {
+      inspectConnectorGoDependency({
+        imported,
+        relativeFile,
+        source,
+        violations
+      });
+    }
     if (isForbiddenConnectorDependency(imported.specifier, relativeFile)) {
       addViolation(violations, {
         file: relativeFile,
@@ -135,6 +162,84 @@ function inspectConnectorProductionFile({
           rule: "connector-application-renderer-dependency"
         });
       }
+    }
+  }
+}
+
+function inspectConnectorGoDependency({
+  imported,
+  relativeFile,
+  source,
+  violations
+}) {
+  const importerModule = connectorGoModuleFromFile(relativeFile);
+  if (!importerModule) return;
+
+  if (
+    importerModule === "application" &&
+    isRepositoryGeneratedTransport(imported.specifier)
+  ) {
+    addViolation(violations, {
+      file: relativeFile,
+      line: lineNumber(source, imported.index),
+      message: `Connector application must use ports and contracts instead of generated transport ${imported.specifier}`,
+      rule: "connector-go-module-dag"
+    });
+  }
+
+  const importedModule = connectorGoModuleFromImport(imported.specifier);
+  if (!importedModule || importedModule === importerModule) return;
+  const allowed = allowedConnectorGoDependencies.get(importerModule);
+  if (allowed?.has(importedModule)) return;
+
+  addViolation(violations, {
+    file: relativeFile,
+    line: lineNumber(source, imported.index),
+    message: `${importerModule} cannot depend on Connector ${importedModule}; allowed Connector dependencies: ${[...(allowed ?? [])].join(", ") || "none"}`,
+    rule: "connector-go-module-dag"
+  });
+}
+
+function inspectLegacyConnectorHost({ root, violations }) {
+  for (const file of walkFiles(root)) {
+    const relativeFile = toPosix(relative(root, file));
+    const isGoSource = file.endsWith(".go");
+    const isGoModule = file.endsWith("go.mod");
+    if (!isGoSource && !isGoModule) continue;
+
+    const source = readFileSync(file, "utf8");
+    if (/^packages\/connector\/host(?:\/|$)/u.test(relativeFile)) {
+      addViolation(violations, {
+        file: relativeFile,
+        line: 1,
+        message:
+          "the legacy packages/connector/host compatibility path must not be restored",
+        rule: "connector-legacy-host"
+      });
+    }
+
+    if (isGoSource) {
+      for (const imported of goImportSpecifiers(source)) {
+        if (!isLegacyConnectorHostPath(imported.specifier)) continue;
+        addViolation(violations, {
+          file: relativeFile,
+          line: lineNumber(source, imported.index),
+          message: `legacy Connector Host import is forbidden: ${imported.specifier}`,
+          rule: "connector-legacy-host"
+        });
+      }
+      continue;
+    }
+
+    for (const match of source.matchAll(
+      /github\.com\/tutti-os\/tutti\/packages\/connector\/host(?:\/[^\s]*)?/gu
+    )) {
+      addViolation(violations, {
+        file: relativeFile,
+        line: lineNumber(source, match.index ?? 0),
+        message: `legacy Connector Host module reference is forbidden: ${match[0]}`,
+        rule: "connector-legacy-host"
+      });
     }
   }
 }
@@ -510,7 +615,7 @@ function isForbiddenConnectorDependency(specifier, importerFile) {
   const normalized = toPosix(specifier);
   if (
     /(?:^|\/)packages\/clients\/market-go(?:\/|$)/u.test(normalized) &&
-    isMarketSourceAdapter(importerFile)
+    /^packages\/connector\/market\/source(?:\/|$)/u.test(importerFile)
   ) {
     return false;
   }
@@ -528,10 +633,35 @@ function isForbiddenConnectorDependency(specifier, importerFile) {
   );
 }
 
-function isMarketSourceAdapter(importerFile) {
+function connectorGoModuleFromFile(relativeFile) {
+  if (!/^packages\/connector\//u.test(relativeFile)) return null;
+  return connectorGoModules.find(
+    (moduleName) =>
+      relativeFile === `packages/connector/${moduleName}` ||
+      relativeFile.startsWith(`packages/connector/${moduleName}/`)
+  );
+}
+
+function connectorGoModuleFromImport(specifier) {
+  if (!specifier.startsWith(connectorGoImportPrefix)) return null;
+  const suffix = specifier.slice(connectorGoImportPrefix.length);
+  const knownModule = connectorGoModules.find(
+    (moduleName) => suffix === moduleName || suffix.startsWith(`${moduleName}/`)
+  );
+  return knownModule ?? suffix.split("/")[0];
+}
+
+function isLegacyConnectorHostPath(specifier) {
   return (
-    importerFile === "packages/connector/daemon/catalog_source.go" ||
-    /^packages\/connector\/market\/source(?:\/|$)/u.test(importerFile)
+    specifier === legacyConnectorHostImport ||
+    specifier.startsWith(`${legacyConnectorHostImport}/`)
+  );
+}
+
+function isRepositoryGeneratedTransport(specifier) {
+  return (
+    specifier.startsWith("github.com/tutti-os/tutti/") &&
+    /(?:^|\/)generated(?:\/|$)/u.test(specifier)
   );
 }
 
