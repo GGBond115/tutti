@@ -330,10 +330,15 @@ not import repository-generated transport. `runtime`, `store-sqlite`, and
 `application` and `contracts`. `daemon` may depend on `application`,
 `contracts`, and `market/source`, but none of those modules may depend back on
 `daemon`. Production imports outside these directed edges fail the check. The
-legacy `github.com/tutti-os/tutti/packages/connector/host` import and module
-path is forbidden across every Go source and `go.mod`; restoring a compatibility
-package under `packages/connector/host` fails even before another module imports
-it.
+same pass parses every Connector cohort `go.mod`, including both `require` and
+`replace` directives, so a forbidden module edge cannot hide behind an unused
+requirement. Because Go does not encode test-only requirements separately, an
+otherwise-forbidden `go.mod` edge is accepted only when a `_test.go` file in
+that module actually imports it and no production Go file does; adding a
+production import makes both the source edge and module edge fail. The legacy
+`github.com/tutti-os/tutti/packages/connector/host` import and module path is
+forbidden across every Go source and `go.mod`; restoring a compatibility package
+under `packages/connector/host` fails even before another module imports it.
 
 The same check walks the Connector renderer import graph. Renderer code may
 depend only on Connector-owned renderer, contract, application-port and i18n

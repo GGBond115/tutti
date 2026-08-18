@@ -87,6 +87,7 @@ export function inspectConnectorBoundaries(workspaceRoot) {
     inspectAgentGuiProductionFile({ file, root, violations });
   }
 
+  inspectConnectorGoModuleGraph({ root, violations });
   inspectLegacyConnectorHost({ root, violations });
   inspectRendererGraph({ root, violations });
   inspectConnectorPackageParity({ root, violations });
@@ -95,6 +96,152 @@ export function inspectConnectorBoundaries(workspaceRoot) {
       `${right.file}:${right.line}:${right.rule}`
     )
   );
+}
+
+function inspectConnectorGoModuleGraph({ root, violations }) {
+  for (const importerModule of connectorGoModules) {
+    const moduleRoot = join(root, "packages/connector", importerModule);
+    const goModPath = join(moduleRoot, "go.mod");
+    if (!existsSync(goModPath)) continue;
+
+    const source = readFileSync(goModPath, "utf8");
+    const relativeGoMod = toPosix(relative(root, goModPath));
+    const imports = connectorGoImportsByKind(moduleRoot);
+    for (const dependency of goModDependencySpecifiers(
+      source,
+      goModPath,
+      root
+    )) {
+      if (isForbiddenConnectorDependency(dependency.specifier, relativeGoMod)) {
+        addViolation(violations, {
+          file: relativeGoMod,
+          line: lineNumber(source, dependency.index),
+          message: `Connector module cannot depend on ${dependency.specifier}`,
+          rule: "connector-host-dependency"
+        });
+      }
+      const importedModule = connectorGoModuleFromImport(dependency.specifier);
+      if (!importedModule || importedModule === importerModule) continue;
+      const allowed = allowedConnectorGoDependencies.get(importerModule);
+      if (allowed?.has(importedModule)) continue;
+
+      // Go modules do not encode test-only requirements separately. Permit an
+      // otherwise-forbidden module edge only when it is proven to be used by a
+      // _test.go file and absent from every production Go source in the same
+      // module. Production imports are still checked by the normal DAG pass.
+      if (
+        imports.test.has(importedModule) &&
+        !imports.production.has(importedModule)
+      ) {
+        continue;
+      }
+
+      addViolation(violations, {
+        file: relativeGoMod,
+        line: lineNumber(source, dependency.index),
+        message: `${importerModule} go.mod cannot depend on Connector ${importedModule}; the edge is neither production-allowed nor proven test-only`,
+        rule: "connector-go-module-dag"
+      });
+    }
+  }
+}
+
+function connectorGoImportsByKind(moduleRoot) {
+  const result = { production: new Set(), test: new Set() };
+  for (const file of walkFiles(moduleRoot)) {
+    if (!file.endsWith(".go")) continue;
+    const destination = file.endsWith("_test.go")
+      ? result.test
+      : result.production;
+    const source = readFileSync(file, "utf8");
+    for (const imported of goImportSpecifiers(source)) {
+      const importedModule = connectorGoModuleFromImport(imported.specifier);
+      if (importedModule) destination.add(importedModule);
+    }
+  }
+  return result;
+}
+
+function goModDependencySpecifiers(source, goModPath, root) {
+  const dependencies = [];
+  let block = null;
+  let offset = 0;
+  for (const rawLine of source.split(/(?<=\n)/u)) {
+    const line = rawLine.replace(/\n$/u, "");
+    const uncommented = line.replace(/\/\/.*$/u, "").trim();
+    if (block) {
+      if (uncommented === ")") {
+        block = null;
+      } else if (uncommented) {
+        collectGoModDirectiveDependencies({
+          dependencies,
+          directive: block,
+          goModPath,
+          line,
+          offset,
+          root,
+          value: uncommented
+        });
+      }
+      offset += rawLine.length;
+      continue;
+    }
+
+    const match = /^(require|replace)\s+(.+)$/u.exec(uncommented);
+    if (!match) {
+      offset += rawLine.length;
+      continue;
+    }
+    if (match[2] === "(") {
+      block = match[1];
+    } else {
+      collectGoModDirectiveDependencies({
+        dependencies,
+        directive: match[1],
+        goModPath,
+        line,
+        offset,
+        root,
+        value: match[2]
+      });
+    }
+    offset += rawLine.length;
+  }
+  return dependencies;
+}
+
+function collectGoModDirectiveDependencies({
+  dependencies,
+  directive,
+  goModPath,
+  line,
+  offset,
+  root,
+  value
+}) {
+  const candidates = [];
+  if (directive === "require") {
+    candidates.push(value.split(/\s+/u)[0]);
+  } else {
+    const [left, right] = value.split(/\s*=>\s*/u);
+    candidates.push(left?.split(/\s+/u)[0], right?.split(/\s+/u)[0]);
+  }
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const specifier = goModDependencySpecifier(candidate, goModPath, root);
+    if (!specifier) continue;
+    const column = Math.max(0, line.indexOf(candidate));
+    dependencies.push({ index: offset + column, specifier });
+  }
+}
+
+function goModDependencySpecifier(candidate, goModPath, root) {
+  if (!candidate.startsWith(".")) return candidate;
+  const target = toPosix(
+    relative(root, resolve(dirname(goModPath), candidate))
+  );
+  const moduleName = connectorGoModuleFromFile(target);
+  return moduleName ? `${connectorGoImportPrefix}${moduleName}` : target;
 }
 
 function inspectConnectorProductionFile({
@@ -634,7 +781,7 @@ function isForbiddenConnectorDependency(specifier, importerFile) {
 }
 
 function connectorGoModuleFromFile(relativeFile) {
-  if (!/^packages\/connector\//u.test(relativeFile)) return null;
+  if (!relativeFile.startsWith('packages/connector/')) return null;
   return connectorGoModules.find(
     (moduleName) =>
       relativeFile === `packages/connector/${moduleName}` ||

@@ -36,9 +36,17 @@ test("rejects Connector imports of Agent, app client, and private package paths"
 
 test("allows the pinned Market client only in market/source, never daemon", (t) => {
   const root = fixtureRoot(t, {
+    "packages/connector/daemon/go.mod": `module github.com/tutti-os/tutti/packages/connector/daemon
+      require github.com/tutti-os/tutti/packages/clients/market-go v0.0.0
+      replace github.com/tutti-os/tutti/packages/clients/market-go => ../../clients/market-go
+    `,
     "packages/connector/daemon/catalog_source.go": `package daemon
       import market "github.com/tutti-os/tutti/packages/clients/market-go"
       var _ = market.Client{}
+    `,
+    "packages/connector/market/source/go.mod": `module github.com/tutti-os/tutti/packages/connector/market/source
+      require github.com/tutti-os/tutti/packages/clients/market-go v0.0.0
+      replace github.com/tutti-os/tutti/packages/clients/market-go => ../../../clients/market-go
     `,
     "packages/connector/market/source/catalog_source.go": `package source
       import market "github.com/tutti-os/tutti/packages/clients/market-go"
@@ -51,8 +59,18 @@ test("allows the pinned Market client only in market/source, never daemon", (t) 
   const violations = inspectConnectorBoundaries(root).filter(
     ({ rule }) => rule === "connector-host-dependency"
   );
-  assert.equal(violations.length, 1, formatViolations(violations));
-  assert.match(violations[0].file, /daemon\/catalog_source\.go$/u);
+  assert.ok(
+    violations.some(({ file }) => file.endsWith('daemon/catalog_source.go')),
+    formatViolations(violations)
+  );
+  assert.ok(
+    violations.some(({ file }) => file.endsWith('daemon/go.mod')),
+    formatViolations(violations)
+  );
+  assert.ok(
+    violations.every(({ file }) => !/market\/source/u.test(file)),
+    formatViolations(violations)
+  );
 });
 
 test("rejects restoration of the legacy Connector Host path anywhere in Go", (t) => {
@@ -182,6 +200,76 @@ test("accepts only the forward Connector Go dependency edges", (t) => {
 
   const violations = inspectConnectorBoundaries(root);
   assert.equal(violations.length, 0, formatViolations(violations));
+});
+
+test("rejects a forbidden Connector go.mod edge without a test-only import", (t) => {
+  const root = fixtureRoot(t, {
+    "packages/connector/application/go.mod": `module github.com/tutti-os/tutti/packages/connector/application
+      require github.com/tutti-os/tutti/packages/connector/daemon v0.0.0
+      replace github.com/tutti-os/tutti/packages/connector/daemon => ../daemon
+    `,
+    "packages/connector/application/service.go": "package application\n",
+    "packages/connector/daemon/host.go": "package daemon\n"
+  });
+
+  const violations = inspectConnectorBoundaries(root).filter(
+    ({ rule }) => rule === "connector-go-module-dag"
+  );
+  assert.ok(
+    violations.some(
+      ({ file, message }) =>
+        file === "packages/connector/application/go.mod" &&
+        message.includes("application go.mod cannot depend on Connector daemon")
+    ),
+    formatViolations(violations)
+  );
+});
+
+test("accepts a go.mod edge proven to be test-only", (t) => {
+  const root = fixtureRoot(t, {
+    "packages/connector/daemon/go.mod": `module github.com/tutti-os/tutti/packages/connector/daemon
+      require github.com/tutti-os/tutti/packages/connector/store-sqlite v0.0.0
+      replace github.com/tutti-os/tutti/packages/connector/store-sqlite => ../store-sqlite
+    `,
+    "packages/connector/daemon/host.go": "package daemon\n",
+    "packages/connector/daemon/host_test.go": `package daemon
+      import _ "github.com/tutti-os/tutti/packages/connector/store-sqlite"
+    `,
+    "packages/connector/store-sqlite/store.go": "package storesqlite\n"
+  });
+
+  const violations = inspectConnectorBoundaries(root).filter(
+    ({ rule }) => rule === "connector-go-module-dag"
+  );
+  assert.equal(violations.length, 0, formatViolations(violations));
+});
+
+test("rejects a test-only go.mod exception once production imports the edge", (t) => {
+  const root = fixtureRoot(t, {
+    "packages/connector/daemon/go.mod": `module github.com/tutti-os/tutti/packages/connector/daemon
+      require github.com/tutti-os/tutti/packages/connector/store-sqlite v0.0.0
+      replace github.com/tutti-os/tutti/packages/connector/store-sqlite => ../store-sqlite
+    `,
+    "packages/connector/daemon/host.go": `package daemon
+      import _ "github.com/tutti-os/tutti/packages/connector/store-sqlite"
+    `,
+    "packages/connector/daemon/host_test.go": `package daemon
+      import _ "github.com/tutti-os/tutti/packages/connector/store-sqlite"
+    `,
+    "packages/connector/store-sqlite/store.go": "package storesqlite\n"
+  });
+
+  const violations = inspectConnectorBoundaries(root).filter(
+    ({ rule }) => rule === "connector-go-module-dag"
+  );
+  assert.ok(
+    violations.some(({ file }) => file === "packages/connector/daemon/host.go"),
+    formatViolations(violations)
+  );
+  assert.ok(
+    violations.some(({ file }) => file === "packages/connector/daemon/go.mod"),
+    formatViolations(violations)
+  );
 });
 
 test("rejects the legacy AgentGUI Connector import and wire vocabulary", (t) => {
