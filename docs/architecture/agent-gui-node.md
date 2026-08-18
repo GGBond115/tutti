@@ -2972,7 +2972,9 @@ rail row More menu / row context menu / workbench header menu
 All three surfaces render the same action groups; the header dispatches
 one discriminated `AgentGuiWorkbenchCommand` protocol and the node resolves the
 target session against canonical rail entities under the rail interaction
-lock. While either row
+lock. Remote/session mutations honor that lock; the local mark-unread intent
+from an already-open row menu remains deliverable while the rail is recovering
+so a transient membership refresh cannot silently discard it. While either row
 menu is open the row keeps its hover layout (short title truncation, actions
 visible) so titles cannot overlap the action cluster.
 The existing package-owned AgentGUI external-request controller is the only

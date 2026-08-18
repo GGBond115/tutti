@@ -338,6 +338,15 @@ interface AgentGUIConversationActionsMenuProps {
   onRequestRenameConversation: (conversation: Conversation) => void;
 }
 
+interface ConversationActionRunOptions {
+  /**
+   * Local attention changes do not mutate the rail or require a fresh query.
+   * An already-open menu may therefore finish this action while the rail is
+   * recovering from a query refresh.
+   */
+  allowWhenInteractionLocked?: boolean;
+}
+
 export interface AgentGUIConversationActionsMenuState {
   groups: ConversationActionEntry[][];
   resetKey: number;
@@ -362,7 +371,7 @@ export function useConversationActionGroups({
   // The pending ref dedups the select/click/pointerup handlers a single
   // gesture can fire. Remounting closes a fallback-only (dead-click) menu.
   const run = useCallback(
-    (action: () => void) => {
+    (action: () => void, options: ConversationActionRunOptions = {}) => {
       if (pendingActionRef.current) {
         return;
       }
@@ -371,7 +380,7 @@ export function useConversationActionGroups({
       // timing: defer one tick so Radix teardown finishes before the action and the pending ref outlives the gesture's duplicate select/click/pointerup events
       window.setTimeout(() => {
         pendingActionRef.current = false;
-        if (!isInteractionLocked()) {
+        if (options.allowWhenInteractionLocked || !isInteractionLocked()) {
           action();
         }
       }, 0);
@@ -443,7 +452,10 @@ export function useConversationActionGroups({
           icon: <CircleDot aria-hidden="true" />,
           id: "mark-unread",
           label: labels.markSessionUnread,
-          onSelect: () => run(() => onMarkConversationUnread(conversation.id))
+          onSelect: () =>
+            run(() => onMarkConversationUnread(conversation.id), {
+              allowWhenInteractionLocked: true
+            })
         }
       ]
     ];

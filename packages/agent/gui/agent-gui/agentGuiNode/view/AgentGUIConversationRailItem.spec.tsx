@@ -468,6 +468,28 @@ describe("AgentGUIConversationRailItem interaction lock", () => {
       expect(onMarkConversationUnread).toHaveBeenCalledWith("session-1")
     );
   });
+
+  it("finishes manual unread from an open menu while the rail recovers", async () => {
+    let locked = false;
+    const onMarkConversationUnread = vi.fn();
+    renderRailItem({
+      isRailInteractionLocked: () => locked,
+      onMarkConversationUnread
+    });
+
+    fireEvent.contextMenu(
+      screen.getByTestId("agent-gui-conversation-item-session-1")
+    );
+    const markUnreadItem = await screen.findByRole("menuitem", {
+      name: "Mark as unread"
+    });
+    locked = true;
+    fireEvent.pointerUp(markUnreadItem, { button: 0 });
+
+    await waitFor(() =>
+      expect(onMarkConversationUnread).toHaveBeenCalledWith("session-1")
+    );
+  });
 });
 
 function renderRailItem(overrides: {
