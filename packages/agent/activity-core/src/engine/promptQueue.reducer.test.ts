@@ -551,6 +551,33 @@ test("send failure stays blocked until send-now retry clears it", () => {
   assert.equal(retried.commands[0]?.type, "queue/sendPrompt");
 });
 
+test("pre-execution process cleanup failure removes the rejected prompt", () => {
+  const available = canonicalLifecycle("settled", 1);
+  const sending = reduce(
+    createInitialPromptQueueState(),
+    enqueue("prompt-1"),
+    available
+  );
+  const failed = reduce(
+    sending.state,
+    commandResult(
+      commandId(sending.commands[0]),
+      "queue/sendPrompt",
+      "failed",
+      {
+        errorCode: "agent.process_cleanup_pending",
+        errorReason: "agent.process_cleanup_pending"
+      }
+    ),
+    available
+  );
+
+  assert.equal(failed.state.recordsBySessionId["session-1"], undefined);
+
+  const retried = reduce(failed.state, submit("prompt-2"), available);
+  assert.equal(send(retried.commands[0]).promptId, "prompt-2");
+});
+
 test("no-active-turn send failure reconciles before retrying queued prompt", () => {
   const available = canonicalLifecycle("settled", 1);
   const sending = reduce(
