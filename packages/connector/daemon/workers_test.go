@@ -22,7 +22,9 @@ func TestOperationSchedulerDeduplicatesActiveOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(executor.release)
-	scheduler.Wait()
+	if err := scheduler.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if executor.calls != 1 {
 		t.Fatalf("executor calls = %d, want 1", executor.calls)
 	}

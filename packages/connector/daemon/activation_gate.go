@@ -78,6 +78,10 @@ func (gate *activationGateHost) FailClosed(ctx context.Context, deadline time.Ti
 	return gate.delegate.FailClosed(ctx, deadline)
 }
 
+func (gate *activationGateHost) Close(ctx context.Context) error {
+	return gate.delegate.Close(ctx)
+}
+
 func (gate *activationGateHost) requiresRecovery() bool {
 	gate.mu.Lock()
 	defer gate.mu.Unlock()

@@ -258,6 +258,10 @@ export function applyConnectorMutationResult(
       applyConnector(state, result.connector);
     }
   }
+  if (!result.operation) {
+    state.revision = Math.max(state.revision, result.revision);
+    return;
+  }
   if (result.operation.connectorKey) {
     const current =
       state.operationsByConnectorKey[result.operation.connectorKey];

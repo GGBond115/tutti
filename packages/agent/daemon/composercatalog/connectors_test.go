@@ -10,10 +10,10 @@ import (
 
 func TestConnectorOptionsProjectsEveryCatalogState(t *testing.T) {
 	source := snapshotStub{snapshot: contracts.AgentConnectorPolicySnapshot{Connectors: []contracts.AgentConnectorPolicy{
-		{Connector: connectorFixture("github", "GitHub"), State: contracts.ConnectorStateConnected},
-		{Connector: connectorFixture("notion", ""), State: contracts.ConnectorStateAuthorizationRequired},
-		{Connector: connectorFixture("legacy", "Legacy"), State: contracts.ConnectorStateUnsupported},
-		{Connector: connectorFixture("slack", "Slack"), State: contracts.ConnectorStateSetupRequired},
+		{Connector: connectorFixture("github", "GitHub"), Presentation: contracts.ConnectorPresentation{State: contracts.ConnectorStateConnected}},
+		{Connector: connectorFixture("notion", ""), Presentation: contracts.ConnectorPresentation{State: contracts.ConnectorStateAuthorizationRequired}},
+		{Connector: connectorFixture("legacy", "Legacy"), Presentation: contracts.ConnectorPresentation{State: contracts.ConnectorStateUnsupported}},
+		{Connector: connectorFixture("slack", "Slack"), Presentation: contracts.ConnectorPresentation{State: contracts.ConnectorStateSetupRequired}},
 	}}}
 
 	options, err := ConnectorOptions(context.Background(), source, contracts.AgentTarget{TargetID: "local:codex", Ownership: contracts.AgentOwnershipLocal})

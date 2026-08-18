@@ -4966,20 +4966,30 @@ export type ConnectorMarketAuthorizationRequest = {
   replacementPolicy?: ConnectorMarketAuthorizationReplacementPolicy;
 };
 
+export type ConnectorMarketAuthorizationCancelRequest = {
+  clientRequestId: string;
+  expectedRevision: number;
+  expectedConnectorRevision: number;
+  operationId: string;
+};
+
 /**
  * When set to replace_active, the Host fences and terminates a different unresolved authorization attempt before starting this request. Omission preserves the legacy resume-or-conflict behavior.
  */
 export type ConnectorMarketAuthorizationReplacementPolicy = "replace_active";
 
 export type ConnectorMarketMutationResponse = {
+  outcome: ConnectorMarketCommandOutcome;
   connector?: ConnectorMarketConnector;
-  operation: ConnectorMarketOperation;
+  operation?: ConnectorMarketOperation;
+  failure?: ConnectorMarketCommandFailure;
   revision: number;
 };
 
 export type ConnectorMarketAuthorizationResponse = {
-  connector: ConnectorMarketConnector;
-  operation: ConnectorMarketOperation;
+  outcome: ConnectorMarketCommandOutcome;
+  connector?: ConnectorMarketConnector;
+  operation?: ConnectorMarketOperation;
   authorizationUrl?: string;
   /**
    * Opaque runtime Authorization View V1 envelope. Clients must validate it with the shared authorization protocol before rendering.
@@ -4987,7 +4997,8 @@ export type ConnectorMarketAuthorizationResponse = {
   authorizationView?: {
     [key: string]: unknown;
   };
-  authorizationExpiresAt: string;
+  authorizationExpiresAt?: string;
+  failure?: ConnectorMarketCommandFailure;
   revision: number;
 };
 
@@ -5002,6 +5013,18 @@ export type ConnectorMarketError = {
   message: string;
   retryable: boolean;
   revision?: number;
+};
+
+export type ConnectorMarketCommandOutcome =
+  | "accepted"
+  | "completed"
+  | "rejected"
+  | "uncertain";
+
+export type ConnectorMarketCommandFailure = {
+  code: ConnectorMarketErrorCode;
+  retryable: boolean;
+  message: string;
 };
 
 export type ConnectorMarketCatalogState =
@@ -17100,6 +17123,10 @@ export type RefreshConnectorMarketError =
 
 export type RefreshConnectorMarketResponses = {
   /**
+   * Refresh command completed or was not accepted
+   */
+  200: ConnectorMarketMutationResponse;
+  /**
    * Refresh operation accepted
    */
   202: ConnectorMarketMutationResponse;
@@ -17149,6 +17176,10 @@ export type InstallConnectorMarketConnectorError =
 
 export type InstallConnectorMarketConnectorResponses = {
   /**
+   * Installation command completed or was not accepted
+   */
+  200: ConnectorMarketMutationResponse;
+  /**
    * Installation operation accepted
    */
   202: ConnectorMarketMutationResponse;
@@ -17193,6 +17224,10 @@ export type UninstallConnectorMarketConnectorError =
   UninstallConnectorMarketConnectorErrors[keyof UninstallConnectorMarketConnectorErrors];
 
 export type UninstallConnectorMarketConnectorResponses = {
+  /**
+   * Uninstallation command completed or was not accepted
+   */
+  200: ConnectorMarketMutationResponse;
   /**
    * Uninstallation operation accepted
    */
@@ -17248,7 +17283,7 @@ export type StartConnectorMarketAuthorizationResponse =
   StartConnectorMarketAuthorizationResponses[keyof StartConnectorMarketAuthorizationResponses];
 
 export type CancelConnectorMarketAuthorizationData = {
-  body?: never;
+  body: ConnectorMarketAuthorizationCancelRequest;
   path: {
     connectorKey: string;
   };
@@ -17258,6 +17293,10 @@ export type CancelConnectorMarketAuthorizationData = {
 
 export type CancelConnectorMarketAuthorizationErrors = {
   /**
+   * Invalid connector-market request
+   */
+  400: ConnectorMarketError;
+  /**
    * Daemon authorization is required
    */
   401: ConnectorMarketError;
@@ -17265,6 +17304,10 @@ export type CancelConnectorMarketAuthorizationErrors = {
    * Connector or operation was not found
    */
   404: ConnectorMarketError;
+  /**
+   * Revision conflict or operation already in progress
+   */
+  409: ConnectorMarketError;
   /**
    * Connector-market capability is temporarily unavailable
    */
@@ -17276,9 +17319,9 @@ export type CancelConnectorMarketAuthorizationError =
 
 export type CancelConnectorMarketAuthorizationResponses = {
   /**
-   * Pending authorization attempt canceled
+   * Structured cancellation command result
    */
-  204: void;
+  200: ConnectorMarketMutationResponse;
 };
 
 export type CancelConnectorMarketAuthorizationResponse =
@@ -17320,6 +17363,10 @@ export type DisconnectConnectorMarketAuthorizationError =
   DisconnectConnectorMarketAuthorizationErrors[keyof DisconnectConnectorMarketAuthorizationErrors];
 
 export type DisconnectConnectorMarketAuthorizationResponses = {
+  /**
+   * Disconnection command completed or was not accepted
+   */
+  200: ConnectorMarketMutationResponse;
   /**
    * Authorization disconnection accepted
    */

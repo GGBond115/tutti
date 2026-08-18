@@ -51,13 +51,47 @@ const (
 	ConnectorStateFailed                ConnectorState = "failed"
 )
 
+// ConnectorAction is a closed semantic action understood by Connector-owned
+// renderers. It describes application admission, not a host navigation target.
+type ConnectorAction string
+
+const (
+	ConnectorActionDetails         ConnectorAction = "details"
+	ConnectorActionInstall         ConnectorAction = "install"
+	ConnectorActionUpdate          ConnectorAction = "update"
+	ConnectorActionAuthorize       ConnectorAction = "authorize"
+	ConnectorActionCancel          ConnectorAction = "cancel"
+	ConnectorActionSelect          ConnectorAction = "select"
+	ConnectorActionRemoveSelection ConnectorAction = "remove_selection"
+	ConnectorActionManage          ConnectorAction = "manage"
+	ConnectorActionDisconnect      ConnectorAction = "disconnect"
+	ConnectorActionUninstall       ConnectorAction = "uninstall"
+	ConnectorActionRetry           ConnectorAction = "retry"
+)
+
+// ConnectorPresentation is the application-owned display and interaction
+// projection. It is intentionally separate from Connector because it depends
+// on account, Agent policy, runtime observation, and catalog freshness and
+// therefore must never be persisted as an entity fact.
+type ConnectorPresentation struct {
+	State          ConnectorState    `json:"state"`
+	ReasonCode     string            `json:"reasonCode,omitempty"`
+	AllowedActions []ConnectorAction `json:"allowedActions"`
+}
+
+// ConnectorView combines a durable Connector entity with its ephemeral,
+// scope-aware application projection. The anonymous embedding keeps the HTTP
+// representation flat without adding presentation to the persisted entity.
+type ConnectorView struct {
+	Connector
+	Presentation ConnectorPresentation `json:"presentation"`
+}
+
 type AgentConnectorPolicy struct {
-	Connector  Connector      `json:"connector"`
-	State      ConnectorState `json:"state"`
-	Supported  bool           `json:"supported"`
-	Granted    bool           `json:"granted"`
-	Selectable bool           `json:"selectable"`
-	ReasonCode string         `json:"reasonCode,omitempty"`
+	Connector    Connector             `json:"connector"`
+	Presentation ConnectorPresentation `json:"presentation"`
+	Supported    bool                  `json:"supported"`
+	Granted      bool                  `json:"granted"`
 }
 
 type AgentConnectorPolicySnapshot struct {

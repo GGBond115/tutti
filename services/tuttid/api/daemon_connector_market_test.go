@@ -20,12 +20,12 @@ type stubConnectorMarketService struct {
 	snapshotFn   func(context.Context) (contracts.Snapshot, error)
 	categoriesFn func(context.Context) ([]contracts.CatalogCategory, error)
 	pageFn       func(context.Context, contracts.CatalogPageQuery) (contracts.CatalogPage, error)
-	installFn    func(context.Context, contracts.ConnectorMutation) (contracts.MutationResult, error)
-	uninstallFn  func(context.Context, contracts.ConnectorMutation) (contracts.MutationResult, error)
-	refreshFn    func(context.Context, contracts.Mutation) (contracts.MutationResult, error)
+	installFn    func(context.Context, contracts.ConnectorMutation) contracts.CommandResult
+	uninstallFn  func(context.Context, contracts.ConnectorMutation) contracts.CommandResult
+	refreshFn    func(context.Context, contracts.Mutation) contracts.CommandResult
 	operationFn  func(context.Context, contracts.OperationScope, string) (contracts.Operation, error)
-	cancelFn     func(context.Context, contracts.OperationScope, string) error
-	beginFn      func(context.Context, contracts.ConnectorMutation, []byte) (contracts.AuthorizationResult, error)
+	cancelFn     func(context.Context, contracts.CancelAuthorizationCommand) contracts.CommandResult
+	beginFn      func(context.Context, contracts.ConnectorMutation, []byte) contracts.AuthorizationCommandResult
 	projectionFn func(context.Context, string, string) (contracts.AuthorizationProjection, error)
 }
 
@@ -53,15 +53,15 @@ func (service stubConnectorMarketService) BeginAuthorization(
 	ctx context.Context,
 	mutation contracts.ConnectorMutation,
 	secret []byte,
-) (contracts.AuthorizationResult, error) {
+) contracts.AuthorizationCommandResult {
 	return service.beginFn(ctx, mutation, secret)
 }
 
-func (service stubConnectorMarketService) CancelAuthorization(ctx context.Context, scope contracts.OperationScope, connectorKey string) error {
+func (service stubConnectorMarketService) CancelAuthorization(ctx context.Context, command contracts.CancelAuthorizationCommand) contracts.CommandResult {
 	if service.cancelFn == nil {
-		return nil
+		return contracts.CommandResult{Outcome: contracts.CommandCompleted}
 	}
-	return service.cancelFn(ctx, scope, connectorKey)
+	return service.cancelFn(ctx, command)
 }
 
 func (service stubConnectorMarketService) GetAuthorizationProjection(ctx context.Context, accountID, connectorKey string) (contracts.AuthorizationProjection, error) {
@@ -90,15 +90,15 @@ func (service stubConnectorMarketService) SnapshotForScope(ctx context.Context, 
 	return snapshot, nil
 }
 
-func (service stubConnectorMarketService) Install(ctx context.Context, mutation contracts.ConnectorMutation) (contracts.MutationResult, error) {
+func (service stubConnectorMarketService) Install(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 	return service.installFn(ctx, mutation)
 }
 
-func (service stubConnectorMarketService) Uninstall(ctx context.Context, mutation contracts.ConnectorMutation) (contracts.MutationResult, error) {
+func (service stubConnectorMarketService) Uninstall(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 	return service.uninstallFn(ctx, mutation)
 }
 
-func (service stubConnectorMarketService) RefreshCatalog(ctx context.Context, mutation contracts.Mutation) (contracts.MutationResult, error) {
+func (service stubConnectorMarketService) RefreshCatalog(ctx context.Context, mutation contracts.Mutation) contracts.CommandResult {
 	return service.refreshFn(ctx, mutation)
 }
 
@@ -196,11 +196,10 @@ func TestProjectConnectorMarketPreservesRuntimeAuthorizationView(t *testing.T) {
 }
 
 func TestDaemonAPICancelsConnectorAuthorizationForActiveAccount(t *testing.T) {
-	var gotScope contracts.OperationScope
-	var gotConnectorKey string
-	service := stubConnectorMarketService{cancelFn: func(_ context.Context, scope contracts.OperationScope, connectorKey string) error {
-		gotScope, gotConnectorKey = scope, connectorKey
-		return nil
+	var got contracts.CancelAuthorizationCommand
+	service := stubConnectorMarketService{cancelFn: func(_ context.Context, command contracts.CancelAuthorizationCommand) contracts.CommandResult {
+		got = command
+		return contracts.CommandResult{Outcome: contracts.CommandCompleted, Revision: 9}
 	}}
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, NewRoutes(connectorMarketTestAPIWithScope(service, func() contracts.OperationScope {
@@ -208,12 +207,16 @@ func TestDaemonAPICancelsConnectorAuthorizationForActiveAccount(t *testing.T) {
 	})))
 
 	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost,
-		"/v1/connector-market/connectors/supabase/authorization:cancel", nil)
-	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusNoContent, recorder.Body.String())
+		"/v1/connector-market/connectors/supabase/authorization:cancel", map[string]any{
+			"clientRequestId": "cancel-1", "expectedRevision": 8,
+			"expectedConnectorRevision": 7, "operationId": "authorization-1",
+		})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
-	if gotScope.AccountID != "account-1" || gotConnectorKey != "supabase" {
-		t.Fatalf("cancel scope=%#v connector=%q", gotScope, gotConnectorKey)
+	if got.AccountID != "account-1" || got.ConnectorKey != "supabase" || got.OperationID != "authorization-1" ||
+		got.ClientRequestID != "cancel-1" || got.ExpectedConnectorRevision == nil || *got.ExpectedConnectorRevision != 7 {
+		t.Fatalf("cancel command=%#v", got)
 	}
 }
 
@@ -223,21 +226,20 @@ func TestDaemonAPIForwardsReplaceActiveAuthorizationPolicy(t *testing.T) {
 		_ context.Context,
 		mutation contracts.ConnectorMutation,
 		_ []byte,
-	) (contracts.AuthorizationResult, error) {
+	) contracts.AuthorizationCommandResult {
 		received = mutation
 		connector := connectorMarketTestConnector()
 		connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStatePending}
-		return contracts.AuthorizationResult{
-			Connector: connector,
-			Operation: contracts.Operation{
-				OperationID: "operation-b", ClientRequestID: mutation.ClientRequestID,
-				ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
-				State: contracts.OperationStateCompleted, CreatedAt: time.Now(), UpdatedAt: time.Now(),
-			},
-			AuthorizationURL:       "https://accounts.example.com/oauth",
-			AuthorizationExpiresAt: time.Now().Add(time.Minute),
-			Revision:               2,
-		}, nil
+		operation := contracts.Operation{
+			OperationID: "operation-b", ClientRequestID: mutation.ClientRequestID,
+			ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
+			State: contracts.OperationStateAccepted, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}
+		expiresAt := time.Now().Add(time.Minute)
+		return contracts.AuthorizationCommandResult{
+			CommandResult:    contracts.CommandResult{Outcome: contracts.CommandAccepted, Connector: &connector, Operation: &operation, Revision: 2},
+			AuthorizationURL: "https://accounts.example.com/oauth", AuthorizationExpiresAt: &expiresAt,
+		}
 	}}
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, NewRoutes(connectorMarketTestAPIWithScope(service, func() contracts.OperationScope {
@@ -293,16 +295,13 @@ func TestDaemonAPIConnectorMarketProjectsApplicationAuthorizationWithoutDerivati
 
 func TestDaemonAPIConnectorMarketInstallMapsUnsupportedImplementation(t *testing.T) {
 	service := stubConnectorMarketService{
-		installFn: func(_ context.Context, mutation contracts.ConnectorMutation) (contracts.MutationResult, error) {
+		installFn: func(_ context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 			if mutation.ConnectorKey != "notion" || mutation.ClientRequestID != "request-1" || mutation.ExpectedRevision != 7 {
 				t.Fatalf("mutation = %#v", mutation)
 			}
-			return contracts.MutationResult{}, contracts.NewDomainError(
-				contracts.ErrorCodeUnsupportedImplementation,
-				"connector implementation is not registered",
-				false,
-				nil,
-			)
+			return contracts.CommandResult{Outcome: contracts.CommandRejected, Failure: &contracts.CommandFailure{
+				Code: contracts.ErrorCodeUnsupportedImplementation, Message: "connector implementation is not registered",
+			}}
 		},
 	}
 	mux := http.NewServeMux()
@@ -312,33 +311,50 @@ func TestDaemonAPIConnectorMarketInstallMapsUnsupportedImplementation(t *testing
 		"clientRequestId":  "request-1",
 		"expectedRevision": 7,
 	})
-	if recorder.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusUnprocessableEntity, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
-	var response tuttigenerated.ConnectorMarketError
+	var response tuttigenerated.ConnectorMarketMutationResponse
 	decodeGeneratedRouteResponse(t, recorder, &response)
-	if response.Code != tuttigenerated.ConnectorImplementationUnsupported || response.Retryable {
+	if response.Outcome != tuttigenerated.ConnectorMarketCommandOutcomeRejected || response.Failure == nil ||
+		response.Failure.Code != tuttigenerated.ConnectorImplementationUnsupported || response.Failure.Retryable {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestDaemonAPIConnectorMarketRefusesMalformedStructuredCommandResult(t *testing.T) {
+	service := stubConnectorMarketService{
+		installFn: func(context.Context, contracts.ConnectorMutation) contracts.CommandResult {
+			return contracts.CommandResult{Outcome: contracts.CommandAccepted, Revision: 8}
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(connectorMarketTestAPI(service)))
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost,
+		"/v1/connector-market/connectors/notion:install", map[string]any{
+			"clientRequestId": "request-invalid", "expectedRevision": 7,
+			"expectedConnectorRevision": 7,
+		})
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusInternalServerError, recorder.Body.String())
 	}
 }
 
 func TestDaemonAPIConnectorMarketUninstallPreservesMutationScope(t *testing.T) {
 	now := time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)
 	service := stubConnectorMarketService{
-		uninstallFn: func(_ context.Context, mutation contracts.ConnectorMutation) (contracts.MutationResult, error) {
+		uninstallFn: func(_ context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 			if mutation.ConnectorKey != "notion" || mutation.ClientRequestID != "request-uninstall-1" ||
 				mutation.ExpectedRevision != 7 || mutation.AccountID != "account-1" {
 				t.Fatalf("mutation = %#v", mutation)
 			}
-			return contracts.MutationResult{
-				Operation: contracts.Operation{
-					OperationID: "operation-uninstall-1", ClientRequestID: mutation.ClientRequestID,
-					ConnectorKey: mutation.ConnectorKey, Kind: contracts.OperationKindUninstall,
-					State: contracts.OperationStateAccepted, Stage: contracts.OperationStageAccepted,
-					CreatedAt: now, UpdatedAt: now,
-				},
-				Revision: 8,
-			}, nil
+			operation := contracts.Operation{
+				OperationID: "operation-uninstall-1", ClientRequestID: mutation.ClientRequestID,
+				ConnectorKey: mutation.ConnectorKey, Kind: contracts.OperationKindUninstall,
+				State: contracts.OperationStateAccepted, Stage: contracts.OperationStageAccepted,
+				CreatedAt: now, UpdatedAt: now,
+			}
+			return contracts.CommandResult{Outcome: contracts.CommandAccepted, Operation: &operation, Revision: 8}
 		},
 	}
 	mux := http.NewServeMux()
@@ -355,7 +371,8 @@ func TestDaemonAPIConnectorMarketUninstallPreservesMutationScope(t *testing.T) {
 	}
 	var response tuttigenerated.ConnectorMarketMutationResponse
 	decodeGeneratedRouteResponse(t, recorder, &response)
-	if response.Operation.Kind != tuttigenerated.Uninstall || response.Revision != 8 {
+	if response.Outcome != tuttigenerated.ConnectorMarketCommandOutcomeAccepted || response.Operation == nil ||
+		response.Operation.Kind != tuttigenerated.Uninstall || response.Revision != 8 {
 		t.Fatalf("response = %#v", response)
 	}
 }
@@ -374,14 +391,15 @@ func TestDaemonAPIConnectorMarketRefreshRejectsNegativeRevision(t *testing.T) {
 }
 
 func TestDaemonAPIConnectorMarketRefreshBindsActiveAccount(t *testing.T) {
-	service := stubConnectorMarketService{refreshFn: func(_ context.Context, mutation contracts.Mutation) (contracts.MutationResult, error) {
+	service := stubConnectorMarketService{refreshFn: func(_ context.Context, mutation contracts.Mutation) contracts.CommandResult {
 		if mutation.Scope.AccountID != "account-a" || mutation.ClientRequestID != "request-refresh" {
 			t.Fatalf("refresh mutation = %#v", mutation)
 		}
-		return contracts.MutationResult{Operation: contracts.Operation{
+		operation := contracts.Operation{
 			OperationID: "refresh-1", ClientRequestID: mutation.ClientRequestID, Kind: contracts.OperationKindRefreshCatalog,
 			Scope: mutation.Scope, State: contracts.OperationStateAccepted, CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
-		}}, nil
+		}
+		return contracts.CommandResult{Outcome: contracts.CommandAccepted, Operation: &operation}
 	}}
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, NewRoutes(connectorMarketTestAPIWithScope(service, func() contracts.OperationScope {

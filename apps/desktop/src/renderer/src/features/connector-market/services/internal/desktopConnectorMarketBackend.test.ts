@@ -39,6 +39,7 @@ test("desktop connector market backend preserves mutation idempotency fields", a
     ) {
       calls.push({ connectorKey, request });
       return {
+        outcome: "accepted" as const,
         operation: {
           operationId: "operation-1",
           clientRequestId: request.clientRequestId,
@@ -58,7 +59,8 @@ test("desktop connector market backend preserves mutation idempotency fields", a
   await backend.installConnector({
     connectorKey: "notion",
     clientRequestId: "request-1",
-    expectedRevision: 8
+    expectedRevision: 8,
+    expectedConnectorRevision: 7
   });
 
   assert.deepEqual(calls, [
@@ -66,7 +68,8 @@ test("desktop connector market backend preserves mutation idempotency fields", a
       connectorKey: "notion",
       request: {
         clientRequestId: "request-1",
-        expectedRevision: 8
+        expectedRevision: 8,
+        expectedConnectorRevision: 7
       }
     }
   ]);
@@ -81,6 +84,7 @@ test("desktop connector market backend delegates uninstall idempotency fields", 
     ) {
       calls.push({ connectorKey, request });
       return {
+        outcome: "accepted" as const,
         operation: {
           operationId: "operation-uninstall-1",
           clientRequestId: request.clientRequestId,
@@ -100,7 +104,8 @@ test("desktop connector market backend delegates uninstall idempotency fields", 
   await backend.uninstallConnector({
     connectorKey: "notion",
     clientRequestId: "request-uninstall-1",
-    expectedRevision: 9
+    expectedRevision: 9,
+    expectedConnectorRevision: 8
   });
 
   assert.deepEqual(calls, [
@@ -108,24 +113,50 @@ test("desktop connector market backend delegates uninstall idempotency fields", 
       connectorKey: "notion",
       request: {
         clientRequestId: "request-uninstall-1",
-        expectedRevision: 9
+        expectedRevision: 9,
+        expectedConnectorRevision: 8
       }
     }
   ]);
 });
 
 test("desktop connector market backend delegates authorization cancellation", async () => {
-  const calls: string[] = [];
+  const calls: unknown[] = [];
   const client = {
-    async cancelConnectorMarketAuthorization(connectorKey: string) {
-      calls.push(connectorKey);
+    async cancelConnectorMarketAuthorization(
+      connectorKey: string,
+      request: {
+        clientRequestId: string;
+        expectedRevision: number;
+        expectedConnectorRevision: number;
+        operationId: string;
+      }
+    ) {
+      calls.push({ connectorKey, request });
+      return { outcome: "completed" as const, revision: 9 };
     }
   } as ConnectorMarketClient;
 
   const backend = createDesktopConnectorMarketBackend(client);
-  await backend.cancelAuthorization({ connectorKey: "supabase" });
+  await backend.cancelAuthorization({
+    connectorKey: "supabase",
+    clientRequestId: "cancel-1",
+    expectedRevision: 8,
+    expectedConnectorRevision: 7,
+    operationId: "authorization-1"
+  });
 
-  assert.deepEqual(calls, ["supabase"]);
+  assert.deepEqual(calls, [
+    {
+      connectorKey: "supabase",
+      request: {
+        clientRequestId: "cancel-1",
+        expectedRevision: 8,
+        expectedConnectorRevision: 7,
+        operationId: "authorization-1"
+      }
+    }
+  ]);
 });
 
 test("desktop connector market backend preserves structured daemon errors", async () => {

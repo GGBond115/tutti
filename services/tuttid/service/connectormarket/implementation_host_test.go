@@ -161,7 +161,7 @@ func testCLIHostWithSetup(t *testing.T, processes connectorprocess.Transport, se
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = host.Close() })
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
 	connector := contracts.Connector{Key: "github", Installation: contracts.Installation{State: contracts.InstallationStateInstalled,
 		InstalledReleaseDigest: implementationHostTestReleaseDigest}, Authorization: contracts.Authorization{State: contracts.AuthorizationStateNotRequired}}
 	connector.Release = completeImplementationHostTestRelease(contracts.Release{Manifest: contracts.Manifest{AuthorizationKind: "none", IconURL: "data:image/png;base64,iVBORw0KGgo=",
@@ -408,7 +408,7 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = host.Close() })
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
 	connector := contracts.Connector{Key: "github", Installation: contracts.Installation{
 		State: contracts.InstallationStateInstalled, InstalledReleaseDigest: implementationHostTestReleaseDigest,
 	}, Authorization: contracts.Authorization{State: contracts.AuthorizationStateNotRequired}}

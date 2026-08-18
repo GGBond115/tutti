@@ -11,9 +11,14 @@ probed.
 capabilities, poll, clean up, or start goroutines. The owning composition root
 must call `Start(ctx)` before bootstrap or serving Connector commands. `Start`
 registers every background worker under one cancellable lifecycle and rolls
-back a failed start. `Close(ctx)` is idempotent, cancels the same lifecycle, and
-waits for registered workers plus scheduled operations only until the caller's
-deadline; a later call continues waiting for that same shutdown.
+back a failed start. `Close(ctx)` is idempotent: it first closes command and
+runtime activation admission, cancels the same lifecycle, and starts an
+immediate capability-publication disable. Shutdown then uses independent
+bounded phases for command drain, scope transition, workers, scheduled
+operations, and the implementation host. After it owns the scope transition it
+performs a definitive serialized disable, so an older delayed enable cannot be
+the final completed publication. The caller context only bounds that caller's
+wait; the fail-closed shutdown coordinator continues to its own bounded result.
 
 The host also starts lifecycle maintenance immediately and repeats it hourly.
 Defaults retain terminal operation lookup/idempotency results for 24 hours and

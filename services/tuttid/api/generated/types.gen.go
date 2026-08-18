@@ -1477,6 +1477,30 @@ func (e ConnectorMarketCategoryKind) Valid() bool {
 	}
 }
 
+// Defines values for ConnectorMarketCommandOutcome.
+const (
+	ConnectorMarketCommandOutcomeAccepted  ConnectorMarketCommandOutcome = "accepted"
+	ConnectorMarketCommandOutcomeCompleted ConnectorMarketCommandOutcome = "completed"
+	ConnectorMarketCommandOutcomeRejected  ConnectorMarketCommandOutcome = "rejected"
+	ConnectorMarketCommandOutcomeUncertain ConnectorMarketCommandOutcome = "uncertain"
+)
+
+// Valid indicates whether the value is a known member of the ConnectorMarketCommandOutcome enum.
+func (e ConnectorMarketCommandOutcome) Valid() bool {
+	switch e {
+	case ConnectorMarketCommandOutcomeAccepted:
+		return true
+	case ConnectorMarketCommandOutcomeCompleted:
+		return true
+	case ConnectorMarketCommandOutcomeRejected:
+		return true
+	case ConnectorMarketCommandOutcomeUncertain:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectorMarketCompatibilityState.
 const (
 	Supported                 ConnectorMarketCompatibilityState = "supported"
@@ -4608,25 +4632,25 @@ func (e WorkspaceWorkflowCheckpointKind) Valid() bool {
 
 // Defines values for WorkspaceWorkflowCheckpointStatus.
 const (
-	WorkspaceWorkflowCheckpointStatusAccepted   WorkspaceWorkflowCheckpointStatus = "accepted"
-	WorkspaceWorkflowCheckpointStatusCanceled   WorkspaceWorkflowCheckpointStatus = "canceled"
-	WorkspaceWorkflowCheckpointStatusPending    WorkspaceWorkflowCheckpointStatus = "pending"
-	WorkspaceWorkflowCheckpointStatusRejected   WorkspaceWorkflowCheckpointStatus = "rejected"
-	WorkspaceWorkflowCheckpointStatusSuperseded WorkspaceWorkflowCheckpointStatus = "superseded"
+	Accepted   WorkspaceWorkflowCheckpointStatus = "accepted"
+	Canceled   WorkspaceWorkflowCheckpointStatus = "canceled"
+	Pending    WorkspaceWorkflowCheckpointStatus = "pending"
+	Rejected   WorkspaceWorkflowCheckpointStatus = "rejected"
+	Superseded WorkspaceWorkflowCheckpointStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceWorkflowCheckpointStatus enum.
 func (e WorkspaceWorkflowCheckpointStatus) Valid() bool {
 	switch e {
-	case WorkspaceWorkflowCheckpointStatusAccepted:
+	case Accepted:
 		return true
-	case WorkspaceWorkflowCheckpointStatusCanceled:
+	case Canceled:
 		return true
-	case WorkspaceWorkflowCheckpointStatusPending:
+	case Pending:
 		return true
-	case WorkspaceWorkflowCheckpointStatusRejected:
+	case Rejected:
 		return true
-	case WorkspaceWorkflowCheckpointStatusSuperseded:
+	case Superseded:
 		return true
 	default:
 		return false
@@ -6287,6 +6311,14 @@ type ConnectorMarketAuthorization struct {
 	State       ConnectorMarketAuthorizationState `json:"state"`
 }
 
+// ConnectorMarketAuthorizationCancelRequest defines model for ConnectorMarketAuthorizationCancelRequest.
+type ConnectorMarketAuthorizationCancelRequest struct {
+	ClientRequestId           string `json:"clientRequestId"`
+	ExpectedConnectorRevision int64  `json:"expectedConnectorRevision"`
+	ExpectedRevision          int64  `json:"expectedRevision"`
+	OperationId               string `json:"operationId"`
+}
+
 // ConnectorMarketAuthorizationReplacementPolicy When set to replace_active, the Host fences and terminates a different unresolved authorization attempt before starting this request. Omission preserves the legacy resume-or-conflict behavior.
 type ConnectorMarketAuthorizationReplacementPolicy string
 
@@ -6303,14 +6335,16 @@ type ConnectorMarketAuthorizationRequest struct {
 
 // ConnectorMarketAuthorizationResponse defines model for ConnectorMarketAuthorizationResponse.
 type ConnectorMarketAuthorizationResponse struct {
-	AuthorizationExpiresAt time.Time `json:"authorizationExpiresAt"`
-	AuthorizationUrl       *string   `json:"authorizationUrl,omitempty"`
+	AuthorizationExpiresAt *time.Time `json:"authorizationExpiresAt,omitempty"`
+	AuthorizationUrl       *string    `json:"authorizationUrl,omitempty"`
 
 	// AuthorizationView Opaque runtime Authorization View V1 envelope. Clients must validate it with the shared authorization protocol before rendering.
-	AuthorizationView *map[string]interface{}  `json:"authorizationView,omitempty"`
-	Connector         ConnectorMarketConnector `json:"connector"`
-	Operation         ConnectorMarketOperation `json:"operation"`
-	Revision          int64                    `json:"revision"`
+	AuthorizationView *map[string]interface{}        `json:"authorizationView,omitempty"`
+	Connector         *ConnectorMarketConnector      `json:"connector,omitempty"`
+	Failure           *ConnectorMarketCommandFailure `json:"failure,omitempty"`
+	Operation         *ConnectorMarketOperation      `json:"operation,omitempty"`
+	Outcome           ConnectorMarketCommandOutcome  `json:"outcome"`
+	Revision          int64                          `json:"revision"`
 }
 
 // ConnectorMarketAuthorizationState defines model for ConnectorMarketAuthorizationState.
@@ -6368,6 +6402,16 @@ type ConnectorMarketCategory struct {
 
 // ConnectorMarketCategoryKind defines model for ConnectorMarketCategory.Kind.
 type ConnectorMarketCategoryKind string
+
+// ConnectorMarketCommandFailure defines model for ConnectorMarketCommandFailure.
+type ConnectorMarketCommandFailure struct {
+	Code      ConnectorMarketErrorCode `json:"code"`
+	Message   string                   `json:"message"`
+	Retryable bool                     `json:"retryable"`
+}
+
+// ConnectorMarketCommandOutcome defines model for ConnectorMarketCommandOutcome.
+type ConnectorMarketCommandOutcome string
 
 // ConnectorMarketCompatibility defines model for ConnectorMarketCompatibility.
 type ConnectorMarketCompatibility struct {
@@ -6469,9 +6513,11 @@ type ConnectorMarketMutationRequest struct {
 
 // ConnectorMarketMutationResponse defines model for ConnectorMarketMutationResponse.
 type ConnectorMarketMutationResponse struct {
-	Connector *ConnectorMarketConnector `json:"connector,omitempty"`
-	Operation ConnectorMarketOperation  `json:"operation"`
-	Revision  int64                     `json:"revision"`
+	Connector *ConnectorMarketConnector      `json:"connector,omitempty"`
+	Failure   *ConnectorMarketCommandFailure `json:"failure,omitempty"`
+	Operation *ConnectorMarketOperation      `json:"operation,omitempty"`
+	Outcome   ConnectorMarketCommandOutcome  `json:"outcome"`
+	Revision  int64                          `json:"revision"`
 }
 
 // ConnectorMarketOperation defines model for ConnectorMarketOperation.
@@ -10756,6 +10802,9 @@ type SetSystemAgentTargetEnabledJSONRequestBody = SetSystemAgentTargetEnabledReq
 
 // InvokeCliCommandJSONRequestBody defines body for InvokeCliCommand for application/json ContentType.
 type InvokeCliCommandJSONRequestBody = CliInvokeRequest
+
+// CancelConnectorMarketAuthorizationJSONRequestBody defines body for CancelConnectorMarketAuthorization for application/json ContentType.
+type CancelConnectorMarketAuthorizationJSONRequestBody = ConnectorMarketAuthorizationCancelRequest
 
 // DisconnectConnectorMarketAuthorizationJSONRequestBody defines body for DisconnectConnectorMarketAuthorization for application/json ContentType.
 type DisconnectConnectorMarketAuthorizationJSONRequestBody = ConnectorMarketMutationRequest

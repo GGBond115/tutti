@@ -48,7 +48,7 @@ func (s *Service) validatePromptConnectors(ctx context.Context, content []Prompt
 		if _, ok := requested[key]; !ok {
 			continue
 		}
-		if policy.State != contracts.ConnectorStateConnected {
+		if policy.Presentation.State != contracts.ConnectorStateConnected {
 			return fmt.Errorf("%w: local connector %q is not ready", ErrInvalidArgument, key)
 		}
 		delete(requested, key)

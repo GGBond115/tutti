@@ -1,6 +1,7 @@
 import type {
   Connector,
   ConnectorAuthorizationInput,
+  ConnectorAuthorizationCancelInput,
   ConnectorAuthorizationResult,
   ConnectorMarketCatalogPage,
   ConnectorMarketCategory,
@@ -34,7 +35,9 @@ export interface ConnectorMarketBackend {
   beginAuthorization(
     input: ConnectorAuthorizationInput
   ): Promise<ConnectorAuthorizationResult>;
-  cancelAuthorization(input: { connectorKey: string }): Promise<void>;
+  cancelAuthorization(
+    input: ConnectorAuthorizationCancelInput
+  ): Promise<ConnectorMutationResult>;
   disconnectAuthorization(
     input: ConnectorMutationInput
   ): Promise<ConnectorMutationResult>;

@@ -186,38 +186,119 @@ func (application *service) BeginAuthorization(
 	}, nil
 }
 
-// CancelAuthorization terminates the unresolved local authorization attempt.
-// It does not disconnect an already-authorized account connection.
-func (application *service) CancelAuthorization(
+// cancelAuthorizationCommand terminates one exact unresolved attempt. The
+// operation identity and entity revision are checked while holding the
+// Connector authorization lane, so an older dialog cannot cancel a newer
+// authorization attempt for the same Connector.
+func (application *service) cancelAuthorizationCommand(
 	ctx context.Context,
-	scope contracts.OperationScope,
-	connectorKey string,
-) error {
-	connectorKey = strings.TrimSpace(connectorKey)
-	scope.AccountID = strings.TrimSpace(scope.AccountID)
-	if connectorKey == "" {
-		return invalidRequest("connectorKey is required")
+	command contracts.CancelAuthorizationCommand,
+) (uint64, error) {
+	command.ConnectorKey = strings.TrimSpace(command.ConnectorKey)
+	command.AccountID = strings.TrimSpace(command.AccountID)
+	command.OperationID = strings.TrimSpace(command.OperationID)
+	if err := validateConnectorMutation(command.ConnectorMutation); err != nil {
+		return 0, err
 	}
-	application.interruptAuthorizationRequest(scope.AccountID, connectorKey)
-	unlock := application.lockAuthorization(scope.AccountID, connectorKey)
+	if command.OperationID == "" {
+		return 0, invalidRequest("operationId is required")
+	}
+	unlock := application.lockAuthorization(command.AccountID, command.ConnectorKey)
 	defer unlock()
-	connector, err := application.config.Repository.Connector(ctx, connectorKey)
+	operation, err := application.config.Repository.OperationForScope(
+		ctx, contracts.OperationScope{AccountID: command.AccountID}, command.OperationID,
+	)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	operations, err := application.config.Repository.UnresolvedAuthorizationSessionOperations(ctx, scope)
-	if err != nil {
-		return err
+	if operation.Kind != contracts.OperationKindStartAuthorization ||
+		operation.ConnectorKey != command.ConnectorKey ||
+		operation.Scope.AccountID != command.AccountID ||
+		operation.Execution.AuthorizationSession == nil {
+		return 0, contracts.NewDomainError(
+			contracts.ErrorCodeRevisionConflict,
+			"authorization attempt is no longer active",
+			false,
+			nil,
+		)
 	}
-	for _, operation := range operations {
-		if operation.ConnectorKey != connectorKey {
-			continue
+	session := operation.Execution.AuthorizationSession
+	if session.CancellationClientRequestID == command.ClientRequestID &&
+		session.Resolution == contracts.AuthorizationSessionResolutionSuperseded {
+		connector, connectorErr := application.config.Repository.Connector(ctx, command.ConnectorKey)
+		if connectorErr != nil {
+			return 0, connectorErr
 		}
-		if err := application.cancelAuthorizationAttempt(ctx, connector, operation, false); err != nil {
+		return connector.Revision, nil
+	}
+	if session.CancellationClientRequestID != "" || session.IsResolved() {
+		return 0, contracts.NewDomainError(
+			contracts.ErrorCodeRevisionConflict,
+			"authorization attempt is no longer active",
+			false,
+			nil,
+		)
+	}
+	if err := application.verifyConnectorMutationRevision(ctx, command.ConnectorMutation); err != nil {
+		return 0, err
+	}
+	operation, err = application.recordAuthorizationCancellationRequest(
+		ctx, operation.OperationID, command.ClientRequestID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	connector, err := application.config.Repository.Connector(ctx, command.ConnectorKey)
+	if err != nil {
+		return 0, err
+	}
+	application.interruptAuthorizationRequestIfClientRequestID(
+		command.AccountID, command.ConnectorKey, operation.ClientRequestID,
+	)
+	if err := application.cancelAuthorizationAttempt(ctx, connector, operation, false); err != nil {
+		return 0, err
+	}
+	if err := application.resetPendingAuthorizationState(
+		ctx, contracts.OperationScope{AccountID: command.AccountID}, command.ConnectorKey,
+	); err != nil {
+		return 0, err
+	}
+	current, err := application.config.Repository.Connector(ctx, command.ConnectorKey)
+	if err != nil {
+		return 0, err
+	}
+	return current.Revision, nil
+}
+
+func (application *service) recordAuthorizationCancellationRequest(
+	ctx context.Context,
+	operationID, clientRequestID string,
+) (contracts.Operation, error) {
+	var recorded contracts.Operation
+	err := application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		operation, err := tx.Operation(operationID)
+		if err != nil {
 			return err
 		}
-	}
-	return application.resetPendingAuthorizationState(ctx, scope, connectorKey)
+		session := operation.Execution.AuthorizationSession
+		if session == nil || session.IsResolved() ||
+			session.CancellationClientRequestID != "" && session.CancellationClientRequestID != clientRequestID {
+			return contracts.NewDomainError(
+				contracts.ErrorCodeRevisionConflict,
+				"authorization attempt is no longer active",
+				false,
+				nil,
+			)
+		}
+		session.CancellationClientRequestID = clientRequestID
+		operation.Execution.AuthorizationSession = session
+		if err := tx.SaveOperation(operation); err != nil {
+			return err
+		}
+		recorded = operation
+		return nil
+	})
+	return recorded, err
 }
 
 func (application *service) lockAuthorization(accountID, connectorKey string) func() {
@@ -297,6 +378,18 @@ func (application *service) interruptAuthorizationRequest(accountID, connectorKe
 	key := authorizationLaneKey(accountID, connectorKey)
 	application.authorizationMu.Lock()
 	if execution := application.authorizationRequests[key]; execution != nil {
+		execution.cancel()
+	}
+	application.authorizationMu.Unlock()
+}
+
+func (application *service) interruptAuthorizationRequestIfClientRequestID(
+	accountID, connectorKey, clientRequestID string,
+) {
+	key := authorizationLaneKey(accountID, connectorKey)
+	application.authorizationMu.Lock()
+	if execution := application.authorizationRequests[key]; execution != nil &&
+		execution.clientRequestID == clientRequestID {
 		execution.cancel()
 	}
 	application.authorizationMu.Unlock()

@@ -119,6 +119,10 @@ type ImplementationCommands interface {
 	DeactivateRuntime(ctx context.Context, request contracts.RuntimeDeactivationRequest) error
 	// FailClosed stops all capability publication before best-effort fencing.
 	FailClosed(ctx context.Context, deadline time.Time) error
+	// Close permanently releases the implementation host. Callers always supply
+	// a bounded lifecycle context; implementations must not invent an unbounded
+	// shutdown path behind this port.
+	Close(ctx context.Context) error
 }
 
 // RouteObservation is the narrow physical-state side of the runtime boundary.

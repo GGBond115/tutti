@@ -117,7 +117,7 @@ func (host *Host) ActivateScope(ctx context.Context, scope contracts.OperationSc
 	return nil
 }
 
-func (host *Host) bootstrapForScope(ctx context.Context, scope contracts.OperationScope) error {
+func (host *Host) bootstrapForScope(ctx context.Context, scope contracts.OperationScope) (resultErr error) {
 	host.bootstrapMu.Lock()
 	defer host.bootstrapMu.Unlock()
 	sameScope := host.bootstrapScope == scope
@@ -141,15 +141,18 @@ func (host *Host) bootstrapForScope(ctx context.Context, scope contracts.Operati
 			return
 		}
 		host.activationGate.setOpen(scope, false)
-		_ = host.applyCapabilityPublication(context.Background(), scope, false)
-		fenceContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cleanupContext, cancel := host.newShutdownContext()
 		defer cancel()
-		if err := host.implementationCommands.FailClosed(fenceContext, time.Now().Add(10*time.Second)); err != nil {
-			slog.Error("connector market bootstrap rollback runtime fence failed", "error", err)
-		}
-		if err := host.runtimeMaintenance.FenceInstalledRuntimesForScope(fenceContext, scope); err != nil {
-			slog.Error("connector market bootstrap rollback fence failed", "error", err)
-		}
+		publicationErr := host.runBounded(cleanupContext, func(callCtx context.Context) error {
+			return host.applyCapabilityPublication(callCtx, scope, false)
+		})
+		runtimeErr := host.runBounded(cleanupContext, func(callCtx context.Context) error {
+			return host.implementationCommands.FailClosed(callCtx, host.shutdownDeadline(callCtx))
+		})
+		fenceErr := host.runBounded(cleanupContext, func(callCtx context.Context) error {
+			return host.runtimeMaintenance.FenceInstalledRuntimesForScope(callCtx, scope)
+		})
+		resultErr = errors.Join(resultErr, publicationErr, runtimeErr, fenceErr)
 	}()
 	// Fence any route left by an interrupted previous bootstrap before recovery
 	// can replay host-touching operations. Reconcile calls remain staged behind
@@ -193,11 +196,10 @@ func (host *Host) bootstrapForScope(ctx context.Context, scope contracts.Operati
 	if err := host.requireBootstrapLifecycle(); err != nil {
 		return err
 	}
-	if err := host.applyCapabilityPublication(ctx, scope, true); err != nil {
+	if err := host.enableCapabilityPublication(ctx, scope); err != nil {
 		return err
 	}
 	if err := host.requireBootstrapLifecycle(); err != nil {
-		_ = host.applyCapabilityPublication(context.Background(), scope, false)
 		return err
 	}
 	host.activationGate.markRecovered()

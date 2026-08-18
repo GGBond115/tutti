@@ -103,7 +103,7 @@ func connectorPolicyTestSnapshot(target contracts.AgentTarget, snapshot contract
 			state = contracts.ConnectorStateConnected
 		}
 		result.Connectors = append(result.Connectors, contracts.AgentConnectorPolicy{
-			Connector: connector, State: state, Supported: true, Granted: true, Selectable: state == contracts.ConnectorStateConnected,
+			Connector: connector, Presentation: contracts.ConnectorPresentation{State: state}, Supported: true, Granted: true,
 		})
 	}
 	return result

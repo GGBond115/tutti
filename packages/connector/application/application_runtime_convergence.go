@@ -74,7 +74,7 @@ func (application *service) finalizeInstallAfterRuntime(
 			return err
 		}
 		if operation.Target == nil || connector.Installation.CandidateReleaseDigest != operation.Target.ReleaseDigest {
-			return contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "connector install candidate changed before completion", true, nil)
+			return contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "connector install candidate changed before completion", false, nil)
 		}
 		convergence, err := tx.RuntimeConvergence(operation.Scope, connector.Key)
 		if err != nil {
@@ -128,7 +128,7 @@ func (application *service) prepareUninstallRuntimeDisabled(
 		}
 		if connector.Installation.State != contracts.InstallationStateUninstalling ||
 			connector.Installation.InstalledReleaseDigest != release.ReleaseDigest {
-			return contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "connector uninstall target changed", true, nil)
+			return contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "connector uninstall target changed", false, nil)
 		}
 		binding.Enabled = false
 		now := application.config.Now().UTC()
@@ -453,7 +453,7 @@ func (application *service) ConvergeRuntime(
 	}
 	if release.ReleaseDigest != convergence.Desired.ReleaseDigest {
 		return application.retryRuntimeConvergence(ctx, convergence,
-			contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "installed connector changed during runtime convergence", true, nil))
+			contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "installed connector changed during runtime convergence", false, nil))
 	}
 	operationID := fmt.Sprintf("runtime/%s/%s/%d", application.config.BootEpoch,
 		convergence.Desired.ConnectorKey, convergence.Desired.Generation)
@@ -628,7 +628,7 @@ func (application *service) runtimeConnectorAndReleaseForDigest(
 		connector.Installation.CandidateReleaseDigest == releaseDigest
 	if !current && !candidate {
 		return contracts.Connector{}, contracts.Release{}, contracts.NewDomainError(
-			contracts.ErrorCodeRevisionConflict, "runtime target is not the current or candidate release", true, nil,
+			contracts.ErrorCodeRevisionConflict, "runtime target is not the current or candidate release", false, nil,
 		)
 	}
 	release, err := application.config.Repository.InstalledRelease(ctx, connector.Key, releaseDigest)
@@ -662,7 +662,7 @@ func (application *service) saveRuntimeDesired(
 		}
 		if connector.Installation.State != contracts.InstallationStateInstalled ||
 			connector.Installation.InstalledReleaseDigest != releaseDigest {
-			return contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "installed connector changed while planning runtime", true, nil)
+			return contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "installed connector changed while planning runtime", false, nil)
 		}
 		convergence, changed, err := upsertRuntimeDesired(
 			tx, scope, connectorKey, releaseDigest, binding, nextGeneration(connector.Revision), forceNewGeneration,

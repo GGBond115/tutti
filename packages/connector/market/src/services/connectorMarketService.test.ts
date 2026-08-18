@@ -9,6 +9,7 @@ import type {
   ConnectorMarketChangedEvent,
   ConnectorMarketEventSource,
   ConnectorMarketSnapshot,
+  ConnectorMutationResult,
   ConnectorOperation
 } from "../contracts/index.ts";
 import {
@@ -69,13 +70,56 @@ function snapshot(
   };
 }
 
-function backendWith(
-  overrides: Partial<ConnectorMarketBackend>
-): ConnectorMarketBackend {
+type LegacyCommandResult = Omit<ConnectorMutationResult, "outcome"> & {
+  outcome?: ConnectorMutationResult["outcome"];
+};
+type LegacyAuthorizationResult = Omit<
+  ConnectorAuthorizationResult,
+  "outcome"
+> & { outcome?: ConnectorAuthorizationResult["outcome"] };
+type TestBackendOverrides = Omit<
+  Partial<ConnectorMarketBackend>,
+  | "refreshCatalog"
+  | "installConnector"
+  | "uninstallConnector"
+  | "beginAuthorization"
+  | "cancelAuthorization"
+  | "disconnectAuthorization"
+> & {
+  refreshCatalog?: (
+    input: Parameters<ConnectorMarketBackend["refreshCatalog"]>[0]
+  ) => Promise<LegacyCommandResult>;
+  installConnector?: (
+    input: Parameters<ConnectorMarketBackend["installConnector"]>[0]
+  ) => Promise<LegacyCommandResult>;
+  uninstallConnector?: (
+    input: Parameters<ConnectorMarketBackend["uninstallConnector"]>[0]
+  ) => Promise<LegacyCommandResult>;
+  beginAuthorization?: (
+    input: ConnectorAuthorizationInput
+  ) => Promise<LegacyAuthorizationResult>;
+  cancelAuthorization?: (
+    input: Parameters<ConnectorMarketBackend["cancelAuthorization"]>[0]
+  ) => Promise<LegacyCommandResult | void>;
+  disconnectAuthorization?: (
+    input: Parameters<ConnectorMarketBackend["disconnectAuthorization"]>[0]
+  ) => Promise<LegacyCommandResult>;
+};
+
+function acceptedTestResult<T extends LegacyCommandResult>(result: T) {
+  return {
+    ...result,
+    outcome:
+      result.outcome ??
+      (result.operation?.state === "completed" ? "completed" : "accepted")
+  } as T & ConnectorMutationResult;
+}
+
+function backendWith(overrides: TestBackendOverrides): ConnectorMarketBackend {
   const unsupported = async (): Promise<never> => {
     throw new Error("not implemented in test");
   };
-  return {
+  const backend: ConnectorMarketBackend = {
     getSnapshot: async () => snapshot(0, []),
     listCategories: async () => [],
     listCatalogPage: unsupported,
@@ -86,9 +130,40 @@ function backendWith(
     uninstallConnector: unsupported,
     beginAuthorization: unsupported,
     cancelAuthorization: unsupported,
-    disconnectAuthorization: unsupported,
-    ...overrides
+    disconnectAuthorization: unsupported
   };
+  Object.assign(backend, overrides);
+  if (overrides.refreshCatalog) {
+    backend.refreshCatalog = async (input) =>
+      acceptedTestResult(await overrides.refreshCatalog!(input));
+  }
+  if (overrides.installConnector) {
+    backend.installConnector = async (input) =>
+      acceptedTestResult(await overrides.installConnector!(input));
+  }
+  if (overrides.uninstallConnector) {
+    backend.uninstallConnector = async (input) =>
+      acceptedTestResult(await overrides.uninstallConnector!(input));
+  }
+  if (overrides.disconnectAuthorization) {
+    backend.disconnectAuthorization = async (input) =>
+      acceptedTestResult(await overrides.disconnectAuthorization!(input));
+  }
+  if (overrides.beginAuthorization) {
+    backend.beginAuthorization = async (input) =>
+      acceptedTestResult(
+        await overrides.beginAuthorization!(input)
+      ) as ConnectorAuthorizationResult;
+  }
+  if (overrides.cancelAuthorization) {
+    backend.cancelAuthorization = async (input) => {
+      const result = await overrides.cancelAuthorization!(input);
+      return result
+        ? acceptedTestResult(result)
+        : { outcome: "completed", revision: input.expectedRevision };
+    };
+  }
+  return backend;
 }
 
 function admitFreshCatalog(service: ConnectorMarketService): void {
@@ -96,6 +171,11 @@ function admitFreshCatalog(service: ConnectorMarketService): void {
   service.dataStore.catalogState = "ready";
   service.dataStore.catalogFreshness = { state: "fresh" };
   service.dataStore.catalogMutationState = "allowed";
+  const available = connector("github", service.dataStore.revision || 1);
+  service.dataStore.connectorsByKey.github = available;
+  if (!service.dataStore.connectorKeys.includes("github")) {
+    service.dataStore.connectorKeys.push("github");
+  }
 }
 
 test("exposes commands directly on a class service and state through dataStore", async () => {
@@ -476,6 +556,7 @@ test("coalesces concurrent catalog refreshes", async () => {
   const second = service.refreshCatalog();
   assert.equal(calls, 1);
   refresh.resolve({
+    outcome: "accepted",
     operation: {
       operationId: "operation-1",
       clientRequestId: "request-1",
@@ -509,6 +590,7 @@ test("rejects overlapping mutations for one connector", async () => {
   );
   await assert.rejects(service.install("github"), ConnectorMarketBusyError);
   install.resolve({
+    outcome: "accepted",
     connector: connector("github", 1),
     operation: {
       operationId: "operation-1",
@@ -1243,6 +1325,7 @@ test("does not let a stale authorization response overwrite a newer daemon snaps
   const staleConnector = connector("github", 2);
   staleConnector.authorization = { state: "pending" };
   authorization.resolve({
+    outcome: "accepted",
     connector: staleConnector,
     operation: operation("start_authorization", 2),
     authorizationUrl: "https://authorization.example/start",
@@ -1329,6 +1412,7 @@ test("a new authorization command supersedes the previous caller", async () => {
   const connected = connector("notion", 2);
   connected.authorization = { state: "connected" };
   secondAuthorization.resolve({
+    outcome: "completed",
     connector: connected,
     operation: {
       ...operation("start_authorization", 2),
@@ -1339,6 +1423,7 @@ test("a new authorization command supersedes the previous caller", async () => {
   });
   await second;
   firstAuthorization.resolve({
+    outcome: "completed",
     connector: connected,
     operation: {
       ...operation("start_authorization", 2),
@@ -1442,7 +1527,7 @@ test("converges a busy authorization continuation from a connected snapshot", as
       connectorKey: "notion",
       clientRequestId: "one-notion-authorization",
       replacementPolicy: "replace_active",
-      expectedRevision: 1,
+      expectedRevision: 2,
       expectedConnectorRevision: 2
     }
   ]);
@@ -1455,7 +1540,7 @@ test("converges a busy authorization continuation from a connected snapshot", as
   service.dispose();
 });
 
-test("recovers one stale authorization revision without dropping the secret", async () => {
+test("refreshes one stale authorization revision without replaying the secret", async () => {
   const requests: Array<{
     clientRequestId: string;
     expectedRevision: number;
@@ -1481,22 +1566,14 @@ test("recovers one stale authorization revision without dropping the secret", as
       },
       beginAuthorization: async (input) => {
         requests.push(input);
-        if (requests.length === 1) {
-          throw Object.assign(new Error("stale revision"), {
-            code: "connector_market_revision_conflict",
-            retryable: true
-          });
-        }
-        const connected = connector("token-mail", 5);
-        connected.authorization = { state: "connected" };
         return {
-          connector: connected,
-          operation: {
-            ...operation("start_authorization", 5),
-            connectorKey: "token-mail",
-            state: "completed"
-          },
-          revision: 5
+          outcome: "rejected",
+          revision: 4,
+          failure: {
+            code: "connector_market_revision_conflict",
+            message: "stale revision",
+            retryable: false
+          }
         };
       }
     }),
@@ -1504,7 +1581,16 @@ test("recovers one stale authorization revision without dropping the secret", as
   });
   await service.ensureLoaded();
 
-  await service.beginAuthorization("token-mail", "secret-value");
+  await assert.rejects(
+    service.beginAuthorization("token-mail", "secret-value"),
+    (error: unknown) =>
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "connector_market_revision_conflict" &&
+      "retryable" in error &&
+      error.retryable === false
+  );
 
   assert.equal(snapshotReads, 2);
   assert.deepEqual(requests, [
@@ -1515,20 +1601,12 @@ test("recovers one stale authorization revision without dropping the secret", as
       expectedRevision: 1,
       expectedConnectorRevision: 1,
       secret: "secret-value"
-    },
-    {
-      connectorKey: "token-mail",
-      clientRequestId: "one-secret-request",
-      replacementPolicy: "replace_active",
-      expectedRevision: 4,
-      expectedConnectorRevision: 4,
-      secret: "secret-value"
     }
   ]);
-  assert.equal(service.dataStore.revision, 5);
+  assert.equal(service.dataStore.revision, 4);
   assert.equal(
     service.dataStore.connectorsByKey["token-mail"]?.authorization.state,
-    "connected"
+    "disconnected"
   );
   service.dispose();
 });
@@ -1622,14 +1700,14 @@ test("continues one authorization session, opens each URL once, and clears loadi
       connectorKey: "lark-cli",
       clientRequestId: "one-authorization-request",
       replacementPolicy: "replace_active",
-      expectedRevision: 1,
+      expectedRevision: 2,
       expectedConnectorRevision: 2
     },
     {
       connectorKey: "lark-cli",
       clientRequestId: "one-authorization-request",
       replacementPolicy: "replace_active",
-      expectedRevision: 1,
+      expectedRevision: 3,
       expectedConnectorRevision: 3
     }
   ]);
@@ -1703,6 +1781,7 @@ test("keeps a pending authorization session stable across a disconnected snapsho
   );
 
   continuation.resolve({
+    outcome: "completed",
     connector: connected,
     operation: authorizationOperation,
     revision: 3

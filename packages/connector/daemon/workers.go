@@ -97,8 +97,21 @@ func (scheduler *OperationScheduler) Schedule(ctx context.Context, operationID s
 	return nil
 }
 
-func (scheduler *OperationScheduler) Wait() {
-	scheduler.wait.Wait()
+func (scheduler *OperationScheduler) Wait(ctx context.Context) error {
+	if scheduler == nil {
+		return nil
+	}
+	done := make(chan struct{})
+	go func() {
+		scheduler.wait.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type ChangedEventPublisher interface {

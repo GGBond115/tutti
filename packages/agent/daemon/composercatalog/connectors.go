@@ -74,7 +74,7 @@ func ProjectConnectorOptions(snapshot contracts.AgentConnectorPolicySnapshot) []
 			Label:       label,
 			IconURL:     strings.TrimSpace(connector.Release.Manifest.IconURL),
 			Description: strings.TrimSpace(connector.Release.Manifest.Description),
-			Status:      composerStatus(policy.State),
+			Status:      composerStatus(policy.Presentation.State),
 			Source:      CapabilitySourceLocalDB,
 			Trigger:     "/" + key,
 			Invocation:  CapabilityInvocationTextTrigger,

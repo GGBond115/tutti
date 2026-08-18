@@ -37,7 +37,9 @@ func TestOperationRecoveryReschedulesDurableRunningWorkAfterWakeLoss(t *testing.
 	if err := host.scheduleRecoverableOperations(ctx); err != nil {
 		t.Fatal(err)
 	}
-	scheduler.Wait()
+	if err := scheduler.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if calls := executor.operationIDs(); len(calls) != 1 || calls[0] != operation.OperationID {
 		t.Fatalf("recovered operations = %#v", calls)
 	}

@@ -156,7 +156,7 @@ type closableActivationGateDelegate struct {
 	closeCalls int
 }
 
-func (delegate *closableActivationGateDelegate) Close() error {
+func (delegate *closableActivationGateDelegate) Close(context.Context) error {
 	delegate.mu.Lock()
 	delegate.closeCalls++
 	delegate.mu.Unlock()
@@ -277,8 +277,9 @@ func TestUnexpectedWorkerExitFailsClosedAndRejectsCommands(t *testing.T) {
 			len(health.Workers) == 1 && health.Workers[0].Status == WorkerStatusFailed &&
 			health.Workers[0].FailureCode == "unexpected_exit" && !health.Workers[0].LastFailureAt.IsZero() &&
 			len(values) != 0 && !values[len(values)-1].enabled && values[len(values)-1].scope.AccountID == "account-1" {
-			if _, err := host.CatalogCommands().RefreshCatalog(context.Background(), contracts.Mutation{}); !errors.Is(err, errHostNotRunning) {
-				t.Fatalf("command after worker exit error = %v", err)
+			result := host.CatalogCommands().RefreshCatalog(context.Background(), contracts.Mutation{})
+			if result.Outcome != contracts.CommandRejected || result.Failure == nil || result.Failure.Code != contracts.ErrorCodeUnavailable {
+				t.Fatalf("command after worker exit result = %#v", result)
 			}
 			return
 		}
@@ -336,15 +337,15 @@ func TestCloseFailClosesPublicationAndRejectsPublicCommands(t *testing.T) {
 	if len(publication.values) == 0 || publication.values[len(publication.values)-1] {
 		t.Fatalf("publication transitions = %#v, want final false", publication.values)
 	}
-	if _, err := host.CatalogCommands().RefreshCatalog(context.Background(), contracts.Mutation{}); !errors.Is(err, errHostNotRunning) {
-		t.Fatalf("refresh after close error = %v", err)
+	if result := host.CatalogCommands().RefreshCatalog(context.Background(), contracts.Mutation{}); result.Outcome != contracts.CommandRejected {
+		t.Fatalf("refresh after close result = %#v", result)
 	}
-	if _, err := host.InstallationCommands().Install(context.Background(), contracts.ConnectorMutation{}); !errors.Is(err, errHostNotRunning) {
-		t.Fatalf("install after close error = %v", err)
+	if result := host.InstallationCommands().Install(context.Background(), contracts.ConnectorMutation{}); result.Outcome != contracts.CommandRejected {
+		t.Fatalf("install after close result = %#v", result)
 	}
 	secret := []byte("must-clear")
-	if _, err := host.AuthorizationCommands().BeginAuthorization(context.Background(), contracts.ConnectorMutation{}, secret); !errors.Is(err, errHostNotRunning) {
-		t.Fatalf("authorization after close error = %v", err)
+	if result := host.AuthorizationCommands().BeginAuthorization(context.Background(), contracts.ConnectorMutation{}, secret); result.Outcome != contracts.CommandRejected {
+		t.Fatalf("authorization after close result = %#v", result)
 	}
 	for _, value := range secret {
 		if value != 0 {

@@ -5611,7 +5611,11 @@ export const cancelConnectorMarketAuthorization = <
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/connector-market/connectors/{connectorKey}/authorization:cancel",
-    ...options
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
   });
 
 /**

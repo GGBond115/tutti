@@ -160,11 +160,11 @@ func (host *ImplementationHost) SetCapabilityPublication(enabled bool) {
 	}
 }
 
-func (host *ImplementationHost) Close() error {
+func (host *ImplementationHost) Close(ctx context.Context) error {
 	if host == nil || host.runtime == nil {
 		return nil
 	}
-	return host.runtime.Close()
+	return host.runtime.Close(ctx)
 }
 
 func ProductionPorts(host *ImplementationHost, external application.AuthorizationProvider) (application.ImplementationCommands, application.AuthorizationProvider, application.CompatibilityEvaluator, application.ImplementationRegistry) {

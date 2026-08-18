@@ -31,7 +31,8 @@ func TestAgentPolicyRequiresExactCurrentRuntimeObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(policy.Connectors) != 1 || policy.Connectors[0].State != contracts.ConnectorStateConnected || !policy.Connectors[0].Selectable {
+	if len(policy.Connectors) != 1 || policy.Connectors[0].Presentation.State != contracts.ConnectorStateConnected ||
+		!hasConnectorAction(policy.Connectors[0].Presentation, contracts.ConnectorActionSelect) {
 		t.Fatalf("policy = %#v", policy)
 	}
 
@@ -42,7 +43,8 @@ func TestAgentPolicyRequiresExactCurrentRuntimeObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.Connectors[0].State != contracts.ConnectorStateConnecting || policy.Connectors[0].Selectable {
+	if policy.Connectors[0].Presentation.State != contracts.ConnectorStateConnecting ||
+		hasConnectorAction(policy.Connectors[0].Presentation, contracts.ConnectorActionSelect) {
 		t.Fatalf("stale desired policy = %#v", policy.Connectors[0])
 	}
 }
@@ -76,7 +78,8 @@ func TestAgentPolicySeparatesSharedSupportFromGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(policy.Connectors) != 1 || !policy.Connectors[0].Supported || policy.Connectors[0].Granted ||
-		policy.Connectors[0].State != contracts.ConnectorStateDisabled || policy.Connectors[0].Selectable {
+		policy.Connectors[0].Presentation.State != contracts.ConnectorStateDisabled ||
+		hasConnectorAction(policy.Connectors[0].Presentation, contracts.ConnectorActionSelect) {
 		t.Fatalf("policy = %#v", policy)
 	}
 }
@@ -95,7 +98,7 @@ func TestAgentPolicySharedDeclarationAndActiveCatalogFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.Connectors[0].State != contracts.ConnectorStateUnsupported || policy.Connectors[0].Supported {
+	if policy.Connectors[0].Presentation.State != contracts.ConnectorStateUnsupported || policy.Connectors[0].Supported {
 		t.Fatalf("undeclared policy = %#v", policy.Connectors[0])
 	}
 
@@ -109,6 +112,15 @@ func TestAgentPolicySharedDeclarationAndActiveCatalogFailClosed(t *testing.T) {
 	if len(policy.Connectors) != 0 {
 		t.Fatalf("removed catalog connector leaked into Agent policy: %#v", policy.Connectors)
 	}
+}
+
+func hasConnectorAction(presentation contracts.ConnectorPresentation, action contracts.ConnectorAction) bool {
+	for _, candidate := range presentation.AllowedActions {
+		if candidate == action {
+			return true
+		}
+	}
+	return false
 }
 
 func newAgentPolicyFixture(t *testing.T) (*service, *memoryRepository, contracts.Connector) {

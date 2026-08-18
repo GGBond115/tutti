@@ -276,7 +276,7 @@ func (application *service) acceptConnectorOperation(
 				return contracts.NewDomainError(
 					contracts.ErrorCodeRevisionConflict,
 					fmt.Sprintf("expected connector revision %d but current connector revision is %d", *mutation.ExpectedConnectorRevision, connector.Revision),
-					true,
+					false,
 					nil,
 				)
 			}
@@ -485,7 +485,7 @@ func (application *service) verifyConnectorMutationRevision(
 				return contracts.NewDomainError(
 					contracts.ErrorCodeRevisionConflict,
 					fmt.Sprintf("expected connector revision %d but current connector revision is %d", *mutation.ExpectedConnectorRevision, connector.Revision),
-					true,
+					false,
 					nil,
 				)
 			}
@@ -502,7 +502,7 @@ func verifyRevision(tx Transaction, expected uint64) error {
 	return contracts.NewDomainError(
 		contracts.ErrorCodeRevisionConflict,
 		fmt.Sprintf("expected revision %d but current revision is %d", expected, tx.Revision()),
-		true,
+		false,
 		nil,
 	)
 }

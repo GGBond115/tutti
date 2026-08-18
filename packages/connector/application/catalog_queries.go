@@ -192,7 +192,7 @@ func decodeCatalogPageToken(token, activeSnapshotID, sectionID string, filter co
 	}
 	parts := strings.Split(string(payload), "\n")
 	if len(parts) != 4 || parts[0] != activeSnapshotID {
-		return 0, contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "pageToken belongs to a different catalog snapshot", true, nil)
+		return 0, contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "pageToken belongs to a different catalog snapshot", false, nil)
 	}
 	if parts[1] != sectionID || parts[2] != string(filter) {
 		return 0, invalidRequest("pageToken belongs to a different catalog query")

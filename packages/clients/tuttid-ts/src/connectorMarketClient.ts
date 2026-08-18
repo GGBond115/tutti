@@ -13,6 +13,7 @@ import {
 } from "./generated/index.ts";
 import type {
   ConnectorMarketAuthorizationResponse,
+  ConnectorMarketAuthorizationCancelRequest,
   ConnectorMarketAuthorizationRequestWritable,
   ConnectorMarketCatalogPage,
   ConnectorMarketCategoriesResponse,
@@ -31,6 +32,16 @@ interface ConnectorMarketClientResponse<TResult> {
   error?: unknown;
   response?: Response;
 }
+
+type ConnectorMarketConnectorMutationRequest =
+  ConnectorMarketMutationRequest & {
+    expectedConnectorRevision: number;
+  };
+
+type ConnectorMarketConnectorAuthorizationRequest =
+  ConnectorMarketAuthorizationRequestWritable & {
+    expectedConnectorRevision: number;
+  };
 
 export class ConnectorMarketClientError extends Error {
   readonly code: ConnectorMarketError["code"];
@@ -76,20 +87,23 @@ export interface ConnectorMarketClient {
   ): Promise<ConnectorMarketMutationResponse>;
   installConnectorMarketConnector(
     connectorKey: string,
-    request: ConnectorMarketMutationRequest
+    request: ConnectorMarketConnectorMutationRequest
   ): Promise<ConnectorMarketMutationResponse>;
   uninstallConnectorMarketConnector(
     connectorKey: string,
-    request: ConnectorMarketMutationRequest
+    request: ConnectorMarketConnectorMutationRequest
   ): Promise<ConnectorMarketMutationResponse>;
   startConnectorMarketAuthorization(
     connectorKey: string,
-    request: ConnectorMarketAuthorizationRequestWritable
+    request: ConnectorMarketConnectorAuthorizationRequest
   ): Promise<ConnectorMarketAuthorizationResponse>;
-  cancelConnectorMarketAuthorization(connectorKey: string): Promise<void>;
+  cancelConnectorMarketAuthorization(
+    connectorKey: string,
+    request: ConnectorMarketAuthorizationCancelRequest
+  ): Promise<ConnectorMarketMutationResponse>;
   disconnectConnectorMarketAuthorization(
     connectorKey: string,
-    request: ConnectorMarketMutationRequest
+    request: ConnectorMarketConnectorMutationRequest
   ): Promise<ConnectorMarketMutationResponse>;
 }
 
@@ -134,65 +148,168 @@ export function createConnectorMarketClient(
       );
     },
     async refreshConnectorMarket(request) {
-      return unwrapConnectorMarketData(
-        await refreshConnectorMarket({ client, body: request }),
-        "Refresh connector market request failed."
+      return runConnectorMarketCommand(
+        () => refreshConnectorMarket({ client, body: request }),
+        request.expectedRevision
       );
     },
     async installConnectorMarketConnector(connectorKey, request) {
-      return unwrapConnectorMarketData(
-        await installConnectorMarketConnector({
-          client,
-          body: request,
-          path: { connectorKey }
-        }),
-        "Install connector request failed."
+      return runConnectorMarketCommand(
+        () =>
+          installConnectorMarketConnector({
+            client,
+            body: request,
+            path: { connectorKey }
+          }),
+        request.expectedRevision
       );
     },
     async uninstallConnectorMarketConnector(connectorKey, request) {
-      return unwrapConnectorMarketData(
-        await uninstallConnectorMarketConnector({
-          client,
-          body: request,
-          path: { connectorKey }
-        }),
-        "Uninstall connector request failed."
+      return runConnectorMarketCommand(
+        () =>
+          uninstallConnectorMarketConnector({
+            client,
+            body: request,
+            path: { connectorKey }
+          }),
+        request.expectedRevision
       );
     },
     async startConnectorMarketAuthorization(connectorKey, request) {
-      return unwrapConnectorMarketData(
-        await startConnectorMarketAuthorization({
-          client,
-          body: request,
-          path: { connectorKey }
-        }),
-        "Start connector authorization request failed."
+      return runConnectorMarketCommand(
+        () =>
+          startConnectorMarketAuthorization({
+            client,
+            body: request,
+            path: { connectorKey }
+          }),
+        request.expectedRevision
       );
     },
-    async cancelConnectorMarketAuthorization(connectorKey) {
-      const response = await cancelConnectorMarketAuthorization({
-        client,
-        path: { connectorKey }
-      });
-      const details = connectorMarketErrorDetails(response.error);
-      if (details) {
-        throw new ConnectorMarketClientError(
-          details,
-          response.response?.status ?? 0
-        );
-      }
+    async cancelConnectorMarketAuthorization(connectorKey, request) {
+      return runConnectorMarketCommand(
+        () =>
+          cancelConnectorMarketAuthorization({
+            client,
+            body: request,
+            path: { connectorKey }
+          }),
+        request.expectedRevision
+      );
     },
     async disconnectConnectorMarketAuthorization(connectorKey, request) {
-      return unwrapConnectorMarketData(
-        await disconnectConnectorMarketAuthorization({
-          client,
-          body: request,
-          path: { connectorKey }
-        }),
-        "Disconnect connector authorization request failed."
+      return runConnectorMarketCommand(
+        () =>
+          disconnectConnectorMarketAuthorization({
+            client,
+            body: request,
+            path: { connectorKey }
+          }),
+        request.expectedRevision
       );
     }
   };
+}
+
+async function runConnectorMarketCommand<
+  TResult extends ConnectorMarketMutationResponse
+>(
+  request: () => Promise<ConnectorMarketClientResponse<TResult>>,
+  expectedRevision: number
+): Promise<TResult> {
+  try {
+    const response = await request();
+    const details = connectorMarketErrorDetails(response.error);
+    if (details) {
+      return {
+        outcome: "rejected",
+        revision: details.revision ?? expectedRevision,
+        failure: {
+          code: details.code,
+          message: details.message,
+          // A revision conflict is a user-visible stale command, never an
+          // admission to automatically replay the side effect.
+          retryable:
+            details.code === "connector_market_revision_conflict"
+              ? false
+              : details.retryable
+        }
+      } as TResult;
+    }
+    if (isConnectorMarketCommandResult(response.data)) {
+      return response.data as TResult;
+    }
+  } catch {
+    // A thrown transport error after dispatch cannot establish whether the
+    // daemon durably accepted the command.
+  }
+  return {
+    outcome: "uncertain",
+    revision: expectedRevision,
+    failure: {
+      code: "connector_market_unavailable",
+      message: "connector command acceptance could not be determined",
+      retryable: true
+    }
+  } as TResult;
+}
+
+function isConnectorMarketCommandResult(
+  value: unknown
+): value is ConnectorMarketMutationResponse {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    !("outcome" in value) ||
+    !("revision" in value) ||
+    typeof value.revision !== "number" ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0
+  ) {
+    return false;
+  }
+  if (value.outcome === "accepted") {
+    const operation = "operation" in value ? value.operation : undefined;
+    return (
+      isConnectorMarketOperationState(operation, "accepted", "running") &&
+      (!("failure" in value) || value.failure === undefined)
+    );
+  }
+  if (value.outcome === "completed") {
+    const operation = "operation" in value ? value.operation : undefined;
+    return (
+      (!("failure" in value) || value.failure === undefined) &&
+      (operation === undefined ||
+        isConnectorMarketOperationState(operation, "completed"))
+    );
+  }
+  if (value.outcome !== "rejected" && value.outcome !== "uncertain") {
+    return false;
+  }
+  if (!("failure" in value) || !isConnectorMarketErrorDetails(value.failure)) {
+    return false;
+  }
+  return (
+    (!("operation" in value) || value.operation === undefined) &&
+    value.failure.code.length > 0 &&
+    value.failure.message.length > 0 &&
+    (value.outcome !== "uncertain" || value.failure.retryable) &&
+    (value.failure.code !== "connector_market_revision_conflict" ||
+      !value.failure.retryable)
+  );
+}
+
+function isConnectorMarketOperationState(
+  value: unknown,
+  ...states: readonly string[]
+): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "state" in value &&
+    typeof value.state === "string" &&
+    states.includes(value.state)
+  );
 }
 
 function unwrapConnectorMarketData<TResult>(

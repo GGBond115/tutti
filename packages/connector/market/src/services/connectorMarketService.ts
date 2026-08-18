@@ -7,6 +7,7 @@ import {
 
 import type {
   ConnectorAuthorizationResult,
+  ConnectorCommandFailure,
   ConnectorMarketChangedEvent,
   ConnectorMarketEventSource,
   ConnectorMutationResult,
@@ -47,6 +48,23 @@ export class ConnectorMarketRequestUnavailableError extends Error {
   constructor() {
     super("Connector market requests are not currently available");
     this.name = "ConnectorMarketRequestUnavailableError";
+  }
+}
+
+class ConnectorCommandFailureError extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+  readonly outcome: "rejected" | "uncertain";
+
+  constructor(
+    outcome: "rejected" | "uncertain",
+    failure: ConnectorCommandFailure
+  ) {
+    super(failure.message);
+    this.name = "ConnectorCommandFailureError";
+    this.outcome = outcome;
+    this.code = failure.code;
+    this.retryable = failure.retryable;
   }
 }
 
@@ -97,8 +115,21 @@ const authorizationSessionTimeoutMs = 10 * 60 * 1_000;
 
 interface AuthorizationAttemptControl {
   canceled: boolean;
+  cancelRequestId?: string;
   expiresAtMs: number;
   requestId: string;
+}
+
+function commandResultFailure(
+  result: ConnectorMutationResult
+): ConnectorCommandFailureError | null {
+  if (
+    (result.outcome === "rejected" || result.outcome === "uncertain") &&
+    result.failure
+  ) {
+    return new ConnectorCommandFailureError(result.outcome, result.failure);
+  }
+  return null;
 }
 
 function waitForAuthorizationContinuation(): Promise<void> {
@@ -125,6 +156,9 @@ function legacyAuthorizationViewId(operationId: string, url: string): string {
 function resolveAuthorizationView(
   result: ConnectorAuthorizationResult
 ): AuthorizationViewEnvelopeV1 | null {
+  if (!result.connector || !result.operation) {
+    return null;
+  }
   if (result.connector.authorization.state !== "pending") {
     return null;
   }
@@ -253,8 +287,32 @@ export class ConnectorMarketService implements IConnectorMarketService {
         clientRequestId: this.createRequestId(),
         expectedRevision: this.dataStore.revision
       })
-      .then((result) => {
+      .then(async (result) => {
         if (this.isCurrent(generation)) {
+          const commandFailure = commandResultFailure(result);
+          if (commandFailure) {
+            if (
+              commandFailure.outcome === "uncertain" ||
+              commandFailure.code === "connector_market_revision_conflict"
+            ) {
+              const next = await this.dependencies.backend.getSnapshot();
+              if (this.isCurrent(generation)) {
+                applyConnectorMarketSnapshot(this.dataStore, next);
+                this.reconcileUninstallNotificationStates(next.operations);
+              }
+            }
+            throw commandFailure;
+          }
+          if (
+            (result.outcome !== "accepted" && result.outcome !== "completed") ||
+            !result.operation
+          ) {
+            throw new ConnectorCommandFailureError("uncertain", {
+              code: "connector_market_unavailable",
+              message: "catalog refresh returned an invalid result",
+              retryable: true
+            });
+          }
           applyConnectorMutationResult(this.dataStore, result);
           this.trackOperation(result.operation);
         }
@@ -379,6 +437,9 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (!result) {
       throw new ConnectorMarketRequestUnavailableError();
     }
+    if (!result.operation) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
     const connector = this.dataStore.connectorsByKey[connectorKey];
     const projectedOperation =
       this.dataStore.operationsByConnectorKey[connectorKey];
@@ -431,10 +492,31 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (attempt) {
       attempt.canceled = true;
     }
-    delete this.dataStore.pendingAuthorizationsByConnectorKey[connectorKey];
-    delete this.dataStore.authorizationViewsByConnectorKey[connectorKey];
+    const operation = this.dataStore.operationsByConnectorKey[connectorKey];
+    if (!operation || operation.kind !== "start_authorization") {
+      const inFlight = this.authorizationInFlight.get(connectorKey);
+      if (inFlight) {
+        await inFlight.catch((error: unknown) => {
+          if (!(error instanceof ConnectorAuthorizationCanceledError)) {
+            throw error;
+          }
+        });
+      }
+      return;
+    }
+    const control = attempt ?? {
+      canceled: true,
+      expiresAtMs: Date.now(),
+      requestId: operation.clientRequestId
+    };
     try {
-      await this.dependencies.backend.cancelAuthorization({ connectorKey });
+      await this.cancelAcceptedAuthorization(
+        connectorKey,
+        control,
+        operation,
+        mutationToken,
+        this.dataGeneration
+      );
     } finally {
       if (this.authorizationAttempts.get(connectorKey) === attempt) {
         this.authorizationAttempts.delete(connectorKey);
@@ -447,6 +529,50 @@ export class ConnectorMarketService implements IConnectorMarketService {
         delete this.dataStore.authorizingConnectorKeys[connectorKey];
       }
     }
+  }
+
+  private async cancelAcceptedAuthorization(
+    connectorKey: string,
+    attempt: AuthorizationAttemptControl,
+    operation: ConnectorOperation,
+    mutationToken: symbol | undefined,
+    generation: number
+  ): Promise<void> {
+    attempt.cancelRequestId ??= this.createRequestId();
+    const result = await this.dependencies.backend.cancelAuthorization({
+      connectorKey,
+      operationId: operation.operationId,
+      clientRequestId: attempt.cancelRequestId,
+      expectedRevision: this.dataStore.revision,
+      ...this.connectorRevisionFence(connectorKey)
+    });
+    const commandFailure = commandResultFailure(result);
+    const mustRefresh =
+      result.outcome === "completed" ||
+      commandFailure?.outcome === "uncertain" ||
+      commandFailure?.code === "connector_market_revision_conflict";
+    if (mustRefresh) {
+      const next = await this.dependencies.backend.getSnapshot();
+      const isCurrent = mutationToken
+        ? this.isCurrentMutation(connectorKey, mutationToken, generation)
+        : this.isCurrent(generation);
+      if (isCurrent) {
+        applyConnectorMarketSnapshot(this.dataStore, next);
+        this.reconcileUninstallNotificationStates(next.operations);
+      }
+    }
+    if (commandFailure) {
+      throw commandFailure;
+    }
+    if (result.outcome !== "completed") {
+      throw new ConnectorCommandFailureError("uncertain", {
+        code: "connector_market_unavailable",
+        message: "authorization cancellation returned an invalid result",
+        retryable: true
+      });
+    }
+    delete this.dataStore.pendingAuthorizationsByConnectorKey[connectorKey];
+    delete this.dataStore.authorizationViewsByConnectorKey[connectorKey];
   }
 
   async openAuthorizationUrl(url: string): Promise<void> {
@@ -478,7 +604,6 @@ export class ConnectorMarketService implements IConnectorMarketService {
     };
     let expectedRevision = this.dataStore.revision;
     const seenAuthorizationViewIds = new Set<string>();
-    let recoveredRevisionConflict = false;
     try {
       while (this.isCurrentMutation(connectorKey, token, generation)) {
         if (
@@ -496,39 +621,50 @@ export class ConnectorMarketService implements IConnectorMarketService {
             ...this.connectorRevisionFence(connectorKey)
           });
         } catch (error) {
-          const code = normalizeConnectorMarketError(error).code;
-          const canRecoverRevision: boolean =
-            !recoveredRevisionConflict &&
-            code === "connector_market_revision_conflict";
-          const canRecoverBusyContinuation: boolean =
-            seenAuthorizationViewIds.size > 0 &&
-            code === "connector_operation_in_progress";
           if (
-            (!canRecoverRevision && !canRecoverBusyContinuation) ||
-            !this.isCurrentMutation(connectorKey, token, generation)
+            seenAuthorizationViewIds.size === 0 ||
+            normalizeConnectorMarketError(error).code !==
+              "connector_operation_in_progress"
           ) {
             throw error;
           }
-          recoveredRevisionConflict =
-            recoveredRevisionConflict || canRecoverRevision;
-          const next = await this.dependencies.backend.getSnapshot();
-          if (!this.isCurrentMutation(connectorKey, token, generation)) {
-            if (attempt.canceled) {
-              throw new ConnectorAuthorizationCanceledError(connectorKey);
-            }
-            return;
-          }
-          applyConnectorMarketSnapshot(this.dataStore, next);
-          this.reconcileUninstallNotificationStates(next.operations);
-          expectedRevision = this.dataStore.revision;
+          await this.refreshAuthoritativeSnapshot(
+            connectorKey,
+            token,
+            generation
+          );
           if (this.authorizationState(connectorKey) === "connected") {
             await this.waitForAuthorizationOperation(connectorKey);
             return;
           }
-          if (canRecoverBusyContinuation) {
-            await this.waitForAuthorizationContinuation();
+          // Busy continuation is observed through the authoritative query; it
+          // never causes this mutation to be replayed.
+          throw error;
+        }
+        const commandFailure = commandResultFailure(result);
+        if (commandFailure) {
+          if (
+            commandFailure.outcome === "uncertain" ||
+            commandFailure.code === "connector_market_revision_conflict"
+          ) {
+            await this.refreshAuthoritativeSnapshot(
+              connectorKey,
+              token,
+              generation
+            );
           }
-          continue;
+          throw commandFailure;
+        }
+        if (
+          (result.outcome !== "accepted" && result.outcome !== "completed") ||
+          !result.connector ||
+          !result.operation
+        ) {
+          throw new ConnectorCommandFailureError("uncertain", {
+            code: "connector_market_unavailable",
+            message: "authorization command returned an invalid result",
+            retryable: true
+          });
         }
         if (!this.isCurrentMutation(connectorKey, token, generation)) {
           if (attempt.canceled) {
@@ -537,10 +673,17 @@ export class ConnectorMarketService implements IConnectorMarketService {
           return;
         }
         if (attempt.canceled) {
-          await this.dependencies.backend.cancelAuthorization({ connectorKey });
+          await this.cancelAcceptedAuthorization(
+            connectorKey,
+            attempt,
+            result.operation,
+            token,
+            generation
+          );
           throw new ConnectorAuthorizationCanceledError(connectorKey);
         }
         applyConnectorMutationResult(this.dataStore, result);
+        expectedRevision = result.revision;
         const expiresAtMs = Date.parse(result.authorizationExpiresAt ?? "");
         if (Number.isFinite(expiresAtMs)) {
           attempt.expiresAtMs = expiresAtMs;
@@ -625,10 +768,13 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   private connectorRevisionFence(connectorKey: string): {
-    expectedConnectorRevision?: number;
+    expectedConnectorRevision: number;
   } {
     const connector = this.dataStore.connectorsByKey[connectorKey];
-    return connector ? { expectedConnectorRevision: connector.revision } : {};
+    if (!connector) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
+    return { expectedConnectorRevision: connector.revision };
   }
 
   dispose(): void {
@@ -964,6 +1110,9 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (!result) {
       return false;
     }
+    if (!result.operation) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
     const tracked = this.trackOperation(result.operation);
     if (tracked) {
       await tracked;
@@ -995,24 +1144,30 @@ export class ConnectorMarketService implements IConnectorMarketService {
       this.dataStore.pendingInstallationsByConnectorKey[connectorKey] = true;
     }
     try {
-      let result: ConnectorMutationResult;
-      try {
-        result = await operation();
-      } catch (error) {
+      const result = await operation();
+      const commandFailure = commandResultFailure(result);
+      if (commandFailure) {
         if (
-          normalizeConnectorMarketError(error).code !==
-            "connector_market_revision_conflict" ||
-          !this.isCurrentMutation(connectorKey, token, generation)
+          commandFailure.outcome === "uncertain" ||
+          commandFailure.code === "connector_market_revision_conflict"
         ) {
-          throw error;
+          await this.refreshAuthoritativeSnapshot(
+            connectorKey,
+            token,
+            generation
+          );
         }
-        const next = await this.dependencies.backend.getSnapshot();
-        if (!this.isCurrentMutation(connectorKey, token, generation)) {
-          return;
-        }
-        applyConnectorMarketSnapshot(this.dataStore, next);
-        this.reconcileUninstallNotificationStates(next.operations);
-        result = await operation();
+        throw commandFailure;
+      }
+      if (
+        (result.outcome !== "accepted" && result.outcome !== "completed") ||
+        !result.operation
+      ) {
+        throw new ConnectorCommandFailureError("uncertain", {
+          code: "connector_market_unavailable",
+          message: "connector command returned an invalid acceptance result",
+          retryable: true
+        });
       }
       if (this.isCurrentMutation(connectorKey, token, generation)) {
         applyConnectorMutationResult(this.dataStore, result);
@@ -1034,6 +1189,19 @@ export class ConnectorMarketService implements IConnectorMarketService {
       }
       this.releaseConnectorMutation(connectorKey, token);
     }
+  }
+
+  private async refreshAuthoritativeSnapshot(
+    connectorKey: string,
+    token: symbol,
+    generation: number
+  ): Promise<void> {
+    const next = await this.dependencies.backend.getSnapshot();
+    if (!this.isCurrentMutation(connectorKey, token, generation)) {
+      return;
+    }
+    applyConnectorMarketSnapshot(this.dataStore, next);
+    this.reconcileUninstallNotificationStates(next.operations);
   }
 
   private trackOperation(
@@ -1267,7 +1435,16 @@ export class ConnectorMarketService implements IConnectorMarketService {
       }
       if (Date.now() >= attempt.expiresAtMs) {
         attempt.canceled = true;
-        await this.dependencies.backend.cancelAuthorization({ connectorKey });
+        const operation = this.dataStore.operationsByConnectorKey[connectorKey];
+        if (operation?.kind === "start_authorization") {
+          await this.cancelAcceptedAuthorization(
+            connectorKey,
+            attempt,
+            operation,
+            token,
+            generation
+          );
+        }
         throw new ConnectorAuthorizationTerminalError(
           connectorKey,
           "connector_authorization_timeout"

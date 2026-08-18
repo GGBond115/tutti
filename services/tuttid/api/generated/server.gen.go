@@ -14218,18 +14218,41 @@ func (response GetConnectorMarketConnector503JSONResponse) VisitGetConnectorMark
 
 type CancelConnectorMarketAuthorizationRequestObject struct {
 	ConnectorKey ConnectorMarketConnectorKey `json:"connectorKey"`
+	Body         *CancelConnectorMarketAuthorizationJSONRequestBody
 }
 
 type CancelConnectorMarketAuthorizationResponseObject interface {
 	VisitCancelConnectorMarketAuthorizationResponse(w http.ResponseWriter) error
 }
 
-type CancelConnectorMarketAuthorization204Response struct {
+type CancelConnectorMarketAuthorization200JSONResponse ConnectorMarketMutationResponse
+
+func (response CancelConnectorMarketAuthorization200JSONResponse) VisitCancelConnectorMarketAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
-func (response CancelConnectorMarketAuthorization204Response) VisitCancelConnectorMarketAuthorizationResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
+type CancelConnectorMarketAuthorization400JSONResponse struct {
+	ConnectorMarketInvalidRequestErrorJSONResponse
+}
+
+func (response CancelConnectorMarketAuthorization400JSONResponse) VisitCancelConnectorMarketAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type CancelConnectorMarketAuthorization401JSONResponse struct {
@@ -14264,6 +14287,22 @@ func (response CancelConnectorMarketAuthorization404JSONResponse) VisitCancelCon
 	return err
 }
 
+type CancelConnectorMarketAuthorization409JSONResponse struct {
+	ConnectorMarketConflictErrorJSONResponse
+}
+
+func (response CancelConnectorMarketAuthorization409JSONResponse) VisitCancelConnectorMarketAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CancelConnectorMarketAuthorization503JSONResponse struct {
 	ConnectorMarketUnavailableErrorJSONResponse
 }
@@ -14287,6 +14326,20 @@ type DisconnectConnectorMarketAuthorizationRequestObject struct {
 
 type DisconnectConnectorMarketAuthorizationResponseObject interface {
 	VisitDisconnectConnectorMarketAuthorizationResponse(w http.ResponseWriter) error
+}
+
+type DisconnectConnectorMarketAuthorization200JSONResponse ConnectorMarketMutationResponse
+
+func (response DisconnectConnectorMarketAuthorization200JSONResponse) VisitDisconnectConnectorMarketAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type DisconnectConnectorMarketAuthorization202JSONResponse ConnectorMarketMutationResponse
@@ -14495,6 +14548,20 @@ type InstallConnectorMarketConnectorResponseObject interface {
 	VisitInstallConnectorMarketConnectorResponse(w http.ResponseWriter) error
 }
 
+type InstallConnectorMarketConnector200JSONResponse ConnectorMarketMutationResponse
+
+func (response InstallConnectorMarketConnector200JSONResponse) VisitInstallConnectorMarketConnectorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type InstallConnectorMarketConnector202JSONResponse ConnectorMarketMutationResponse
 
 func (response InstallConnectorMarketConnector202JSONResponse) VisitInstallConnectorMarketConnectorResponse(w http.ResponseWriter) error {
@@ -14612,6 +14679,20 @@ type UninstallConnectorMarketConnectorRequestObject struct {
 
 type UninstallConnectorMarketConnectorResponseObject interface {
 	VisitUninstallConnectorMarketConnectorResponse(w http.ResponseWriter) error
+}
+
+type UninstallConnectorMarketConnector200JSONResponse ConnectorMarketMutationResponse
+
+func (response UninstallConnectorMarketConnector200JSONResponse) VisitUninstallConnectorMarketConnectorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type UninstallConnectorMarketConnector202JSONResponse ConnectorMarketMutationResponse
@@ -14800,6 +14881,20 @@ type RefreshConnectorMarketRequestObject struct {
 
 type RefreshConnectorMarketResponseObject interface {
 	VisitRefreshConnectorMarketResponse(w http.ResponseWriter) error
+}
+
+type RefreshConnectorMarket200JSONResponse ConnectorMarketMutationResponse
+
+func (response RefreshConnectorMarket200JSONResponse) VisitRefreshConnectorMarketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type RefreshConnectorMarket202JSONResponse ConnectorMarketMutationResponse
@@ -41175,6 +41270,15 @@ func (sh *strictHandler) CancelConnectorMarketAuthorization(w http.ResponseWrite
 	var request CancelConnectorMarketAuthorizationRequestObject
 
 	request.ConnectorKey = connectorKey
+
+	var body CancelConnectorMarketAuthorizationJSONRequestBody
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CancelConnectorMarketAuthorization(ctx, request.(CancelConnectorMarketAuthorizationRequestObject))

@@ -62,6 +62,19 @@ type CatalogPage struct {
 	Revision      uint64           `json:"revision"`
 }
 
+type CatalogListingView struct {
+	CategoryID string        `json:"categoryId"`
+	Featured   bool          `json:"featured"`
+	Connector  ConnectorView `json:"connector"`
+}
+
+type CatalogPageView struct {
+	SectionID     string               `json:"sectionId"`
+	Items         []CatalogListingView `json:"items"`
+	NextPageToken string               `json:"nextPageToken,omitempty"`
+	Revision      uint64               `json:"revision"`
+}
+
 type CatalogSnapshot struct {
 	SourceRevision string
 	Categories     []CatalogCategory

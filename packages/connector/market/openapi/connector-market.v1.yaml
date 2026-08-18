@@ -97,6 +97,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ConnectorMarketMutationRequest"
       responses:
+        "200":
+          description: Refresh command completed or was not accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketMutationResponse"
         "202":
           description: Refresh operation accepted
           content:
@@ -125,6 +131,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ConnectorMarketMutationRequest"
       responses:
+        "200":
+          description: Installation command completed or was not accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketMutationResponse"
         "202":
           description: Installation operation accepted
           content:
@@ -161,6 +173,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ConnectorMarketMutationRequest"
       responses:
+        "200":
+          description: Uninstallation command completed or was not accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketMutationResponse"
         "202":
           description: Uninstallation operation accepted
           content:
@@ -214,13 +232,27 @@ paths:
       operationId: cancelConnectorMarketAuthorization
       tags: [connector-market]
       summary: Cancel a pending connector authorization attempt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectorMarketAuthorizationCancelRequest"
       responses:
-        "204":
-          description: Pending authorization attempt canceled
+        "200":
+          description: Structured cancellation command result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketMutationResponse"
+        "400":
+          $ref: "#/components/responses/ConnectorMarketInvalidRequestError"
         "401":
           $ref: "#/components/responses/ConnectorMarketUnauthorizedError"
         "404":
           $ref: "#/components/responses/ConnectorMarketNotFoundError"
+        "409":
+          $ref: "#/components/responses/ConnectorMarketConflictError"
         "503":
           $ref: "#/components/responses/ConnectorMarketUnavailableError"
   /v1/connector-market/connectors/{connectorKey}/authorization:disconnect:
@@ -237,6 +269,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ConnectorMarketMutationRequest"
       responses:
+        "200":
+          description: Disconnection command completed or was not accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketMutationResponse"
         "202":
           description: Authorization disconnection accepted
           content:
@@ -748,6 +786,26 @@ components:
           minLength: 1
           maxLength: 16384
           writeOnly: true
+    ConnectorMarketAuthorizationCancelRequest:
+      type: object
+      additionalProperties: false
+      required:
+        [clientRequestId, expectedRevision, expectedConnectorRevision, operationId]
+      properties:
+        clientRequestId:
+          type: string
+          minLength: 1
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        expectedConnectorRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        operationId:
+          type: string
+          minLength: 1
     ConnectorMarketAuthorizationReplacementPolicy:
       type: string
       description: >-
@@ -758,12 +816,16 @@ components:
     ConnectorMarketMutationResponse:
       type: object
       additionalProperties: false
-      required: [operation, revision]
+      required: [outcome, revision]
       properties:
+        outcome:
+          $ref: "#/components/schemas/ConnectorMarketCommandOutcome"
         connector:
           $ref: "#/components/schemas/ConnectorMarketConnector"
         operation:
           $ref: "#/components/schemas/ConnectorMarketOperation"
+        failure:
+          $ref: "#/components/schemas/ConnectorMarketCommandFailure"
         revision:
           type: integer
           format: int64
@@ -771,8 +833,10 @@ components:
     ConnectorMarketAuthorizationResponse:
       type: object
       additionalProperties: false
-      required: [connector, operation, authorizationExpiresAt, revision]
+      required: [outcome, revision]
       properties:
+        outcome:
+          $ref: "#/components/schemas/ConnectorMarketCommandOutcome"
         connector:
           $ref: "#/components/schemas/ConnectorMarketConnector"
         operation:
@@ -789,6 +853,8 @@ components:
         authorizationExpiresAt:
           type: string
           format: date-time
+        failure:
+          $ref: "#/components/schemas/ConnectorMarketCommandFailure"
         revision:
           type: integer
           format: int64
@@ -821,6 +887,20 @@ components:
           type: integer
           format: int64
           minimum: 0
+    ConnectorMarketCommandOutcome:
+      type: string
+      enum: [accepted, completed, rejected, uncertain]
+    ConnectorMarketCommandFailure:
+      type: object
+      additionalProperties: false
+      required: [code, retryable, message]
+      properties:
+        code:
+          $ref: "#/components/schemas/ConnectorMarketErrorCode"
+        retryable:
+          type: boolean
+        message:
+          type: string
     ConnectorMarketCatalogState:
       type: string
       enum: [ready, refreshing, stale, failed]

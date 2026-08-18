@@ -78,30 +78,42 @@ func (host *Host) beginCommand() error {
 
 func (host *Host) endCommand() { host.commandAdmission.end() }
 
-func (facet catalogCommandFacet) RefreshCatalog(ctx context.Context, mutation contracts.Mutation) (contracts.MutationResult, error) {
+func commandAdmissionRejected(err error) contracts.CommandResult {
+	return contracts.CommandResult{Outcome: contracts.CommandRejected, Failure: &contracts.CommandFailure{
+		Code: contracts.ErrorCodeUnavailable, Retryable: false, Message: err.Error(),
+	}}
+}
+
+func (facet catalogCommandFacet) RefreshCatalog(ctx context.Context, mutation contracts.Mutation) contracts.CommandResult {
 	if err := facet.host.beginCommand(); err != nil {
-		return contracts.MutationResult{}, err
+		return commandAdmissionRejected(err)
 	}
 	defer facet.host.endCommand()
-	return facet.host.catalogCommands.RefreshCatalog(ctx, mutation)
+	commandCtx, cancel := facet.host.commandContext(ctx)
+	defer cancel()
+	return facet.host.catalogCommands.RefreshCatalog(commandCtx, mutation)
 }
 
 type installationCommandFacet struct{ host *Host }
 
-func (facet installationCommandFacet) Install(ctx context.Context, mutation contracts.ConnectorMutation) (contracts.MutationResult, error) {
+func (facet installationCommandFacet) Install(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 	if err := facet.host.beginCommand(); err != nil {
-		return contracts.MutationResult{}, err
+		return commandAdmissionRejected(err)
 	}
 	defer facet.host.endCommand()
-	return facet.host.installationCommands.Install(ctx, mutation)
+	commandCtx, cancel := facet.host.commandContext(ctx)
+	defer cancel()
+	return facet.host.installationCommands.Install(commandCtx, mutation)
 }
 
-func (facet installationCommandFacet) Uninstall(ctx context.Context, mutation contracts.ConnectorMutation) (contracts.MutationResult, error) {
+func (facet installationCommandFacet) Uninstall(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 	if err := facet.host.beginCommand(); err != nil {
-		return contracts.MutationResult{}, err
+		return commandAdmissionRejected(err)
 	}
 	defer facet.host.endCommand()
-	return facet.host.installationCommands.Uninstall(ctx, mutation)
+	commandCtx, cancel := facet.host.commandContext(ctx)
+	defer cancel()
+	return facet.host.installationCommands.Uninstall(commandCtx, mutation)
 }
 
 type authorizationCommandFacet struct{ host *Host }
@@ -110,36 +122,41 @@ func (facet authorizationCommandFacet) BeginAuthorization(
 	ctx context.Context,
 	mutation contracts.ConnectorMutation,
 	secret []byte,
-) (contracts.AuthorizationResult, error) {
+) contracts.AuthorizationCommandResult {
 	if err := facet.host.beginCommand(); err != nil {
 		clear(secret)
-		return contracts.AuthorizationResult{}, err
+		return contracts.AuthorizationCommandResult{CommandResult: commandAdmissionRejected(err)}
 	}
 	defer facet.host.endCommand()
-	return facet.host.authorizationCommands.BeginAuthorization(ctx, mutation, secret)
+	commandCtx, cancel := facet.host.commandContext(ctx)
+	defer cancel()
+	return facet.host.authorizationCommands.BeginAuthorization(commandCtx, mutation, secret)
 }
 
 func (facet authorizationCommandFacet) CancelAuthorization(
 	ctx context.Context,
-	scope contracts.OperationScope,
-	operationID string,
-) error {
+	command contracts.CancelAuthorizationCommand,
+) contracts.CommandResult {
 	if err := facet.host.beginCommand(); err != nil {
-		return err
+		return commandAdmissionRejected(err)
 	}
 	defer facet.host.endCommand()
-	return facet.host.authorizationCommands.CancelAuthorization(ctx, scope, operationID)
+	commandCtx, cancel := facet.host.commandContext(ctx)
+	defer cancel()
+	return facet.host.authorizationCommands.CancelAuthorization(commandCtx, command)
 }
 
 func (facet authorizationCommandFacet) DisconnectAuthorization(
 	ctx context.Context,
 	mutation contracts.ConnectorMutation,
-) (contracts.MutationResult, error) {
+) contracts.CommandResult {
 	if err := facet.host.beginCommand(); err != nil {
-		return contracts.MutationResult{}, err
+		return commandAdmissionRejected(err)
 	}
 	defer facet.host.endCommand()
-	return facet.host.authorizationCommands.DisconnectAuthorization(ctx, mutation)
+	commandCtx, cancel := facet.host.commandContext(ctx)
+	defer cancel()
+	return facet.host.authorizationCommands.DisconnectAuthorization(commandCtx, mutation)
 }
 
 var (

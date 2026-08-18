@@ -2477,6 +2477,7 @@ test("shared tuttid client preserves connector market read and install routes", 
     sourceRevision: "sha256:catalog"
   };
   const mutation = {
+    outcome: "accepted" as const,
     operation: {
       operationId: "operation-1",
       clientRequestId: "request-1",
@@ -2500,7 +2501,8 @@ test("shared tuttid client preserves connector market read and install routes", 
   assert.deepEqual(
     await client.installConnectorMarketConnector("notion", {
       clientRequestId: "request-1",
-      expectedRevision: 7
+      expectedRevision: 7,
+      expectedConnectorRevision: 7
     }),
     mutation
   );
@@ -2515,7 +2517,8 @@ test("shared tuttid client preserves connector market read and install routes", 
     authorization: null,
     body: {
       clientRequestId: "request-1",
-      expectedRevision: 7
+      expectedRevision: 7,
+      expectedConnectorRevision: 7
     },
     method: "POST",
     path: "/v1/connector-market/connectors/notion:install",
@@ -2523,23 +2526,33 @@ test("shared tuttid client preserves connector market read and install routes", 
   });
 });
 
-test("shared tuttid connector client cancels a pending authorization without a request body", async () => {
+test("shared tuttid connector client fences one pending authorization attempt", async () => {
   const { client, requests } = captureClient(
-    () => new Response(null, { status: 204 })
+    jsonResponse({ outcome: "completed", revision: 8 }, 200)
   );
 
-  await client.cancelConnectorMarketAuthorization("supabase");
+  await client.cancelConnectorMarketAuthorization("supabase", {
+    clientRequestId: "cancel-1",
+    expectedRevision: 7,
+    expectedConnectorRevision: 3,
+    operationId: "authorization-1"
+  });
 
   assertRequest(requests[0]!, {
     authorization: null,
-    body: null,
+    body: {
+      clientRequestId: "cancel-1",
+      expectedRevision: 7,
+      expectedConnectorRevision: 3,
+      operationId: "authorization-1"
+    },
     method: "POST",
     path: "/v1/connector-market/connectors/supabase/authorization:cancel",
     query: {}
   });
 });
 
-test("shared tuttid connector client preserves structured market errors", async () => {
+test("shared tuttid connector client returns non-retryable structured revision rejection", async () => {
   const details = {
     code: "connector_market_revision_conflict" as const,
     message: "connector market revision changed",
@@ -2548,19 +2561,67 @@ test("shared tuttid connector client preserves structured market errors", async 
   };
   const { client } = captureClient(jsonResponse(details, 409));
 
-  await assert.rejects(
-    client.installConnectorMarketConnector("notion", {
+  assert.deepEqual(
+    await client.installConnectorMarketConnector("notion", {
       clientRequestId: "request-1",
-      expectedRevision: 11
+      expectedRevision: 11,
+      expectedConnectorRevision: 10
     }),
-    (error: unknown) => {
-      assert.ok(error instanceof ConnectorMarketClientError);
-      assert.equal(error.code, details.code);
-      assert.equal(error.retryable, true);
-      assert.equal(error.revision, 12);
-      assert.equal(error.statusCode, 409);
-      assert.deepEqual(error.details, details);
-      return true;
+    {
+      outcome: "rejected",
+      revision: 12,
+      failure: {
+        code: details.code,
+        message: details.message,
+        retryable: false
+      }
+    }
+  );
+});
+
+test("shared tuttid connector client fails closed on a malformed command result", async () => {
+  const { client } = captureClient(
+    jsonResponse({ outcome: "accepted", revision: 12 }, 202)
+  );
+
+  assert.deepEqual(
+    await client.installConnectorMarketConnector("notion", {
+      clientRequestId: "request-1",
+      expectedRevision: 11,
+      expectedConnectorRevision: 10
+    }),
+    {
+      outcome: "uncertain",
+      revision: 11,
+      failure: {
+        code: "connector_market_unavailable",
+        message: "connector command acceptance could not be determined",
+        retryable: true
+      }
+    }
+  );
+});
+
+test("shared tuttid connector client never treats a cancel transport failure as success", async () => {
+  const { client } = captureClient(() => {
+    throw new TypeError("connection reset after dispatch");
+  });
+
+  assert.deepEqual(
+    await client.cancelConnectorMarketAuthorization("supabase", {
+      clientRequestId: "cancel-1",
+      expectedRevision: 7,
+      expectedConnectorRevision: 3,
+      operationId: "authorization-1"
+    }),
+    {
+      outcome: "uncertain",
+      revision: 7,
+      failure: {
+        code: "connector_market_unavailable",
+        message: "connector command acceptance could not be determined",
+        retryable: true
+      }
     }
   );
 });

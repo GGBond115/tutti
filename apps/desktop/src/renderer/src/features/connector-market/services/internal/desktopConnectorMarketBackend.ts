@@ -32,8 +32,8 @@ export function createDesktopConnectorMarketBackend(
     beginAuthorization({ connectorKey, ...request }) {
       return client.startConnectorMarketAuthorization(connectorKey, request);
     },
-    cancelAuthorization({ connectorKey }) {
-      return client.cancelConnectorMarketAuthorization(connectorKey);
+    cancelAuthorization({ connectorKey, ...request }) {
+      return client.cancelConnectorMarketAuthorization(connectorKey, request);
     },
     disconnectAuthorization({ connectorKey, ...request }) {
       return client.disconnectConnectorMarketAuthorization(

@@ -66,12 +66,15 @@ type Host struct {
 	runtimeRecoveryWake         chan struct{}
 	runtimePhysicalWake         chan struct{}
 	lifecycleMu                 sync.Mutex
+	lifecycleCtx                context.Context
+	lifecycleCancel             context.CancelFunc
+	lifecycleEpoch              uint64
+	transitionEpoch             uint64
 	commandAdmission            *commandGate
 	lifecycleState              LifecycleState
 	workers                     *workerGroup
 	closeDone                   chan struct{}
 	closeResult                 error
-	shutdownFenceErr            error
 	closeOnce                   sync.Once
 	bootstrapMu                 sync.Mutex
 	scopeTransition             chan struct{}
@@ -81,6 +84,8 @@ type Host struct {
 	bootstrapScope              contracts.OperationScope
 	publicationScopeMu          sync.Mutex
 	publicationScope            contracts.OperationScope
+	publicationMu               sync.Mutex
+	shutdownTimeout             time.Duration
 	catalogRefreshInitialDelay  time.Duration
 	catalogRetryJitter          func(time.Duration) time.Duration
 	implementationCommands      application.ImplementationCommands
@@ -203,6 +208,9 @@ func (host *Host) acquireScopeTransition(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-host.scopeTransition:
+		host.lifecycleMu.Lock()
+		host.transitionEpoch++
+		host.lifecycleMu.Unlock()
 		return nil
 	}
 }
@@ -289,6 +297,10 @@ func (host *Host) handleUnexpectedWorkerExit(name string) {
 		return
 	}
 	host.lifecycleState = LifecycleStateFailed
+	host.lifecycleEpoch++
+	if host.lifecycleCancel != nil {
+		host.lifecycleCancel()
+	}
 	workers := host.workers
 	host.lifecycleMu.Unlock()
 	if workers != nil {
@@ -296,16 +308,32 @@ func (host *Host) handleUnexpectedWorkerExit(name string) {
 	}
 	scope := host.currentPublicationScope()
 	host.activationGate.setOpen(scope, false)
-	publicationResult := host.failCloseCapabilityPublication(scope)
+	publicationResult := host.beginBestEffortPublicationDisable(scope)
 	go func() {
-		<-drained
-		_ = host.acquireScopeTransition(context.Background())
-		defer host.releaseScopeTransition()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := host.newShutdownContext()
 		defer cancel()
-		deadline := time.Now().Add(10 * time.Second)
-		if err := errors.Join(host.activationGate.FailClosed(ctx, deadline), <-publicationResult); err != nil {
-			slog.Error("connector daemon worker exit fail-close failed", "worker", name, "error", err)
+		var failCloseErr error
+		select {
+		case <-drained:
+		case <-shutdownCtx.Done():
+			failCloseErr = shutdownCtx.Err()
+		}
+		failCloseErr = errors.Join(failCloseErr, <-publicationResult)
+		if err := host.acquireScopeTransition(shutdownCtx); err != nil {
+			failCloseErr = errors.Join(failCloseErr, err)
+		} else {
+			failCloseErr = errors.Join(failCloseErr,
+				host.runBounded(shutdownCtx, func(callCtx context.Context) error {
+					return host.applyCapabilityPublication(callCtx, scope, false)
+				}),
+				host.runBounded(shutdownCtx, func(callCtx context.Context) error {
+					return host.activationGate.FailClosed(callCtx, host.shutdownDeadline(callCtx))
+				}),
+			)
+			host.releaseScopeTransition()
+		}
+		if failCloseErr != nil {
+			slog.Error("connector daemon worker exit fail-close failed", "worker", name, "error", failCloseErr)
 		}
 	}()
 }
@@ -326,22 +354,29 @@ func (host *Host) Start(ctx context.Context, initialScope contracts.OperationSco
 		return fmt.Errorf("connector market host cannot start from %s", state)
 	}
 	host.lifecycleState = LifecycleStateStarting
-	workers := newWorkerGroup(ctx, host.handleUnexpectedWorkerExit)
+	host.lifecycleEpoch++
+	lifecycleCtx, lifecycleCancel := context.WithCancel(ctx)
+	host.lifecycleCtx = lifecycleCtx
+	host.lifecycleCancel = lifecycleCancel
+	workers := newWorkerGroup(lifecycleCtx, host.handleUnexpectedWorkerExit)
 	host.workers = workers
 	host.lifecycleMu.Unlock()
 	rollback := func(cause error) error {
 		workers.Stop()
-		workers.Seal()
-		_ = workers.Wait(ctx)
+		lifecycleCancel()
+		host.lifecycleMu.Lock()
+		if host.lifecycleState == LifecycleStateStarting {
+			host.lifecycleState = LifecycleStateFailed
+			host.lifecycleEpoch++
+		}
+		host.lifecycleMu.Unlock()
+		cleanupErr := host.cleanupFailedStart(workers)
 		host.lifecycleMu.Lock()
 		if host.workers == workers {
 			host.workers = nil
 		}
-		if host.lifecycleState == LifecycleStateStarting {
-			host.lifecycleState = LifecycleStateFailed
-		}
 		host.lifecycleMu.Unlock()
-		return cause
+		return errors.Join(cause, cleanupErr)
 	}
 
 	host.activationGate.setOpen(contracts.OperationScope{}, false)
@@ -440,6 +475,28 @@ func (host *Host) requireRunning() error {
 		return errHostNotRunning
 	}
 	return nil
+}
+
+// commandContext joins the request lifetime to the daemon lifecycle without
+// holding lifecycleMu while command I/O runs. Close cancels lifecycleCtx before
+// it starts draining admitted commands.
+func (host *Host) commandContext(requestCtx context.Context) (context.Context, context.CancelFunc) {
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+	host.lifecycleMu.Lock()
+	lifecycleCtx := host.lifecycleCtx
+	host.lifecycleMu.Unlock()
+	ctx, cancel := context.WithCancel(requestCtx)
+	if lifecycleCtx == nil {
+		cancel()
+		return ctx, cancel
+	}
+	stopLifecycleCancel := context.AfterFunc(lifecycleCtx, cancel)
+	return ctx, func() {
+		stopLifecycleCancel()
+		cancel()
+	}
 }
 
 func (host *Host) FenceForScope(ctx context.Context, scope contracts.OperationScope) error {
@@ -716,6 +773,8 @@ func (unavailableRuntime) DeactivateRuntime(context.Context, contracts.RuntimeDe
 func (unavailableRuntime) FailClosed(context.Context, time.Time) error {
 	return errors.New("connector runtime is not registered")
 }
+
+func (unavailableRuntime) Close(context.Context) error { return nil }
 
 type unavailableAuthorization struct{}
 

@@ -76,6 +76,8 @@ func (runtime *convergencePhysicalRuntime) FailClosed(context.Context, time.Time
 	return nil
 }
 
+func (runtime *convergencePhysicalRuntime) Close(context.Context) error { return nil }
+
 func (runtime *convergencePhysicalRuntime) clearRoute(dropEvent bool) {
 	runtime.mu.Lock()
 	runtime.revision++

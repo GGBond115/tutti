@@ -848,17 +848,46 @@ func TestApplicationRemoteAuthorizationStartPreservesPendingBeforeProjectionConv
 	if len(repository.operations) != operationCount {
 		t.Fatalf("second unresolved authorization created another receipt: %#v", repository.operations)
 	}
-	if err := application.CancelAuthorization(context.Background(), contracts.OperationScope{AccountID: "account-new"}, connector.Key); err != nil {
-		t.Fatal(err)
+	currentRevision := repository.connectors[connector.Key].Revision
+	cancelCommand := contracts.CancelAuthorizationCommand{
+		ConnectorMutation: contracts.ConnectorMutation{
+			Mutation:     contracts.Mutation{ClientRequestID: "cancel-authorization", ExpectedRevision: repository.revision},
+			ConnectorKey: connector.Key, AccountID: "account-new", ExpectedConnectorRevision: &currentRevision,
+		},
+		OperationID: result.Operation.OperationID,
+	}
+	canceled := commandFacades{service: application}.CancelAuthorization(context.Background(), cancelCommand)
+	if canceled.Outcome != contracts.CommandCompleted {
+		t.Fatalf("cancel result = %#v", canceled)
+	}
+	restarted := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+	replayedCancel := commandFacades{service: restarted}.CancelAuthorization(context.Background(), cancelCommand)
+	if replayedCancel.Outcome != contracts.CommandCompleted || replayedCancel.Revision != canceled.Revision {
+		t.Fatalf("replayed cancel result = %#v, first = %#v", replayedCancel, canceled)
 	}
 	if receipt.Resolution != contracts.AuthorizationSessionResolutionSuperseded {
 		t.Fatalf("canceled receipt = %#v", receipt)
 	}
-	if _, err := application.BeginAuthorization(context.Background(), contracts.ConnectorMutation{
+	newAttempt, err := application.BeginAuthorization(context.Background(), contracts.ConnectorMutation{
 		Mutation:     contracts.Mutation{ClientRequestID: "authorization-after-cancel", ExpectedRevision: repository.revision},
 		ConnectorKey: connector.Key, AccountID: "account-new",
-	}, nil); err != nil {
+	}, nil)
+	if err != nil {
 		t.Fatalf("authorization retry after cancel: %v", err)
+	}
+	staleCancel := cancelCommand
+	staleCancel.ClientRequestID = "cancel-stale-operation"
+	staleCancel.ExpectedRevision = repository.revision
+	currentRevision = repository.connectors[connector.Key].Revision
+	staleCancel.ExpectedConnectorRevision = &currentRevision
+	rejected := commandFacades{service: application}.CancelAuthorization(context.Background(), staleCancel)
+	if rejected.Outcome != contracts.CommandRejected || rejected.Failure == nil ||
+		rejected.Failure.Code != contracts.ErrorCodeRevisionConflict || rejected.Failure.Retryable {
+		t.Fatalf("stale cancel result = %#v", rejected)
+	}
+	newReceipt := repository.operations[newAttempt.Operation.OperationID].Execution.AuthorizationSession
+	if newReceipt == nil || newReceipt.Resolution != contracts.AuthorizationSessionResolutionUnresolved {
+		t.Fatalf("newer attempt was canceled by stale command: %#v", newReceipt)
 	}
 }
 
@@ -2140,6 +2169,8 @@ type memoryInstallRuntime struct {
 	installationCommitErr   error
 	reconcileErrors         map[string]error
 }
+
+func (*memoryInstallRuntime) Close(context.Context) error { return nil }
 
 func (host *memoryInstallRuntime) Reconcile(_ context.Context, request contracts.RuntimeReconcileRequest) (contracts.RuntimeReceipt, error) {
 	host.reconciles++

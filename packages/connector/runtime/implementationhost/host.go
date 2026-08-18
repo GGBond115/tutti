@@ -401,11 +401,20 @@ func (host *Host) Watch(ctx context.Context) (contracts.PhysicalRouteWatch, erro
 	return host.observations.watch(ctx)
 }
 
-func (host *Host) Close() error {
+func (host *Host) Close(ctx context.Context) error {
 	if host == nil {
 		return nil
 	}
+	if ctx == nil {
+		return errors.New("connector implementation host close context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	deadline := time.Now().Add(3 * time.Second)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
 	host.admission.Lock()
 	defer host.admission.Unlock()
 	host.authorizationMu.Lock()
@@ -430,7 +439,7 @@ func (host *Host) Close() error {
 		route.Fence()
 		errs = append(errs, route.Close(deadline))
 	}
-	return errors.Join(errs...)
+	return errors.Join(errors.Join(errs...), ctx.Err())
 }
 
 func (host *Host) SetCapabilityPublication(enabled bool) {

@@ -254,7 +254,7 @@ export interface ConnectorMarketMutationInput {
 
 export interface ConnectorMutationInput extends ConnectorMarketMutationInput {
   connectorKey: string;
-  expectedConnectorRevision?: number;
+  expectedConnectorRevision: number;
 }
 
 export interface ConnectorAuthorizationInput extends ConnectorMutationInput {
@@ -262,19 +262,34 @@ export interface ConnectorAuthorizationInput extends ConnectorMutationInput {
   secret?: string;
 }
 
+export type ConnectorCommandOutcome =
+  | "accepted"
+  | "completed"
+  | "rejected"
+  | "uncertain";
+
+export interface ConnectorCommandFailure {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+
 export interface ConnectorMutationResult {
+  outcome: ConnectorCommandOutcome;
   connector?: Connector;
-  operation: ConnectorOperation;
+  operation?: ConnectorOperation;
+  failure?: ConnectorCommandFailure;
   revision: number;
 }
 
-export interface ConnectorAuthorizationResult {
-  connector: Connector;
-  operation: ConnectorOperation;
+export interface ConnectorAuthorizationResult extends ConnectorMutationResult {
   authorizationUrl?: string;
   authorizationExpiresAt?: string;
   authorizationView?: unknown;
-  revision: number;
+}
+
+export interface ConnectorAuthorizationCancelInput extends ConnectorMutationInput {
+  operationId: string;
 }
 
 export interface ConnectorMarketChangedEvent {
