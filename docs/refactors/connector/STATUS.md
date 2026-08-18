@@ -2,10 +2,9 @@
 
 Updated: 2026-08-18
 
-Implementation, deletion audit, and the Go/TypeScript/static verification matrix
-are complete. Tutti commit hashes are intentionally omitted because root will
-normalize DCO sign-off once. Post-rebase smoke and final clean-tree confirmation
-remain root-owned repository closeout.
+Implementation, deletion audit, the Go/TypeScript/static verification matrix,
+DCO normalization, post-rebase smoke, and clean-tree confirmation are complete.
+Final Tutti commit hashes are reported in the branch handoff.
 
 | Task                           | State                 | Verified outcome                                                                                                           |
 | ------------------------------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -137,18 +136,15 @@ commit chain is:
 Tutti's Market source lock pins the final server commit and generated-file
 hashes.
 
-## Root-only repository closeout
+## Repository closeout evidence
 
-No implementation slice remains. Root will:
-
-1. commit these final execution documents;
-2. normalize DCO sign-off while preserving logical commit boundaries;
-3. rerun post-rebase smoke-sensitive checks;
-4. verify every branch commit sign-off and final clean worktree;
-5. publish the final commit/evidence handoff.
-
-Do not report the DCO rebase or Tutti clean tree as complete until root performs
-those steps.
+- Final execution documents were committed before history normalization.
+- DCO sign-off was normalized while preserving all 18 logical commit
+  boundaries; every branch commit now contains the expected sign-off.
+- Post-rebase smoke passed Connector boundaries, API/source-lock generation,
+  Connector Market's 91 tests and typecheck, application tests, and daemon
+  tests.
+- The Tutti worktree was clean after the rebase and smoke set.
 
 ## Compatibility and residual risks
 

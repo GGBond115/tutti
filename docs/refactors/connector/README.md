@@ -1,8 +1,7 @@
 # Connector subsystem refactor
 
-Status: implementation and the Go/TypeScript/static verification matrix are
-complete on 2026-08-18. Only root-owned repository closeout remains: normalize
-DCO sign-off, run a post-rebase smoke check, and confirm a clean worktree.
+Status: implementation, verification, DCO normalization, post-rebase smoke,
+and clean-worktree closeout are complete on 2026-08-18.
 
 This directory is the execution record for the Tutti Connector refactor. The
 durable architecture is documented in `docs/architecture/connector-market.md`
@@ -257,9 +256,8 @@ The target is one architecture delivered through independently reviewable
 commits: process/runtime and UI ownership, boundaries, last-good catalog,
 contracts/application, generated source lock, Market source, one-time canonical
 release migration, architecture docs, structured control-plane/lifecycle, and
-canonical presentation/health. Tutti commit hashes are intentionally omitted
-here because the final DCO normalization rebases this branch; capability and
-test evidence are the stable record.
+canonical presentation/health. Capability and test evidence remain the stable
+record; the final rebased commit hashes are reported in the branch handoff.
 
 The server protocol is a separate clean three-commit chain on
 `codex/connector-artifact-resolve`:
@@ -298,8 +296,9 @@ AgentGUI Connector fallback.
 - The implementation has one application projector, one renderer model, and one
   explicit Desktop transport mapper; AgentGUI remains Connector-neutral.
 
-Root closeout will normalize DCO sign-off, rerun post-rebase smoke checks, and
-confirm the final Tutti worktree is clean. These repository-hygiene steps do not
-change the verified architecture or implementation scope.
+Root closeout normalized DCO sign-off across every branch commit, reran the
+Connector boundary/API-generated/Market/application/daemon smoke set, and
+confirmed the final Tutti worktree is clean. These repository-hygiene steps did
+not change the verified architecture or implementation scope.
 
-See [STATUS.md](STATUS.md) for verification evidence and root closeout.
+See [STATUS.md](STATUS.md) for verification and closeout evidence.

@@ -1,8 +1,7 @@
 # T06: cutover, deletion, and final verification
 
-Status: implementation, deletion audit, and static/Go/TypeScript verification
-are complete. Root-owned DCO rebase, post-rebase smoke, and clean-tree
-confirmation remain repository closeout rather than implementation work.
+Status: implementation, deletion audit, static/Go/TypeScript verification, DCO
+normalization, post-rebase smoke, and clean-tree confirmation are complete.
 
 ## Objective
 
@@ -41,8 +40,8 @@ The only permitted temporary compatibility is:
 
 ## Final verification matrix
 
-The completed tree passed the following implementation matrix. Root closeout
-will repeat smoke-sensitive gates after history normalization.
+The completed tree passed the following implementation matrix. Smoke-sensitive
+gates were repeated after history normalization.
 
 | Lane                  | Required evidence                                                                                   | Final result          |
 | --------------------- | --------------------------------------------------------------------------------------------------- | --------------------- |
@@ -56,7 +55,7 @@ will repeat smoke-sensitive gates after history normalization.
 | boundaries/generated  | source and go.mod DAG, test-only edge proof, Connector/renderer/UI/i18n/export/API drift/searches   | passed                |
 | platform              | Windows Go compile plus native process evidence where runner available                              | passed recorded gates |
 | package consumers     | ESM + NodeNext resolution for approved public subpaths                                              | passed                |
-| DCO/cleanliness       | every commit signed, post-rebase smoke, final clean Tutti worktree                                  | root closeout pending |
+| DCO/cleanliness       | every commit signed, post-rebase smoke, final clean Tutti worktree                                  | passed                |
 
 Repository commands include:
 
@@ -155,16 +154,12 @@ and the full Connector gates passed for this fix.
   the released Tutti cohort and shared-Agent allowlist contract without
   reintroducing a Market source or fallback.
 
-## Root-only repository closeout
+## Repository closeout
 
-After this documentation is committed, root will:
-
-1. normalize DCO sign-off once while preserving logical commit boundaries;
-2. rerun all checks affected by rewritten history/generated provenance;
-3. verify every branch commit contains the expected sign-off;
-4. verify Tutti and tsh-server worktrees are clean;
-5. report final commit list, exact commands/results, residual risks, and bounded
-   compatibility removal gates.
+Root normalized DCO sign-off once while preserving all 18 logical commit
+boundaries, reran Connector boundaries, API/source-lock generation, Connector
+Market tests/typecheck, application tests, and daemon tests, then confirmed the
+Tutti and tsh-server worktrees were clean.
 
 Known residuals that do not change architecture acceptance:
 
@@ -176,6 +171,4 @@ Known residuals that do not change architecture acceptance:
   may be flaky; record them explicitly and do not use them to waive deterministic
   Connector-focused failures.
 
-T06 implementation and verification are complete. DCO normalization,
-post-rebase smoke, and clean-tree confirmation remain root-owned repository
-closeout and must not be reported as complete until performed.
+T06 implementation, verification, and repository closeout are complete.
