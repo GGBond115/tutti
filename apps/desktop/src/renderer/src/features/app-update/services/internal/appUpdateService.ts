@@ -126,7 +126,7 @@ export class AppUpdateService implements IAppUpdateService {
   }
 
   async openReleaseNotes(): Promise<void> {
-    if (this.store.updateState?.releaseNotesUrl && this.hostFilesApi) {
+    if (this.hostFilesApi) {
       await this.hostFilesApi.openExternal(
         resolveOfficialChangelogUrl(getActiveLocale())
       );

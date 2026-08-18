@@ -75,7 +75,7 @@ test("AppUpdateService tracks primary update actions", async () => {
   ]);
 });
 
-test("AppUpdateService opens the release notes exposed by the update state", async () => {
+test("AppUpdateService opens the official changelog for an available update", async () => {
   const opened: string[] = [];
   const releaseNotesUrl =
     "https://github.com/tutti-os/tutti/releases/tag/v1.3.0";
@@ -102,7 +102,7 @@ test("AppUpdateService opens the release notes exposed by the update state", asy
   assert.deepEqual(opened, ["https://tutti.sh/en/changelog"]);
 });
 
-test("AppUpdateService keeps the release-notes action unavailable without the IPC pointer", async () => {
+test("AppUpdateService opens the official changelog without an IPC release-notes pointer", async () => {
   const opened: string[] = [];
   const service = new AppUpdateService(
     createClient({
@@ -124,7 +124,7 @@ test("AppUpdateService keeps the release-notes action unavailable without the IP
 
   await service.openReleaseNotes();
 
-  assert.deepEqual(opened, []);
+  assert.deepEqual(opened, ["https://tutti.sh/en/changelog"]);
 });
 
 test("AppUpdateService keeps install action pending after IPC succeeds", async () => {
