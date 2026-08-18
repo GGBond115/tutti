@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/tutti-lab/tsh-server",
-  "commit": "978fa7eb7786b6daf32ee79e65a290b5b51061d2",
+  "commit": "b1bb4de6f71d1068a81e2f3098fdc93a43ca4add",
   "files": [
     {
       "source": "api/sandbox/v1/market.pb.go",
