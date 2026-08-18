@@ -129,9 +129,8 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 
 "Agent handoff decisions belong to `$tutti-handoff`.",
 
-"Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider`'s native subagent or collaboration mechanism when available.",
+"Generic subagent/delegate/worker/parallel-review requests use the current provider's native subagent or collaboration mechanism when available; use `$tutti-handoff` only for an explicit separate Tutti AgentGUI/Host Agent handoff or `mention://agent-target/...`.",
 
-"The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.",
 		"tutti-dev connector available --json",
 		"Connector aliases `lark-cli=Lark CLI|飞书|Feishu|Lark|Lark Suite`",
 		"on an alias or `连接器`/`connector`",
@@ -252,8 +251,7 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 		t.Fatal("missing recommended system prompt")
 	}
 	for _, expected := range []string{
-		"Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider's native subagent or collaboration mechanism when available.",
-		"The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.",
+		"Generic subagent/delegate/worker/parallel-review requests use the current provider's native subagent or collaboration mechanism when available; use `$tutti-handoff` only for an explicit separate Tutti AgentGUI/Host Agent handoff or `mention://agent-target/...`.",
 	} {
 		if !strings.Contains(bundle.RecommendedSystemPrompt.Content, expected) {
 			t.Fatalf("recommended system prompt missing routing boundary %q: %q", expected, bundle.RecommendedSystemPrompt.Content)

@@ -30,8 +30,7 @@
 - If the Skill is unavailable, read its materialized `SKILL.md`.
 - Use the table fallback only when that Skill is unavailable.
 - Agent handoff decisions belong to `$tutti-handoff`.
-- Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider`'s native subagent or collaboration mechanism when available.
-- The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.
+- Generic subagent/delegate/worker/parallel-review requests use the current provider's native subagent or collaboration mechanism when available; use `$tutti-handoff` only for an explicit separate Tutti AgentGUI/Host Agent handoff or `mention://agent-target/...`.
 
 {{PROVIDER_SPECIFIC_MENTION_ROUTING}}
 
