@@ -38,6 +38,7 @@ export interface ConnectorRendererCommands {
   loadMore(sectionId: string): Promise<void>;
   install(connectorKey: string): Promise<ConnectorRendererInstallOutcome>;
   uninstall(connectorKey: string): Promise<unknown>;
+  restartRuntime(connectorKey: string): Promise<unknown>;
   disconnectAuthorization(connectorKey: string): Promise<void>;
   cancelAuthorization(connectorKey: string): Promise<void>;
   openAuthorizationUrl(url: string): Promise<void>;
@@ -138,9 +139,9 @@ const presentationActions = new Set<ConnectorPresentationAction>([
   "cancel",
   "select",
   "remove_selection",
-  "manage",
   "disconnect",
-  "uninstall"
+  "uninstall",
+  "restart_runtime"
 ]);
 
 const unsupportedPresentation = Object.freeze<ConnectorPresentation>({

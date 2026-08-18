@@ -4884,9 +4884,9 @@ export type ConnectorMarketPresentationAction =
   | "cancel"
   | "select"
   | "remove_selection"
-  | "manage"
   | "disconnect"
-  | "uninstall";
+  | "uninstall"
+  | "restart_runtime";
 
 export type ConnectorMarketRelease = {
   schemaVersion: "1";
@@ -5110,7 +5110,8 @@ export type ConnectorMarketOperationKind =
   | "install"
   | "uninstall"
   | "start_authorization"
-  | "disconnect_authorization";
+  | "disconnect_authorization"
+  | "reconcile_runtime";
 
 export type ConnectorMarketOperationState =
   | "accepted"
@@ -17270,6 +17271,55 @@ export type UninstallConnectorMarketConnectorResponses = {
 
 export type UninstallConnectorMarketConnectorResponse =
   UninstallConnectorMarketConnectorResponses[keyof UninstallConnectorMarketConnectorResponses];
+
+export type RestartConnectorMarketRuntimeData = {
+  body: ConnectorMarketMutationRequest;
+  path: {
+    connectorKey: string;
+  };
+  query?: never;
+  url: "/v1/connector-market/connectors/{connectorKey}/runtime:restart";
+};
+
+export type RestartConnectorMarketRuntimeErrors = {
+  /**
+   * Invalid connector-market request
+   */
+  400: ConnectorMarketError;
+  /**
+   * Daemon authorization is required
+   */
+  401: ConnectorMarketError;
+  /**
+   * Connector or operation was not found
+   */
+  404: ConnectorMarketError;
+  /**
+   * Revision conflict or operation already in progress
+   */
+  409: ConnectorMarketError;
+  /**
+   * Connector-market capability is temporarily unavailable
+   */
+  503: ConnectorMarketError;
+};
+
+export type RestartConnectorMarketRuntimeError =
+  RestartConnectorMarketRuntimeErrors[keyof RestartConnectorMarketRuntimeErrors];
+
+export type RestartConnectorMarketRuntimeResponses = {
+  /**
+   * Runtime restart completed or was not accepted
+   */
+  200: ConnectorMarketMutationResponse;
+  /**
+   * Runtime restart accepted
+   */
+  202: ConnectorMarketMutationResponse;
+};
+
+export type RestartConnectorMarketRuntimeResponse =
+  RestartConnectorMarketRuntimeResponses[keyof RestartConnectorMarketRuntimeResponses];
 
 export type StartConnectorMarketAuthorizationData = {
   body: ConnectorMarketAuthorizationRequestWritable;

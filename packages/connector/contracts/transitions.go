@@ -6,8 +6,9 @@ func CanTransitionInstallation(from, to InstallationState) bool {
 			InstallationStateInstalling: true,
 		},
 		InstallationStateInstalling: {
-			InstallationStateInstalled: true,
-			InstallationStateFailed:    true,
+			InstallationStateNotInstalled: true,
+			InstallationStateInstalled:    true,
+			InstallationStateFailed:       true,
 		},
 		InstallationStateInstalled: {
 			InstallationStateUpdating:     true,

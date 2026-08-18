@@ -32,6 +32,12 @@ type InstallationCommands interface {
 	Uninstall(context.Context, contracts.ConnectorMutation) contracts.CommandResult
 }
 
+// RuntimeCommands exposes user-initiated recovery without leaking daemon
+// convergence controls to transports or renderers.
+type RuntimeCommands interface {
+	RestartRuntime(context.Context, contracts.ConnectorMutation) contracts.CommandResult
+}
+
 type AuthorizationCommands interface {
 	BeginAuthorization(context.Context, contracts.ConnectorMutation, []byte) contracts.AuthorizationCommandResult
 	CancelAuthorization(context.Context, contracts.CancelAuthorizationCommand) contracts.CommandResult
@@ -53,6 +59,7 @@ type Root interface {
 	Catalog() CatalogQueries
 	CatalogCommands() CatalogCommands
 	Installations() InstallationCommands
+	RuntimeCommands() RuntimeCommands
 	Authorizations() AuthorizationCommands
 	AgentPolicy() AgentConnectorPolicyQueries
 	Operations() OperationQueries
@@ -66,6 +73,7 @@ func (value root) State() StateQueries                 { return value.service }
 func (value root) Catalog() CatalogQueries             { return value.service }
 func (value root) CatalogCommands() CatalogCommands    { return commandFacades(value) }
 func (value root) Installations() InstallationCommands { return commandFacades(value) }
+func (value root) RuntimeCommands() RuntimeCommands    { return commandFacades(value) }
 func (value root) Authorizations() AuthorizationCommands {
 	return commandFacades(value)
 }

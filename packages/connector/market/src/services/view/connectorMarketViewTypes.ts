@@ -15,10 +15,9 @@ export interface ConnectorCatalogErrorView {
 export type ConnectorCardAction =
   | "authorize"
   | "cancel"
-  | "details"
   | "disconnect"
   | "install"
-  | "manage"
+  | "restart_runtime"
   | "unavailable"
   | "update";
 
@@ -52,18 +51,6 @@ export interface ConnectorPermissionView {
   name: string;
 }
 
-export interface ConnectorDetailFieldView {
-  id:
-    | "authorization"
-    | "compatibility"
-    | "implementation"
-    | "releaseStatus"
-    | "runtime"
-    | "transport"
-    | "version";
-  value: string;
-}
-
 interface ConnectorDialogBaseView {
   connectorKey: string;
   description: string;
@@ -91,14 +78,6 @@ export interface ConnectorInstallationDialogView extends ConnectorDialogBaseView
   updating: boolean;
 }
 
-export interface ConnectorManagementDialogView extends ConnectorDialogBaseView {
-  canDisconnect: boolean;
-  canTry: boolean;
-  canUninstall: boolean;
-  details: ConnectorDetailFieldView[];
-  kind: "management";
-}
-
 export interface ConnectorBlockedDialogView extends ConnectorDialogBaseView {
   kind: "blocked";
   reason: string;
@@ -112,7 +91,6 @@ export type ConnectorDialogView =
   | ConnectorAuthorizationDialogView
   | ConnectorBlockedDialogView
   | ConnectorInstallationDialogView
-  | ConnectorManagementDialogView
   | ConnectorUninstallConfirmationDialogView;
 
 export interface ConnectorMarketViewState {

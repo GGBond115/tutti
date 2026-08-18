@@ -29,9 +29,9 @@ Final Tutti commit hashes are reported in the branch handoff.
   authoritative GET and cannot trigger automatic mutation replay.
 - The application is the sole projector of ten presentation states and ten
   semantic actions: `details`, `install`, `update`, `authorize`, `cancel`,
-  `select`, `remove_selection`, `manage`, `disconnect`, and `uninstall`. Generic
-  retry was removed
-  because no corresponding command exists.
+  `select`, `remove_selection`, `disconnect`, `uninstall`, and
+  `restart_runtime`. Generic retry remains removed: failed installation,
+  authorization, and runtime facts admit their concrete recovery command.
 - Local Agent policy uses the accepted catalog. Shared support and grant are
   explicit per Connector; missing, stale, unknown, or undeclared facts fail
   closed.

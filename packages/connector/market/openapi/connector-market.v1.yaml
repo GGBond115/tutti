@@ -195,6 +195,42 @@ paths:
           $ref: "#/components/responses/ConnectorMarketConflictError"
         "503":
           $ref: "#/components/responses/ConnectorMarketUnavailableError"
+  /v1/connector-market/connectors/{connectorKey}/runtime:restart:
+    parameters:
+      - $ref: "#/components/parameters/ConnectorMarketConnectorKey"
+    post:
+      operationId: restartConnectorMarketRuntime
+      tags: [connector-market]
+      summary: Restart one installed connector runtime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectorMarketMutationRequest"
+      responses:
+        "200":
+          description: Runtime restart completed or was not accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketMutationResponse"
+        "202":
+          description: Runtime restart accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketMutationResponse"
+        "400":
+          $ref: "#/components/responses/ConnectorMarketInvalidRequestError"
+        "401":
+          $ref: "#/components/responses/ConnectorMarketUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/ConnectorMarketNotFoundError"
+        "409":
+          $ref: "#/components/responses/ConnectorMarketConflictError"
+        "503":
+          $ref: "#/components/responses/ConnectorMarketUnavailableError"
   /v1/connector-market/connectors/{connectorKey}/authorization:start:
     parameters:
       - $ref: "#/components/parameters/ConnectorMarketConnectorKey"
@@ -554,9 +590,9 @@ components:
         - cancel
         - select
         - remove_selection
-        - manage
         - disconnect
         - uninstall
+        - restart_runtime
       x-enum-varnames:
         - ConnectorMarketPresentationActionDetails
         - ConnectorMarketPresentationActionInstall
@@ -565,9 +601,9 @@ components:
         - ConnectorMarketPresentationActionCancel
         - ConnectorMarketPresentationActionSelect
         - ConnectorMarketPresentationActionRemoveSelection
-        - ConnectorMarketPresentationActionManage
         - ConnectorMarketPresentationActionDisconnect
         - ConnectorMarketPresentationActionUninstall
+        - ConnectorMarketPresentationActionRestartRuntime
     ConnectorMarketRelease:
       type: object
       additionalProperties: false
@@ -1015,6 +1051,7 @@ components:
         - uninstall
         - start_authorization
         - disconnect_authorization
+        - reconcile_runtime
     ConnectorMarketOperationState:
       type: string
       enum: [accepted, running, completed, failed]

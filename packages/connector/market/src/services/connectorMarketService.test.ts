@@ -60,7 +60,6 @@ function connector(key: string, revision: number): Connector {
         "update",
         "authorize",
         "cancel",
-        "manage",
         "disconnect",
         "uninstall"
       ]
@@ -140,6 +139,7 @@ function backendWith(overrides: TestBackendOverrides): ConnectorMarketBackend {
     refreshCatalog: unsupported,
     installConnector: unsupported,
     uninstallConnector: unsupported,
+    restartRuntime: unsupported,
     beginAuthorization: unsupported,
     cancelAuthorization: unsupported,
     disconnectAuthorization: unsupported
@@ -323,7 +323,6 @@ test("automatically updates only when catalog presentation allows update", async
       "details",
       "select",
       "remove_selection",
-      "manage",
       "disconnect",
       "uninstall"
     ]
@@ -340,7 +339,6 @@ test("automatically updates only when catalog presentation allows update", async
       "details",
       "select",
       "remove_selection",
-      "manage",
       "disconnect",
       "uninstall",
       "update"
@@ -433,7 +431,6 @@ test("attempts automatic update only once for the same failed release", async ()
       "details",
       "select",
       "remove_selection",
-      "manage",
       "disconnect",
       "uninstall",
       "update"
@@ -473,7 +470,6 @@ test("does not infer automatic update from installed release metadata", async ()
       "details",
       "select",
       "remove_selection",
-      "manage",
       "disconnect",
       "uninstall"
     ]
@@ -1097,6 +1093,67 @@ test("uninstalls one connector and tracks the durable operation to completion", 
     ],
     undefined
   );
+  service.dispose();
+});
+
+test("restarts a failed runtime only when the application admits restart_runtime", async () => {
+  const failed = connector("github", 4);
+  failed.installation = {
+    installedReleaseDigest: failed.release.releaseDigest,
+    state: "installed"
+  };
+  failed.presentation = {
+    state: "failed",
+    reasonCode: "runtime_start_failed",
+    allowedActions: ["details", "remove_selection", "restart_runtime"]
+  };
+  const inputs: Parameters<ConnectorMarketBackend["restartRuntime"]>[0][] = [];
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      restartRuntime: async (input) => {
+        inputs.push(input);
+        return {
+          outcome: "completed",
+          connector: {
+            ...failed,
+            presentation: {
+              state: "connected",
+              allowedActions: ["details", "select", "remove_selection"]
+            },
+            revision: 5
+          },
+          operation: {
+            operationId: "runtime-restart-1",
+            clientRequestId: input.clientRequestId,
+            connectorKey: "github",
+            kind: "reconcile_runtime",
+            state: "completed",
+            stage: "completed",
+            attempt: 1,
+            createdAt: "2026-08-18T00:00:00Z",
+            updatedAt: "2026-08-18T00:00:01Z"
+          },
+          revision: 5
+        };
+      }
+    }),
+    createRequestId: () => "runtime-restart-request-1"
+  });
+  service.dataStore.loadState = "ready";
+  service.dataStore.revision = 4;
+  service.dataStore.connectorKeys = [failed.key];
+  service.dataStore.connectorsByKey[failed.key] = failed;
+
+  const operation = await service.restartRuntime(failed.key);
+  assert.equal(operation.kind, "reconcile_runtime");
+  assert.deepEqual(inputs, [
+    {
+      connectorKey: "github",
+      clientRequestId: "runtime-restart-request-1",
+      expectedRevision: 4,
+      expectedConnectorRevision: 4
+    }
+  ]);
   service.dispose();
 });
 

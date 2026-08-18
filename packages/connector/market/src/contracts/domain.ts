@@ -41,9 +41,9 @@ export type ConnectorPresentationAction =
   | "cancel"
   | "select"
   | "remove_selection"
-  | "manage"
   | "disconnect"
-  | "uninstall";
+  | "uninstall"
+  | "restart_runtime";
 
 export interface ConnectorPresentation {
   state: ConnectorPresentationState;
@@ -65,7 +65,8 @@ export type ConnectorOperationKind =
   | "install"
   | "uninstall"
   | "start_authorization"
-  | "disconnect_authorization";
+  | "disconnect_authorization"
+  | "reconcile_runtime";
 
 export type ConnectorOperationState =
   | "accepted"

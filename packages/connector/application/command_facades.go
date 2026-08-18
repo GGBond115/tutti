@@ -23,6 +23,11 @@ func (facade commandFacades) Uninstall(ctx context.Context, mutation contracts.C
 	return normalizeMutationCommandResult(result, err)
 }
 
+func (facade commandFacades) RestartRuntime(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
+	result, err := facade.service.ReconcileRuntime(ctx, mutation)
+	return normalizeMutationCommandResult(result, err)
+}
+
 func (facade commandFacades) DisconnectAuthorization(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 	result, err := facade.service.DisconnectAuthorization(ctx, mutation)
 	return normalizeMutationCommandResult(result, err)

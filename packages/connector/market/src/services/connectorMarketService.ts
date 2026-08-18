@@ -448,6 +448,39 @@ export class ConnectorMarketService implements IConnectorMarketService {
     return result.operation;
   }
 
+  async restartRuntime(connectorKey: string): Promise<ConnectorOperation> {
+    if (this.disposed || !this.canRequest()) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
+    this.assertConnectorActionAvailable(connectorKey, "restart_runtime");
+    const result = await this.runConnectorMutationResult(connectorKey, () =>
+      this.dependencies.backend.restartRuntime({
+        connectorKey,
+        clientRequestId: this.createRequestId(),
+        expectedRevision: this.dataStore.revision,
+        ...this.connectorRevisionFence(connectorKey)
+      })
+    );
+    if (!result?.operation) {
+      throw new ConnectorMarketRequestUnavailableError();
+    }
+    const tracked = this.trackOperation(result.operation);
+    if (tracked) {
+      await tracked;
+    }
+    const terminal = this.dataStore.operationsByConnectorKey[connectorKey];
+    if (
+      terminal?.operationId === result.operation.operationId &&
+      terminal.state === "failed"
+    ) {
+      throw new ConnectorOperationTerminalError(
+        connectorKey,
+        terminal.failureCode
+      );
+    }
+    return result.operation;
+  }
+
   dismissUninstallNotification(operationId: string): void {
     if (!this.disposed) {
       delete this.dataStore.pendingUninstallNotificationsByOperationId[

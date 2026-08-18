@@ -84,13 +84,23 @@ func (fetcher *DirectFetcher) Fetch(ctx context.Context, request FetchRequest) (
 	}
 	if downloadResponse.StatusCode != http.StatusOK {
 		_ = downloadResponse.Body.Close()
-		return FetchResponse{}, fmt.Errorf("download connector artifact: status %d", downloadResponse.StatusCode)
+		return FetchResponse{}, contracts.NewDomainError(
+			contracts.ErrorCodeInstallFailed,
+			"download connector artifact was rejected",
+			artifactDownloadStatusRetryable(downloadResponse.StatusCode),
+			nil,
+		)
 	}
 	return FetchResponse{
 		Body:          downloadResponse.Body,
 		ContentLength: downloadResponse.ContentLength,
 		MediaType:     downloadResponse.Header.Get("Content-Type"),
 	}, nil
+}
+
+func artifactDownloadStatusRetryable(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusTooEarly ||
+		status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 }
 
 type artifactDownloadTransportError struct {

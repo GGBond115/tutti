@@ -12,6 +12,8 @@ import (
 	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
+const operationFailureBudget uint32 = 6
+
 func (application *service) ExecuteOperation(ctx context.Context, operationID string) error {
 	execution, owner := application.beginOperationExecution(operationID)
 	if !owner {
@@ -109,7 +111,7 @@ func (application *service) executeOperation(ctx context.Context, operationID st
 	}
 	if executeErr != nil {
 		if operation.Kind != contracts.OperationKindRefreshCatalog && operation.Kind != contracts.OperationKindStartAuthorization &&
-			isRetryableError(executeErr) {
+			isRetryableError(executeErr) && operation.Attempt < operationFailureBudget {
 			return executeErr
 		}
 		code := contracts.ErrorCodeInstallFailed

@@ -11,7 +11,6 @@ export interface ConnectorMarketPanelProps {
   i18n: ConnectorMarketI18nRuntime;
   locale?: string;
   onError?: (message: string) => void;
-  onTryConnector?: (connectorKey: string) => void;
   model: ConnectorRendererModel;
 }
 
@@ -20,7 +19,6 @@ export function ConnectorMarketPanel({
   i18n,
   locale,
   onError,
-  onTryConnector,
   model
 }: ConnectorMarketPanelProps) {
   return (
@@ -28,7 +26,6 @@ export function ConnectorMarketPanel({
       i18n={i18n}
       locale={locale}
       onError={onError}
-      onTryConnector={onTryConnector}
       model={model}
     >
       <section

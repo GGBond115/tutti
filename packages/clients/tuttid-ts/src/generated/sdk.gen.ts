@@ -616,6 +616,9 @@ import type {
   ResolveWorkspaceGitPatchSupportData,
   ResolveWorkspaceGitPatchSupportErrors,
   ResolveWorkspaceGitPatchSupportResponses,
+  RestartConnectorMarketRuntimeData,
+  RestartConnectorMarketRuntimeErrors,
+  RestartConnectorMarketRuntimeResponses,
   RestoreWorkspaceDeletedAgentSessionData,
   RestoreWorkspaceDeletedAgentSessionErrors,
   RestoreWorkspaceDeletedAgentSessionResponses,
@@ -5567,6 +5570,28 @@ export const uninstallConnectorMarketConnector = <
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/connector-market/connectors/{connectorKey}:uninstall",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Restart one installed connector runtime
+ */
+export const restartConnectorMarketRuntime = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<RestartConnectorMarketRuntimeData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    RestartConnectorMarketRuntimeResponses,
+    RestartConnectorMarketRuntimeErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/connector-market/connectors/{connectorKey}/runtime:restart",
     ...options,
     headers: {
       "Content-Type": "application/json",

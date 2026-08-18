@@ -2,6 +2,7 @@ import type { AuthorizationViewEnvelopeV1 } from "@tutti-os/connector-authorizat
 
 import type {
   Connector,
+  ConnectorOperation,
   ConnectorPresentationAction
 } from "../../contracts/index.ts";
 import type { ConnectorMarketStoreState } from "../connectorMarketService.interface.ts";
@@ -11,7 +12,6 @@ import type {
   ConnectorCardAction,
   ConnectorCardView,
   ConnectorCatalogErrorView,
-  ConnectorDetailFieldView,
   ConnectorDialogView,
   ConnectorMarketViewState
 } from "./connectorMarketViewTypes.ts";
@@ -102,6 +102,7 @@ export function buildConnectorMarketView(
       dialogKey
         ? market.pendingInstallationsByConnectorKey[dialogKey] === true
         : false,
+      dialogKey ? market.operationsByConnectorKey[dialogKey] : undefined,
       dialogKey ? market.authorizationViewsByConnectorKey[dialogKey] : undefined
     ),
     installedCount,
@@ -172,10 +173,9 @@ function primaryCardAction(
     "update",
     "install",
     "authorize",
+    "restart_runtime",
     "cancel",
-    "disconnect",
-    "manage",
-    "details"
+    "disconnect"
   ] as const satisfies readonly ConnectorPresentationAction[];
   return priority.find((action) => actions.includes(action)) ?? "unavailable";
 }
@@ -186,6 +186,7 @@ function buildConnectorDialogView(
   authorizing: boolean,
   pendingAuthorization: boolean,
   pendingInstallation: boolean,
+  operation: ConnectorOperation | undefined,
   authorizationView: AuthorizationViewEnvelopeV1 | undefined
 ): ConnectorDialogView | null {
   if (!connector) return null;
@@ -207,10 +208,20 @@ function buildConnectorDialogView(
   const state = connector.presentation.state;
   const canInstall = hasAction(connector, "install");
   const canUpdate = hasAction(connector, "update");
-  if (canInstall || canUpdate) {
+  const installationConverging =
+    operation?.kind === "install" &&
+    (operation.state === "accepted" || operation.state === "running") &&
+    operation.stage !== "failed" &&
+    operation.stage !== "completed";
+  if (
+    canInstall ||
+    canUpdate ||
+    pendingInstallation ||
+    installationConverging
+  ) {
     return {
       ...base,
-      installing: pendingInstallation || state === "connecting",
+      installing: pendingInstallation || installationConverging,
       kind: "installation",
       updating: canUpdate
     };
@@ -235,19 +246,8 @@ function buildConnectorDialogView(
       pending: pendingAuthorization || state === "connecting"
     };
   }
-  const canManage = hasAction(connector, "manage");
-  const canDisconnect = hasAction(connector, "disconnect");
-  const canUninstall = hasAction(connector, "uninstall");
-  const canTry = hasAction(connector, "select");
-  if (canManage || canDisconnect || canUninstall || canTry) {
-    return {
-      ...base,
-      canDisconnect,
-      canTry,
-      canUninstall,
-      details: buildDetailFields(connector),
-      kind: "management"
-    };
+  if (state === "connected") {
+    return null;
   }
   return {
     ...base,
@@ -265,22 +265,6 @@ function hasAction(
   action: ConnectorPresentationAction
 ): boolean {
   return connector.presentation.allowedActions.includes(action);
-}
-
-function buildDetailFields(connector: Connector): ConnectorDetailFieldView[] {
-  const implementation = connector.release.manifest.implementation;
-  return [
-    { id: "version", value: connector.release.version },
-    { id: "releaseStatus", value: connector.release.status },
-    { id: "compatibility", value: connector.compatibility.state },
-    { id: "transport", value: implementationTags(connector).join(" + ") },
-    { id: "implementation", value: implementation.kind },
-    { id: "runtime", value: implementation.kind },
-    {
-      id: "authorization",
-      value: connector.release.manifest.authorizationKind
-    }
-  ];
 }
 
 function implementationTags(connector: Connector): string[] {

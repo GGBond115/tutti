@@ -1658,6 +1658,7 @@ func (e ConnectorMarketManifestSchemaVersion) Valid() bool {
 const (
 	DisconnectAuthorization ConnectorMarketOperationKind = "disconnect_authorization"
 	Install                 ConnectorMarketOperationKind = "install"
+	ReconcileRuntime        ConnectorMarketOperationKind = "reconcile_runtime"
 	RefreshCatalog          ConnectorMarketOperationKind = "refresh_catalog"
 	StartAuthorization      ConnectorMarketOperationKind = "start_authorization"
 	Uninstall               ConnectorMarketOperationKind = "uninstall"
@@ -1669,6 +1670,8 @@ func (e ConnectorMarketOperationKind) Valid() bool {
 	case DisconnectAuthorization:
 		return true
 	case Install:
+		return true
+	case ReconcileRuntime:
 		return true
 	case RefreshCatalog:
 		return true
@@ -1757,8 +1760,8 @@ const (
 	ConnectorMarketPresentationActionDetails         ConnectorMarketPresentationAction = "details"
 	ConnectorMarketPresentationActionDisconnect      ConnectorMarketPresentationAction = "disconnect"
 	ConnectorMarketPresentationActionInstall         ConnectorMarketPresentationAction = "install"
-	ConnectorMarketPresentationActionManage          ConnectorMarketPresentationAction = "manage"
 	ConnectorMarketPresentationActionRemoveSelection ConnectorMarketPresentationAction = "remove_selection"
+	ConnectorMarketPresentationActionRestartRuntime  ConnectorMarketPresentationAction = "restart_runtime"
 	ConnectorMarketPresentationActionSelect          ConnectorMarketPresentationAction = "select"
 	ConnectorMarketPresentationActionUninstall       ConnectorMarketPresentationAction = "uninstall"
 	ConnectorMarketPresentationActionUpdate          ConnectorMarketPresentationAction = "update"
@@ -1777,9 +1780,9 @@ func (e ConnectorMarketPresentationAction) Valid() bool {
 		return true
 	case ConnectorMarketPresentationActionInstall:
 		return true
-	case ConnectorMarketPresentationActionManage:
-		return true
 	case ConnectorMarketPresentationActionRemoveSelection:
+		return true
+	case ConnectorMarketPresentationActionRestartRuntime:
 		return true
 	case ConnectorMarketPresentationActionSelect:
 		return true
@@ -10911,6 +10914,9 @@ type DisconnectConnectorMarketAuthorizationJSONRequestBody = ConnectorMarketMuta
 
 // StartConnectorMarketAuthorizationJSONRequestBody defines body for StartConnectorMarketAuthorization for application/json ContentType.
 type StartConnectorMarketAuthorizationJSONRequestBody = ConnectorMarketAuthorizationRequest
+
+// RestartConnectorMarketRuntimeJSONRequestBody defines body for RestartConnectorMarketRuntime for application/json ContentType.
+type RestartConnectorMarketRuntimeJSONRequestBody = ConnectorMarketMutationRequest
 
 // InstallConnectorMarketConnectorJSONRequestBody defines body for InstallConnectorMarketConnector for application/json ContentType.
 type InstallConnectorMarketConnectorJSONRequestBody = ConnectorMarketMutationRequest

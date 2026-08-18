@@ -431,6 +431,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		api.ConnectorCatalogQueries = connectorMarketHost.CatalogQueries()
 		api.ConnectorCatalogCommands = connectorMarketHost.CatalogCommands()
 		api.ConnectorInstallationCommands = connectorMarketHost.InstallationCommands()
+		api.ConnectorRuntimeCommands = connectorMarketHost.RuntimeCommands()
 		api.ConnectorAuthorizationCommands = connectorMarketHost.AuthorizationCommands()
 		api.ConnectorOperationQueries = connectorMarketHost.OperationQueries()
 		api.ConnectorMarketScope = connectorMarketScope

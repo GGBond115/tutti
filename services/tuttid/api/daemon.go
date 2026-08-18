@@ -76,6 +76,7 @@ type DaemonAPI struct {
 	ConnectorCatalogQueries        application.CatalogQueries
 	ConnectorCatalogCommands       application.CatalogCommands
 	ConnectorInstallationCommands  application.InstallationCommands
+	ConnectorRuntimeCommands       application.RuntimeCommands
 	ConnectorAuthorizationCommands application.AuthorizationCommands
 	ConnectorOperationQueries      application.OperationQueries
 	ConnectorMarketScope           func() contracts.OperationScope

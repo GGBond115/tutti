@@ -41,6 +41,7 @@ export type ConnectorMarketRendererMarketPort = Pick<
   | "loadMore"
   | "install"
   | "uninstall"
+  | "restartRuntime"
   | "dismissUninstallNotification"
   | "beginAuthorization"
   | "cancelAuthorization"
@@ -104,6 +105,8 @@ export class ConnectorMarketModule implements IConnectorMarketModule {
         loadMore: (sectionId) => root.market.loadMore(sectionId),
         install: (connectorKey) => root.market.install(connectorKey),
         uninstall: (connectorKey) => root.market.uninstall(connectorKey),
+        restartRuntime: (connectorKey) =>
+          root.market.restartRuntime(connectorKey),
         dismissUninstallNotification: (operationId) =>
           root.market.dismissUninstallNotification(operationId),
         beginAuthorization: (connectorKey, secret) =>

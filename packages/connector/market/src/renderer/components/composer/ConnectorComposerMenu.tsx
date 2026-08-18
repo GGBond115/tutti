@@ -166,9 +166,7 @@ export function ConnectorComposerMenu({
               item.allowedActions.includes("select") &&
               Boolean(onSelectConnector);
             const canOpen = item.allowedActions.some((action) =>
-              ["authorize", "details", "install", "manage", "update"].includes(
-                action
-              )
+              ["authorize", "details", "install", "update"].includes(action)
             );
             const disabled = !(canRemove || canSelect || canOpen);
             const actionLabel = connectorStatusLabel(item.status, labels);

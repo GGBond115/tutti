@@ -5,3 +5,9 @@ export function connectorCardActionStartsInstallation(
 ): boolean {
   return action === "install" || action === "update";
 }
+
+export function connectorCardShowsInstallationProgress(
+  reasonCode: ConnectorCardView["reasonCode"]
+): boolean {
+  return reasonCode === "installation_converging";
+}

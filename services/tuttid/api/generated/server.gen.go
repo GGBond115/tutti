@@ -119,6 +119,9 @@ type ServerInterface interface {
 	// Start or replace connector authorization
 	// (POST /v1/connector-market/connectors/{connectorKey}/authorization:start)
 	StartConnectorMarketAuthorization(w http.ResponseWriter, r *http.Request, connectorKey ConnectorMarketConnectorKey)
+	// Restart one installed connector runtime
+	// (POST /v1/connector-market/connectors/{connectorKey}/runtime:restart)
+	RestartConnectorMarketRuntime(w http.ResponseWriter, r *http.Request, connectorKey ConnectorMarketConnectorKey)
 	// Install or update one connector
 	// (POST /v1/connector-market/connectors/{connectorKey}:install)
 	InstallConnectorMarketConnector(w http.ResponseWriter, r *http.Request, connectorKey ConnectorMarketConnectorKey)
@@ -1878,6 +1881,38 @@ func (siw *ServerInterfaceWrapper) StartConnectorMarketAuthorization(w http.Resp
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StartConnectorMarketAuthorization(w, r, connectorKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestartConnectorMarketRuntime operation middleware
+func (siw *ServerInterfaceWrapper) RestartConnectorMarketRuntime(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "connectorKey" -------------
+	var connectorKey ConnectorMarketConnectorKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "connectorKey", r.PathValue("connectorKey"), &connectorKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "connectorKey", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestartConnectorMarketRuntime(w, r, connectorKey)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11419,6 +11454,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}/authorization:cancel", wrapper.CancelConnectorMarketAuthorization)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}/authorization:disconnect", wrapper.DisconnectConnectorMarketAuthorization)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}/authorization:start", wrapper.StartConnectorMarketAuthorization)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}/runtime:restart", wrapper.RestartConnectorMarketRuntime)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}:install", wrapper.InstallConnectorMarketConnector)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}:uninstall", wrapper.UninstallConnectorMarketConnector)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/connector-market/operations/{operationID}", wrapper.GetConnectorMarketOperation)
@@ -14528,6 +14564,123 @@ type StartConnectorMarketAuthorization503JSONResponse struct {
 }
 
 func (response StartConnectorMarketAuthorization503JSONResponse) VisitStartConnectorMarketAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartConnectorMarketRuntimeRequestObject struct {
+	ConnectorKey ConnectorMarketConnectorKey `json:"connectorKey"`
+	Body         *RestartConnectorMarketRuntimeJSONRequestBody
+}
+
+type RestartConnectorMarketRuntimeResponseObject interface {
+	VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error
+}
+
+type RestartConnectorMarketRuntime200JSONResponse ConnectorMarketMutationResponse
+
+func (response RestartConnectorMarketRuntime200JSONResponse) VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartConnectorMarketRuntime202JSONResponse ConnectorMarketMutationResponse
+
+func (response RestartConnectorMarketRuntime202JSONResponse) VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartConnectorMarketRuntime400JSONResponse struct {
+	ConnectorMarketInvalidRequestErrorJSONResponse
+}
+
+func (response RestartConnectorMarketRuntime400JSONResponse) VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartConnectorMarketRuntime401JSONResponse struct {
+	ConnectorMarketUnauthorizedErrorJSONResponse
+}
+
+func (response RestartConnectorMarketRuntime401JSONResponse) VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartConnectorMarketRuntime404JSONResponse struct {
+	ConnectorMarketNotFoundErrorJSONResponse
+}
+
+func (response RestartConnectorMarketRuntime404JSONResponse) VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartConnectorMarketRuntime409JSONResponse struct {
+	ConnectorMarketConflictErrorJSONResponse
+}
+
+func (response RestartConnectorMarketRuntime409JSONResponse) VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartConnectorMarketRuntime503JSONResponse struct {
+	ConnectorMarketUnavailableErrorJSONResponse
+}
+
+func (response RestartConnectorMarketRuntime503JSONResponse) VisitRestartConnectorMarketRuntimeResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -39714,6 +39867,9 @@ type StrictServerInterface interface {
 	// Start or replace connector authorization
 	// (POST /v1/connector-market/connectors/{connectorKey}/authorization:start)
 	StartConnectorMarketAuthorization(ctx context.Context, request StartConnectorMarketAuthorizationRequestObject) (StartConnectorMarketAuthorizationResponseObject, error)
+	// Restart one installed connector runtime
+	// (POST /v1/connector-market/connectors/{connectorKey}/runtime:restart)
+	RestartConnectorMarketRuntime(ctx context.Context, request RestartConnectorMarketRuntimeRequestObject) (RestartConnectorMarketRuntimeResponseObject, error)
 	// Install or update one connector
 	// (POST /v1/connector-market/connectors/{connectorKey}:install)
 	InstallConnectorMarketConnector(ctx context.Context, request InstallConnectorMarketConnectorRequestObject) (InstallConnectorMarketConnectorResponseObject, error)
@@ -41363,6 +41519,41 @@ func (sh *strictHandler) StartConnectorMarketAuthorization(w http.ResponseWriter
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StartConnectorMarketAuthorizationResponseObject); ok {
 		if err := validResponse.VisitStartConnectorMarketAuthorizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestartConnectorMarketRuntime operation middleware
+func (sh *strictHandler) RestartConnectorMarketRuntime(w http.ResponseWriter, r *http.Request, connectorKey ConnectorMarketConnectorKey) {
+	var request RestartConnectorMarketRuntimeRequestObject
+
+	request.ConnectorKey = connectorKey
+
+	var body RestartConnectorMarketRuntimeJSONRequestBody
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestartConnectorMarketRuntime(ctx, request.(RestartConnectorMarketRuntimeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestartConnectorMarketRuntime")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestartConnectorMarketRuntimeResponseObject); ok {
+		if err := validResponse.VisitRestartConnectorMarketRuntimeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

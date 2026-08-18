@@ -50,6 +50,7 @@ export function createConnectorRendererModel(
     loadMore: (sectionId) => root.market.loadMore(sectionId),
     install: (key) => root.market.install(key),
     uninstall: (key) => root.market.uninstall(key),
+    restartRuntime: (key) => root.market.restartRuntime(key),
     disconnectAuthorization: (key) => root.market.disconnectAuthorization(key),
     cancelAuthorization: (key) => root.market.cancelAuthorization(key),
     openAuthorizationUrl: (url) => root.market.openAuthorizationUrl(url),

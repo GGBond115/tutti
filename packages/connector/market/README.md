@@ -12,7 +12,7 @@ The package exposes:
 - `core` and `services`: lifecycle integration and narrow application ports
   used to create one window-scoped Connector module
 - `composition`: adaptation from those ports to the readonly renderer model
-- `renderer`: Connector-owned catalog, dialogs, management UI, and compact
+- `renderer`: Connector-owned catalog, installation/authorization dialogs, and compact
   Agent composer entry built with `@tutti-os/ui-system`
 - `ui`: a one-release compile-time compatibility re-export of `renderer`
 - `i18n`: the Connector resource bundle and scoped runtime factory

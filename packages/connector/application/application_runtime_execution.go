@@ -2,38 +2,78 @@ package application
 
 import (
 	"context"
-	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
+	"errors"
 	"strings"
+	"time"
+
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func (application *service) executeRuntimeReconcile(ctx context.Context, operation contracts.Operation) error {
-	connector, err := application.config.Repository.Connector(ctx, operation.ConnectorKey)
-	if err != nil {
+	convergence, err := application.config.Repository.RuntimeConvergence(ctx, operation.Scope, operation.ConnectorKey)
+	needsNewGeneration := err != nil || operation.Stage != contracts.OperationStageRuntimePending ||
+		operation.HostGeneration.BootEpoch != application.config.BootEpoch ||
+		convergence.Desired.Generation != operation.HostGeneration.Generation
+	if err != nil && !errors.Is(err, contracts.ErrNotFound) {
 		return err
 	}
-	release, err := application.installedReleaseEvidence(ctx, connector)
-	if err != nil {
-		return err
+	if needsNewGeneration {
+		convergence, err = application.ensureRuntimeDesired(ctx, operation.Scope, operation.ConnectorKey, true)
+		if err != nil {
+			return err
+		}
+		operation, err = application.updateOperationStage(ctx, operation.OperationID, contracts.OperationStageRuntimePending, func(current *contracts.Operation) {
+			current.HostGeneration = contracts.HostGeneration{
+				BootEpoch:  application.config.BootEpoch,
+				Generation: convergence.Desired.Generation,
+			}
+		})
+		if err != nil {
+			return err
+		}
 	}
-	connector.Release = release
-	binding, err := application.resolveRuntimeBinding(ctx, operation, connector, release, contracts.RuntimeBindingPurposeReconcile)
-	if err != nil {
-		return err
-	}
-	connector.Authorization.State = binding.AuthorizationState
-	receipt, err := application.reconcileRuntime(ctx, contracts.RuntimeReconcileRequest{
-		OperationID: operation.OperationID, Scope: operation.Scope, ConnectionID: binding.ConnectionID,
-		Connector: connector, Enabled: binding.Enabled, Generation: operation.HostGeneration,
-		CredentialBrokerGrant: binding.CredentialBrokerGrant,
-	})
-	if err != nil {
-		return contracts.NewDomainError(contracts.ErrorCodeInstallFailed, "connector runtime could not be reconciled", true, err)
-	}
-	if err := validateRuntimeReceipt(receipt, operation.OperationID, binding.ConnectionID, connector.Key,
-		release.ReleaseDigest, operation.HostGeneration, binding.Enabled); err != nil {
+	if err := application.awaitRuntimeOperationGeneration(ctx, operation); err != nil {
 		return err
 	}
 	return application.completeConnectorOperation(ctx, operation.OperationID, func(current contracts.Connector) contracts.Connector { return current })
+}
+
+func (application *service) awaitRuntimeOperationGeneration(ctx context.Context, operation contracts.Operation) error {
+	for {
+		err := application.ConvergeRuntime(ctx, operation.Scope, operation.ConnectorKey)
+		convergence, readErr := application.config.Repository.RuntimeConvergence(ctx, operation.Scope, operation.ConnectorKey)
+		if readErr != nil {
+			return errors.Join(err, readErr)
+		}
+		if convergence.Desired.Generation != operation.HostGeneration.Generation {
+			return contracts.NewDomainError(contracts.ErrorCodeRevisionConflict, "connector runtime recovery target changed", false, err)
+		}
+		exactObservation := convergence.Observed.DesiredGeneration == operation.HostGeneration.Generation &&
+			convergence.Observed.BootEpoch == application.config.BootEpoch
+		readyForIntent := convergence.Observed.Readiness.State == contracts.RuntimeReadinessReady ||
+			!convergence.Desired.Enabled && convergence.Observed.Readiness.State == contracts.RuntimeReadinessBlocked &&
+				convergence.Observed.Readiness.ReasonCode == contracts.RuntimeReadinessReasonRuntimeDisabled
+		if exactObservation && readyForIntent {
+			return nil
+		}
+		if convergence.Attempt >= contracts.RuntimeFailureBudget {
+			return contracts.NewDomainError(contracts.ErrorCodeInstallFailed, "connector runtime recovery exhausted its failure budget", false, err)
+		}
+		if err != nil {
+			return err
+		}
+		wait := 25 * time.Millisecond
+		if delay := convergence.NextAttemptAt.Sub(application.config.Now().UTC()); delay > wait {
+			wait = delay
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (application *service) resolveRuntimeBinding(

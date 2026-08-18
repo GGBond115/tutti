@@ -70,6 +70,7 @@ Composition
 │   ├── StateQueries
 │   ├── CatalogQueries / CatalogCommands
 │   ├── InstallationCommands
+│   ├── RuntimeCommands
 │   ├── AuthorizationCommands
 │   ├── OperationQueries
 │   └── AgentConnectorPolicyQueries
@@ -171,7 +172,8 @@ or let an older delayed enable win.
 
 Owned workers include:
 
-- durable operation recovery and scheduler wakeups;
+- durable operation recovery and scheduler wakeups, bounded by six persisted
+  execution attempts before terminal failure;
 - Catalog refresh with 30–60 second first retry and bounded jittered backoff;
 - physical route watch plus periodic snapshot anti-entropy;
 - authorization event/snapshot calibration;

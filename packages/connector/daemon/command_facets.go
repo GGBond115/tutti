@@ -118,6 +118,18 @@ func (facet installationCommandFacet) Uninstall(ctx context.Context, mutation co
 
 type authorizationCommandFacet struct{ host *Host }
 
+type runtimeCommandFacet struct{ host *Host }
+
+func (facet runtimeCommandFacet) RestartRuntime(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
+	if err := facet.host.beginCommand(); err != nil {
+		return commandAdmissionRejected(err)
+	}
+	defer facet.host.endCommand()
+	commandCtx, cancel := facet.host.commandContext(ctx)
+	defer cancel()
+	return facet.host.runtimeCommands.RestartRuntime(commandCtx, mutation)
+}
+
 func (facet authorizationCommandFacet) BeginAuthorization(
 	ctx context.Context,
 	mutation contracts.ConnectorMutation,
@@ -162,5 +174,6 @@ func (facet authorizationCommandFacet) DisconnectAuthorization(
 var (
 	_ application.CatalogCommands       = catalogCommandFacet{}
 	_ application.InstallationCommands  = installationCommandFacet{}
+	_ application.RuntimeCommands       = runtimeCommandFacet{}
 	_ application.AuthorizationCommands = authorizationCommandFacet{}
 )

@@ -2513,6 +2513,14 @@ test("shared tuttid client preserves connector market read and install routes", 
     }),
     mutation
   );
+  assert.deepEqual(
+    await client.restartConnectorMarketRuntime("notion", {
+      clientRequestId: "restart-1",
+      expectedRevision: 8,
+      expectedConnectorRevision: 7
+    }),
+    mutation
+  );
   assertRequest(requests[0]!, {
     authorization: null,
     body: null,
@@ -2529,6 +2537,17 @@ test("shared tuttid client preserves connector market read and install routes", 
     },
     method: "POST",
     path: "/v1/connector-market/connectors/notion:install",
+    query: {}
+  });
+  assertRequest(requests[2]!, {
+    authorization: null,
+    body: {
+      clientRequestId: "restart-1",
+      expectedRevision: 8,
+      expectedConnectorRevision: 7
+    },
+    method: "POST",
+    path: "/v1/connector-market/connectors/notion/runtime:restart",
     query: {}
   });
 });

@@ -12,7 +12,6 @@ import type { AuthorizationViewEnvelopeV1 } from "@tutti-os/connector-authorizat
 import { useConnectorMarketServices } from "../ConnectorMarketServicesContext.tsx";
 import { ConnectorAuthorizationDialog } from "./ConnectorAuthorizationDialog.tsx";
 import { ConnectorBlockedDialog } from "./ConnectorBlockedDialog.tsx";
-import { ConnectorManagementDialog } from "./ConnectorManagementDialog.tsx";
 import { ConnectorInstallationDialog } from "./ConnectorInstallationDialog.tsx";
 
 interface UninstallSuccessToast {
@@ -21,15 +20,8 @@ interface UninstallSuccessToast {
 }
 
 export function ConnectorMarketDialogs() {
-  const {
-    i18n,
-    locale,
-    model,
-    onError,
-    onTryConnector,
-    secureSubmission,
-    snapshot
-  } = useConnectorMarketServices();
+  const { i18n, locale, model, onError, secureSubmission, snapshot } =
+    useConnectorMarketServices();
   const dialog = snapshot.view.dialog;
   const dialogRequest = snapshot.ui.dialog;
   const marketSnapshot = snapshot.market;
@@ -107,11 +99,6 @@ export function ConnectorMarketDialogs() {
     return null;
   }
 
-  // Hide management dialog when showing success toast
-  const shouldHideDialog =
-    dialog?.kind === "management" &&
-    Boolean(showSuccessToast || uninstallSuccess);
-
   const cancelAuthorizationDialog = () => {
     if (dialog?.kind !== "authorization") {
       model.commands.closeDialog();
@@ -167,7 +154,7 @@ export function ConnectorMarketDialogs() {
             }
           }}
         />
-      ) : dialog && !shouldHideDialog ? (
+      ) : dialog ? (
         <Dialog
           open
           onOpenChange={(open) => {
@@ -234,31 +221,6 @@ export function ConnectorMarketDialogs() {
               onOpenAuthorizationUrl={(url) =>
                 model.commands.openAuthorizationUrl(url)
               }
-            />
-          ) : dialog.kind === "management" ? (
-            <ConnectorManagementDialog
-              canDisconnectAuthorization={dialog.canDisconnect}
-              canTry={dialog.canTry}
-              canUninstall={dialog.canUninstall}
-              description={dialog.description}
-              displayName={dialog.displayName}
-              iconUrl={dialog.iconUrl}
-              i18n={i18n}
-              onDisconnect={() => {
-                void model.commands
-                  .disconnectAuthorization(dialog.connectorKey)
-                  .then(() => model.commands.closeDialog())
-                  .catch(() => {
-                    onError?.(i18n.t("connectorDisconnectFailed"));
-                  });
-              }}
-              onRequestUninstall={() =>
-                model.commands.requestUninstall(dialog.connectorKey)
-              }
-              onTry={() => {
-                model.commands.closeDialog();
-                onTryConnector?.(dialog.connectorKey);
-              }}
             />
           ) : (
             <ConnectorBlockedDialog

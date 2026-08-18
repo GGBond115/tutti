@@ -205,7 +205,7 @@ test("module activation remains ready when optional catalog synchronization fail
   assert.equal(unsubscriptions, 1);
 });
 
-test("one dialog host projects authorization and management as mutually exclusive states", async () => {
+test("one dialog host projects authorization without creating a connected management dialog", async () => {
   const module = new ConnectorMarketModule({
     market: {
       backend: backendWith({
@@ -246,7 +246,6 @@ test("one dialog host projects authorization and management as mutually exclusiv
                   "details",
                   "select",
                   "remove_selection",
-                  "manage",
                   "disconnect",
                   "uninstall"
                 ]
@@ -265,7 +264,7 @@ test("one dialog host projects authorization and management as mutually exclusiv
   assert.equal(dialogKind(), "authorization");
 
   module.rendererPorts.uiState.openConnector("notion");
-  assert.equal(dialogKind(), "management");
+  assert.equal(dialogKind(), undefined);
 
   module.rendererPorts.uiState.requestUninstall("github");
   assert.equal(dialogKind(), "uninstall_confirmation");
@@ -382,6 +381,7 @@ function backendWith(
     installConnector: unsupported,
     refreshCatalog: unsupported,
     uninstallConnector: unsupported,
+    restartRuntime: unsupported,
     ...overrides
   };
 }

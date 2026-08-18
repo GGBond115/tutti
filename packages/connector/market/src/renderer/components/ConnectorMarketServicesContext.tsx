@@ -22,7 +22,6 @@ export interface ConnectorMarketServices {
     typeof requireConnectorRendererSecureSubmissionPort
   >;
   onError?: (message: string) => void;
-  onTryConnector?: (connectorKey: string) => void;
 }
 
 export interface ConnectorMarketRendererProviderProps {
@@ -30,7 +29,6 @@ export interface ConnectorMarketRendererProviderProps {
   i18n: ConnectorMarketI18nRuntime;
   locale?: string;
   onError?: (message: string) => void;
-  onTryConnector?: (connectorKey: string) => void;
   model: ConnectorRendererModel;
 }
 
@@ -56,7 +54,6 @@ export function ConnectorMarketRendererProvider({
   i18n,
   locale = "en-US",
   onError,
-  onTryConnector,
   model
 }: ConnectorMarketRendererProviderProps) {
   const snapshot = useSyncExternalStore(
@@ -71,10 +68,9 @@ export function ConnectorMarketRendererProvider({
       model,
       snapshot,
       secureSubmission: requireConnectorRendererSecureSubmissionPort(model),
-      onError,
-      onTryConnector
+      onError
     }),
-    [i18n, locale, model, onError, onTryConnector, snapshot]
+    [i18n, locale, model, onError, snapshot]
   );
 
   return (

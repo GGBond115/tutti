@@ -6,7 +6,6 @@ import { useService } from "@tutti-os/infra/di";
 import { INotificationService } from "@tutti-os/ui-notifications";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "@renderer/i18n";
-import { useWorkspaceSettingsService } from "./useWorkspaceSettingsService";
 
 /** One canonical connector-market dialog host for each workbench window. */
 export function WorkspaceConnectorMarketDialogHost() {
@@ -17,7 +16,6 @@ export function WorkspaceConnectorMarketDialogHost() {
   );
   const connectorMarketModule = useService(IConnectorMarketModule);
   const notifications = useService(INotificationService);
-  const { service: settingsService } = useWorkspaceSettingsService();
   const handleError = useCallback(
     (message: string) => notifications.error({ title: message }),
     [notifications]
@@ -28,7 +26,6 @@ export function WorkspaceConnectorMarketDialogHost() {
       i18n={i18n}
       locale={locale}
       onError={handleError}
-      onTryConnector={() => settingsService.closePanel()}
       model={getConnectorRendererModel(connectorMarketModule.rendererPorts)}
     />
   );

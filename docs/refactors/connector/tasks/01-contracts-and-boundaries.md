@@ -60,7 +60,7 @@ It also emits a validated set of semantic actions:
 
 ```text
 details, install, update, authorize, cancel, select, remove_selection,
-manage, disconnect, uninstall
+disconnect, uninstall, restart_runtime
 ```
 
 Application state transition and action admission are authoritative. Market,
@@ -82,7 +82,8 @@ renderer, Agent policy, Desktop, and AgentGUI cannot repeat the derivation.
 surfaces:
 
 - public `Root`: `StateQueries`, `CatalogQueries`, `CatalogCommands`,
-  `InstallationCommands`, `AuthorizationCommands`, `OperationQueries`, and
+  `InstallationCommands`, `RuntimeCommands` (typed user recovery),
+  `AuthorizationCommands`, `OperationQueries`, and
   `AgentConnectorPolicyQueries`;
 - daemon-only `DaemonPorts`: separate recovery, operation, catalog,
   installation, authorization, and runtime maintenance interfaces.

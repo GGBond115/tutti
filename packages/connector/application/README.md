@@ -20,6 +20,7 @@ responsibility-specific interfaces:
 - `StateQueries`
 - `CatalogQueries` and `CatalogCommands`
 - `InstallationCommands`
+- `RuntimeCommands` (user-initiated recovery only)
 - `AuthorizationCommands`
 - `OperationQueries`
 - `AgentConnectorPolicyQueries`

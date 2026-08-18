@@ -40,9 +40,9 @@ const presentationActions = new Set<ConnectorPresentationAction>([
   "cancel",
   "select",
   "remove_selection",
-  "manage",
   "disconnect",
-  "uninstall"
+  "uninstall",
+  "restart_runtime"
 ]);
 const freshnessStates = new Set<ConnectorCatalogFreshness["state"]>([
   "unavailable",
@@ -101,6 +101,11 @@ export function createDesktopConnectorMarketBackend(
     async uninstallConnector({ connectorKey, ...request }) {
       return mapMutationResult(
         await client.uninstallConnectorMarketConnector(connectorKey, request)
+      );
+    },
+    async restartRuntime({ connectorKey, ...request }) {
+      return mapMutationResult(
+        await client.restartConnectorMarketRuntime(connectorKey, request)
       );
     },
     async beginAuthorization({ connectorKey, ...request }) {

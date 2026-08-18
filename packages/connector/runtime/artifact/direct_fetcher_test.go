@@ -94,6 +94,42 @@ func TestDirectFetcherRejectsMissingOrExpiredResolution(t *testing.T) {
 	}
 }
 
+func TestDirectFetcherClassifiesArtifactHTTPFailures(t *testing.T) {
+	release := directFetcherTestRelease()
+	for _, test := range []struct {
+		status    int
+		retryable bool
+	}{
+		{status: http.StatusForbidden, retryable: false},
+		{status: http.StatusNotFound, retryable: false},
+		{status: http.StatusTooManyRequests, retryable: true},
+		{status: http.StatusServiceUnavailable, retryable: true},
+	} {
+		t.Run(http.StatusText(test.status), func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(test.status)
+			}))
+			defer server.Close()
+			fetcher, err := NewDirectFetcher(DirectFetcherConfig{
+				Resolver: artifactDownloadResolverFunc(func(context.Context, string) (contracts.ArtifactDownload, error) {
+					return resolvedArtifact(server.URL+"/artifact.zip", release), nil
+				}),
+				HTTPClient: server.Client(),
+				Now:        func() time.Time { return directFetcherNow },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = fetcher.Fetch(context.Background(), FetchRequest{Release: release})
+			var domainError *contracts.DomainError
+			if !errors.As(err, &domainError) || domainError.Code != contracts.ErrorCodeInstallFailed ||
+				domainError.Retryable != test.retryable {
+				t.Fatalf("status %d error = %#v", test.status, err)
+			}
+		})
+	}
+}
+
 func TestDirectFetcherRejectsUnsafeResolvedURL(t *testing.T) {
 	release := directFetcherTestRelease()
 	tests := []struct {

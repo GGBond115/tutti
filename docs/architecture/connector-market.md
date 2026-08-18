@@ -352,9 +352,10 @@ identity plus an explicit account execution scope. Each stage is idempotent for 
 operationId + connectorKey + version + releaseDigest
 ```
 
-The durable install flow is intentionally coarse-grained. A failed attempt is
-restarted from the idempotent release installer; the business repository does
-not persist internal download/sync/import sub-stages:
+The durable install flow is intentionally coarse-grained. A retryable attempt
+is restarted from the idempotent release installer, up to the durable six-attempt
+operation budget; the business repository does not persist internal
+download/sync/import sub-stages:
 
 ```text
 install/update:
@@ -368,10 +369,11 @@ accepted -> deactivating(Desired=disabled) -> Observed(disabled)
 
 These are short database transactions separated by idempotent external
 effects, not one long transaction. Every external effect is preceded by a
-durable phase/receipt. A retryable error leaves the Operation non-terminal and
-the continuous recovery scanner resumes it; a deterministic install failure
-clears Candidate and its convergence row before terminalizing. During update,
-Current and its route remain usable until Candidate has been observed ready.
+durable phase/receipt. A retryable error below the failure budget leaves the
+Operation non-terminal and the continuous recovery scanner resumes it. At the
+budget, or on a deterministic install failure, the operation terminalizes and
+clears Candidate plus its convergence row. A failed first install restores
+`not_installed`; a failed update retains Current and its usable route.
 
 The repository owns operation leases and attempt metadata. Recovery observes
 staging markers, active-version markers, and host runtime state before deciding
@@ -527,7 +529,7 @@ state. A public projection change atomically advances the Connector revision and
 appends its invalidation event; account state can no longer change invisibly
 between market Snapshot reads. Composer capability projection and prompt
 admission use the current account-scoped Snapshot as well, so their connected
-state cannot diverge from Connector Market management surfaces.
+state cannot diverge from Connector Market surfaces.
 
 Operation-bearing events carry an internal account audience and are delivered
 only while that owner is the host's active account. Every state change also
@@ -612,11 +614,17 @@ mount their own dialog host. This keeps dialog identity and mutual exclusion in
 one window-level Connector module while allowing several AgentGUI surfaces to
 open it.
 
-Connector details are represented by one modal state machine, never by a fixed
-right-hand pane. An uninstalled connector opens an installation confirmation.
-An unconnected installed connector opens the authorization dialog; an
-authorized connector opens the management dialog. Blocked releases open the
-blocked-state dialog. Only one dialog host is mounted at a time, so
+Connector installation and authorization are represented by one modal state
+machine, never by a fixed right-hand pane. An uninstalled connector opens an
+installation confirmation and keeps that dialog in the installing state while
+the durable operation converges. A terminal first-install failure restores the
+card to its installable state. An unconnected installed connector opens the
+authorization dialog; connected connectors do not open a management surface.
+Failed authorization exposes reauthorization, failed installation exposes
+reinstallation, and failed runtime convergence exposes a typed runtime restart.
+These actions come from the application projection; the renderer never infers
+recovery from raw installation, authorization, or runtime fields.
+Blocked releases open the blocked-state dialog. Only one dialog host is mounted at a time, so
 the catalog keeps the full settings content width and never leaves an empty
 right column.
 

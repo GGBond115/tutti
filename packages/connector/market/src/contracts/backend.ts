@@ -32,6 +32,9 @@ export interface ConnectorMarketBackend {
   uninstallConnector(
     input: ConnectorMutationInput
   ): Promise<ConnectorMutationResult>;
+  restartRuntime(
+    input: ConnectorMutationInput
+  ): Promise<ConnectorMutationResult>;
   beginAuthorization(
     input: ConnectorAuthorizationInput
   ): Promise<ConnectorAuthorizationResult>;

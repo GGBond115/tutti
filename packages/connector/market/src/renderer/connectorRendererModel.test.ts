@@ -246,7 +246,6 @@ function presentationFor(
           "details",
           "select",
           "remove_selection",
-          "manage",
           "disconnect",
           "uninstall"
         ]

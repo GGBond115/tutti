@@ -15,12 +15,16 @@ import { useState } from "react";
 import type { ConnectorMarketI18nRuntime } from "../../../i18n/connectorMarketI18n.ts";
 import type { ConnectorRendererCardView as ConnectorCardView } from "../../connectorRendererSurface.ts";
 import { useConnectorMarketServices } from "../ConnectorMarketServicesContext.tsx";
-import { connectorCardActionStartsInstallation } from "./connectorCardAction.ts";
+import {
+  connectorCardActionStartsInstallation,
+  connectorCardShowsInstallationProgress
+} from "./connectorCardAction.ts";
 import { ConnectorIcon } from "./ConnectorIcon.tsx";
 
 export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
   const { i18n, model, onError, snapshot } = useConnectorMarketServices();
   const [disconnecting, setDisconnecting] = useState(false);
+  const [restartingRuntime, setRestartingRuntime] = useState(false);
   const card = snapshot.view.cardsByKey[connectorKey];
   if (!card) {
     return null;
@@ -44,6 +48,19 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
       void model.commands
         .cancelAuthorization(connectorKey)
         .catch(() => onError?.(i18n.t("connectorAuthorizationFailed")));
+      return;
+    }
+    if (card.action === "restart_runtime") {
+      if (restartingRuntime) {
+        return;
+      }
+      setRestartingRuntime(true);
+      void model.commands
+        .restartRuntime(connectorKey)
+        .catch(() => {
+          onError?.(i18n.t("connectorRuntimeRestartFailed"));
+        })
+        .finally(() => setRestartingRuntime(false));
       return;
     }
     if (connectorCardActionStartsInstallation(card.action)) {
@@ -126,51 +143,61 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
             tone={status.tone}
           />
           <span className="truncate">
-            {card.operationStage && card.operationStage !== "completed"
-              ? operationStageLabel(card.operationStage, i18n.t)
-              : status.label}
+            {connectorCardShowsInstallationProgress(card.reasonCode)
+              ? i18n.t("actionInstalling")
+              : card.operationStage && card.operationStage !== "completed"
+                ? operationStageLabel(card.operationStage, i18n.t)
+                : status.label}
           </span>
         </div>
-        <Button
-          disabled={card.action === "unavailable" || disconnecting}
-          size="sm"
-          type="button"
-          variant={
-            card.action === "disconnect"
-              ? "destructive-secondary"
-              : card.action === "install" || card.action === "update"
-                ? "outline"
-                : "secondary"
-          }
-          onClick={handleAction}
-        >
-          {disconnecting ? <Spinner size={14} /> : null}
-          {disconnecting ? i18n.t("actionDisconnecting") : actionLabel}
-        </Button>
+        {card.action !== "unavailable" ? (
+          <Button
+            disabled={disconnecting || restartingRuntime}
+            size="sm"
+            type="button"
+            variant={
+              card.action === "disconnect"
+                ? "destructive-secondary"
+                : card.action === "install" || card.action === "update"
+                  ? "outline"
+                  : "secondary"
+            }
+            onClick={handleAction}
+          >
+            {disconnecting || restartingRuntime ? <Spinner size={14} /> : null}
+            {disconnecting
+              ? i18n.t("actionDisconnecting")
+              : restartingRuntime
+                ? i18n.t("actionRestartingRuntime")
+                : actionLabel}
+          </Button>
+        ) : null}
       </div>
     </Card>
   );
 }
 
 function resolveActionLabel(
-  card: Readonly<Pick<ConnectorCardView, "action">>,
+  card: Readonly<Pick<ConnectorCardView, "action" | "status">>,
   t: ConnectorMarketI18nRuntime["t"]
 ): string {
   switch (card.action) {
     case "install":
-      return t("actionInstall");
+      return t(card.status === "failed" ? "actionReinstall" : "actionInstall");
     case "update":
       return t("actionUpdate");
     case "authorize":
-      return t("actionAuthorize");
+      return t(
+        card.status === "failed" ? "actionReauthorize" : "actionAuthorize"
+      );
+    case "restart_runtime":
+      return t("actionRestartRuntime");
     case "cancel":
       return t("cancel");
     case "disconnect":
       return t("actionDisconnect");
-    case "details":
-    case "manage":
     case "unavailable":
-      return t("actionManage");
+      return "";
   }
 }
 
@@ -218,6 +245,10 @@ function operationStageLabel(
     completed: "operationCompleted",
     deactivating: "operationDeactivating",
     disconnecting: "operationDisconnecting",
+    installing: "actionInstalling",
+    installed: "operationPrepared",
+    runtime_pending: "operationActivating",
+    removing: "actionUninstalling",
     downloading: "operationDownloading",
     failed: "operationFailed",
     prepared: "operationPrepared",

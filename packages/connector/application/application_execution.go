@@ -223,6 +223,10 @@ func (application *service) executeInstall(ctx context.Context, operation contra
 		Release:     release,
 	})
 	if installErr != nil {
+		var domainError *contracts.DomainError
+		if errors.As(installErr, &domainError) {
+			return installErr
+		}
 		return contracts.NewDomainError(contracts.ErrorCodeInstallFailed, "connector release installation failed", true, installErr)
 	}
 	if err := validateReleaseInstallationReceipt(operation, release, installed); err != nil {
@@ -770,8 +774,11 @@ func (application *service) failOperation(ctx context.Context, operationID strin
 						connector.Installation.FailureCode = string(code)
 						break
 					}
-					connector.Installation.State = contracts.InstallationStateFailed
-					connector.Installation.FailureCode = string(code)
+					// A failed first installation has no usable artifact to configure or
+					// repair. Preserve the failure on the terminal operation and restore
+					// the Connector to its pre-install state so the user can try again.
+					connector.Installation.State = contracts.InstallationStateNotInstalled
+					connector.Installation.FailureCode = ""
 				case contracts.OperationKindUninstall:
 					connector.Installation.State = contracts.InstallationStateFailed
 					connector.Installation.FailureCode = string(code)

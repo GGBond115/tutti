@@ -63,9 +63,9 @@ const (
 	ConnectorActionCancel          ConnectorAction = "cancel"
 	ConnectorActionSelect          ConnectorAction = "select"
 	ConnectorActionRemoveSelection ConnectorAction = "remove_selection"
-	ConnectorActionManage          ConnectorAction = "manage"
 	ConnectorActionDisconnect      ConnectorAction = "disconnect"
 	ConnectorActionUninstall       ConnectorAction = "uninstall"
+	ConnectorActionRestartRuntime  ConnectorAction = "restart_runtime"
 )
 
 // ConnectorPresentation is the application-owned display and interaction

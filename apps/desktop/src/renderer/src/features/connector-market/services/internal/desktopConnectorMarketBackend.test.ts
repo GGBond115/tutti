@@ -51,9 +51,21 @@ test("desktop connector market backend fails closed for unknown canonical presen
   const missingPresentationConnector =
     canonicalConnector() as unknown as Record<string, unknown>;
   delete missingPresentationConnector.presentation;
+  const legacyManagementConnector = canonicalConnector() as unknown as Record<
+    string,
+    unknown
+  >;
+  legacyManagementConnector.presentation = {
+    state: "connected",
+    allowedActions: ["manage"]
+  };
   const snapshot = {
     catalogFreshness: { state: "future_state" },
-    connectors: [connector, missingPresentationConnector],
+    connectors: [
+      connector,
+      missingPresentationConnector,
+      legacyManagementConnector
+    ],
     operations: [],
     revision: 7,
     eventCursor: 11
@@ -78,6 +90,10 @@ test("desktop connector market backend fails closed for unknown canonical presen
   });
   assert.deepEqual(
     result.connectors[1]?.presentation,
+    result.connectors[0]?.presentation
+  );
+  assert.deepEqual(
+    result.connectors[2]?.presentation,
     result.connectors[0]?.presentation
   );
 });

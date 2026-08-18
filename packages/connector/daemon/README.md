@@ -28,7 +28,9 @@ operations and pending events are outside the cleanup contract.
 
 Accepted/running Operations are also scanned every 500 ms. The in-memory
 scheduler is a wake-up optimization only: losing a schedule call or restarting
-after an external effect cannot strand durable work.
+after an external effect cannot strand durable work. Retryable effects retain
+their durable attempt count and terminalize after six failed executions, so the
+scan cannot become an unbounded upstream request loop.
 
 The module schedules the narrow `application.CatalogSource` port, while hosts
 inject their catalog source, event publication, persistence, and execution

@@ -20,8 +20,8 @@ func IsConnectorAction(value ConnectorAction) bool {
 	switch value {
 	case ConnectorActionDetails, ConnectorActionInstall, ConnectorActionUpdate,
 		ConnectorActionAuthorize, ConnectorActionCancel, ConnectorActionSelect,
-		ConnectorActionRemoveSelection, ConnectorActionManage, ConnectorActionDisconnect,
-		ConnectorActionUninstall:
+		ConnectorActionRemoveSelection, ConnectorActionDisconnect,
+		ConnectorActionUninstall, ConnectorActionRestartRuntime:
 		return true
 	default:
 		return false

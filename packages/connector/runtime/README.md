@@ -84,7 +84,9 @@ It resolves the server-owned release digest immediately before each download,
 accepts only a bounded, unexpired HTTPS URL whose digest, archive media type,
 SHA-256, and size match the catalog descriptor, and rejects redirects outside the resolved
 origin while preserving the host HTTP redirect policy. Signed URLs are kept
-only for the duration of that fetch and are not emitted in errors.
+only for the duration of that fetch and are not emitted in errors. HTTP 408,
+425, 429, and 5xx responses are retryable; other non-success responses such as
+an expired or unauthorized 403 grant fail the operation immediately.
 
 Physical installation inspection revalidates artifact and CLI receipts and
 never executes Connector-owned commands. A managed CLI may separately provide

@@ -8,6 +8,7 @@ import {
   listConnectorMarketCatalog,
   listConnectorMarketCategories,
   refreshConnectorMarket,
+  restartConnectorMarketRuntime,
   startConnectorMarketAuthorization,
   uninstallConnectorMarketConnector
 } from "./generated/index.ts";
@@ -137,6 +138,10 @@ export interface ConnectorMarketClient {
     connectorKey: string,
     request: ConnectorMarketConnectorMutationRequest
   ): Promise<ConnectorMarketCanonicalMutationResponse>;
+  restartConnectorMarketRuntime(
+    connectorKey: string,
+    request: ConnectorMarketConnectorMutationRequest
+  ): Promise<ConnectorMarketCanonicalMutationResponse>;
   startConnectorMarketAuthorization(
     connectorKey: string,
     request: ConnectorMarketConnectorAuthorizationRequest
@@ -231,6 +236,19 @@ export function createConnectorMarketClient(
         )
       );
     },
+    async restartConnectorMarketRuntime(connectorKey, request) {
+      return decodeConnectorMarketMutationResponse(
+        await runConnectorMarketCommand(
+          () =>
+            restartConnectorMarketRuntime({
+              client,
+              body: request,
+              path: { connectorKey }
+            }),
+          request.expectedRevision
+        )
+      );
+    },
     async startConnectorMarketAuthorization(connectorKey, request) {
       return decodeConnectorMarketAuthorizationResponse(
         await runConnectorMarketCommand(
@@ -295,9 +313,9 @@ const connectorPresentationActions = new Set<ConnectorMarketPresentationAction>(
     "cancel",
     "select",
     "remove_selection",
-    "manage",
     "disconnect",
-    "uninstall"
+    "uninstall",
+    "restart_runtime"
   ]
 );
 

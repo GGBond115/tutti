@@ -47,6 +47,76 @@ func TestApplicationInstallIsDurableAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestApplicationFailedFirstInstallRestoresNotInstalledState(t *testing.T) {
+	connector := testConnector("github")
+	connector.Installation = contracts.Installation{
+		State:                  contracts.InstallationStateInstalling,
+		CandidateVersion:       connector.Release.Version,
+		CandidateReleaseID:     connector.Release.ReleaseID,
+		CandidateReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	now := time.Unix(1, 0).UTC()
+	operation := contracts.Operation{
+		OperationID: "install-1", ClientRequestID: "install-request", ConnectorKey: connector.Key,
+		Kind: contracts.OperationKindInstall, State: contracts.OperationStateRunning, Stage: contracts.OperationStageInstalling,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	repository := newMemoryRepository(connector)
+	repository.operations[operation.OperationID] = operation
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+
+	if err := application.failOperation(context.Background(), operation.OperationID, contracts.ErrorCodeInstallFailed); err != nil {
+		t.Fatal(err)
+	}
+
+	storedConnector := repository.connectors[connector.Key]
+	if storedConnector.Installation.State != contracts.InstallationStateNotInstalled ||
+		storedConnector.Installation.CandidateVersion != "" ||
+		storedConnector.Installation.CandidateReleaseID != "" ||
+		storedConnector.Installation.CandidateReleaseDigest != "" ||
+		storedConnector.Installation.FailureCode != "" {
+		t.Fatalf("installation after terminal failure = %#v", storedConnector.Installation)
+	}
+	storedOperation := repository.operations[operation.OperationID]
+	if storedOperation.State != contracts.OperationStateFailed ||
+		storedOperation.Stage != contracts.OperationStageFailed ||
+		storedOperation.FailureCode != string(contracts.ErrorCodeInstallFailed) {
+		t.Fatalf("terminal operation = %#v", storedOperation)
+	}
+}
+
+func TestApplicationNonRetryableInstallFailureRestoresImmediately(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	installer := newBlockingInstallerWithError(contracts.NewDomainError(
+		contracts.ErrorCodeInstallFailed,
+		"artifact download was rejected",
+		false,
+		nil,
+	))
+	close(installer.release)
+	application := newTestApplication(t, repository, &memoryScheduler{}, installer, contracts.CatalogSnapshot{})
+	accepted, err := application.Install(context.Background(), contracts.ConnectorMutation{
+		Mutation:     contracts.Mutation{ClientRequestID: "request-non-retryable"},
+		ConnectorKey: "github",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err == nil {
+		t.Fatal("non-retryable installation unexpectedly succeeded")
+	}
+
+	operation := repository.operations[accepted.Operation.OperationID]
+	if operation.State != contracts.OperationStateFailed || operation.Attempt != 1 {
+		t.Fatalf("terminal operation = %#v", operation)
+	}
+	connector := repository.connectors["github"]
+	if connector.Installation.State != contracts.InstallationStateNotInstalled {
+		t.Fatalf("restored connector = %#v", connector.Installation)
+	}
+}
+
 func TestApplicationConnectorRevisionFenceAllowsIndependentConcurrentCommands(t *testing.T) {
 	alpha := testConnector("alpha")
 	beta := testConnector("beta")
@@ -579,13 +649,51 @@ func TestApplicationReconcileRuntimeKeepsDeviceInstallationTruth(t *testing.T) {
 	}
 }
 
-func TestApplicationAuthorizationObservationReconcilesWithoutChangingInstallation(t *testing.T) {
+func TestApplicationRuntimeRestartStopsAtDurableFailureBudget(t *testing.T) {
 	connector := testConnector("github")
-	connector.Release.Manifest.AuthorizationKind = "oauth2"
-	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	repository := newMemoryRepository(connector)
+	runtimeFailure := errors.New("runtime start failed")
+	host := &memoryInstallRuntime{reconcileErrors: map[string]error{connector.Key: runtimeFailure}}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, contracts.CatalogSnapshot{})
+	application.config.RuntimeRetryJitter = func(time.Duration) time.Duration { return 0 }
+	accepted, err := application.ReconcileRuntime(context.Background(), contracts.ConnectorMutation{
+		Mutation: contracts.Mutation{ClientRequestID: "restart-runtime"}, ConnectorKey: connector.Key,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := uint32(0); attempt < contracts.RuntimeFailureBudget; attempt++ {
+		if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); !errors.Is(err, runtimeFailure) {
+			t.Fatalf("attempt %d error = %v", attempt+1, err)
+		}
+	}
+	operation, err := repository.Operation(context.Background(), accepted.Operation.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convergence, err := repository.RuntimeConvergence(context.Background(), contracts.OperationScope{}, connector.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.State != contracts.OperationStateFailed || convergence.Attempt != contracts.RuntimeFailureBudget ||
+		host.reconciles != int(contracts.RuntimeFailureBudget) {
+		t.Fatalf("operation=%#v convergence=%#v reconciles=%d", operation, convergence, host.reconciles)
+	}
+	if err := application.ExecuteOperation(context.Background(), operation.OperationID); err != nil {
+		t.Fatalf("terminal runtime restart was re-executed: %v", err)
+	}
+	if host.reconciles != int(contracts.RuntimeFailureBudget) {
+		t.Fatalf("terminal runtime restart retried: %d", host.reconciles)
+	}
+}
+
+func TestApplicationAuthorizationObservationReconcilesWithoutChangingInstallation(t *testing.T) {
+	connector := testManagedAuthorizedConnector("github")
 	connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStateDisconnected}
-	connector.Installation = contracts.Installation{State: contracts.InstallationStateInstalled, InstalledVersion: connector.Release.Version,
-		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
 	repository := newMemoryRepository(connector)
 	host := &memoryInstallRuntime{}
 	projections := &recordingAuthorizationProjectionStore{}
@@ -605,8 +713,7 @@ func TestApplicationAuthorizationObservationReconcilesWithoutChangingInstallatio
 	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
 		t.Fatal(err)
 	}
-	if !host.lastReconcile.Enabled || host.lastReconcile.ConnectionID != "server-connection" ||
-		host.lastCredentialGrant != "credential-grant" {
+	if !host.lastReconcile.Enabled || host.lastReconcile.ConnectionID != "server-connection" {
 		t.Fatalf("connected reconcile = %#v", host.lastReconcile)
 	}
 	expired := connected
@@ -1867,8 +1974,24 @@ func TestApplicationSharesConcurrentOperationFailureAndClearsFlight(t *testing.T
 	if operation.State != contracts.OperationStateRunning {
 		t.Fatalf("operation state = %q, want retryable running debt", operation.State)
 	}
-	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err == nil {
-		t.Fatal("retryable operation unexpectedly completed")
+	for attempt := uint32(2); attempt <= operationFailureBudget; attempt++ {
+		if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err == nil {
+			t.Fatalf("retryable operation attempt %d unexpectedly succeeded", attempt)
+		}
+	}
+	operation, err = repository.Operation(context.Background(), accepted.Operation.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.State != contracts.OperationStateFailed || operation.Attempt != operationFailureBudget {
+		t.Fatalf("exhausted operation = %#v", operation)
+	}
+	connector, err := repository.Connector(context.Background(), "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connector.Installation.State != contracts.InstallationStateNotInstalled {
+		t.Fatalf("installation after exhausted retries = %#v", connector.Installation)
 	}
 }
 

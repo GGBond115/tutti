@@ -78,6 +78,9 @@ func TestConnectorPresentationProjectsClosedTenStateMachine(t *testing.T) {
 				hasConnectorActionValue(presentation, "retry") {
 				t.Fatalf("unimplemented retry action admitted: %#v", presentation.AllowedActions)
 			}
+			if hasConnectorActionValue(presentation, "manage") {
+				t.Fatalf("removed management action admitted: %#v", presentation.AllowedActions)
+			}
 		})
 	}
 }
@@ -89,6 +92,54 @@ func hasConnectorActionValue(presentation contracts.ConnectorPresentation, actio
 		}
 	}
 	return false
+}
+
+func TestConnectorPresentationFailedRecoveryActionsComeFromApplicationFacts(t *testing.T) {
+	application, repository, connector := newAgentPolicyFixture(t)
+	convergence := repository.runtimeConvergences[memoryRuntimeConvergenceKey(contracts.OperationScope{}, connector.Key)]
+	inputs := connectorPresentationInputs{
+		freshness:        contracts.CatalogFreshness{State: contracts.CatalogFreshnessFresh, SnapshotID: "catalog-1"},
+		convergenceByKey: map[string]contracts.RuntimeConvergence{connector.Key: convergence},
+		installedRelease: map[contracts.InstalledReleaseRef]contracts.Release{
+			{ConnectorKey: connector.Key, ReleaseDigest: connector.Installation.InstalledReleaseDigest}: connector.Release,
+		},
+	}
+	tests := []struct {
+		name      string
+		connector contracts.Connector
+		inputs    connectorPresentationInputs
+		want      contracts.ConnectorAction
+	}{
+		{name: "installation failure", connector: func() contracts.Connector {
+			value := connector
+			value.Installation.State = contracts.InstallationStateFailed
+			value.Installation.FailureCode = "artifact_invalid"
+			return value
+		}(), inputs: clonePresentationInputs(inputs), want: contracts.ConnectorActionInstall},
+		{name: "authorization failure", connector: func() contracts.Connector {
+			value := connector
+			value.Authorization.State = contracts.AuthorizationStateFailed
+			value.Authorization.FailureCode = "provider_rejected"
+			return value
+		}(), inputs: clonePresentationInputs(inputs), want: contracts.ConnectorActionAuthorize},
+		{name: "runtime failure", connector: connector, inputs: func() connectorPresentationInputs {
+			value := clonePresentationInputs(inputs)
+			runtime := value.convergenceByKey[connector.Key]
+			runtime.Observed.Readiness = contracts.RuntimeReadiness{State: contracts.RuntimeReadinessFailed, ReasonCode: "runtime_start_failed"}
+			value.convergenceByKey[connector.Key] = runtime
+			return value
+		}(), want: contracts.ConnectorActionRestartRuntime},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			presentation := application.projectConnectorPresentation(
+				context.Background(), contracts.OperationScope{}, test.connector, test.inputs, localConnectorPolicyFacts(),
+			)
+			if presentation.State != contracts.ConnectorStateFailed || !hasConnectorAction(presentation, test.want) {
+				t.Fatalf("failed recovery projection = %#v, want action %q", presentation, test.want)
+			}
+		})
+	}
 }
 
 func TestConnectorPresentationRequiresEveryExactRuntimeObservationField(t *testing.T) {

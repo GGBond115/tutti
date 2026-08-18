@@ -12,10 +12,9 @@ export interface ConnectorRendererCardView {
   action:
     | "authorize"
     | "cancel"
-    | "details"
     | "disconnect"
     | "install"
-    | "manage"
+    | "restart_runtime"
     | "unavailable"
     | "update";
   allowedActions: ConnectorPresentationAction[];
@@ -53,18 +52,6 @@ export interface ConnectorRendererPermissionView {
   id: string;
   name: string;
 }
-export interface ConnectorRendererDetailFieldView {
-  id:
-    | "authorization"
-    | "compatibility"
-    | "implementation"
-    | "releaseStatus"
-    | "runtime"
-    | "transport"
-    | "version";
-  value: string;
-}
-
 export type ConnectorRendererDialogView =
   | (ConnectorRendererDialogBase & {
       authorizationInteraction?: unknown;
@@ -82,13 +69,6 @@ export type ConnectorRendererDialogView =
       installing: boolean;
       kind: "installation";
       updating: boolean;
-    })
-  | (ConnectorRendererDialogBase & {
-      canDisconnect: boolean;
-      canTry: boolean;
-      canUninstall: boolean;
-      details: ConnectorRendererDetailFieldView[];
-      kind: "management";
     })
   | (ConnectorRendererDialogBase & { kind: "blocked"; reason: string })
   | (ConnectorRendererDialogBase & { kind: "uninstall_confirmation" });

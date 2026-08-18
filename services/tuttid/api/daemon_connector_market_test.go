@@ -15,6 +15,7 @@ type stubConnectorMarketService struct {
 	application.CatalogQueries
 	application.CatalogCommands
 	application.InstallationCommands
+	application.RuntimeCommands
 	application.AuthorizationCommands
 	application.OperationQueries
 	snapshotFn   func(context.Context) (contracts.Snapshot, error)
@@ -23,6 +24,7 @@ type stubConnectorMarketService struct {
 	connectorFn  func(context.Context, contracts.OperationScope, string) (contracts.Connector, error)
 	installFn    func(context.Context, contracts.ConnectorMutation) contracts.CommandResult
 	uninstallFn  func(context.Context, contracts.ConnectorMutation) contracts.CommandResult
+	restartFn    func(context.Context, contracts.ConnectorMutation) contracts.CommandResult
 	refreshFn    func(context.Context, contracts.Mutation) contracts.CommandResult
 	operationFn  func(context.Context, contracts.OperationScope, string) (contracts.Operation, error)
 	cancelFn     func(context.Context, contracts.CancelAuthorizationCommand) contracts.CommandResult
@@ -35,6 +37,7 @@ func connectorMarketTestAPI(service stubConnectorMarketService) DaemonAPI {
 		ConnectorCatalogQueries:        service,
 		ConnectorCatalogCommands:       service,
 		ConnectorInstallationCommands:  service,
+		ConnectorRuntimeCommands:       service,
 		ConnectorAuthorizationCommands: service,
 		ConnectorOperationQueries:      service,
 	}
@@ -47,6 +50,16 @@ func connectorMarketTestAPIWithScope(
 	api := connectorMarketTestAPI(service)
 	api.ConnectorMarketScope = currentScope
 	return api
+}
+
+func (service stubConnectorMarketService) RestartRuntime(
+	ctx context.Context,
+	mutation contracts.ConnectorMutation,
+) contracts.CommandResult {
+	if service.restartFn != nil {
+		return service.restartFn(ctx, mutation)
+	}
+	return contracts.CommandResult{Outcome: contracts.CommandRejected}
 }
 
 func (service stubConnectorMarketService) BeginAuthorization(
@@ -297,6 +310,49 @@ func TestDaemonAPIConnectorMarketEmitsPresentationOnPageGetAndCommandConnector(t
 func TestConnectorMarketPresentationActionRejectsUnimplementedRetry(t *testing.T) {
 	if tuttigenerated.ConnectorMarketPresentationAction("retry").Valid() {
 		t.Fatal("retry unexpectedly remained a valid Connector presentation action")
+	}
+}
+
+func TestConnectorMarketPresentationActionAcceptsRuntimeRestart(t *testing.T) {
+	if !tuttigenerated.ConnectorMarketPresentationActionRestartRuntime.Valid() {
+		t.Fatal("restart_runtime is not a valid Connector presentation action")
+	}
+}
+
+func TestDaemonAPIRestartsConnectorRuntimeForActiveAccount(t *testing.T) {
+	connector := connectorMarketTestConnector()
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	var got contracts.ConnectorMutation
+	service := stubConnectorMarketService{
+		connectorFn: func(context.Context, contracts.OperationScope, string) (contracts.Connector, error) {
+			return connector, nil
+		},
+		restartFn: func(_ context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
+			got = mutation
+			operation := contracts.Operation{
+				OperationID: "runtime-restart-1", ClientRequestID: mutation.ClientRequestID,
+				ConnectorKey: connector.Key, Kind: contracts.OperationKindReconcileRuntime,
+				State: contracts.OperationStateAccepted, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			}
+			return contracts.CommandResult{Outcome: contracts.CommandAccepted, Revision: 9, Connector: &connector, Operation: &operation}
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(connectorMarketTestAPIWithScope(service, func() contracts.OperationScope {
+		return contracts.OperationScope{AccountID: "account-1"}
+	})))
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost,
+		"/v1/connector-market/connectors/notion/runtime:restart", map[string]any{
+			"clientRequestId": "restart-1", "expectedRevision": 8, "expectedConnectorRevision": 7,
+		})
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusAccepted, recorder.Body.String())
+	}
+	if got.AccountID != "account-1" || got.ConnectorKey != "notion" || got.ClientRequestID != "restart-1" ||
+		got.ExpectedConnectorRevision == nil || *got.ExpectedConnectorRevision != 7 {
+		t.Fatalf("runtime restart mutation = %#v", got)
 	}
 }
 

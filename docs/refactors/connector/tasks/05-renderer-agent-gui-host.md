@@ -147,8 +147,7 @@ Renderer and Market service admission are action-driven:
 | `install` / `update`       | Market service command admission and auto-update eligibility   |
 | `authorize`                | authorization entry/dialog                                     |
 | `cancel`                   | active authorization cancellation                              |
-| `disconnect` / `uninstall` | management cleanup commands                                    |
-| `manage`                   | open the Connector-owned management surface                    |
+| `disconnect` / `uninstall` | cleanup commands                                               |
 | `select`                   | add an unselected Connector to Agent draft                     |
 | `remove_selection`         | remove an already selected Connector in any safe visible state |
 | `details`                  | open Connector-owned details without implying mutability       |
@@ -173,8 +172,8 @@ Application owns these closed states; renderer maps copy and visuals only:
 | `setup_required`         | no add                                                 | install/details                |
 | `authorization_required` | no add                                                 | authorize/details              |
 | `connecting`             | no add                                                 | cancel/details                 |
-| `connected`              | add only with `select`; remove with `remove_selection` | select/manage/disconnect       |
-| `degraded`               | no new add                                             | safe manage/cleanup            |
+| `connected`              | add only with `select`; remove with `remove_selection` | select/disconnect              |
+| `degraded`               | no new add                                             | safe details/cleanup           |
 | `disabled`               | no new add                                             | details/cleanup                |
 | `unsupported`            | no new add                                             | details/cleanup                |
 | `failed`                 | no new add                                             | details/cleanup                |
@@ -184,8 +183,8 @@ State names alone do not grant an action; `allowedActions` is authoritative.
 ## UI and i18n ownership
 
 All Connector-visible copy lives in Connector Market i18n resources, including
-composer, catalog, stale/unsupported/degraded/failed states, authorization,
-management, cancellation, and blocked dialogs. Hosts inject locale/runtime and
+composer, catalog, stale/unsupported/degraded/failed states, installation,
+authorization, cancellation, and blocked dialogs. Hosts inject locale/runtime and
 do not pass individual Connector labels.
 
 Renderer uses only public `@tutti-os/ui-system` entries and semantic tokens.
@@ -202,7 +201,7 @@ The completed T05 matrix proved:
 - only `select` adds a draft item and `remove_selection` controls removal;
 - stale exact-connected remains usable without install/update/new-auth;
 - malformed/unknown presentation becomes unsupported, never setup/connected;
-- Market install/update/authorize/cancel/disconnect/uninstall and auto-update
+- Market install/update/authorize/cancel/disconnect/uninstall/runtime-restart and auto-update
   admission depend on `allowedActions`, not raw facts;
 - legacy daemon wire remains read-only and one-version bounded;
 - missing AgentGUI slot hides the entry while all other controls work;

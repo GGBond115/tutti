@@ -50,6 +50,7 @@ type Host struct {
 	catalogQueries           application.CatalogQueries
 	catalogCommands          application.CatalogCommands
 	installationCommands     application.InstallationCommands
+	runtimeCommands          application.RuntimeCommands
 	authorizationCommands    application.AuthorizationCommands
 	operationQueries         application.OperationQueries
 	agentPolicy              application.AgentConnectorPolicyQueries
@@ -156,6 +157,7 @@ func NewHost(config HostConfig) (*Host, error) {
 		catalogQueries:              composition.Root.Catalog(),
 		catalogCommands:             composition.Root.CatalogCommands(),
 		installationCommands:        composition.Root.Installations(),
+		runtimeCommands:             composition.Root.RuntimeCommands(),
 		authorizationCommands:       composition.Root.Authorizations(),
 		operationQueries:            composition.Root.Operations(),
 		agentPolicy:                 composition.Root.AgentPolicy(),
@@ -245,6 +247,13 @@ func (host *Host) InstallationCommands() application.InstallationCommands {
 		return nil
 	}
 	return installationCommandFacet{host: host}
+}
+
+func (host *Host) RuntimeCommands() application.RuntimeCommands {
+	if host == nil {
+		return nil
+	}
+	return runtimeCommandFacet{host: host}
 }
 
 func (host *Host) AuthorizationCommands() application.AuthorizationCommands {

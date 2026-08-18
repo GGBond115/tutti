@@ -343,6 +343,9 @@ func TestCloseFailClosesPublicationAndRejectsPublicCommands(t *testing.T) {
 	if result := host.InstallationCommands().Install(context.Background(), contracts.ConnectorMutation{}); result.Outcome != contracts.CommandRejected {
 		t.Fatalf("install after close result = %#v", result)
 	}
+	if result := host.RuntimeCommands().RestartRuntime(context.Background(), contracts.ConnectorMutation{}); result.Outcome != contracts.CommandRejected {
+		t.Fatalf("runtime restart after close result = %#v", result)
+	}
 	secret := []byte("must-clear")
 	if result := host.AuthorizationCommands().BeginAuthorization(context.Background(), contracts.ConnectorMutation{}, secret); result.Outcome != contracts.CommandRejected {
 		t.Fatalf("authorization after close result = %#v", result)
