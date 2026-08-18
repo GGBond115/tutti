@@ -8,6 +8,8 @@ No-mention default:
 
 - Without `mention://...`, do not treat this bundle alone as intent.
 - Use Tutti only when the user explicitly asks for Tutti, a Tutti workspace/app/issue/session capability, or a command described in this bundle.
+- Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider`'s native subagent or collaboration mechanism when available.
+- The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.
 
 Required mention routing:
 

@@ -29,7 +29,9 @@
 - If a provider Skill tool exists, call the exact visible name.
 - If the Skill is unavailable, read its materialized `SKILL.md`.
 - Use the table fallback only when that Skill is unavailable.
-- Agent handoff decisions belong to `$tutti-handoff`; `$tutti-cli` is only its command reference.
+- Agent handoff decisions belong to `$tutti-handoff`.
+- Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider`'s native subagent or collaboration mechanism when available.
+- The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.
 
 {{PROVIDER_SPECIFIC_MENTION_ROUTING}}
 
