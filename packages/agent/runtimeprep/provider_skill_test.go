@@ -159,7 +159,7 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 	}
 	if !strings.Contains(claude, "Claude Code `Monitor` tool is disabled") ||
 		!strings.Contains(claude, "localhost/IPC") ||
-		strings.Contains(claude, "sandbox_permissions=require_escalated") || !strings.Contains(claude, "current provider's native subagent or collaboration mechanism") {
+		strings.Contains(claude, "sandbox_permissions=require_escalated") || !strings.Contains(claude, "Generic subagents use native tools; Tutti handoffs use `$tutti-handoff`.") {
 		t.Fatalf("claude policy has wrong provider execution rules: %s", claude)
 	}
 }
