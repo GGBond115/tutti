@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // migrateLegacyCodexRollout imports only the one rollout identified by the
@@ -105,7 +106,10 @@ func legacyCodexHomeCandidates(runtimeRoot, persistedHome string) ([]string, err
 	}
 	entries, err := os.ReadDir(runsRoot)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		// Windows maps ENOTDIR to ERROR_PATH_NOT_FOUND, which also satisfies
+		// errors.Is(err, fs.ErrNotExist). A regular file at runsRoot is a
+		// malformed state root, not an absent directory, and must propagate.
+		if !errors.Is(err, syscall.ENOTDIR) && errors.Is(err, fs.ErrNotExist) {
 			return candidates, nil
 		}
 		return nil, fmt.Errorf("read legacy Codex run roots: %w", err)

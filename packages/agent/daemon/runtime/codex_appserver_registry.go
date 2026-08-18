@@ -152,9 +152,9 @@ func (a *CodexAppServerAdapter) removeSession(agentSessionID string) {
 	a.mu.Unlock()
 }
 
-// invalidateSessionClient removes and closes only the client that failed its
-// turn/start acknowledgement. The identity check prevents a late failure from
-// closing a replacement process that another lifecycle operation installed.
+// invalidateSessionClient removes the binding whose turn/start acknowledgement
+// failed. The identity check prevents a late failure from closing a replacement
+// process that another lifecycle operation installed.
 func (a *CodexAppServerAdapter) invalidateSessionClient(
 	agentSessionID string,
 	expectedClient *codexAppServerClient,
@@ -179,9 +179,11 @@ func (a *CodexAppServerAdapter) invalidateSessionClient(
 	for _, request := range pending {
 		request.supersede(errPermissionRequestCanceled)
 	}
-	if err := expectedClient.Close(); err != nil {
-		a.retainRetiredCodexSession(key, appSession)
-	}
+	// A turn/start timeout invalidates the whole binding, not only the client
+	// handle. Detach it before closing the physical connection so the shared
+	// connection registry cannot reuse a connection whose client.Close has
+	// returned but whose read loop has not observed Done yet.
+	a.closeOrRetainCodexSession(key, appSession)
 	return true
 }
 
