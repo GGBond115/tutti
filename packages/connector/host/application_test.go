@@ -2079,6 +2079,7 @@ func newTestApplicationWithCatalogSource(
 		Scheduler:              scheduler,
 		ImplementationRegistry: NewImplementationRegistry(map[string]ImplementationValidator{ImplementationKindManagedStdio: nil}),
 		Now:                    func() time.Time { return time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC) },
+		RuntimeRetryJitter:     func(maximum time.Duration) time.Duration { return maximum },
 		NewID: func() (string, error) {
 			nextID++
 			return fmt.Sprintf("operation-%d", nextID), nil
@@ -2617,6 +2618,8 @@ type memoryRepository struct {
 	connectors                       map[string]Connector
 	operations                       map[string]Operation
 	runtimeConvergences              map[string]RuntimeConvergence
+	runtimeConvergenceCalls          int
+	runtimeConvergencesCalls         int
 	events                           []ChangedEvent
 	transactionErr                   error
 	transactionCalls                 int
@@ -2793,11 +2796,33 @@ func (repository *memoryRepository) RuntimeConvergence(
 	scope OperationScope,
 	connectorKey string,
 ) (RuntimeConvergence, error) {
+	repository.runtimeConvergenceCalls++
 	convergence, ok := repository.runtimeConvergences[memoryRuntimeConvergenceKey(scope, connectorKey)]
 	if !ok {
 		return RuntimeConvergence{}, ErrNotFound
 	}
 	return convergence, nil
+}
+
+func (repository *memoryRepository) RuntimeConvergences(
+	_ context.Context,
+	scope OperationScope,
+	limit int,
+) ([]RuntimeConvergence, error) {
+	repository.runtimeConvergencesCalls++
+	result := make([]RuntimeConvergence, 0)
+	for _, convergence := range repository.runtimeConvergences {
+		if convergence.Desired.Scope == scope {
+			result = append(result, convergence)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool {
+		return result[left].Desired.ConnectorKey < result[right].Desired.ConnectorKey
+	})
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
 }
 
 func (repository *memoryRepository) DueRuntimeConvergences(
@@ -2811,6 +2836,7 @@ func (repository *memoryRepository) DueRuntimeConvergences(
 	for _, convergence := range repository.runtimeConvergences {
 		if convergence.Desired.Scope != scope ||
 			(convergence.Desired.Generation == convergence.Observed.DesiredGeneration && convergence.Observed.BootEpoch == bootEpoch) ||
+			convergence.Attempt >= RuntimeFailureBudget ||
 			convergence.NextAttemptAt.After(now) ||
 			(convergence.LeaseOwner != "" && convergence.LeaseExpiresAt != nil && convergence.LeaseExpiresAt.After(now)) {
 			continue
@@ -2835,6 +2861,7 @@ func (repository *memoryRepository) ClaimRuntimeConvergence(
 		return RuntimeConvergence{}, false, ErrNotFound
 	}
 	if convergence.Desired.Generation == convergence.Observed.DesiredGeneration && convergence.Observed.BootEpoch == bootEpoch ||
+		convergence.Attempt >= RuntimeFailureBudget ||
 		convergence.NextAttemptAt.After(now) ||
 		(convergence.LeaseOwner != "" && convergence.LeaseOwner != owner && convergence.LeaseExpiresAt != nil && convergence.LeaseExpiresAt.After(now)) {
 		return convergence, false, nil
@@ -2906,7 +2933,7 @@ func (repository *memoryRepository) CompleteRuntimeConvergence(
 		return ErrOperationLeaseLost
 	}
 	convergence.Observed = observed
-	convergence.Attempt = 0
+	applyRuntimeFailureBudgetReadiness(&convergence)
 	convergence.NextAttemptAt = time.Time{}
 	convergence.LeaseOwner = ""
 	convergence.LeaseExpiresAt = nil
@@ -2936,6 +2963,7 @@ func (repository *memoryRepository) RetryRuntimeConvergence(
 		return ErrOperationLeaseLost
 	}
 	convergence.Attempt++
+	applyRuntimeFailureBudgetReadiness(&convergence)
 	convergence.NextAttemptAt = nextAttemptAt
 	convergence.LeaseOwner = ""
 	convergence.LeaseExpiresAt = nil

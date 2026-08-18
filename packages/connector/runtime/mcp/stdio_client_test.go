@@ -8,17 +8,17 @@ import (
 	"testing"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 type scriptedConnection struct {
-	frames chan agentruntime.ProcessFrame
+	frames chan connectorprocess.Frame
 	mu     sync.Mutex
 	sent   [][]byte
 }
 
 func newScriptedConnection() *scriptedConnection {
-	return &scriptedConnection{frames: make(chan agentruntime.ProcessFrame, 16)}
+	return &scriptedConnection{frames: make(chan connectorprocess.Frame, 16)}
 }
 
 func (connection *scriptedConnection) Send(data []byte) error {
@@ -28,10 +28,10 @@ func (connection *scriptedConnection) Send(data []byte) error {
 	return nil
 }
 
-func (connection *scriptedConnection) Recv() (agentruntime.ProcessFrame, error) {
+func (connection *scriptedConnection) Recv() (connectorprocess.Frame, error) {
 	frame, ok := <-connection.frames
 	if !ok {
-		return agentruntime.ProcessFrame{}, context.Canceled
+		return connectorprocess.Frame{}, context.Canceled
 	}
 	return frame, nil
 }
@@ -40,7 +40,7 @@ func (connection *scriptedConnection) Close() error { close(connection.frames); 
 
 func (connection *scriptedConnection) push(value any) {
 	data, _ := json.Marshal(value)
-	connection.frames <- agentruntime.ProcessFrame{Stdout: append(data, '\n')}
+	connection.frames <- connectorprocess.Frame{Stdout: append(data, '\n')}
 }
 
 func TestStdioClientDeliversNotificationsAndDeclinesServerRequestsByDefault(t *testing.T) {
@@ -97,7 +97,7 @@ func TestStdioClientFailsClosedOnOversizedMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(strings.Repeat("x", 17))}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(strings.Repeat("x", 17))}
 	deadline := time.Now().Add(time.Second)
 	for !client.IsClosed() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)

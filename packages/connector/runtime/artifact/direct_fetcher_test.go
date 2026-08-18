@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,10 +13,18 @@ import (
 	connectorhost "github.com/tutti-os/tutti/packages/connector/host"
 )
 
-func TestDirectFetcherDownloadsMarketArtifactDirectly(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet || request.URL.Path != "/artifacts/connectors/github/1.0.0.zip" {
-			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+var directFetcherNow = time.Date(2026, 8, 18, 2, 0, 0, 0, time.UTC)
+
+type artifactDownloadResolverFunc func(context.Context, string) (connectorhost.ArtifactDownload, error)
+
+func (resolve artifactDownloadResolverFunc) ResolveArtifactDownload(ctx context.Context, digest string) (connectorhost.ArtifactDownload, error) {
+	return resolve(ctx, digest)
+}
+
+func TestDirectFetcherResolvesReleaseDigestImmediatelyBeforeDownload(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/signed/artifact.zip" || request.URL.Query().Get("signature") != "secret" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.RequestURI())
 		}
 		writer.Header().Set("Content-Type", "application/zip")
 		writer.Header().Set("Content-Length", "3")
@@ -23,73 +32,203 @@ func TestDirectFetcherDownloadsMarketArtifactDirectly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher, err := NewDirectFetcher(DirectFetcherConfig{BaseURL: server.URL + "/artifacts/", HTTPClient: server.Client()})
+	release := directFetcherTestRelease()
+	resolveCalls := 0
+	resolver := artifactDownloadResolverFunc(func(_ context.Context, digest string) (connectorhost.ArtifactDownload, error) {
+		resolveCalls++
+		if digest != release.ReleaseDigest {
+			t.Fatalf("resolved digest = %q", digest)
+		}
+		return resolvedArtifact(server.URL+"/signed/artifact.zip?signature=secret", release), nil
+	})
+	fetcher, err := NewDirectFetcher(DirectFetcherConfig{Resolver: resolver, HTTPClient: server.Client(), Now: func() time.Time { return directFetcherNow }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	release := directFetcherTestRelease()
-	release.Artifact.Key = "connectors/github/1.0.0.zip"
-	response, err := fetcher.Fetch(context.Background(), FetchRequest{
-		Release: release,
-	})
+	response, err := fetcher.Fetch(context.Background(), FetchRequest{Release: release})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
 	content, _ := io.ReadAll(response.Body)
-	if string(content) != "zip" || response.ContentLength != 3 || response.MediaType != "application/zip" {
-		t.Fatalf("response = %#v content=%q", response, content)
+	if string(content) != "zip" || response.ContentLength != 3 || response.MediaType != "application/zip" || resolveCalls != 1 {
+		t.Fatalf("response = %#v content=%q resolveCalls=%d", response, content, resolveCalls)
 	}
 }
 
-func TestDirectFetcherRejectsUnsafeArtifactKey(t *testing.T) {
-	server := httptest.NewServer(http.NotFoundHandler())
-	defer server.Close()
-	fetcher, err := NewDirectFetcher(DirectFetcherConfig{BaseURL: server.URL + "/connectors/", HTTPClient: server.Client()})
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestDirectFetcherRejectsMissingOrExpiredResolution(t *testing.T) {
 	release := directFetcherTestRelease()
-	release.Artifact.Key = "../secrets.zip"
-	_, err = fetcher.Fetch(context.Background(), FetchRequest{Release: release})
-	if err == nil || !strings.Contains(err.Error(), "key is invalid") {
-		t.Fatalf("error = %v", err)
+	tests := []struct {
+		name     string
+		resolved connectorhost.ArtifactDownload
+		resolve  error
+		want     string
+	}{
+		{name: "resolve missing", resolve: errors.New("not found"), want: "resolve connector artifact"},
+		{name: "URL missing", resolved: resolvedArtifact("", release), want: "URL is invalid"},
+		{name: "expired", resolved: resolvedArtifact("https://artifacts.example.test/signed.zip", release), want: "expired"},
+		{name: "expiry beyond bound", resolved: resolvedArtifact("https://artifacts.example.test/signed.zip", release), want: "expiry exceeds limit"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolved := test.resolved
+			if test.name == "expired" {
+				resolved.ExpiresAt = directFetcherNow
+			} else if test.name == "expiry beyond bound" {
+				resolved.ExpiresAt = directFetcherNow.Add(maxResolvedArtifactExpiry + time.Second)
+			}
+			fetcher, err := NewDirectFetcher(DirectFetcherConfig{
+				Resolver:   artifactDownloadResolverFunc(func(context.Context, string) (connectorhost.ArtifactDownload, error) { return resolved, test.resolve }),
+				HTTPClient: http.DefaultClient,
+				Now:        func() time.Time { return directFetcherNow },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = fetcher.Fetch(context.Background(), FetchRequest{Release: release})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
-func TestDirectFetcherRequiresHostHTTPClient(t *testing.T) {
-	_, err := NewDirectFetcher(DirectFetcherConfig{BaseURL: "https://artifacts.example.test/connectors/"})
-	if err == nil || !strings.Contains(err.Error(), "HTTP client") {
-		t.Fatalf("expected missing HTTP client error, got %v", err)
+func TestDirectFetcherRejectsUnsafeResolvedURL(t *testing.T) {
+	release := directFetcherTestRelease()
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "http", url: "http://artifacts.example.test/signed.zip"},
+		{name: "missing host", url: "https:///signed.zip"},
+		{name: "userinfo", url: "https://secret@artifacts.example.test/signed.zip"},
+		{name: "fragment", url: "https://artifacts.example.test/signed.zip#secret"},
+		{name: "overlong", url: "https://artifacts.example.test/signed.zip?token=" + strings.Repeat("a", maxResolvedArtifactURLBytes)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolved := resolvedArtifact(test.url, release)
+			fetcher, err := NewDirectFetcher(DirectFetcherConfig{
+				Resolver:   artifactDownloadResolverFunc(func(context.Context, string) (connectorhost.ArtifactDownload, error) { return resolved, nil }),
+				HTTPClient: http.DefaultClient,
+				Now:        func() time.Time { return directFetcherNow },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fetcher.Fetch(context.Background(), FetchRequest{Release: release}); err == nil || !strings.Contains(err.Error(), "URL is invalid") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDirectFetcherRejectsResolvedDescriptorMismatch(t *testing.T) {
+	release := directFetcherTestRelease()
+	tests := []struct {
+		name   string
+		mutate func(*connectorhost.ArtifactDownload)
+		want   string
+	}{
+		{name: "release digest", mutate: func(value *connectorhost.ArtifactDownload) { value.ReleaseDigest = strings.Repeat("c", 64) }, want: "release digest"},
+		{name: "sha256", mutate: func(value *connectorhost.ArtifactDownload) { value.SHA256 = strings.Repeat("c", 64) }, want: "SHA-256"},
+		{name: "size", mutate: func(value *connectorhost.ArtifactDownload) { value.SizeBytes++ }, want: "size"},
+		{name: "media type", mutate: func(value *connectorhost.ArtifactDownload) { value.MediaType = "application/gzip" }, want: "media type"},
+		{name: "uppercase SHA-256", mutate: func(value *connectorhost.ArtifactDownload) { value.SHA256 = strings.Repeat("A", 64) }, want: "identity is invalid"},
+		{name: "malformed release digest", mutate: func(value *connectorhost.ArtifactDownload) { value.ReleaseDigest = "not-a-digest" }, want: "identity is invalid"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolved := resolvedArtifact("https://artifacts.example.test/signed.zip", release)
+			test.mutate(&resolved)
+			fetcher, err := NewDirectFetcher(DirectFetcherConfig{
+				Resolver:   artifactDownloadResolverFunc(func(context.Context, string) (connectorhost.ArtifactDownload, error) { return resolved, nil }),
+				HTTPClient: http.DefaultClient,
+				Now:        func() time.Time { return directFetcherNow },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fetcher.Fetch(context.Background(), FetchRequest{Release: release}); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
 func TestDirectFetcherRejectsCrossOriginRedirect(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		http.Redirect(writer, request, "https://other.example.test/artifact.zip", http.StatusFound)
+	target := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("cross-origin redirect target was reached")
 	}))
-	defer server.Close()
-	fetcher, err := NewDirectFetcher(DirectFetcherConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+	defer target.Close()
+	source := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL+"/artifact.zip", http.StatusFound)
+	}))
+	defer source.Close()
+	release := directFetcherTestRelease()
+	fetcher, err := NewDirectFetcher(DirectFetcherConfig{
+		Resolver: artifactDownloadResolverFunc(func(context.Context, string) (connectorhost.ArtifactDownload, error) {
+			return resolvedArtifact(source.URL+"/signed.zip?signature=secret", release), nil
+		}),
+		HTTPClient: source.Client(), Now: func() time.Time { return directFetcherNow },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fetcher.Fetch(context.Background(), FetchRequest{Release: directFetcherTestRelease()})
-	if err == nil || !strings.Contains(err.Error(), "configured origin") {
+	_, err = fetcher.Fetch(context.Background(), FetchRequest{Release: release})
+	if !errors.Is(err, errArtifactRedirectOrigin) {
 		t.Fatalf("error = %v", err)
+	}
+	if strings.Contains(err.Error(), "signature") || strings.Contains(err.Error(), source.URL) {
+		t.Fatalf("signed URL leaked into error: %v", err)
+	}
+}
+
+func TestDirectFetcherPreservesHostRedirectPolicy(t *testing.T) {
+	policyError := errors.New("redirect blocked by host")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, "/artifact.zip", http.StatusFound)
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return policyError }
+	release := directFetcherTestRelease()
+	fetcher, err := NewDirectFetcher(DirectFetcherConfig{
+		Resolver: artifactDownloadResolverFunc(func(context.Context, string) (connectorhost.ArtifactDownload, error) {
+			return resolvedArtifact(server.URL+"/signed.zip", release), nil
+		}),
+		HTTPClient: client, Now: func() time.Time { return directFetcherNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fetcher.Fetch(context.Background(), FetchRequest{Release: release}); !errors.Is(err, policyError) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDirectFetcherRequiresResolverAndHostHTTPClient(t *testing.T) {
+	if _, err := NewDirectFetcher(DirectFetcherConfig{HTTPClient: http.DefaultClient}); err == nil || !strings.Contains(err.Error(), "resolver") {
+		t.Fatalf("expected missing resolver error, got %v", err)
+	}
+	if _, err := NewDirectFetcher(DirectFetcherConfig{Resolver: artifactDownloadResolverFunc(func(context.Context, string) (connectorhost.ArtifactDownload, error) {
+		return connectorhost.ArtifactDownload{}, nil
+	})}); err == nil || !strings.Contains(err.Error(), "HTTP client") {
+		t.Fatalf("expected missing HTTP client error, got %v", err)
+	}
+}
+
+func resolvedArtifact(rawURL string, release connectorhost.Release) connectorhost.ArtifactDownload {
+	return connectorhost.ArtifactDownload{
+		URL: rawURL, ExpiresAt: directFetcherNow.Add(time.Minute), ReleaseDigest: release.ReleaseDigest,
+		SHA256: release.Artifact.SHA256, SizeBytes: release.Artifact.SizeBytes, MediaType: release.Artifact.MediaType,
 	}
 }
 
 func directFetcherTestRelease() connectorhost.Release {
 	return connectorhost.Release{
-		ConnectorKey:  "github",
-		Version:       "1.0.0",
-		ReleaseDigest: strings.Repeat("a", 64),
-		Artifact: connectorhost.Artifact{
-			Key:       "connectors/github/1.0.0.zip",
-			SHA256:    strings.Repeat("b", 64),
-			SizeBytes: 3,
-			MediaType: "application/zip",
-		},
+		ConnectorKey: "github", Version: "1.0.0", ReleaseDigest: strings.Repeat("a", 64),
+		Artifact:    connectorhost.Artifact{SHA256: strings.Repeat("b", 64), SizeBytes: 3, MediaType: "application/zip"},
 		PublishedAt: time.Unix(1, 0).UTC(),
 	}
 }

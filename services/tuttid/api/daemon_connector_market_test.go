@@ -490,7 +490,6 @@ func connectorMarketTestConnector() market.Connector {
 				AuthorizationKind: "oauth2",
 			},
 			Artifact: market.Artifact{
-				Key:       "connectors/notion/1.0.0.tar.gz",
 				SHA256:    digest,
 				SizeBytes: 128,
 				MediaType: "application/gzip",

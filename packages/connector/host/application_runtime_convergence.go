@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"strings"
 	"time"
 )
@@ -206,6 +207,149 @@ func (application *Application) DueRuntimeConvergences(
 	return application.config.Repository.DueRuntimeConvergences(
 		ctx, scope, application.config.BootEpoch, application.config.Now().UTC(), limit,
 	)
+}
+
+// RuntimeConvergenceState exposes one private convergence row to the daemon's
+// physical anti-entropy worker. It is not part of public Connector snapshots.
+func (application *Application) RuntimeConvergenceState(
+	ctx context.Context,
+	scope OperationScope,
+	connectorKey string,
+) (RuntimeConvergence, error) {
+	return application.config.Repository.RuntimeConvergence(ctx, scope, strings.TrimSpace(connectorKey))
+}
+
+const maxRuntimeConvergenceSnapshot = 4096
+
+// RuntimeConvergenceSnapshot returns one bounded, scope-wide private read for
+// physical anti-entropy. The extra row turns silent truncation into an explicit
+// fail-closed error.
+func (application *Application) RuntimeConvergenceSnapshot(
+	ctx context.Context,
+	scope OperationScope,
+) ([]RuntimeConvergence, error) {
+	convergences, err := application.config.Repository.RuntimeConvergences(
+		ctx, scope, maxRuntimeConvergenceSnapshot+1,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(convergences) > maxRuntimeConvergenceSnapshot {
+		return nil, NewDomainError(ErrorCodeUnavailable, "runtime convergence snapshot exceeds limit", true, nil)
+	}
+	return convergences, nil
+}
+
+func (application *Application) RuntimeBootEpoch() string {
+	if application == nil {
+		return ""
+	}
+	return application.config.BootEpoch
+}
+
+// InvalidateRuntimeObservation turns a matching cached Observed receipt back
+// into level-triggered work without executing the runtime command inline. The
+// expected generation is a CAS guard against an exit event racing newer intent.
+func (application *Application) InvalidateRuntimeObservation(
+	ctx context.Context,
+	scope OperationScope,
+	connectorKey string,
+	expectedGeneration uint64,
+) error {
+	connectorKey = strings.TrimSpace(connectorKey)
+	if connectorKey == "" || expectedGeneration == 0 {
+		return invalidRequest("runtime invalidation identity is required")
+	}
+	now := application.config.Now().UTC()
+	return application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		convergence, err := tx.RuntimeConvergence(scope, connectorKey)
+		if err != nil {
+			return err
+		}
+		if convergence.Desired.Generation != expectedGeneration ||
+			convergence.Observed.DesiredGeneration != expectedGeneration ||
+			convergence.Observed.BootEpoch != application.config.BootEpoch {
+			return nil
+		}
+		if expectedGeneration == math.MaxUint64 {
+			return NewDomainError(ErrorCodeUnavailable, "runtime desired generation is exhausted", false, nil)
+		}
+		convergence.Desired.Generation++
+		convergence.Desired.UpdatedAt = now
+		convergence.Attempt++
+		applyRuntimeFailureBudgetReadiness(&convergence)
+		convergence.NextAttemptAt = now
+		convergence.LeaseOwner = ""
+		convergence.LeaseExpiresAt = nil
+		convergence.LeaseToken++
+		convergence.LastErrorCode = string(ErrorCodeUnavailable)
+		convergence.LastError = "physical runtime route was lost"
+		convergence.UpdatedAt = now
+		if err := tx.SaveRuntimeConvergence(convergence); err != nil {
+			return err
+		}
+		revision := tx.AdvanceRevision()
+		connector, err := tx.Connector(connectorKey)
+		if err != nil {
+			return err
+		}
+		connector.Revision = revision
+		if err := tx.SaveConnector(connector); err != nil {
+			return err
+		}
+		return tx.EnqueueConnectorMarketChanged(ChangedEvent{ConnectorKey: connectorKey, Revision: revision})
+	})
+}
+
+func applyRuntimeFailureBudgetReadiness(convergence *RuntimeConvergence) {
+	if convergence == nil {
+		return
+	}
+	switch {
+	case convergence.Attempt >= RuntimeFailureBudget:
+		convergence.Observed.Readiness.State = RuntimeReadinessFailed
+		convergence.Observed.Readiness.ReasonCode = RuntimeReadinessReasonFailureBudgetExhausted
+		convergence.Observed.Readiness.Interfaces = nil
+	case convergence.Attempt >= RuntimeFailureDegradedThreshold:
+		convergence.Observed.Readiness.State = RuntimeReadinessDegraded
+		convergence.Observed.Readiness.ReasonCode = RuntimeReadinessReasonFailureBudgetDegraded
+	}
+}
+
+// ResetRuntimeFailureBudget records that an exact current-generation physical
+// route survived until a level-triggered anti-entropy observation. Watch edge
+// hints do not call this method, so an activation event cannot instantly erase
+// an early-exit history.
+func (application *Application) ResetRuntimeFailureBudget(
+	ctx context.Context,
+	scope OperationScope,
+	connectorKey string,
+	expectedGeneration uint64,
+) error {
+	connectorKey = strings.TrimSpace(connectorKey)
+	if connectorKey == "" || expectedGeneration == 0 {
+		return invalidRequest("runtime failure budget reset identity is required")
+	}
+	now := application.config.Now().UTC()
+	return application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		convergence, err := tx.RuntimeConvergence(scope, connectorKey)
+		if err != nil {
+			return err
+		}
+		if convergence.Desired.Generation != expectedGeneration ||
+			convergence.Observed.DesiredGeneration != expectedGeneration ||
+			convergence.Observed.BootEpoch != application.config.BootEpoch || convergence.Attempt == 0 {
+			return nil
+		}
+		convergence.Attempt = 0
+		convergence.NextAttemptAt = time.Time{}
+		convergence.LastErrorCode = ""
+		convergence.LastError = ""
+		convergence.Observed.Readiness.State = RuntimeReadinessReady
+		convergence.Observed.Readiness.ReasonCode = ""
+		convergence.UpdatedAt = now
+		return tx.SaveRuntimeConvergence(convergence)
+	})
 }
 
 // ReconcileRuntimeDesired synchronously proves that the latest Desired is
@@ -611,7 +755,12 @@ func (application *Application) retryRuntimeConvergence(
 	cause error,
 ) error {
 	now := application.config.Now().UTC()
-	nextAttemptAt := now.Add(runtimeConvergenceBackoff(convergence.Attempt + 1))
+	maximumBackoff := runtimeConvergenceBackoff(convergence.Attempt + 1)
+	delay := application.config.RuntimeRetryJitter(maximumBackoff)
+	if delay < 0 || delay > maximumBackoff {
+		delay = maximumBackoff
+	}
+	nextAttemptAt := now.Add(delay)
 	message := strings.TrimSpace(cause.Error())
 	if len(message) > 512 {
 		message = message[:512]
@@ -628,10 +777,21 @@ func (application *Application) retryRuntimeConvergence(
 }
 
 func runtimeConvergenceBackoff(attempt uint32) time.Duration {
-	if attempt > 6 {
-		attempt = 6
+	if attempt == 0 {
+		attempt = 1
 	}
-	return time.Second * time.Duration(uint64(1)<<attempt)
+	exponent := attempt - 1
+	if exponent > 5 {
+		return time.Minute
+	}
+	return time.Second * time.Duration(uint64(1)<<exponent)
+}
+
+func runtimeFullJitter(maximum time.Duration) time.Duration {
+	if maximum <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int64N(int64(maximum) + 1))
 }
 
 func (application *Application) renewRuntimeConvergenceLease(

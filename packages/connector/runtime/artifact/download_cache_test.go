@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	market "github.com/tutti-os/tutti/packages/connector/host"
@@ -38,7 +39,6 @@ func TestDownloadCacheKeepsCurrentUntilCandidateIsPromoted(t *testing.T) {
 	secondDigest := sha256.Sum256(secondArchive)
 	second.Artifact.SHA256 = hex.EncodeToString(secondDigest[:])
 	second.Artifact.SizeBytes = int64(len(secondArchive))
-	second.Artifact.Key = "connectors/github/2.0.0.zip"
 	fetcher.body = secondArchive
 
 	secondCandidate, err := cache.PrepareCandidate(context.Background(), market.PrepareArtifactRequest{OperationID: "install-2", Release: second})
@@ -68,5 +68,39 @@ func TestDownloadCacheKeepsCurrentUntilCandidateIsPromoted(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, first.ConnectorKey, "candidate")); !os.IsNotExist(err) {
 		t.Fatalf("candidate remains after promotion: %v", err)
+	}
+}
+
+func TestDownloadCacheRejectsDownloadedHashAndSizeMismatch(t *testing.T) {
+	manifest := []byte(`{"schemaVersion":"1","connectorKey":"github"}`)
+	archive := testZIP(t, map[string][]byte{packagedManifestPath: manifest, "version": []byte("one")})
+	tests := []struct {
+		name   string
+		mutate func(*market.Release)
+		want   string
+	}{
+		{name: "hash", mutate: func(release *market.Release) { release.Artifact.SHA256 = strings.Repeat("c", 64) }, want: "SHA-256"},
+		{name: "size", mutate: func(release *market.Release) { release.Artifact.SizeBytes++ }, want: "declared size"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			release := testRelease(archive, manifest)
+			test.mutate(&release)
+			root := t.TempDir()
+			cache, err := NewDownloadCache(DownloadCacheConfig{
+				RootDir: root,
+				Fetcher: &memoryFetcher{body: archive, mediaType: release.Artifact.MediaType},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = cache.PrepareCandidate(context.Background(), market.PrepareArtifactRequest{OperationID: "install-1", Release: release})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("PrepareCandidate() error = %v, want %q", err, test.want)
+			}
+			if _, statErr := os.Stat(filepath.Join(root, release.ConnectorKey, "candidate")); !os.IsNotExist(statErr) {
+				t.Fatalf("unverified candidate exists: %v", statErr)
+			}
+		})
 	}
 }

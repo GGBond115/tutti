@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const implementationHostTestReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
@@ -37,8 +37,7 @@ func completeImplementationHostTestRelease(release market.Release) market.Releas
 	if managed := release.Manifest.Implementation.ManagedStdio; managed != nil && managed.CLI != nil {
 		managed.Runtime.VersionRange = ">=20.0.0 <21.0.0"
 	}
-	release.Artifact = market.Artifact{Key: "connectors/github/1.0.0.zip",
-		SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", SizeBytes: 1024, MediaType: "application/vnd.tutti.connector+zip"}
+	release.Artifact = market.Artifact{SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", SizeBytes: 1024, MediaType: "application/vnd.tutti.connector+zip"}
 	release.PublishedAt = time.Unix(1, 0).UTC()
 	release.Status = market.ReleaseStatusAvailable
 	return release
@@ -46,19 +45,19 @@ func completeImplementationHostTestRelease(release market.Release) market.Releas
 
 type mcpProcessStub struct{ connection *mcpConnectionStub }
 
-func (stub *mcpProcessStub) Start(context.Context, agentruntime.ProcessSpec) (agentruntime.ProcessConnection, error) {
+func (stub *mcpProcessStub) Start(context.Context, connectorprocess.Spec) (connectorprocess.Connection, error) {
 	return stub.connection, nil
 }
 
 type mcpConnectionStub struct {
-	frames    chan agentruntime.ProcessFrame
+	frames    chan connectorprocess.Frame
 	closeOnce sync.Once
 	mu        sync.Mutex
 	closed    bool
 }
 
 func newMCPConnectionStub() *mcpConnectionStub {
-	return &mcpConnectionStub{frames: make(chan agentruntime.ProcessFrame, 16)}
+	return &mcpConnectionStub{frames: make(chan connectorprocess.Frame, 16)}
 }
 
 func (connection *mcpConnectionStub) Send(data []byte) error {
@@ -89,13 +88,13 @@ func (connection *mcpConnectionStub) Send(data []byte) error {
 		}
 	}
 	encoded, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": result})
-	connection.frames <- agentruntime.ProcessFrame{Stdout: append(encoded, '\n')}
+	connection.frames <- connectorprocess.Frame{Stdout: append(encoded, '\n')}
 	return nil
 }
-func (connection *mcpConnectionStub) Recv() (agentruntime.ProcessFrame, error) {
+func (connection *mcpConnectionStub) Recv() (connectorprocess.Frame, error) {
 	frame, ok := <-connection.frames
 	if !ok {
-		return agentruntime.ProcessFrame{}, io.EOF
+		return connectorprocess.Frame{}, io.EOF
 	}
 	return frame, nil
 }
@@ -115,7 +114,7 @@ func (connection *mcpConnectionStub) exit() {
 		return
 	}
 	exitCode := 1
-	connection.frames <- agentruntime.ProcessFrame{ExitCode: &exitCode}
+	connection.frames <- connectorprocess.Frame{ExitCode: &exitCode}
 }
 
 type preparedResolverStub struct {
@@ -124,7 +123,7 @@ type preparedResolverStub struct {
 
 type blockingStartProcessStub struct{ started chan struct{} }
 
-func (stub *blockingStartProcessStub) Start(ctx context.Context, _ agentruntime.ProcessSpec) (agentruntime.ProcessConnection, error) {
+func (stub *blockingStartProcessStub) Start(ctx context.Context, _ connectorprocess.Spec) (connectorprocess.Connection, error) {
 	select {
 	case <-stub.started:
 	default:
@@ -134,11 +133,11 @@ func (stub *blockingStartProcessStub) Start(ctx context.Context, _ agentruntime.
 	return nil, ctx.Err()
 }
 
-func testCLIHost(t *testing.T, processes agentruntime.ProcessTransport) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
+func testCLIHost(t *testing.T, processes connectorprocess.Transport) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
 	return testCLIHostWithSetup(t, processes, nil)
 }
 
-func testCLIHostWithSetup(t *testing.T, processes agentruntime.ProcessTransport, setup func(string)) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
+func testCLIHostWithSetup(t *testing.T, processes connectorprocess.Transport, setup func(string)) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "connector.js"), []byte("// connector"), 0o600); err != nil {
@@ -196,32 +195,32 @@ type connectorProcessStub struct {
 	exitCode int
 }
 
-func (stub *connectorProcessStub) Start(context.Context, agentruntime.ProcessSpec) (agentruntime.ProcessConnection, error) {
+func (stub *connectorProcessStub) Start(context.Context, connectorprocess.Spec) (connectorprocess.Connection, error) {
 	stub.starts++
 	exit := stub.exitCode
-	return &connectorConnectionStub{frames: []agentruntime.ProcessFrame{{Stdout: []byte(`{"ok":true}`)}, {ExitCode: &exit}}}, nil
+	return &connectorConnectionStub{frames: []connectorprocess.Frame{{Stdout: []byte(`{"ok":true}`)}, {ExitCode: &exit}}}, nil
 }
 
 type recordingConnectorProcessStub struct {
 	connectorProcessStub
-	spec agentruntime.ProcessSpec
+	spec connectorprocess.Spec
 }
 
-func (stub *recordingConnectorProcessStub) Start(ctx context.Context, spec agentruntime.ProcessSpec) (agentruntime.ProcessConnection, error) {
+func (stub *recordingConnectorProcessStub) Start(ctx context.Context, spec connectorprocess.Spec) (connectorprocess.Connection, error) {
 	stub.spec = spec
 	return stub.connectorProcessStub.Start(ctx, spec)
 }
 
-type connectorConnectionStub struct{ frames []agentruntime.ProcessFrame }
+type connectorConnectionStub struct{ frames []connectorprocess.Frame }
 
 func (*connectorConnectionStub) Send([]byte) error { return nil }
 func (*connectorConnectionStub) Close() error      { return nil }
 func (*connectorConnectionStub) CloseInput() error { return nil }
 func (*connectorConnectionStub) Terminate() error  { return nil }
 func (*connectorConnectionStub) Kill() error       { return nil }
-func (stub *connectorConnectionStub) Recv() (agentruntime.ProcessFrame, error) {
+func (stub *connectorConnectionStub) Recv() (connectorprocess.Frame, error) {
 	if len(stub.frames) == 0 {
-		return agentruntime.ProcessFrame{}, io.EOF
+		return connectorprocess.Frame{}, io.EOF
 	}
 	frame := stub.frames[0]
 	stub.frames = stub.frames[1:]
@@ -480,11 +479,20 @@ func TestImplementationHostPublishesStagedRoutesAtomically(t *testing.T) {
 func TestImplementationHostPaginatesMCPToolsSeparatesCLIPathAndRemovesDeadMCPRoute(t *testing.T) {
 	connection := newMCPConnectionStub()
 	host, commands, connector, generation := testCLIHost(t, &mcpProcessStub{connection: connection})
+	watchContext, cancelWatch := context.WithCancel(context.Background())
+	defer cancelWatch()
+	watch, err := host.Watch(watchContext)
+	if err != nil {
+		t.Fatal(err)
+	}
 	managed := connector.Release.Manifest.Implementation.ManagedStdio
 	managed.MCP = &market.ManagedMCPInterface{Entrypoint: "connector.js"}
 	if _, err := host.Reconcile(context.Background(), market.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
 		Connector: connector, Enabled: true, Generation: generation}); err != nil {
 		t.Fatal(err)
+	}
+	if event := <-watch.Events; event.Kind != market.PhysicalRouteEventChanged || event.Revision != watch.Revision+1 {
+		t.Fatalf("managed route activation event = %+v", event)
 	}
 	routes := commands.runtime.Routes()
 	if len(routes) != 1 || !routes[0].HasMCP || routes[0].CLICommand != "tutti-connector-github" {
@@ -498,10 +506,19 @@ func TestImplementationHostPaginatesMCPToolsSeparatesCLIPathAndRemovesDeadMCPRou
 		t.Fatalf("paginated native MCP tools = %#v", tools)
 	}
 	connection.exit()
+	select {
+	case event := <-watch.Events:
+		if event.Kind != market.PhysicalRouteEventUnexpectedExit || event.Route.ConnectorKey != connector.Key {
+			t.Fatalf("managed route exit event = %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("managed route exit observation was not delivered")
+	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		tools, _ := commands.MCPRegistry().Tools(context.Background())
-		if len(commands.runtime.Routes()) == 0 && len(tools) == 0 {
+		physical, snapshotErr := host.Snapshot(context.Background())
+		if snapshotErr == nil && len(physical.Routes) == 0 && len(commands.runtime.Routes()) == 0 && len(tools) == 0 {
 			return
 		}
 		time.Sleep(time.Millisecond)

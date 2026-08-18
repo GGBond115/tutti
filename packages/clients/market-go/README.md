@@ -27,3 +27,8 @@ path, redirect policy, and request authorization callback. Redirects must stay
 on the configured origin, so account credentials are never reattached after a
 cross-origin or HTTPS-downgrade redirect. Successful response bodies are bounded
 to 8 MiB and decoded with additive protobuf JSON fields ignored.
+
+Connector catalog consumers use the server-owned artifact `releaseDigest`,
+archive media type, SHA-256, and size verbatim. Immediately before install they call the authenticated
+`ResolveMarketArtifactDownload` operation; clients never send an object key or
+join the deprecated compatibility key to a CDN base URL.

@@ -7,10 +7,10 @@ import (
 	"runtime"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	implementationhost "github.com/tutti-os/tutti/packages/connector/runtime/implementationhost"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 type PreparedArtifactResolver = implementationhost.PreparedArtifactResolver
@@ -25,7 +25,7 @@ type ImplementationHostConfig struct {
 	Artifacts              PreparedArtifactResolver
 	CLIInstallations       market.CLIInstallationManager
 	Runtimes               ConnectorRuntimeResolver
-	Processes              agentruntime.ProcessTransport
+	Processes              connectorprocess.Transport
 	Registry               *ConnectorRuntimeRegistry
 	StateRoot              string
 	BinDir                 string
@@ -39,6 +39,9 @@ type ImplementationHost struct {
 	runtime   *implementationhost.Host
 	artifacts PreparedArtifactResolver
 }
+
+var _ market.ImplementationCommands = (*ImplementationHost)(nil)
+var _ market.RouteObservation = (*ImplementationHost)(nil)
 
 func NewConnectorRuntimeRegistry() *ConnectorRuntimeRegistry {
 	return &ConnectorRuntimeRegistry{runtime: implementationhost.NewRouteRegistry(), mcp: implementationhost.NewMCPRegistry()}
@@ -86,6 +89,20 @@ func (host *ImplementationHost) Reconcile(ctx context.Context, request market.Ru
 		return market.RuntimeReceipt{}, errors.New("connector implementation host is unavailable")
 	}
 	return host.runtime.Reconcile(ctx, implementationhost.ReconcileRequest{Runtime: request})
+}
+
+func (host *ImplementationHost) Snapshot(ctx context.Context) (market.PhysicalRouteSnapshot, error) {
+	if host == nil || host.runtime == nil {
+		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route observation is unavailable")
+	}
+	return host.runtime.Snapshot(ctx)
+}
+
+func (host *ImplementationHost) Watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+	if host == nil || host.runtime == nil {
+		return market.PhysicalRouteWatch{}, errors.New("connector physical route observation is unavailable")
+	}
+	return host.runtime.Watch(ctx)
 }
 
 func (host *ImplementationHost) Begin(ctx context.Context, request market.AuthorizationStartRequest) (market.AuthorizationSession, error) {

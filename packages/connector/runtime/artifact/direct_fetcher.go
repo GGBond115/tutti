@@ -4,77 +4,86 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
+	"time"
+
+	connectorhost "github.com/tutti-os/tutti/packages/connector/host"
 )
 
+const (
+	maxResolvedArtifactURLBytes = 8 << 10
+	// tsh-server issues five-minute grants. Thirty seconds permits bounded
+	// clock skew without accepting long-lived signed URLs.
+	maxResolvedArtifactExpiry = 5*time.Minute + 30*time.Second
+)
+
+var errArtifactRedirectOrigin = errors.New("connector artifact redirect leaves the resolved origin")
+
 type DirectFetcherConfig struct {
-	BaseURL    string
+	Resolver   connectorhost.ArtifactDownloadResolver
 	HTTPClient *http.Client
+	Now        func() time.Time
 }
 
-// DirectFetcher downloads the immutable artifact named by the market
-// release. Downloading is not a workspace-authorized operation; integrity and
-// size are enforced by artifact.Preparer before the bytes can be installed.
+// DirectFetcher resolves a short-lived signed URL immediately before every
+// download. The deprecated catalog object key is never used for installation.
+// DownloadCache independently enforces the declared digest and size before
+// bytes can become an install candidate.
 type DirectFetcher struct {
-	baseURL    *url.URL
+	resolver   connectorhost.ArtifactDownloadResolver
 	httpClient *http.Client
+	now        func() time.Time
 }
 
 var _ Fetcher = (*DirectFetcher)(nil)
 
 func NewDirectFetcher(config DirectFetcherConfig) (*DirectFetcher, error) {
-	baseURL, err := url.Parse(strings.TrimSpace(config.BaseURL))
-	if err != nil || baseURL.Scheme == "" || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" {
-		return nil, errors.New("connector artifact base URL is invalid")
+	if config.Resolver == nil {
+		return nil, errors.New("connector artifact download resolver is required")
 	}
-	if baseURL.Scheme != "https" && (baseURL.Scheme != "http" || !isLoopbackHost(baseURL.Hostname())) {
-		return nil, errors.New("connector artifact base URL must use https (http is allowed only for loopback tests)")
-	}
-	baseURL.Path = strings.TrimSuffix(baseURL.Path, "/") + "/"
-
-	client := config.HTTPClient
-	if client == nil {
+	if config.HTTPClient == nil {
 		return nil, errors.New("connector artifact HTTP client is required")
 	}
-	clientCopy := *client
-	configuredRedirectCheck := client.CheckRedirect
-	clientCopy.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if len(via) >= 3 || !sameOrigin(request.URL, baseURL) {
-			return errors.New("connector artifact redirect leaves the configured origin")
-		}
-		if configuredRedirectCheck != nil {
-			return configuredRedirectCheck(request, via)
-		}
-		return nil
+	now := config.Now
+	if now == nil {
+		now = time.Now
 	}
-	return &DirectFetcher{baseURL: baseURL, httpClient: &clientCopy}, nil
+	return &DirectFetcher{resolver: config.Resolver, httpClient: config.HTTPClient, now: now}, nil
 }
 
 func (fetcher *DirectFetcher) Fetch(ctx context.Context, request FetchRequest) (FetchResponse, error) {
-	artifactKey := strings.TrimSpace(request.Release.Artifact.Key)
-	if !safeArtifactKey(artifactKey) {
-		return FetchResponse{}, errors.New("connector artifact key is invalid")
+	resolved, err := fetcher.resolver.ResolveArtifactDownload(ctx, request.Release.ReleaseDigest)
+	if err != nil {
+		return FetchResponse{}, fmt.Errorf("resolve connector artifact: %w", err)
 	}
-	endpoint := fetcher.baseURL.ResolveReference(&url.URL{Path: artifactKey})
-	if !sameOrigin(endpoint, fetcher.baseURL) || !strings.HasPrefix(endpoint.EscapedPath(), fetcher.baseURL.EscapedPath()) {
-		return FetchResponse{}, errors.New("connector artifact URL leaves the configured base path")
-	}
-	downloadRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	endpoint, err := validateResolvedArtifact(resolved, request.Release, fetcher.now())
 	if err != nil {
 		return FetchResponse{}, err
 	}
-	downloadResponse, err := fetcher.httpClient.Do(downloadRequest)
+	downloadRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return FetchResponse{}, fmt.Errorf("download connector artifact: %w", err)
+		return FetchResponse{}, errors.New("connector artifact resolved URL is invalid")
+	}
+	client := *fetcher.httpClient
+	hostRedirectPolicy := fetcher.httpClient.CheckRedirect
+	client.CheckRedirect = func(redirect *http.Request, via []*http.Request) error {
+		if len(via) >= 3 || !sameOrigin(redirect.URL, endpoint) {
+			return errArtifactRedirectOrigin
+		}
+		if hostRedirectPolicy != nil {
+			return hostRedirectPolicy(redirect, via)
+		}
+		return nil
+	}
+	downloadResponse, err := client.Do(downloadRequest)
+	if err != nil {
+		return FetchResponse{}, artifactDownloadTransportError{cause: err}
 	}
 	if downloadResponse.StatusCode != http.StatusOK {
-		defer downloadResponse.Body.Close()
-		message, _ := io.ReadAll(io.LimitReader(downloadResponse.Body, 4<<10))
-		return FetchResponse{}, fmt.Errorf("download connector artifact: status %d: %s", downloadResponse.StatusCode, strings.TrimSpace(string(message)))
+		_ = downloadResponse.Body.Close()
+		return FetchResponse{}, fmt.Errorf("download connector artifact: status %d", downloadResponse.StatusCode)
 	}
 	return FetchResponse{
 		Body:          downloadResponse.Body,
@@ -83,16 +92,63 @@ func (fetcher *DirectFetcher) Fetch(ctx context.Context, request FetchRequest) (
 	}, nil
 }
 
+type artifactDownloadTransportError struct {
+	cause error
+}
+
+func (err artifactDownloadTransportError) Error() string {
+	return "download connector artifact: transport failed"
+}
+
+func (err artifactDownloadTransportError) Unwrap() error {
+	return err.cause
+}
+
+func validateResolvedArtifact(resolved connectorhost.ArtifactDownload, release connectorhost.Release, now time.Time) (*url.URL, error) {
+	rawURL := resolved.URL
+	if len(rawURL) == 0 || len(rawURL) > maxResolvedArtifactURLBytes || strings.TrimSpace(rawURL) != rawURL {
+		return nil, errors.New("connector artifact resolved URL is invalid")
+	}
+	endpoint, err := url.Parse(rawURL)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.Fragment != "" {
+		return nil, errors.New("connector artifact resolved URL is invalid")
+	}
+	if resolved.ExpiresAt.IsZero() || !resolved.ExpiresAt.After(now) {
+		return nil, errors.New("connector artifact resolved URL is expired")
+	}
+	if resolved.ExpiresAt.After(now.Add(maxResolvedArtifactExpiry)) {
+		return nil, errors.New("connector artifact resolved URL expiry exceeds limit")
+	}
+	if !isLowerSHA256(resolved.ReleaseDigest) || !isLowerSHA256(resolved.SHA256) {
+		return nil, errors.New("connector artifact resolved identity is invalid")
+	}
+	if resolved.ReleaseDigest != release.ReleaseDigest {
+		return nil, errors.New("connector artifact resolved release digest does not match catalog")
+	}
+	if resolved.SHA256 != release.Artifact.SHA256 {
+		return nil, errors.New("connector artifact resolved SHA-256 does not match catalog")
+	}
+	if resolved.SizeBytes != release.Artifact.SizeBytes {
+		return nil, errors.New("connector artifact resolved size does not match catalog")
+	}
+	if resolved.MediaType != release.Artifact.MediaType {
+		return nil, errors.New("connector artifact resolved media type does not match catalog")
+	}
+	return endpoint, nil
+}
+
+func isLowerSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func sameOrigin(left, right *url.URL) bool {
 	return left != nil && right != nil && strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Host, right.Host)
-}
-
-func isLoopbackHost(host string) bool {
-	host = strings.ToLower(strings.TrimSpace(host))
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
-}
-
-func safeArtifactKey(key string) bool {
-	cleaned := path.Clean(strings.TrimSpace(key))
-	return cleaned != "." && cleaned != ".." && cleaned == key && !path.IsAbs(cleaned) && !strings.HasPrefix(cleaned, "../") && !strings.Contains(cleaned, "\\")
 }

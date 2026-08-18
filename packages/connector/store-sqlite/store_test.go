@@ -710,7 +710,6 @@ func testConnector() market.Connector {
 			AuthorizationKind: "none",
 		},
 		Artifact: market.Artifact{
-			Key:       "connectors/github/1.0.0.zip",
 			SHA256:    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			SizeBytes: 123, MediaType: "application/vnd.tutti.connector+zip",
 		},

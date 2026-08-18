@@ -17,7 +17,20 @@ func (host *Host) deactivateConnector(request market.RuntimeDeactivationRequest)
 		candidate, ok := route.(*connectorRoute)
 		return ok && candidate.connectorKey == request.ConnectorKey
 	}
+	host.routeObservationMu.Lock()
+	removed := make([]*connectorRoute, 0)
+	for _, route := range host.routes.ActiveRoutes() {
+		if candidate, ok := route.(*connectorRoute); ok && match(candidate) {
+			removed = append(removed, candidate)
+		}
+	}
 	routeErr := host.routes.RemoveMatching(match, request.Generation, request.Deadline)
+	for _, route := range removed {
+		if !host.routes.IsCurrent(route) {
+			host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(route))
+		}
+	}
+	host.routeObservationMu.Unlock()
 
 	host.authorizationMu.Lock()
 	authorizationRoutes := make([]*connectorRoute, 0)

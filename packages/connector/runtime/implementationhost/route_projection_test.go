@@ -7,6 +7,7 @@ import (
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 func TestRouteRegistryProjectsDetachedConnectorMetadata(t *testing.T) {
@@ -20,7 +21,7 @@ func TestRouteRegistryProjectsDetachedConnectorMetadata(t *testing.T) {
 		cliContractHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		cliCommands: []market.CLICommand{{Name: "events", Arguments: []string{"events"},
 			InputSchema: map[string]any{"type": "object"}, TimeoutMS: 10_000}},
-		processes: connectorruntime.NewProcessGroup(),
+		processes: connectorprocess.NewGroup(),
 	}
 	table := connectorruntime.NewRouteTable()
 	if err := table.Commit(route); err != nil {
@@ -63,7 +64,7 @@ func TestCommittedRouteSummaryDoesNotDependOnCapabilityPublication(t *testing.T)
 		generation:   market.HostGeneration{BootEpoch: "boot-1", Generation: 1},
 		connectorKey: "calendar", displayName: "Calendar", description: "Manage meetings",
 		skills:   []connectorartifact.SkillSummary{{Name: "standup", Title: "Standup", Description: "Prepare a standup"}},
-		mcpTools: map[string]registeredMCPTool{"calendar_list": {}}, processes: connectorruntime.NewProcessGroup(),
+		mcpTools: map[string]registeredMCPTool{"calendar_list": {}}, processes: connectorprocess.NewGroup(),
 		readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady,
 			Interfaces: []market.InterfaceReadiness{{Kind: "mcp", State: market.RuntimeReadinessReady}}},
 	}

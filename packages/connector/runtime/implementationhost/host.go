@@ -17,12 +17,12 @@ import (
 	"sync"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
 	"github.com/tutti-os/tutti/packages/connector/runtime/command"
 	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 type PreparedArtifactResolver interface {
@@ -70,8 +70,7 @@ type Config struct {
 	Artifacts              PreparedArtifactResolver
 	CLIInstallations       market.CLIInstallationManager
 	Runtimes               connectorruntime.ConnectorRuntimeResolver
-	Processes              agentruntime.ProcessTransport
-	Routes                 RouteObserver
+	Processes              connectorprocess.Transport
 	Authorization          AuthorizationObserver
 	Registry               *RouteRegistry
 	MCP                    *MCPRegistry
@@ -88,8 +87,9 @@ type Host struct {
 	connectorLanes         map[string]*sync.Mutex
 	artifacts              PreparedArtifactResolver
 	planner                *connectorruntime.ManagedRoutePlanner
-	processes              agentruntime.ProcessTransport
-	routeObserver          RouteObserver
+	processes              connectorprocess.Transport
+	observations           *routeObservationHub
+	routeObservationMu     sync.RWMutex
 	authorizationObserver  AuthorizationObserver
 	mcpStartupTimeout      time.Duration
 	routes                 *connectorruntime.RouteTable
@@ -121,7 +121,7 @@ type connectorRoute struct {
 	routingAliases         []string
 	skillRoot              string
 	skills                 []connectorartifact.SkillSummary
-	processes              *connectorruntime.ProcessGroup
+	processes              *connectorprocess.Group
 	snapshots              *connectorruntime.ExecutionSnapshotter
 	userHome               string
 	cliLaunch              *managedCLILaunch
@@ -174,7 +174,7 @@ func New(config Config) (*Host, error) {
 		artifacts:              config.Artifacts,
 		planner:                planner,
 		processes:              config.Processes,
-		routeObserver:          config.Routes,
+		observations:           newRouteObservationHub(),
 		authorizationObserver:  config.Authorization,
 		mcpStartupTimeout:      config.MCPStartupTimeout,
 		routes:                 routes,
@@ -282,14 +282,26 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		_ = route.Close(time.Now().Add(3 * time.Second))
 		return market.RuntimeReceipt{}, err
 	}
-	if err := host.routes.Commit(route); err != nil {
-		if previous != nil {
-			_ = previous.activateCLIShim()
-		} else {
-			route.removeCLIShimIfCurrent()
+	host.routeObservationMu.Lock()
+	commitErr := host.routes.Commit(route)
+	committed := host.routes.IsCurrent(route)
+	if committed {
+		host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(route))
+	}
+	host.routeObservationMu.Unlock()
+	if commitErr != nil {
+		if committed {
+			host.notifyRouteChanged()
 		}
-		_ = route.Close(time.Now().Add(3 * time.Second))
-		return market.RuntimeReceipt{}, err
+		if !committed {
+			if previous != nil {
+				_ = previous.activateCLIShim()
+			} else {
+				route.removeCLIShimIfCurrent()
+			}
+			_ = route.Close(time.Now().Add(3 * time.Second))
+		}
+		return market.RuntimeReceipt{}, commitErr
 	}
 	host.releaseAuthorizationRouteByKey(key)
 	host.notifyRouteChanged()
@@ -348,7 +360,44 @@ func newConnectorRoute(request market.RuntimeReconcileRequest) *connectorRoute {
 		connectorKey: request.Connector.Key, connectorVersion: request.Connector.Release.Version,
 		releaseDigest: request.Connector.Release.ReleaseDigest,
 		generation:    request.Generation, mcpTools: make(map[string]registeredMCPTool),
-		processes: connectorruntime.NewProcessGroup()}
+		processes: connectorprocess.NewGroup()}
+}
+
+// Snapshot returns bounded, level-triggered physical route truth. It is
+// independent from capability publication and excludes fenced retiring routes.
+func (host *Host) Snapshot(ctx context.Context) (market.PhysicalRouteSnapshot, error) {
+	if host == nil || host.routes == nil || host.observations == nil {
+		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route observation is unavailable")
+	}
+	if ctx == nil {
+		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route snapshot context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return market.PhysicalRouteSnapshot{}, err
+	}
+	host.routeObservationMu.RLock()
+	defer host.routeObservationMu.RUnlock()
+	active := host.routes.ActiveRoutes()
+	if len(active) > maxPhysicalRouteSnapshot {
+		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route snapshot exceeds limit")
+	}
+	routes := make([]market.PhysicalRoute, 0, len(active))
+	for _, route := range active {
+		candidate, ok := route.(*connectorRoute)
+		if !ok {
+			return market.PhysicalRouteSnapshot{}, errors.New("connector physical route has an unsupported implementation")
+		}
+		routes = append(routes, physicalRoute(candidate))
+	}
+	sortPhysicalRoutes(routes)
+	return market.PhysicalRouteSnapshot{Revision: host.observations.currentRevision(), Routes: routes}, nil
+}
+
+func (host *Host) Watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+	if host == nil || host.observations == nil {
+		return market.PhysicalRouteWatch{}, errors.New("connector physical route observation is unavailable")
+	}
+	return host.observations.watch(ctx)
 }
 
 func (host *Host) Close() error {
@@ -365,7 +414,17 @@ func (host *Host) Close() error {
 		authorizationRoutes = append(authorizationRoutes, route)
 	}
 	host.authorizationMu.Unlock()
-	errs := []error{host.routes.Close(deadline)}
+	host.routeObservationMu.Lock()
+	physicalRoutes := host.routes.ActiveRoutes()
+	routeCloseErr := host.routes.Close(deadline)
+	for _, route := range physicalRoutes {
+		if candidate, ok := route.(*connectorRoute); ok {
+			host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(candidate))
+		}
+	}
+	host.observations.close()
+	host.routeObservationMu.Unlock()
+	errs := []error{routeCloseErr}
 	for _, route := range authorizationRoutes {
 		route.Fence()
 		errs = append(errs, route.Close(deadline))
@@ -386,8 +445,16 @@ func (host *Host) FenceAll(_ context.Context, deadline time.Time) error {
 	}
 	host.admission.Lock()
 	defer host.admission.Unlock()
+	host.routeObservationMu.Lock()
+	routes := host.routes.ActiveRoutes()
 	err := host.routes.FenceAll(deadline)
 	host.notifyRouteChanged()
+	for _, route := range routes {
+		if candidate, ok := route.(*connectorRoute); ok {
+			host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(candidate))
+		}
+	}
+	host.routeObservationMu.Unlock()
 	return err
 }
 
@@ -414,8 +481,15 @@ func (host *Host) DeactivateRuntime(ctx context.Context, request market.RuntimeD
 	if request.AllConnections {
 		return host.deactivateConnector(request)
 	}
-	err := host.routes.Remove(connectorRouteKey(request.ConnectionID, request.ConnectorKey), request.Generation, request.ReleaseDigest, request.Deadline)
+	key := connectorRouteKey(request.ConnectionID, request.ConnectorKey)
+	host.routeObservationMu.Lock()
+	removed, _ := host.routes.Route(key).(*connectorRoute)
+	err := host.routes.Remove(key, request.Generation, request.ReleaseDigest, request.Deadline)
 	host.notifyRouteChanged()
+	if removed != nil && !host.routes.IsCurrent(removed) {
+		host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(removed))
+	}
+	host.routeObservationMu.Unlock()
 	return err
 }
 
@@ -485,7 +559,7 @@ var hostIdentityPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$
 
 func (*Host) attachCredentialBroker(route *connectorRoute, broker *market.ManagedCredentialBroker,
 	prepared market.PreparedArtifactReceipt, executable connectorruntime.ConnectorExecutable,
-	stateDir string, artifactTrees []agentruntime.ArtifactTreeIdentity) error {
+	stateDir string, artifactTrees []connectorprocess.ArtifactTreeIdentity) error {
 	if route.cliLaunch == nil {
 		return errors.New("connector credential broker requires a managed CLI")
 	}
@@ -503,14 +577,14 @@ func (*Host) attachCredentialBroker(route *connectorRoute, broker *market.Manage
 			// Native CLIs legitimately have no argv; preserve [] instead of encoding null for the broker protocol.
 			Arguments: append([]string{}, route.cliLaunch.arguments...), CWD: route.cliLaunch.cwd},
 		executable: executable, language: route.cliLaunch.language, cwd: prepared.PreparedPath, stateDir: stateDir,
-		artifactTrees: append([]agentruntime.ArtifactTreeIdentity(nil), artifactTrees...),
+		artifactTrees: append([]connectorprocess.ArtifactTreeIdentity(nil), artifactTrees...),
 	}
 	return nil
 }
 
 func (host *Host) attachMCP(ctx context.Context, route *connectorRoute, managed *market.ManagedStdioImplementation,
 	prepared market.PreparedArtifactReceipt, executable connectorruntime.ConnectorExecutable,
-	stateDir, userHome string, artifactTrees []agentruntime.ArtifactTreeIdentity) error {
+	stateDir, userHome string, artifactTrees []connectorprocess.ArtifactTreeIdentity) error {
 	entrypoint, err := connectorruntime.PreparedEntrypoint(prepared.PreparedPath, managed.MCP.Entrypoint)
 	if err != nil {
 		return err
@@ -590,20 +664,17 @@ func (host *Host) notifyRouteChanged() {
 
 func (host *Host) monitorMCPRoute(route *connectorRoute, client *mcp.StdioClient) {
 	<-client.Done()
-	unexpected := host.routes.IsCurrent(route)
-	_ = host.routes.RetireExact(route, time.Now().Add(3*time.Second))
+	host.routeObservationMu.Lock()
+	_ = host.routes.RetireExact(route, time.Now().Add(3*time.Second), func() {
+		host.observations.publish(market.PhysicalRouteEventUnexpectedExit, physicalRoute(route))
+	})
+	host.routeObservationMu.Unlock()
 	host.notifyRouteChanged()
-	if unexpected && host.routeObserver != nil {
-		host.routeObserver.ObserveRoute(context.Background(), RouteObservation{
-			ConnectorKey: route.connectorKey, ConnectionID: route.connectionID,
-			ReleaseDigest: route.releaseDigest, Generation: route.generation, ObservedAt: time.Now().UTC(),
-		})
-	}
 }
 
 func (*Host) attachCLI(route *connectorRoute, managed *market.ManagedStdioImplementation,
 	prepared market.PreparedArtifactReceipt, installed *market.CLIInstallationReceipt,
-	executable connectorruntime.ConnectorExecutable, stateDir string, artifactTrees []agentruntime.ArtifactTreeIdentity) error {
+	executable connectorruntime.ConnectorExecutable, stateDir string, artifactTrees []connectorprocess.ArtifactTreeIdentity) error {
 	entrypointRoot, entrypointRelative := prepared.PreparedPath, managed.CLI.Entrypoint
 	if installed != nil {
 		entrypointRoot, entrypointRelative = installed.InstallRoot, installed.Entrypoint
@@ -628,7 +699,7 @@ func (*Host) attachCLI(route *connectorRoute, managed *market.ManagedStdioImplem
 			SizeBytes: installed.EntrypointSize}
 	}
 	route.cliLaunch = &managedCLILaunch{arguments: append(append([]string{}, launchArguments...), managed.CLI.Arguments...),
-		artifactTrees: append([]agentruntime.ArtifactTreeIdentity(nil), artifactTrees...), cwd: prepared.PreparedPath,
+		artifactTrees: append([]connectorprocess.ArtifactTreeIdentity(nil), artifactTrees...), cwd: prepared.PreparedPath,
 		executable: launchExecutable, language: managed.Runtime.Language, stateDir: stateDir,
 		timeout: time.Duration(managed.CLI.TimeoutMS) * time.Millisecond}
 	route.cliContractHash = contractHash
@@ -646,8 +717,8 @@ func artifactNativeEntrypoints(release market.Release) []string {
 	return []string{managed.CLI.Entrypoint}
 }
 
-func (host *Host) startProcess(ctx context.Context, route *connectorRoute, spec agentruntime.ProcessSpec,
-	requireCurrent bool) (agentruntime.ProcessConnection, uint64, error) {
+func (host *Host) startProcess(ctx context.Context, route *connectorRoute, spec connectorprocess.Spec,
+	requireCurrent bool) (connectorprocess.Connection, uint64, error) {
 	if requireCurrent && !host.routes.IsCurrent(route) {
 		return nil, 0, command.ErrServiceUnavailable
 	}
@@ -656,7 +727,7 @@ func (host *Host) startProcess(ctx context.Context, route *connectorRoute, spec 
 		return nil, 0, command.ErrServiceUnavailable
 	}
 	type startResult struct {
-		connection agentruntime.ProcessConnection
+		connection connectorprocess.Connection
 		err        error
 	}
 	result := make(chan startResult, 1)
@@ -700,7 +771,7 @@ func (route *connectorRoute) RouteGeneration() market.HostGeneration { return ro
 func (route *connectorRoute) RouteReleaseDigest() string             { return route.releaseDigest }
 func (route *connectorRoute) Fence()                                 { route.processes.Fence() }
 func (route *connectorRoute) close(deadline time.Time) error         { return route.Close(deadline) }
-func (route *connectorRoute) releaseProcess(id uint64, connection agentruntime.ProcessConnection) error {
+func (route *connectorRoute) releaseProcess(id uint64, connection connectorprocess.Connection) error {
 	if route != nil && route.processes != nil {
 		return route.processes.ReleaseWithError(id, connection)
 	}

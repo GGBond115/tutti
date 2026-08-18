@@ -16,7 +16,6 @@ import (
 
 	agentdaemon "github.com/tutti-os/tutti/packages/agent/daemon"
 	agenthttpx "github.com/tutti-os/tutti/packages/agent/daemon/httpx"
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	connectorcontrolplane "github.com/tutti-os/tutti/packages/clients/connector-controlplane"
 	connectormarketdaemon "github.com/tutti-os/tutti/packages/connector/daemon"
@@ -24,6 +23,7 @@ import (
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectoragentgateway "github.com/tutti-os/tutti/packages/connector/runtime/agentgateway"
 	marketartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 	connectormarketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
 	tuttiapi "github.com/tutti-os/tutti/services/tuttid/api"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
@@ -52,7 +52,6 @@ import (
 
 const connectorMarketDefaultBaseURL = "https://api.tutti.sh/api/desktop"
 const connectorMCPDefaultBaseURL = "https://tutti.sh/api/desktop"
-const connectorArtifactBaseURL = "https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/"
 
 type tuttiWiring struct {
 	api                          tuttiapi.DaemonAPI
@@ -297,12 +296,8 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			providerAuthWatcher.Close()
 			return errors.New("connector market event stream wiring is invalid")
 		}
-		artifactBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_ARTIFACT_BASE_URL"))
-		if artifactBaseURL == "" {
-			artifactBaseURL = connectorArtifactBaseURL
-		}
 		artifactFetcher, err := marketartifact.NewDirectFetcher(marketartifact.DirectFetcherConfig{
-			BaseURL: artifactBaseURL, HTTPClient: agenthttpx.NewClient(5 * time.Minute),
+			Resolver: connectorCatalog, HTTPClient: agenthttpx.NewClient(5 * time.Minute),
 		})
 		if err != nil {
 			return fmt.Errorf("configure connector artifact download: %w", err)
@@ -318,12 +313,12 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("configure connector managed runtime: %w", err)
 		}
-		processTransport, err := agentruntime.NewConnectorProcessTransport()
+		connectorProcessTransport, err := connectorprocess.NewTransport()
 		if err != nil {
 			return fmt.Errorf("configure connector process transport: %w", err)
 		}
 		nodePackageInstaller, err := connectorruntime.NewNodePackageInstaller(connectorruntime.NodePackageInstallerConfig{
-			RootDir: filepath.Join(connectorStateRoot, "node-packages"), Runtimes: runtimeResolver, Processes: processTransport,
+			RootDir: filepath.Join(connectorStateRoot, "node-packages"), Runtimes: runtimeResolver, Processes: connectorProcessTransport,
 		})
 		if err != nil {
 			return fmt.Errorf("configure connector node package installer: %w", err)
@@ -350,7 +345,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		}
 		implementationHost, err := connectormarketservice.NewImplementationHost(connectormarketservice.ImplementationHostConfig{
 			Artifacts: artifactPreparer, CLIInstallations: nodePackageInstaller,
-			Runtimes: runtimeResolver, Processes: processTransport, Registry: connectorRegistry,
+			Runtimes: runtimeResolver, Processes: connectorProcessTransport, Registry: connectorRegistry,
 			RemoteMCPClientFactory: remoteMCPClientFactory,
 			StateRoot:              filepath.Join(connectorStateRoot, "user-state"),
 			BinDir:                 filepath.Join(tuttitypes.DefaultStateDir(), "bin"),
@@ -395,10 +390,11 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			}
 			return connectormarkethost.OperationScope{AccountID: strings.TrimSpace(session.UserID)}
 		}
-		connectorMarketHost, err := connectormarketdaemon.NewHost(ctx, connectormarketdaemon.HostConfig{
+		connectorMarketHost, err := connectormarketdaemon.NewHost(connectormarketdaemon.HostConfig{
 			Repository: connectorMarketStore, CatalogSource: connectorCatalog,
 			ReleaseInstallations: releaseInstaller, ImplementationHost: connectorRuntime,
-			Authorization: connectorAuthorization, Compatibility: compatibility,
+			PhysicalRoutes: implementationHost,
+			Authorization:  connectorAuthorization, Compatibility: compatibility,
 			AuthorizationProjections: connectorMarketStore,
 			AuthorizationSnapshots:   connectorAuthorizationClient,
 			AuthorizationEvents:      connectorAuthorizationEvents,
@@ -408,6 +404,15 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			Publisher: eventstreamservice.ConnectorMarketPublisher{Service: events, CurrentScope: connectorMarketScope},
 		})
 		if err != nil {
+			_ = connectorMarketStore.Close()
+			agentRuntime.Close()
+			providerAuthWatcher.Close()
+			return fmt.Errorf("configure connector market host: %w", err)
+		}
+		if err := connectorMarketHost.Start(ctx); err != nil {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_ = connectorMarketHost.Close(closeCtx)
+			cancel()
 			_ = connectorMarketStore.Close()
 			agentRuntime.Close()
 			providerAuthWatcher.Close()
@@ -755,7 +760,11 @@ func (w *tuttiWiring) Close() error {
 		}
 	}
 	if w.connectorMarketHost != nil {
-		w.connectorMarketHost.Close()
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := w.connectorMarketHost.Close(closeCtx); err != nil && closeErr == nil {
+			closeErr = err
+		}
+		cancel()
 	}
 	// Stop the stable Agent-facing listener before retiring its replaceable
 	// backend so no new request can race backend shutdown.

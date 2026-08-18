@@ -3,6 +3,7 @@ package marketclient
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -83,6 +84,46 @@ func TestGeneratedClientPreservesOpaqueSectionID(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGeneratedClientResolvesArtifactDownloadWithAuthentication(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/market/artifacts:resolve-download" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer market-token" {
+			t.Fatalf("authorization = %q", request.Header.Get("Authorization"))
+		}
+		payload := make([]byte, request.ContentLength)
+		if _, err := io.ReadFull(request.Body, payload); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(payload), `"releaseDigest":"`+digest+`"`) {
+			t.Fatalf("payload = %s", payload)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"url":"https://artifacts.example.test/signed.zip?token=secret","expiresAtMs":"1787018520000","releaseDigest":"` + digest + `","sha256":"` + strings.Repeat("b", 64) + `","sizeBytes":"123","mediaType":"application/zip"}`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		PrepareRequest: func(request *http.Request) error {
+			request.Header.Set("Authorization", "Bearer market-token")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := client.ResolveMarketArtifactDownload(context.Background(), &marketv1.ResolveMarketArtifactDownloadRequest{ReleaseDigest: digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.GetReleaseDigest() != digest || reply.GetExpiresAtMs() != 1787018520000 || reply.GetSizeBytes() != 123 || reply.GetSha256() != strings.Repeat("b", 64) || reply.GetMediaType() != "application/zip" {
+		t.Fatalf("reply = %#v", reply)
 	}
 }
 

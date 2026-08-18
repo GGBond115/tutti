@@ -56,6 +56,22 @@ func (table *RouteTable) PublishedRoutes() []ManagedRoute {
 	return routes
 }
 
+// ActiveRoutes returns physical current routes independently from capability
+// publication. It excludes retiring generations, which are fenced cleanup debt
+// and must not satisfy convergence.
+func (table *RouteTable) ActiveRoutes() []ManagedRoute {
+	if table == nil {
+		return nil
+	}
+	table.mu.RLock()
+	defer table.mu.RUnlock()
+	routes := make([]ManagedRoute, 0, len(table.routes))
+	for _, route := range table.routes {
+		routes = append(routes, route)
+	}
+	return routes
+}
+
 func (table *RouteTable) IsCurrent(route ManagedRoute) bool {
 	if table == nil || route == nil {
 		return false
@@ -221,7 +237,11 @@ func (table *RouteTable) RemoveMatching(
 	return errors.Join(errs...)
 }
 
-func (table *RouteTable) RetireExact(route ManagedRoute, deadline time.Time) error {
+// RetireExact atomically classifies and detaches an exited route. onCurrent is
+// invoked after the route has been removed from the active snapshot but before
+// potentially slow process cleanup. It is not invoked for a route already
+// retired by intentional removal or replacement.
+func (table *RouteTable) RetireExact(route ManagedRoute, deadline time.Time, onCurrent func()) error {
 	if table == nil || route == nil {
 		return nil
 	}
@@ -229,7 +249,8 @@ func (table *RouteTable) RetireExact(route ManagedRoute, deadline time.Time) err
 	transition.Lock()
 	defer transition.Unlock()
 	table.mu.Lock()
-	if table.routes[route.RouteID()] != route && table.retiring[route.RouteID()] != route {
+	wasCurrent := table.routes[route.RouteID()] == route
+	if !wasCurrent && table.retiring[route.RouteID()] != route {
 		table.mu.Unlock()
 		return nil
 	}
@@ -237,6 +258,9 @@ func (table *RouteTable) RetireExact(route ManagedRoute, deadline time.Time) err
 	table.retiring[route.RouteID()] = route
 	route.Fence()
 	table.mu.Unlock()
+	if wasCurrent && onCurrent != nil {
+		onCurrent()
+	}
 	if err := route.Close(deadline); err != nil {
 		return err
 	}

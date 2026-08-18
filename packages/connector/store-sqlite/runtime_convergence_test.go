@@ -129,6 +129,88 @@ func TestRuntimeConvergenceRejectsStaleGenerationCompletion(t *testing.T) {
 	}
 }
 
+func TestRuntimeConvergencesReadsOneOrderedBoundedScope(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)
+	targetScope := market.OperationScope{AccountID: "account-1"}
+	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+		for _, fixture := range []market.RuntimeConvergence{
+			runtimeConvergenceFixture(targetScope, "notion", 1, now),
+			runtimeConvergenceFixture(market.OperationScope{AccountID: "account-2"}, "ignored", 1, now),
+			runtimeConvergenceFixture(targetScope, "github", 1, now),
+		} {
+			if err := tx.SaveRuntimeConvergence(fixture); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	convergences, err := store.RuntimeConvergences(ctx, targetScope, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(convergences) != 1 || convergences[0].Desired.ConnectorKey != "github" {
+		t.Fatalf("bounded scoped convergences = %#v", convergences)
+	}
+}
+
+func TestRuntimeConvergenceFailureBudgetPersistsAndSuppressesClaims(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "tuttid.db")
+	store, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 18, 5, 0, 0, 0, time.UTC)
+	scope := market.OperationScope{AccountID: "account-1"}
+	fixture := runtimeConvergenceFixture(scope, "github", 1, now)
+	if err := store.Transaction(ctx, func(tx market.Transaction) error { return tx.SaveRuntimeConvergence(fixture) }); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := uint32(1); attempt <= market.RuntimeFailureBudget; attempt++ {
+		claimed, ok, claimErr := store.ClaimRuntimeConvergence(ctx, scope, "github", "boot-1", "worker-1", now, now.Add(time.Minute))
+		if claimErr != nil || !ok {
+			t.Fatalf("claim attempt %d = %#v, %t, %v", attempt, claimed, ok, claimErr)
+		}
+		nextAttemptAt := now.Add(time.Duration(attempt) * time.Second)
+		if err := store.RetryRuntimeConvergence(ctx, scope, "github", "worker-1", claimed.LeaseToken, 1,
+			nextAttemptAt, "unavailable", "failed", now); err != nil {
+			t.Fatal(err)
+		}
+		now = nextAttemptAt
+	}
+	stored, err := store.RuntimeConvergence(ctx, scope, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Attempt != market.RuntimeFailureBudget || stored.Observed.Readiness.State != market.RuntimeReadinessFailed ||
+		stored.Observed.Readiness.ReasonCode != market.RuntimeReadinessReasonFailureBudgetExhausted {
+		t.Fatalf("exhausted convergence = %#v", stored)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	due, err := store.DueRuntimeConvergences(ctx, scope, "boot-1", now, 10)
+	if err != nil || len(due) != 0 {
+		t.Fatalf("persisted exhausted generation due = %#v, %v", due, err)
+	}
+	if _, claimed, err := store.ClaimRuntimeConvergence(ctx, scope, "github", "boot-1", "worker-2", now, now.Add(time.Minute)); err != nil || claimed {
+		t.Fatalf("persisted exhausted generation claim = %t, %v", claimed, err)
+	}
+}
+
 func TestRuntimeConvergenceLeaseCannotBeReenteredBySameWorker(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))

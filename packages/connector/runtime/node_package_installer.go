@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v3"
@@ -31,7 +31,7 @@ const (
 type NodePackageInstallerConfig struct {
 	RootDir     string
 	Runtimes    ConnectorRuntimeResolver
-	Processes   agentruntime.ProcessTransport
+	Processes   connectorprocess.Transport
 	PnpmVersion string
 	Timeout     time.Duration
 	Environ     func() []string
@@ -43,7 +43,7 @@ type NodePackageInstallerConfig struct {
 type NodePackageInstaller struct {
 	rootDir        string
 	runtimes       ConnectorRuntimeResolver
-	processes      agentruntime.ProcessTransport
+	processes      connectorprocess.Transport
 	pnpmVersion    string
 	timeout        time.Duration
 	environ        func() []string
@@ -302,25 +302,25 @@ func (installer *NodePackageInstaller) runManagedNode(ctx context.Context, resol
 	env = append(env, "HOME="+privateHome, "USERPROFILE="+privateHome, "COREPACK_HOME="+shared.corepack,
 		"TMPDIR="+temporaryRoot, "TMP="+temporaryRoot, "TEMP="+temporaryRoot,
 		"NPM_CONFIG_CACHE="+shared.npmCache, "PNPM_HOME="+shared.pnpmHome, "PATH="+pathValue)
-	connection, err := installer.processes.Start(runCtx, agentruntime.ProcessSpec{Provider: "connector-installer", CWD: cwd,
+	connection, err := installer.processes.Start(runCtx, connectorprocess.Spec{ConnectorKey: "installer", CWD: cwd,
 		Command: append([]string{node.Path}, args...), Env: env,
-		ExecutableIdentity: &agentruntime.ExecutableIdentity{SHA256: node.SHA256, SizeBytes: node.SizeBytes}})
+		ExecutableIdentity: &connectorprocess.ExecutableIdentity{SHA256: node.SHA256, SizeBytes: node.SizeBytes}})
 	if err != nil {
 		return err
 	}
 	defer connection.Close()
-	if graceful, ok := connection.(agentruntime.GracefulProcessConnection); ok {
+	if graceful, ok := connection.(connectorprocess.GracefulConnection); ok {
 		_ = graceful.CloseInput()
 	}
 	return waitCLIInstallation(runCtx, connection)
 }
 
-func waitCLIInstallation(ctx context.Context, connection agentruntime.ProcessConnection) error {
+func waitCLIInstallation(ctx context.Context, connection connectorprocess.Connection) error {
 	var output strings.Builder
 	for {
-		var frame agentruntime.ProcessFrame
+		var frame connectorprocess.Frame
 		var err error
-		if contextual, ok := connection.(agentruntime.ContextProcessConnection); ok {
+		if contextual, ok := connection.(connectorprocess.ContextConnection); ok {
 			frame, err = contextual.RecvContext(ctx)
 		} else {
 			frame, err = connection.Recv()

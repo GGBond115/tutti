@@ -6,6 +6,7 @@ import (
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	mcpservice "github.com/tutti-os/tutti/packages/connector/runtime/mcp"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 // mcpClient preserves the browser session's private adapter while sharing the
@@ -14,7 +15,7 @@ type mcpClient struct{ shared *mcpservice.StdioClient }
 
 func newMCPClient(connection agentruntime.ProcessConnection) *mcpClient {
 	shared, err := mcpservice.NewStdioClient(mcpservice.StdioClientConfig{
-		Connection:  connection,
+		Connection:  browserMCPProcessConnection(connection),
 		ProcessName: "browser MCP",
 		// Preserve the existing browser behavior. Connector clients omit this
 		// handler and therefore fail closed with method-not-supported.
@@ -29,6 +30,24 @@ func newMCPClient(connection agentruntime.ProcessConnection) *mcpClient {
 		panic(err)
 	}
 	return &mcpClient{shared: shared}
+}
+
+// browserProcessConnection keeps browser lifecycle and process ownership in
+// Agent runtime while adapting only the shared MCP protocol frame boundary.
+type browserProcessConnection struct {
+	agentruntime.ProcessConnection
+}
+
+func browserMCPProcessConnection(connection agentruntime.ProcessConnection) connectorprocess.Connection {
+	if connection == nil {
+		return nil
+	}
+	return browserProcessConnection{ProcessConnection: connection}
+}
+
+func (connection browserProcessConnection) Recv() (connectorprocess.Frame, error) {
+	frame, err := connection.ProcessConnection.Recv()
+	return connectorprocess.Frame{Stdout: frame.Stdout, Stderr: frame.Stderr, ExitCode: frame.ExitCode}, err
 }
 
 func (client *mcpClient) call(ctx context.Context, method string, params any) (json.RawMessage, error) {

@@ -115,11 +115,10 @@ func validateReleaseShape(release Release, validateIcon bool) error {
 	if release.PublishedAt.IsZero() {
 		return invalidManifest("publishedAt is required", nil)
 	}
-	if strings.TrimSpace(release.Artifact.Key) == "" ||
-		!artifactSHA256Pattern.MatchString(release.Artifact.SHA256) ||
+	if !artifactSHA256Pattern.MatchString(release.Artifact.SHA256) ||
 		release.Artifact.SizeBytes <= 0 ||
 		strings.TrimSpace(release.Artifact.MediaType) == "" {
-		return invalidManifest("artifact key, lowercase SHA-256, positive sizeBytes, and mediaType are required", nil)
+		return invalidManifest("artifact lowercase SHA-256, positive sizeBytes, and mediaType are required", nil)
 	}
 	if err := validateManifestShape(release.Manifest, validateIcon); err != nil {
 		return err

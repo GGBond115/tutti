@@ -7,9 +7,9 @@ import (
 	"io"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const maxCLIReadinessOutput = 64 << 10
@@ -32,18 +32,18 @@ func (host *Host) checkCLIReadiness(ctx context.Context, route *connectorRoute, 
 		return err
 	}
 	defer func() { _ = route.releaseProcess(processID, connection) }()
-	if graceful, ok := connection.(agentruntime.GracefulProcessConnection); ok {
+	if graceful, ok := connection.(connectorprocess.GracefulConnection); ok {
 		_ = graceful.CloseInput()
 	}
 	return waitCLIReadiness(probeContext, connection)
 }
 
-func waitCLIReadiness(ctx context.Context, connection agentruntime.ProcessConnection) error {
+func waitCLIReadiness(ctx context.Context, connection connectorprocess.Connection) error {
 	outputBytes := 0
 	for {
-		var frame agentruntime.ProcessFrame
+		var frame connectorprocess.Frame
 		var err error
-		if contextual, ok := connection.(agentruntime.ContextProcessConnection); ok {
+		if contextual, ok := connection.(connectorprocess.ContextConnection); ok {
 			frame, err = contextual.RecvContext(ctx)
 		} else {
 			frame, err = connection.Recv()
@@ -56,7 +56,7 @@ func waitCLIReadiness(ctx context.Context, connection agentruntime.ProcessConnec
 		}
 		outputBytes += len(frame.Stdout) + len(frame.Stderr)
 		if outputBytes > maxCLIReadinessOutput {
-			if graceful, ok := connection.(agentruntime.GracefulProcessConnection); ok {
+			if graceful, ok := connection.(connectorprocess.GracefulConnection); ok {
 				_ = graceful.Kill()
 			}
 			return errors.New("CLI readiness probe output exceeded its limit")

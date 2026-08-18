@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const defaultMaxMessageBytes = 4 * 1024 * 1024
@@ -51,7 +51,7 @@ type ServerRequestHandler func(ServerRequest) (any, *RPCError)
 type NotificationHandler func(Notification)
 
 type StdioClientConfig struct {
-	Connection           agentruntime.ProcessConnection
+	Connection           connectorprocess.Connection
 	ProcessName          string
 	MaxMessageBytes      int
 	MaxStderrBytes       int
@@ -63,8 +63,8 @@ type StdioClientConfig struct {
 // owns the protocol reader, but the caller remains responsible for closing the
 // underlying process connection.
 type StdioClient struct {
-	connection agentruntime.ProcessConnection
-	writer     agentruntime.ProcessNDJSONWriter
+	connection connectorprocess.Connection
+	writer     connectorprocess.NDJSONWriter
 	name       string
 	maxMessage int
 	maxStderr  int
@@ -106,7 +106,7 @@ func NewStdioClient(config StdioClientConfig) (*StdioClient, error) {
 	}
 	client := &StdioClient{
 		connection: config.Connection,
-		writer:     agentruntime.NewProcessNDJSONWriter(config.Connection),
+		writer:     connectorprocess.NewNDJSONWriter(config.Connection),
 		name:       name,
 		maxMessage: config.MaxMessageBytes,
 		maxStderr:  config.MaxStderrBytes,

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path"
 	"runtime"
 	"strings"
 	"time"
@@ -41,6 +40,7 @@ type CatalogSource struct {
 }
 
 var _ market.CatalogSource = (*CatalogSource)(nil)
+var _ market.ArtifactDownloadResolver = (*CatalogSource)(nil)
 
 func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	expectedMarketType := strings.ToLower(strings.TrimSpace(config.ExpectedMarketType))
@@ -170,8 +170,31 @@ func (source *CatalogSource) ListPage(ctx context.Context, input market.CatalogS
 	return market.CatalogSourcePage{SectionID: strings.TrimSpace(input.SectionID), Entries: entries, NextPageToken: payload.GetNextPageToken()}, nil
 }
 
+func (source *CatalogSource) ResolveArtifactDownload(ctx context.Context, releaseDigest string) (market.ArtifactDownload, error) {
+	releaseDigest = strings.TrimSpace(releaseDigest)
+	if !isSHA256Hex(releaseDigest) {
+		return market.ArtifactDownload{}, errors.New("connector artifact release digest is invalid")
+	}
+	payload, err := source.marketClient.ResolveMarketArtifactDownload(ctx, &marketv1.ResolveMarketArtifactDownloadRequest{ReleaseDigest: releaseDigest})
+	if err != nil {
+		return market.ArtifactDownload{}, fmt.Errorf("resolve connector artifact download: %w", err)
+	}
+	if payload == nil {
+		return market.ArtifactDownload{}, errors.New("resolve connector artifact download: response is missing")
+	}
+	return market.ArtifactDownload{
+		URL:           payload.GetUrl(),
+		ExpiresAt:     time.UnixMilli(payload.GetExpiresAtMs()).UTC(),
+		ReleaseDigest: payload.GetReleaseDigest(),
+		SHA256:        payload.GetSha256(),
+		SizeBytes:     payload.GetSizeBytes(),
+		MediaType:     payload.GetMediaType(),
+	}, nil
+}
+
 func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (market.Release, error) {
-	if item == nil || item.GetItemType() != "connector" || item.GetItemKey() == "" || item.GetVersion() == "" || item.GetArtifact() == nil || !safeArtifactKey(item.GetArtifact().GetKey()) || item.GetManifest() == nil {
+	if item == nil || item.GetItemType() != "connector" || item.GetItemKey() == "" || item.GetVersion() == "" || item.GetArtifact() == nil ||
+		!isSHA256Hex(item.GetArtifact().GetReleaseDigest()) || !supportedArtifactMediaType(item.GetArtifact().GetMediaType()) || item.GetManifest() == nil {
 		return market.Release{}, errors.New("connector market item identity is incomplete")
 	}
 	manifestBytes, err := json.Marshal(item.GetManifest().AsMap())
@@ -199,7 +222,6 @@ func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (market.Re
 	if err != nil {
 		return market.Release{}, err
 	}
-	releaseDigest := sha256.Sum256([]byte(item.GetItemKey() + "\x00" + item.GetVersion() + "\x00" + item.GetArtifact().GetSha256()))
 	iconURL := connectorManifest.Display.IconURL
 	if strings.TrimSpace(iconURL) == "" {
 		iconURL = legacyConnectorIconURL
@@ -216,9 +238,9 @@ func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (market.Re
 		Compatibility:            connectorManifest.Payload.Compatibility}
 	release := market.Release{SchemaVersion: "1", ReleaseID: item.GetItemKey() + "@" + item.GetVersion(),
 		ConnectorKey: item.GetItemKey(), Version: item.GetVersion(),
-		ReleaseDigest: hex.EncodeToString(releaseDigest[:]), ManifestDigest: connectorManifest.Payload.PackageManifestSHA256,
-		Manifest: manifest, Artifact: market.Artifact{Key: item.GetArtifact().GetKey(), SHA256: item.GetArtifact().GetSha256(),
-			SizeBytes: item.GetArtifact().GetSizeBytes(), MediaType: artifactMediaType(item.GetArtifact().GetKey())},
+		ReleaseDigest: item.GetArtifact().GetReleaseDigest(), ManifestDigest: connectorManifest.Payload.PackageManifestSHA256,
+		Manifest: manifest, Artifact: market.Artifact{SHA256: item.GetArtifact().GetSha256(),
+			SizeBytes: item.GetArtifact().GetSizeBytes(), MediaType: item.GetArtifact().GetMediaType()},
 		PublishedAt: time.UnixMilli(item.GetPublishedAtMs()).UTC(), Status: market.ReleaseStatusAvailable}
 	if err := market.ValidateReleaseShape(release); err != nil {
 		return market.Release{}, err
@@ -295,20 +317,8 @@ func (authorization wireConnectorAuthorization) interaction() (json.RawMessage, 
 
 const legacyConnectorIconURL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiM2YjcyODAiLz48cGF0aCBkPSJNMTggMjBoMjh2MjRIMTh6IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjQiLz48L3N2Zz4="
 
-func artifactMediaType(key string) string {
-	switch {
-	case strings.HasSuffix(strings.ToLower(key), ".zip"):
-		return "application/zip"
-	case strings.HasSuffix(strings.ToLower(key), ".tar.gz"), strings.HasSuffix(strings.ToLower(key), ".tgz"):
-		return "application/gzip"
-	default:
-		return "application/octet-stream"
-	}
-}
-
-func safeArtifactKey(key string) bool {
-	cleaned := path.Clean(strings.TrimSpace(key))
-	return cleaned != "." && cleaned != ".." && cleaned == key && !path.IsAbs(cleaned) && !strings.HasPrefix(cleaned, "../") && !strings.Contains(cleaned, "\\")
+func supportedArtifactMediaType(mediaType string) bool {
+	return mediaType == "application/zip" || mediaType == "application/gzip"
 }
 
 func categoryHasDisplayName(category *marketv1.MarketCategory) bool {

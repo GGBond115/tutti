@@ -32,6 +32,7 @@ type ApplicationConfig struct {
 	LeaseDuration            time.Duration
 	Now                      func() time.Time
 	NewID                    func() (string, error)
+	RuntimeRetryJitter       func(time.Duration) time.Duration
 }
 
 type Application struct {
@@ -94,6 +95,9 @@ func NewApplication(config ApplicationConfig) (*Application, error) {
 	}
 	if config.NewID == nil {
 		config.NewID = randomID
+	}
+	if config.RuntimeRetryJitter == nil {
+		config.RuntimeRetryJitter = runtimeFullJitter
 	}
 	if strings.TrimSpace(config.WorkerID) == "" {
 		workerID, err := config.NewID()

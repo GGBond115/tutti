@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 var runtimeIdentityPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$`)
@@ -44,7 +44,7 @@ type ManagedRoutePlan struct {
 	InstalledCLI  *market.CLIInstallationReceipt
 	StateDir      string
 	UserHome      string
-	ArtifactTrees []agentruntime.ArtifactTreeIdentity
+	ArtifactTrees []connectorprocess.ArtifactTreeIdentity
 }
 
 func NewManagedRoutePlanner(config ManagedRoutePlannerConfig) (*ManagedRoutePlanner, error) {
@@ -78,7 +78,7 @@ func (planner *ManagedRoutePlanner) Build(ctx context.Context, request market.Ru
 	if err != nil {
 		return ManagedRoutePlan{}, err
 	}
-	artifactTrees := []agentruntime.ArtifactTreeIdentity{{Root: prepared.PreparedPath, SHA256: prepared.InventoryDigest}}
+	artifactTrees := []connectorprocess.ArtifactTreeIdentity{{Root: prepared.PreparedPath, SHA256: prepared.InventoryDigest}}
 	var installed *market.CLIInstallationReceipt
 	if managed.CLI != nil && managed.CLI.Install != nil {
 		if planner.cliInstallations == nil {
@@ -150,12 +150,12 @@ func PreparedEntrypoint(root, relative string) (string, error) {
 }
 
 func ConnectorProcessSpec(connectionID, connectorKey, language string, executable ConnectorExecutable, cwd string, args []string,
-	stateDir, userHome string, artifactTrees []agentruntime.ArtifactTreeIdentity) agentruntime.ProcessSpec {
+	stateDir, userHome string, artifactTrees []connectorprocess.ArtifactTreeIdentity) connectorprocess.Spec {
 	command := append([]string{executable.Path}, args...)
-	return agentruntime.ProcessSpec{Provider: "connector:" + connectorKey, RoomID: connectionID, CWD: cwd, Command: command,
+	return connectorprocess.Spec{ConnectorKey: connectorKey, ConnectionID: connectionID, CWD: cwd, Command: command,
 		Env: []string{"TUTTI_CONNECTOR_CONNECTION_ID=" + connectionID, "TUTTI_CONNECTOR_KEY=" + connectorKey,
 			"TUTTI_CONNECTOR_LANGUAGE=" + language, "TUTTI_CONNECTOR_STATE_DIR=" + stateDir,
 			"HOME=" + userHome, "USERPROFILE=" + userHome},
-		ExecutableIdentity: &agentruntime.ExecutableIdentity{SHA256: executable.SHA256, SizeBytes: executable.SizeBytes},
-		ArtifactTrees:      append([]agentruntime.ArtifactTreeIdentity(nil), artifactTrees...)}
+		ExecutableIdentity: &connectorprocess.ExecutableIdentity{SHA256: executable.SHA256, SizeBytes: executable.SizeBytes},
+		ArtifactTrees:      append([]connectorprocess.ArtifactTreeIdentity(nil), artifactTrees...)}
 }

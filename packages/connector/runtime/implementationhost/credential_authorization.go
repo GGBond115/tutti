@@ -12,16 +12,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const credentialBrokerInitialEventTimeout = 30 * time.Second
 
 type managedCLILaunch struct {
 	arguments     []string
-	artifactTrees []agentruntime.ArtifactTreeIdentity
+	artifactTrees []connectorprocess.ArtifactTreeIdentity
 	cwd           string
 	executable    connectorruntime.ConnectorExecutable
 	language      string
@@ -43,13 +43,13 @@ type managedCredentialBrokerLaunch struct {
 	executable    connectorruntime.ConnectorExecutable
 	language      string
 	cwd           string
-	artifactTrees []agentruntime.ArtifactTreeIdentity
+	artifactTrees []connectorprocess.ArtifactTreeIdentity
 	stateDir      string
 }
 
 type managedCredentialAuthorizationHost interface {
 	authorizationRoute(context.Context, market.OperationScope, market.Connector) (*connectorRoute, error)
-	startCredentialBroker(context.Context, *connectorRoute, credentialBrokerRequest) (agentruntime.ProcessConnection, uint64, error)
+	startCredentialBroker(context.Context, *connectorRoute, credentialBrokerRequest) (connectorprocess.Connection, uint64, error)
 	observeAuthorization(*connectorRoute, market.AuthorizationState)
 	releaseAuthorizationRoute(*connectorRoute)
 }
@@ -325,7 +325,7 @@ func (provider *managedCredentialAuthorizationProvider) authorizationSessionOrSt
 func consumeAuthorizationEvents(
 	host managedCredentialAuthorizationHost,
 	route *connectorRoute,
-	connection agentruntime.ProcessConnection,
+	connection connectorprocess.Connection,
 	processID uint64,
 	session *credentialBrokerSession,
 ) {
@@ -555,7 +555,7 @@ func (host *Host) startCredentialBroker(
 	ctx context.Context,
 	route *connectorRoute,
 	request credentialBrokerRequest,
-) (agentruntime.ProcessConnection, uint64, error) {
+) (connectorprocess.Connection, uint64, error) {
 	launch := route.credentialBrokerLaunch
 	if launch == nil || request.Protocol != market.CredentialBrokerProtocolV1 ||
 		(request.Operation != "begin" && request.Operation != "inspect" && request.Operation != "disconnect") {
@@ -580,7 +580,7 @@ func (host *Host) startCredentialBroker(
 		err = connection.Send(append(payload, '\n'))
 	}
 	if err == nil {
-		if graceful, ok := connection.(agentruntime.GracefulProcessConnection); ok {
+		if graceful, ok := connection.(connectorprocess.GracefulConnection); ok {
 			err = graceful.CloseInput()
 		}
 	}
@@ -591,18 +591,18 @@ func (host *Host) startCredentialBroker(
 	return connection, processID, nil
 }
 
-func receiveCredentialBrokerFrame(connection agentruntime.ProcessConnection) (agentruntime.ProcessFrame, error) {
+func receiveCredentialBrokerFrame(connection connectorprocess.Connection) (connectorprocess.Frame, error) {
 	return connection.Recv()
 }
 
-func receiveCredentialBrokerFrameContext(ctx context.Context, connection agentruntime.ProcessConnection) (agentruntime.ProcessFrame, error) {
-	if contextual, ok := connection.(agentruntime.ContextProcessConnection); ok {
+func receiveCredentialBrokerFrameContext(ctx context.Context, connection connectorprocess.Connection) (connectorprocess.Frame, error) {
+	if contextual, ok := connection.(connectorprocess.ContextConnection); ok {
 		return contextual.RecvContext(ctx)
 	}
 	return connection.Recv()
 }
 
-func readCredentialBrokerTerminalEvent(ctx context.Context, connection agentruntime.ProcessConnection) (credentialBrokerEvent, error) {
+func readCredentialBrokerTerminalEvent(ctx context.Context, connection connectorprocess.Connection) (credentialBrokerEvent, error) {
 	var output strings.Builder
 	for {
 		frame, err := receiveCredentialBrokerFrameContext(ctx, connection)
@@ -638,7 +638,7 @@ func readCredentialBrokerTerminalEvent(ctx context.Context, connection agentrunt
 	}
 }
 
-func readCredentialBrokerInspectionEvent(ctx context.Context, connection agentruntime.ProcessConnection) (credentialBrokerEvent, error) {
+func readCredentialBrokerInspectionEvent(ctx context.Context, connection connectorprocess.Connection) (credentialBrokerEvent, error) {
 	var output strings.Builder
 	for {
 		frame, err := receiveCredentialBrokerFrameContext(ctx, connection)

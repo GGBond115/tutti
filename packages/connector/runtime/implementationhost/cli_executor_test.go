@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const cliExecutorTestDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
@@ -19,11 +19,11 @@ const cliExecutorTestContractHash = "sha256:cccccccccccccccccccccccccccccccccccc
 
 type cliExecutionTransportStub struct {
 	mu         sync.Mutex
-	specs      []agentruntime.ProcessSpec
+	specs      []connectorprocess.Spec
 	connection *cliExecutionConnectionStub
 }
 
-func (transport *cliExecutionTransportStub) Start(_ context.Context, spec agentruntime.ProcessSpec) (agentruntime.ProcessConnection, error) {
+func (transport *cliExecutionTransportStub) Start(_ context.Context, spec connectorprocess.Spec) (connectorprocess.Connection, error) {
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	transport.specs = append(transport.specs, spec)
@@ -42,19 +42,19 @@ type cliExecutionConnectionStub struct {
 }
 
 func (*cliExecutionConnectionStub) Send([]byte) error { return nil }
-func (*cliExecutionConnectionStub) Recv() (agentruntime.ProcessFrame, error) {
-	return agentruntime.ProcessFrame{}, io.EOF
+func (*cliExecutionConnectionStub) Recv() (connectorprocess.Frame, error) {
+	return connectorprocess.Frame{}, io.EOF
 }
-func (connection *cliExecutionConnectionStub) RecvContext(ctx context.Context) (agentruntime.ProcessFrame, error) {
+func (connection *cliExecutionConnectionStub) RecvContext(ctx context.Context) (connectorprocess.Frame, error) {
 	connection.mu.Lock()
 	connection.recvContextual++
 	block := connection.blockRecv
 	connection.mu.Unlock()
 	if block {
 		<-ctx.Done()
-		return agentruntime.ProcessFrame{}, ctx.Err()
+		return connectorprocess.Frame{}, ctx.Err()
 	}
-	return agentruntime.ProcessFrame{}, io.EOF
+	return connectorprocess.Frame{}, io.EOF
 }
 func (connection *cliExecutionConnectionStub) Close() error {
 	connection.mu.Lock()
@@ -104,10 +104,10 @@ func TestStartCLIExecutesExactCurrentRouteAndOwnsLifecycle(t *testing.T) {
 	}) {
 		t.Fatalf("process spec = %#v", spec)
 	}
-	if _, ok := connection.(agentruntime.ContextProcessConnection); !ok {
+	if _, ok := connection.(connectorprocess.ContextConnection); !ok {
 		t.Fatal("context process capability was not preserved")
 	}
-	graceful, ok := connection.(agentruntime.GracefulProcessConnection)
+	graceful, ok := connection.(connectorprocess.GracefulConnection)
 	if !ok {
 		t.Fatal("graceful process capability was not preserved")
 	}
@@ -157,7 +157,7 @@ func TestStartCLIEnforcesManifestTimeout(t *testing.T) {
 	transport.connection.mu.Lock()
 	transport.connection.blockRecv = true
 	transport.connection.mu.Unlock()
-	contextual, ok := connection.(agentruntime.ContextProcessConnection)
+	contextual, ok := connection.(connectorprocess.ContextConnection)
 	if !ok {
 		t.Fatal("timed CLI connection is not contextual")
 	}
@@ -177,7 +177,7 @@ func newCLIExecutionTestHost(t *testing.T) (*Host, *connectorRoute, *cliExecutio
 	route := &connectorRoute{
 		id: connectorRouteKey("connection-1", "lark-cli"), connectionID: "connection-1", connectorKey: "lark-cli",
 		connectorVersion: "1.2.3", releaseDigest: cliExecutorTestDigest, generation: generation,
-		processes: connectorruntime.NewProcessGroup(), userHome: "/home/owner", cliContractHash: cliExecutorTestContractHash,
+		processes: connectorprocess.NewGroup(), userHome: "/home/owner", cliContractHash: cliExecutorTestContractHash,
 		cliLaunch: &managedCLILaunch{
 			arguments: []string{"/snapshot/lark-cli.mjs", "--json"}, cwd: "/snapshot", language: "node", stateDir: "/state",
 			executable: connectorruntime.ConnectorExecutable{Path: "/managed/node", SHA256: "node-digest", SizeBytes: 42},

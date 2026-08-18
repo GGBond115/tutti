@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 var cliContractHashPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -40,7 +40,7 @@ type CLIExecutionRequest struct {
 
 // StartCLI launches one current managed CLI route. It never accepts an
 // executable, working directory, environment, or state path from the caller.
-func (host *Host) StartCLI(ctx context.Context, request CLIExecutionRequest) (agentruntime.ProcessConnection, error) {
+func (host *Host) StartCLI(ctx context.Context, request CLIExecutionRequest) (connectorprocess.Connection, error) {
 	if err := validateCLIExecutionRequest(ctx, request); err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func validateCLIExecutionRequest(ctx context.Context, request CLIExecutionReques
 type cliExecutionConnection struct {
 	route      *connectorRoute
 	processID  uint64
-	connection agentruntime.ProcessConnection
+	connection connectorprocess.Connection
 	closeOnce  sync.Once
 	closeErr   error
 	execution  context.Context
@@ -104,7 +104,7 @@ type cliExecutionConnection struct {
 func (connection *cliExecutionConnection) Send(payload []byte) error {
 	return connection.connection.Send(payload)
 }
-func (connection *cliExecutionConnection) Recv() (agentruntime.ProcessFrame, error) {
+func (connection *cliExecutionConnection) Recv() (connectorprocess.Frame, error) {
 	return connection.connection.Recv()
 }
 func (connection *cliExecutionConnection) Close() error {
@@ -119,22 +119,22 @@ func (connection *cliExecutionConnection) Close() error {
 
 type contextualCLIExecutionConnection struct {
 	*cliExecutionConnection
-	contextual agentruntime.ContextProcessConnection
+	contextual connectorprocess.ContextConnection
 }
 
-func (connection *contextualCLIExecutionConnection) RecvContext(ctx context.Context) (agentruntime.ProcessFrame, error) {
+func (connection *contextualCLIExecutionConnection) RecvContext(ctx context.Context) (connectorprocess.Frame, error) {
 	merged, cancel := mergeCLIExecutionContext(ctx, connection.execution)
 	defer cancel()
 	frame, err := connection.contextual.RecvContext(merged)
 	if connection.execution != nil && errors.Is(connection.execution.Err(), context.DeadlineExceeded) {
-		return agentruntime.ProcessFrame{}, context.DeadlineExceeded
+		return connectorprocess.Frame{}, context.DeadlineExceeded
 	}
 	return frame, err
 }
 
 type gracefulCLIExecutionConnection struct {
 	*cliExecutionConnection
-	graceful agentruntime.GracefulProcessConnection
+	graceful connectorprocess.GracefulConnection
 }
 
 func (connection *gracefulCLIExecutionConnection) CloseInput() error {
@@ -147,27 +147,27 @@ func (connection *gracefulCLIExecutionConnection) Kill() error { return connecti
 
 type contextualGracefulCLIExecutionConnection struct {
 	*gracefulCLIExecutionConnection
-	contextual agentruntime.ContextProcessConnection
+	contextual connectorprocess.ContextConnection
 }
 
-func (connection *contextualGracefulCLIExecutionConnection) RecvContext(ctx context.Context) (agentruntime.ProcessFrame, error) {
+func (connection *contextualGracefulCLIExecutionConnection) RecvContext(ctx context.Context) (connectorprocess.Frame, error) {
 	merged, cancel := mergeCLIExecutionContext(ctx, connection.execution)
 	defer cancel()
 	frame, err := connection.contextual.RecvContext(merged)
 	if connection.execution != nil && errors.Is(connection.execution.Err(), context.DeadlineExceeded) {
-		return agentruntime.ProcessFrame{}, context.DeadlineExceeded
+		return connectorprocess.Frame{}, context.DeadlineExceeded
 	}
 	return frame, err
 }
 
 func wrapCLIExecutionConnection(route *connectorRoute, processID uint64,
-	connection agentruntime.ProcessConnection, executionDeadline time.Time) agentruntime.ProcessConnection {
+	connection connectorprocess.Connection, executionDeadline time.Time) connectorprocess.Connection {
 	base := &cliExecutionConnection{route: route, processID: processID, connection: connection}
 	if !executionDeadline.IsZero() {
 		base.execution, base.cancel = context.WithDeadline(context.Background(), executionDeadline)
 	}
-	contextual, hasContext := connection.(agentruntime.ContextProcessConnection)
-	graceful, hasGraceful := connection.(agentruntime.GracefulProcessConnection)
+	contextual, hasContext := connection.(connectorprocess.ContextConnection)
+	graceful, hasGraceful := connection.(connectorprocess.GracefulConnection)
 	switch {
 	case hasContext && hasGraceful:
 		return &contextualGracefulCLIExecutionConnection{

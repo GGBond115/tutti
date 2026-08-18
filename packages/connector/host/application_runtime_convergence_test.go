@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -80,6 +81,145 @@ func TestRuntimeConvergenceFailureRemainsRetryableDebt(t *testing.T) {
 	if stored.Attempt != 1 || stored.Observed.DesiredGeneration != 0 || stored.LastErrorCode != string(ErrorCodeInstallFailed) ||
 		!stored.NextAttemptAt.After(application.config.Now()) {
 		t.Fatalf("retryable convergence = %#v", stored)
+	}
+}
+
+func TestRuntimeConvergencePersistsFullJitterAndStopsAtFailureBudget(t *testing.T) {
+	connector := testConnector("github")
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	repository := newMemoryRepository(connector)
+	runtimeFailure := errors.New("runtime permanently unavailable")
+	runtime := &memoryInstallRuntime{reconcileErrors: map[string]error{connector.Key: runtimeFailure}}
+	application := newTestApplication(t, repository, &memoryScheduler{}, runtime, CatalogSnapshot{})
+	now := application.config.Now()
+	application.config.Now = func() time.Time { return now }
+	application.config.RuntimeRetryJitter = func(maximum time.Duration) time.Duration { return maximum / 2 }
+	initial, err := application.EnsureRuntimeDesired(context.Background(), OperationScope{}, connector.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := uint32(1); attempt <= RuntimeFailureBudget; attempt++ {
+		attemptStartedAt := now
+		if err := application.ConvergeRuntime(context.Background(), OperationScope{}, connector.Key); !errors.Is(err, runtimeFailure) {
+			t.Fatalf("attempt %d error = %v", attempt, err)
+		}
+		stored, readErr := repository.RuntimeConvergence(context.Background(), OperationScope{}, connector.Key)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		wantDeadline := attemptStartedAt.Add(runtimeConvergenceBackoff(attempt) / 2)
+		if stored.Attempt != attempt || !stored.NextAttemptAt.Equal(wantDeadline) {
+			t.Fatalf("attempt %d persisted convergence = %#v, want deadline %s", attempt, stored, wantDeadline)
+		}
+		if attempt == RuntimeFailureDegradedThreshold &&
+			(stored.Observed.Readiness.State != RuntimeReadinessDegraded ||
+				stored.Observed.Readiness.ReasonCode != RuntimeReadinessReasonFailureBudgetDegraded) {
+			t.Fatalf("degraded threshold readiness = %#v", stored.Observed.Readiness)
+		}
+		if attempt == RuntimeFailureBudget &&
+			(stored.Observed.Readiness.State != RuntimeReadinessFailed ||
+				stored.Observed.Readiness.ReasonCode != RuntimeReadinessReasonFailureBudgetExhausted) {
+			t.Fatalf("exhausted threshold readiness = %#v", stored.Observed.Readiness)
+		}
+		now = stored.NextAttemptAt
+	}
+	if err := application.ConvergeRuntime(context.Background(), OperationScope{}, connector.Key); err != nil {
+		t.Fatalf("suppressed convergence returned error = %v", err)
+	}
+	if runtime.reconciles != int(RuntimeFailureBudget) {
+		t.Fatalf("runtime starts after exhaustion = %d, want %d", runtime.reconciles, RuntimeFailureBudget)
+	}
+	due, err := application.DueRuntimeConvergences(context.Background(), OperationScope{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("exhausted generation remained due = %#v", due)
+	}
+	reset, err := application.ensureRuntimeDesired(context.Background(), OperationScope{}, connector.Key, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reset.Desired.Generation <= initial.Desired.Generation || reset.Attempt != 0 {
+		t.Fatalf("new desired generation did not reset failure budget = %#v", reset)
+	}
+	due, err = application.DueRuntimeConvergences(context.Background(), OperationScope{}, 10)
+	if err != nil || len(due) != 1 || due[0].Desired.Generation != reset.Desired.Generation {
+		t.Fatalf("reset generation due = %#v, error = %v", due, err)
+	}
+}
+
+func TestInvalidateRuntimeObservationEnqueuesWithoutReconcilingInline(t *testing.T) {
+	connector := testConnector("github")
+	connector.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	repository := newMemoryRepository(connector)
+	runtime := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, runtime, CatalogSnapshot{})
+	convergence, err := application.EnsureRuntimeDesired(context.Background(), OperationScope{}, connector.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ConvergeRuntime(context.Background(), OperationScope{}, connector.Key); err != nil {
+		t.Fatal(err)
+	}
+	if err := application.InvalidateRuntimeObservation(
+		context.Background(), OperationScope{}, connector.Key, convergence.Desired.Generation,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := application.RuntimeConvergenceState(context.Background(), OperationScope{}, connector.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Desired.Generation != convergence.Desired.Generation+1 ||
+		stored.Observed.DesiredGeneration != convergence.Desired.Generation || runtime.reconciles != 1 {
+		t.Fatalf("invalidated convergence = %#v; runtime reconciles = %d", stored, runtime.reconciles)
+	}
+	due, err := application.DueRuntimeConvergences(context.Background(), OperationScope{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 1 || due[0].Desired.Generation != stored.Desired.Generation {
+		t.Fatalf("due convergence = %#v", due)
+	}
+}
+
+func TestRuntimeConvergenceSnapshotUsesOneBoundedScopeRead(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	for index := 0; index < 100; index++ {
+		connectorKey := fmt.Sprintf("connector-%03d", index)
+		repository.runtimeConvergences[memoryRuntimeConvergenceKey(OperationScope{}, connectorKey)] = RuntimeConvergence{
+			Desired: RuntimeDesired{ConnectorKey: connectorKey, Generation: 1},
+		}
+	}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	repository.runtimeConvergenceCalls = 0
+	repository.runtimeConvergencesCalls = 0
+	snapshot, err := application.RuntimeConvergenceSnapshot(context.Background(), OperationScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot) != 100 || repository.runtimeConvergencesCalls != 1 || repository.runtimeConvergenceCalls != 0 {
+		t.Fatalf("snapshot rows=%d batch reads=%d point reads=%d",
+			len(snapshot), repository.runtimeConvergencesCalls, repository.runtimeConvergenceCalls)
+	}
+}
+
+func TestRuntimeConvergenceSnapshotFailsClosedAboveBound(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	for index := 0; index <= maxRuntimeConvergenceSnapshot; index++ {
+		connectorKey := fmt.Sprintf("connector-%04d", index)
+		repository.runtimeConvergences[memoryRuntimeConvergenceKey(OperationScope{}, connectorKey)] = RuntimeConvergence{
+			Desired: RuntimeDesired{ConnectorKey: connectorKey, Generation: 1},
+		}
+	}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	if _, err := application.RuntimeConvergenceSnapshot(context.Background(), OperationScope{}); err == nil {
+		t.Fatal("oversized runtime convergence snapshot unexpectedly succeeded")
 	}
 }
 

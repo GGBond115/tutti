@@ -127,7 +127,6 @@ type AgentRouting struct {
 }
 
 type Artifact struct {
-	Key           string `json:"key"`
 	SHA256        string `json:"sha256"`
 	SizeBytes     int64  `json:"sizeBytes"`
 	MediaType     string `json:"mediaType"`
@@ -451,14 +450,22 @@ type ConnectorInterfaceSummary struct {
 type RuntimeReadinessState string
 
 const (
-	RuntimeReadinessReady   RuntimeReadinessState = "ready"
-	RuntimeReadinessBlocked RuntimeReadinessState = "blocked"
-	RuntimeReadinessFailed  RuntimeReadinessState = "failed"
+	RuntimeReadinessReady    RuntimeReadinessState = "ready"
+	RuntimeReadinessDegraded RuntimeReadinessState = "degraded"
+	RuntimeReadinessBlocked  RuntimeReadinessState = "blocked"
+	RuntimeReadinessFailed   RuntimeReadinessState = "failed"
 )
 
 // RuntimeReadinessReasonRuntimeDisabled confirms that a disabled reconcile
 // removed capability publication instead of attempting to start a runtime.
 const RuntimeReadinessReasonRuntimeDisabled = "runtime_disabled"
+
+const (
+	RuntimeReadinessReasonFailureBudgetDegraded         = "failure_budget_degraded"
+	RuntimeReadinessReasonFailureBudgetExhausted        = "failure_budget_exhausted"
+	RuntimeFailureDegradedThreshold              uint32 = 3
+	RuntimeFailureBudget                         uint32 = 6
+)
 
 type InterfaceReadiness struct {
 	Kind       string                `json:"kind"`

@@ -14,23 +14,25 @@ import (
 )
 
 type HostConfig struct {
-	Repository               market.Repository
-	CatalogSource            market.CatalogSource
-	ReleaseInstallations     market.ReleaseInstallationManager
-	ImplementationHost       market.ImplementationHost
-	Authorization            market.AuthorizationProvider
-	AuthorizationProjections market.AuthorizationProjectionStore
-	AuthorizationSnapshots   market.AuthorizationSnapshotSource
-	AuthorizationEvents      market.AuthorizationEventSource
-	AuthorizationReadiness   *market.AuthorizationReadinessGate
-	RuntimeBindings          market.RuntimeBindingResolver
-	Compatibility            market.CompatibilityEvaluator
-	ImplementationRegistry   market.ImplementationRegistry
-	Outbox                   market.ChangedEventOutbox
-	Lifecycle                market.LifecycleCleanupStore
-	LifecyclePolicy          LifecycleCleanupPolicy
-	Publisher                ChangedEventPublisher
-	Publication              CapabilityPublicationController
+	Repository                  market.Repository
+	CatalogSource               market.CatalogSource
+	ReleaseInstallations        market.ReleaseInstallationManager
+	ImplementationHost          market.ImplementationHost
+	PhysicalRoutes              market.RouteObservation
+	PhysicalAntiEntropyInterval time.Duration
+	Authorization               market.AuthorizationProvider
+	AuthorizationProjections    market.AuthorizationProjectionStore
+	AuthorizationSnapshots      market.AuthorizationSnapshotSource
+	AuthorizationEvents         market.AuthorizationEventSource
+	AuthorizationReadiness      *market.AuthorizationReadinessGate
+	RuntimeBindings             market.RuntimeBindingResolver
+	Compatibility               market.CompatibilityEvaluator
+	ImplementationRegistry      market.ImplementationRegistry
+	Outbox                      market.ChangedEventOutbox
+	Lifecycle                   market.LifecycleCleanupStore
+	LifecyclePolicy             LifecycleCleanupPolicy
+	Publisher                   ChangedEventPublisher
+	Publication                 CapabilityPublicationController
 }
 
 // CapabilityPublicationController is the daemon-level publication boundary
@@ -42,49 +44,63 @@ type CapabilityPublicationController interface {
 type Host struct {
 	Application *market.Application
 
-	cancel                     context.CancelFunc
-	scheduler                  *OperationScheduler
-	outboxDone                 chan struct{}
-	lifecycleDone              chan struct{}
-	authorizationSyncDone      chan struct{}
-	authorizationSyncWake      chan struct{}
-	authorizationEventsDone    chan struct{}
-	authorizationScopeWake     chan struct{}
-	runtimeRecoveryDone        chan struct{}
-	runtimeRecoveryWake        chan struct{}
-	runtimeConvergenceDone     chan struct{}
-	operationRecoveryDone      chan struct{}
-	closeOnce                  sync.Once
-	bootstrapMu                sync.Mutex
-	bootstrapped               bool
-	bootstrapScope             market.OperationScope
-	refreshWorkerStarted       bool
-	repository                 market.Repository
-	implementationHost         market.ImplementationHost
-	activationGate             *activationGateHost
-	publicationGate            capabilityPublicationGate
-	publication                CapabilityPublicationController
-	authorizationSnapshots     market.AuthorizationSnapshotSource
-	authorizationSnapshotStore market.AuthorizationSnapshotStore
-	authorizationEvents        market.AuthorizationEventSource
-	authorizationReadiness     *market.AuthorizationReadinessGate
-	authorizationDirty         map[string]map[string]struct{}
-	runtimeRecoveryPending     map[string]struct{}
+	scheduler                   *OperationScheduler
+	authorizationSyncWake       chan struct{}
+	authorizationScopeWake      chan struct{}
+	runtimeRecoveryWake         chan struct{}
+	runtimePhysicalWake         chan struct{}
+	catalogWorkerWake           chan struct{}
+	lifecycleMu                 sync.Mutex
+	lifecycleState              LifecycleState
+	workers                     *workerGroup
+	closeDone                   chan struct{}
+	closeResult                 error
+	closeOnce                   sync.Once
+	bootstrapMu                 sync.Mutex
+	bootstrapped                bool
+	bootstrapScope              market.OperationScope
+	catalogRefreshInitialDelay  time.Duration
+	repository                  market.Repository
+	implementationHost          market.ImplementationHost
+	physicalRoutes              market.RouteObservation
+	physicalAntiEntropyInterval time.Duration
+	physicalAntiEntropyJitter   func(time.Duration) time.Duration
+	activationGate              *activationGateHost
+	publicationGate             capabilityPublicationGate
+	publication                 CapabilityPublicationController
+	authorizationSnapshots      market.AuthorizationSnapshotSource
+	authorizationSnapshotStore  market.AuthorizationSnapshotStore
+	authorizationEvents         market.AuthorizationEventSource
+	authorizationReadiness      *market.AuthorizationReadinessGate
+	authorizationDirty          map[string]map[string]struct{}
+	runtimeRecoveryPending      map[string]struct{}
+	outbox                      market.ChangedEventOutbox
+	lifecycle                   market.LifecycleCleanupStore
+	lifecyclePolicy             LifecycleCleanupPolicy
+	publisher                   ChangedEventPublisher
+	hasAuthorizationObserver    bool
 }
 
 type capabilityPublicationGate interface {
 	SetCapabilityPublication(bool)
 }
 
-func NewHost(parent context.Context, config HostConfig) (*Host, error) {
-	if parent == nil {
-		parent = context.Background()
-	}
+func NewHost(config HostConfig) (*Host, error) {
 	if config.Outbox == nil || config.Lifecycle == nil || config.Publisher == nil {
 		return nil, errors.New("connector market outbox, lifecycle cleanup, and publisher are required")
 	}
-	hostContext, cancel := context.WithCancel(parent)
-	scheduler := NewOperationScheduler(hostContext)
+	physicalRoutes := config.PhysicalRoutes
+	if physicalRoutes == nil {
+		physicalRoutes, _ = config.ImplementationHost.(market.RouteObservation)
+	}
+	physicalAntiEntropyInterval := config.PhysicalAntiEntropyInterval
+	if physicalAntiEntropyInterval <= 0 {
+		physicalAntiEntropyInterval = defaultPhysicalAntiEntropyInterval
+	}
+	if physicalRoutes == nil {
+		return nil, errors.New("connector physical route observation is required")
+	}
+	scheduler := NewOperationScheduler(nil)
 	activationGate := newActivationGateHost(config.ImplementationHost)
 	application, err := market.NewApplication(market.ApplicationConfig{
 		Repository:               config.Repository,
@@ -101,82 +117,143 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 		ImplementationRegistry:   config.ImplementationRegistry,
 	})
 	if err != nil {
-		cancel()
 		return nil, err
 	}
 	if err := scheduler.Bind(application); err != nil {
-		cancel()
 		return nil, err
 	}
 	host := &Host{
-		Application:             application,
-		cancel:                  cancel,
-		scheduler:               scheduler,
-		outboxDone:              make(chan struct{}),
-		lifecycleDone:           make(chan struct{}),
-		authorizationSyncDone:   make(chan struct{}),
-		authorizationSyncWake:   make(chan struct{}, 1),
-		authorizationEventsDone: make(chan struct{}),
-		authorizationScopeWake:  make(chan struct{}, 1),
-		runtimeRecoveryDone:     make(chan struct{}),
-		runtimeRecoveryWake:     make(chan struct{}, 1),
-		runtimeConvergenceDone:  make(chan struct{}),
-		operationRecoveryDone:   make(chan struct{}),
-		repository:              config.Repository,
-		implementationHost:      config.ImplementationHost,
-		activationGate:          activationGate,
-		publication:             config.Publication,
-		authorizationSnapshots:  config.AuthorizationSnapshots,
-		authorizationEvents:     config.AuthorizationEvents,
-		authorizationReadiness:  config.AuthorizationReadiness,
-		authorizationDirty:      make(map[string]map[string]struct{}),
-		runtimeRecoveryPending:  make(map[string]struct{}),
+		Application:                 application,
+		scheduler:                   scheduler,
+		authorizationSyncWake:       make(chan struct{}, 1),
+		authorizationScopeWake:      make(chan struct{}, 1),
+		runtimeRecoveryWake:         make(chan struct{}, 1),
+		runtimePhysicalWake:         make(chan struct{}, 1),
+		catalogWorkerWake:           make(chan struct{}, 1),
+		lifecycleState:              LifecycleStateCreated,
+		closeDone:                   make(chan struct{}),
+		repository:                  config.Repository,
+		implementationHost:          config.ImplementationHost,
+		physicalRoutes:              physicalRoutes,
+		physicalAntiEntropyInterval: physicalAntiEntropyInterval,
+		physicalAntiEntropyJitter:   fullJitterDuration,
+		activationGate:              activationGate,
+		publication:                 config.Publication,
+		authorizationSnapshots:      config.AuthorizationSnapshots,
+		authorizationEvents:         config.AuthorizationEvents,
+		authorizationReadiness:      config.AuthorizationReadiness,
+		authorizationDirty:          make(map[string]map[string]struct{}),
+		runtimeRecoveryPending:      make(map[string]struct{}),
+		outbox:                      config.Outbox,
+		lifecycle:                   config.Lifecycle,
+		lifecyclePolicy:             config.LifecyclePolicy,
+		publisher:                   config.Publisher,
 	}
 	if snapshotStore, ok := config.AuthorizationProjections.(market.AuthorizationSnapshotStore); ok {
 		host.authorizationSnapshotStore = snapshotStore
 	}
 	if publicationGate, ok := config.ImplementationHost.(capabilityPublicationGate); ok {
 		host.publicationGate = publicationGate
-		if host.publication == nil {
-			publicationGate.SetCapabilityPublication(false)
-		}
-	}
-	dispatcher := OutboxDispatcher{Outbox: config.Outbox, Publisher: config.Publisher}
-	go func() {
-		defer close(host.outboxDone)
-		dispatcher.Run(hostContext)
-	}()
-	if host.authorizationSnapshots != nil && host.authorizationSnapshotStore != nil {
-		go host.runAuthorizationSnapshotWorker(hostContext)
-	} else {
-		close(host.authorizationSyncDone)
-	}
-	if host.authorizationEvents != nil {
-		go host.runAuthorizationEventWorker(hostContext)
-	} else {
-		close(host.authorizationEventsDone)
 	}
 	if _, ok := config.Authorization.(market.AuthorizationObserver); ok {
-		go host.runAuthorizationReconcileWorker(hostContext)
+		host.hasAuthorizationObserver = true
 	}
-	go func() {
-		defer close(host.runtimeRecoveryDone)
-		host.runRuntimeRecoveryWorker(hostContext)
-	}()
-	go func() {
-		defer close(host.runtimeConvergenceDone)
-		host.runRuntimeConvergenceWorker(hostContext)
-	}()
-	go func() {
-		defer close(host.operationRecoveryDone)
-		host.runOperationRecoveryWorker(hostContext)
-	}()
-	cleanupWorker := LifecycleCleanupWorker{Store: config.Lifecycle, Policy: config.LifecyclePolicy}
-	go func() {
-		defer close(host.lifecycleDone)
-		cleanupWorker.Run(hostContext)
-	}()
 	return host, nil
+}
+
+func (host *Host) State() LifecycleState {
+	if host == nil {
+		return LifecycleStateStopped
+	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
+	return host.lifecycleState
+}
+
+// Start owns every Connector daemon worker. NewHost deliberately performs no
+// publication, scheduling, cleanup, polling, or goroutine startup.
+func (host *Host) Start(ctx context.Context) error {
+	if host == nil || host.Application == nil || ctx == nil {
+		return errors.New("connector market host start context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
+	if host.lifecycleState != LifecycleStateCreated {
+		return fmt.Errorf("connector market host cannot start from %s", host.lifecycleState)
+	}
+	host.lifecycleState = LifecycleStateStarting
+	workers := newWorkerGroup(ctx)
+	rollback := func(cause error) error {
+		workers.Stop()
+		workers.Seal()
+		_ = workers.Wait(ctx)
+		host.lifecycleState = LifecycleStateFailed
+		return cause
+	}
+
+	host.activationGate.setOpen(market.OperationScope{}, false)
+	if err := host.applyCapabilityPublication(ctx, market.OperationScope{}, false); err != nil {
+		return rollback(fmt.Errorf("fail-close connector capability publication: %w", err))
+	}
+	if err := host.scheduler.Start(workers.ctx); err != nil {
+		return rollback(err)
+	}
+	dispatcher := OutboxDispatcher{Outbox: host.outbox, Publisher: host.publisher}
+	cleanupWorker := LifecycleCleanupWorker{Store: host.lifecycle, Policy: host.lifecyclePolicy}
+	registrations := []struct {
+		name string
+		run  func(context.Context)
+	}{
+		{name: "outbox", run: dispatcher.Run},
+		{name: "lifecycle-cleanup", run: cleanupWorker.Run},
+		{name: "runtime-recovery", run: host.runRuntimeRecoveryWorker},
+		{name: "runtime-convergence", run: host.runRuntimeConvergenceWorker},
+		{name: "runtime-route-watch", run: host.runPhysicalRouteWatchWorker},
+		{name: "operation-recovery", run: host.runOperationRecoveryWorker},
+		{name: "catalog-refresh", run: host.runCatalogRefreshWorker},
+	}
+	if host.authorizationSnapshots != nil && host.authorizationSnapshotStore != nil {
+		registrations = append(registrations, struct {
+			name string
+			run  func(context.Context)
+		}{name: "authorization-snapshot", run: host.runAuthorizationSnapshotWorker})
+	}
+	if host.authorizationEvents != nil {
+		registrations = append(registrations, struct {
+			name string
+			run  func(context.Context)
+		}{name: "authorization-events", run: host.runAuthorizationEventWorker})
+	}
+	if host.hasAuthorizationObserver {
+		registrations = append(registrations, struct {
+			name string
+			run  func(context.Context)
+		}{name: "authorization-reconcile", run: host.runAuthorizationReconcileWorker})
+	}
+	for _, registration := range registrations {
+		if err := workers.Go(registration.name, registration.run); err != nil {
+			return rollback(err)
+		}
+	}
+	workers.Seal()
+	host.workers = workers
+	host.lifecycleState = LifecycleStateRunning
+	return nil
+}
+
+func (host *Host) requireRunning() error {
+	if host == nil {
+		return errHostNotRunning
+	}
+	host.lifecycleMu.Lock()
+	defer host.lifecycleMu.Unlock()
+	if host.lifecycleState != LifecycleStateRunning {
+		return errHostNotRunning
+	}
+	return nil
 }
 
 func (host *Host) runAuthorizationReconcileWorker(ctx context.Context) {
@@ -248,6 +325,10 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	if host == nil || host.Application == nil {
 		return errors.New("connector market host is unavailable")
 	}
+	if err := host.requireRunning(); err != nil {
+		return err
+	}
+	host.notifyCatalogWorker()
 	host.bootstrapMu.Lock()
 	defer host.bootstrapMu.Unlock()
 	sameScope := host.bootstrapScope == scope
@@ -261,10 +342,6 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	}
 	host.notifyAuthorizationScopeChanged()
 	host.bootstrapped = false
-	if !host.refreshWorkerStarted {
-		host.refreshWorkerStarted = true
-		go host.runCatalogRefreshWorker()
-	}
 	host.activationGate.setOpen(scope, false)
 	if err := host.applyCapabilityPublication(ctx, scope, false); err != nil {
 		return err
@@ -356,7 +433,6 @@ func (host *Host) notifyAuthorizationScopeChanged() {
 }
 
 func (host *Host) runAuthorizationEventWorker(ctx context.Context) {
-	defer close(host.authorizationEventsDone)
 	retry := time.Second
 	for {
 		host.bootstrapMu.Lock()
@@ -433,7 +509,6 @@ func (host *Host) syncAuthorizationSnapshot(ctx context.Context, scope market.Op
 }
 
 func (host *Host) runAuthorizationSnapshotWorker(ctx context.Context) {
-	defer close(host.authorizationSyncDone)
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -698,9 +773,21 @@ func (host *Host) refreshAndWait(ctx context.Context) error {
 	}
 }
 
-func (host *Host) runCatalogRefreshWorker() {
+func (host *Host) notifyCatalogWorker() {
+	select {
+	case host.catalogWorkerWake <- struct{}{}:
+	default:
+	}
+}
+
+func (host *Host) runCatalogRefreshWorker(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-host.catalogWorkerWake:
+	}
 	bootstrapRetry := time.Second
-	catalogRetry := time.Duration(0)
+	catalogRetry := host.catalogRefreshInitialDelay
 	for {
 		host.bootstrapMu.Lock()
 		bootstrapped := host.bootstrapped
@@ -709,12 +796,12 @@ func (host *Host) runCatalogRefreshWorker() {
 		if !bootstrapped {
 			timer := time.NewTimer(bootstrapRetry)
 			select {
-			case <-host.scheduler.ctx.Done():
+			case <-ctx.Done():
 				timer.Stop()
 				return
 			case <-timer.C:
 			}
-			bootstrapContext, cancel := context.WithTimeout(host.scheduler.ctx, 45*time.Second)
+			bootstrapContext, cancel := context.WithTimeout(ctx, 45*time.Second)
 			err := host.BootstrapForScope(bootstrapContext, scope)
 			cancel()
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -729,12 +816,12 @@ func (host *Host) runCatalogRefreshWorker() {
 		}
 		timer := time.NewTimer(catalogRetry)
 		select {
-		case <-host.scheduler.ctx.Done():
+		case <-ctx.Done():
 			timer.Stop()
 			return
 		case <-timer.C:
 		}
-		refreshContext, cancel := context.WithTimeout(host.scheduler.ctx, 45*time.Second)
+		refreshContext, cancel := context.WithTimeout(ctx, 45*time.Second)
 		err := host.refreshAndWait(refreshContext)
 		cancel()
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -750,24 +837,45 @@ func (host *Host) runCatalogRefreshWorker() {
 	}
 }
 
-func (host *Host) Close() {
+func (host *Host) Close(ctx context.Context) error {
 	if host == nil {
-		return
+		return nil
+	}
+	if ctx == nil {
+		return errors.New("connector market host close context is required")
 	}
 	host.closeOnce.Do(func() {
-		host.cancel()
-		if closer, ok := host.implementationHost.(interface{ Close() error }); ok {
-			_ = closer.Close()
+		host.lifecycleMu.Lock()
+		host.lifecycleState = LifecycleStateStopping
+		workers := host.workers
+		host.lifecycleMu.Unlock()
+		if workers != nil {
+			workers.Stop()
 		}
-		<-host.outboxDone
-		<-host.lifecycleDone
-		<-host.authorizationSyncDone
-		<-host.authorizationEventsDone
-		<-host.runtimeRecoveryDone
-		<-host.runtimeConvergenceDone
-		<-host.operationRecoveryDone
-		host.scheduler.Wait()
+		go host.finishClose(workers)
 	})
+	select {
+	case <-host.closeDone:
+		return host.closeResult
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (host *Host) finishClose(workers *workerGroup) {
+	if workers != nil {
+		_ = workers.Wait(context.Background())
+	}
+	host.scheduler.Wait()
+	var closeErr error
+	if closer, ok := host.implementationHost.(interface{ Close() error }); ok {
+		closeErr = closer.Close()
+	}
+	host.lifecycleMu.Lock()
+	host.closeResult = closeErr
+	host.lifecycleState = LifecycleStateStopped
+	host.lifecycleMu.Unlock()
+	close(host.closeDone)
 }
 
 // CatalogOnlyPorts deliberately advertise no installable implementation. The
@@ -805,6 +913,19 @@ func (unavailableReleaseInstaller) UninstallRelease(context.Context, market.Unin
 }
 
 type unavailableRuntime struct{}
+
+func (unavailableRuntime) Snapshot(context.Context) (market.PhysicalRouteSnapshot, error) {
+	return market.PhysicalRouteSnapshot{}, nil
+}
+
+func (unavailableRuntime) Watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+	events := make(chan market.PhysicalRouteEvent)
+	go func() {
+		<-ctx.Done()
+		close(events)
+	}()
+	return market.PhysicalRouteWatch{Events: events}, nil
+}
 
 func (unavailableRuntime) Reconcile(context.Context, market.RuntimeReconcileRequest) (market.RuntimeReceipt, error) {
 	return market.RuntimeReceipt{}, errors.New("connector implementation host is not registered")

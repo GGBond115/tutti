@@ -1,23 +1,21 @@
-package runtime
+package process
 
 import (
 	"context"
 	"errors"
 	"sync"
 	"time"
-
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 )
 
 type trackedProcess struct {
-	connection agentruntime.ProcessConnection
+	connection Connection
 	cancel     context.CancelFunc
 	closing    bool
 }
 
-// ProcessGroup fences process starts and owns every process launched for one
-// connector route. It prevents a late start from escaping route retirement.
-type ProcessGroup struct {
+// Group fences process starts and owns every process launched for one
+// Connector route. A late process start cannot escape route retirement.
+type Group struct {
 	mu            sync.Mutex
 	processes     map[uint64]trackedProcess
 	pendingStarts map[uint64]context.CancelFunc
@@ -25,11 +23,14 @@ type ProcessGroup struct {
 	fenced        bool
 }
 
-func NewProcessGroup() *ProcessGroup {
-	return &ProcessGroup{processes: make(map[uint64]trackedProcess), pendingStarts: make(map[uint64]context.CancelFunc)}
+func NewGroup() *Group {
+	return &Group{
+		processes:     make(map[uint64]trackedProcess),
+		pendingStarts: make(map[uint64]context.CancelFunc),
+	}
 }
 
-func (group *ProcessGroup) Begin(parent context.Context) (context.Context, uint64, bool) {
+func (group *Group) Begin(parent context.Context) (context.Context, uint64, bool) {
 	group.mu.Lock()
 	defer group.mu.Unlock()
 	if group.fenced {
@@ -41,7 +42,7 @@ func (group *ProcessGroup) Begin(parent context.Context) (context.Context, uint6
 	return processContext, group.nextProcessID, true
 }
 
-func (group *ProcessGroup) FailStart(processID uint64) {
+func (group *Group) FailStart(processID uint64) {
 	group.mu.Lock()
 	cancel := group.pendingStarts[processID]
 	delete(group.pendingStarts, processID)
@@ -51,7 +52,7 @@ func (group *ProcessGroup) FailStart(processID uint64) {
 	}
 }
 
-func (group *ProcessGroup) CommitStart(processID uint64, connection agentruntime.ProcessConnection) bool {
+func (group *Group) CommitStart(processID uint64, connection Connection) bool {
 	group.mu.Lock()
 	defer group.mu.Unlock()
 	cancel := group.pendingStarts[processID]
@@ -66,13 +67,11 @@ func (group *ProcessGroup) CommitStart(processID uint64, connection agentruntime
 	return true
 }
 
-func (group *ProcessGroup) Release(processID uint64, connection agentruntime.ProcessConnection) {
+func (group *Group) Release(processID uint64, connection Connection) {
 	_ = group.ReleaseWithError(processID, connection)
 }
 
-// ReleaseWithError releases an owned process and reports the transport close
-// result. Release remains source-compatible for existing lifecycle callers.
-func (group *ProcessGroup) ReleaseWithError(processID uint64, connection agentruntime.ProcessConnection) error {
+func (group *Group) ReleaseWithError(processID uint64, connection Connection) error {
 	group.mu.Lock()
 	current, owned := group.processes[processID]
 	if owned && current.connection == connection && !current.closing {
@@ -81,14 +80,14 @@ func (group *ProcessGroup) ReleaseWithError(processID uint64, connection agentru
 		owned = false
 	}
 	group.mu.Unlock()
-	if owned {
-		current.cancel()
-		return connection.Close()
+	if !owned {
+		return nil
 	}
-	return nil
+	current.cancel()
+	return connection.Close()
 }
 
-func (group *ProcessGroup) Fence() {
+func (group *Group) Fence() {
 	group.mu.Lock()
 	group.fenced = true
 	for processID, cancel := range group.pendingStarts {
@@ -98,41 +97,42 @@ func (group *ProcessGroup) Fence() {
 	group.mu.Unlock()
 }
 
-func (group *ProcessGroup) IsFenced() bool {
+func (group *Group) IsFenced() bool {
 	group.mu.Lock()
 	defer group.mu.Unlock()
 	return group.fenced
 }
 
-func (group *ProcessGroup) ActiveCount() int {
+func (group *Group) ActiveCount() int {
 	group.mu.Lock()
 	defer group.mu.Unlock()
 	return len(group.processes)
 }
 
-func (group *ProcessGroup) Close(deadline time.Time) error {
+func (group *Group) Close(deadline time.Time) error {
 	if group == nil {
 		return nil
 	}
 	group.Fence()
 	group.mu.Lock()
 	processes := make(map[uint64]trackedProcess, len(group.processes))
-	for processID, process := range group.processes {
-		process.closing = true
-		group.processes[processID] = process
-		processes[processID] = process
+	for processID, candidate := range group.processes {
+		candidate.closing = true
+		group.processes[processID] = candidate
+		processes[processID] = candidate
 	}
 	group.mu.Unlock()
+
 	type closeResult struct {
 		processID uint64
 		err       error
 	}
 	results := make(chan closeResult, len(processes))
-	for processID, process := range processes {
-		process.cancel()
-		go func(processID uint64, connection agentruntime.ProcessConnection) {
+	for processID, candidate := range processes {
+		candidate.cancel()
+		go func(processID uint64, connection Connection) {
 			results <- closeResult{processID: processID, err: connection.Close()}
-		}(processID, process.connection)
+		}(processID, candidate.connection)
 	}
 	var closeErrors []error
 	for range processes {
@@ -159,7 +159,8 @@ func (group *ProcessGroup) Close(deadline time.Time) error {
 			continue
 		}
 		group.mu.Lock()
-		if current, exists := group.processes[result.processID]; exists && current.connection == processes[result.processID].connection {
+		if current, exists := group.processes[result.processID]; exists &&
+			current.connection == processes[result.processID].connection {
 			delete(group.processes, result.processID)
 		}
 		group.mu.Unlock()

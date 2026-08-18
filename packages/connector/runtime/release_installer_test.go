@@ -213,7 +213,7 @@ func releaseInstallerNodeRelease(version, releaseDigest string, archive, manifes
 	release.ReleaseID = release.ConnectorKey + "@" + version
 	release.Version = version
 	release.ManifestDigest = hex.EncodeToString(manifestDigest[:])
-	release.Artifact = market.Artifact{Key: release.ReleaseID + ".zip", SHA256: hex.EncodeToString(artifactDigest[:]),
+	release.Artifact = market.Artifact{SHA256: hex.EncodeToString(artifactDigest[:]),
 		SizeBytes: int64(len(archive)), MediaType: "application/zip"}
 	return release
 }
@@ -231,7 +231,7 @@ func runtimeTestRelease() market.Release {
 					MCP:     &market.ManagedMCPInterface{Entrypoint: "connector.js"},
 				}},
 		},
-		Artifact: market.Artifact{Key: "example.zip", SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		Artifact: market.Artifact{SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			SizeBytes: 1, MediaType: "application/zip"},
 		PublishedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Status: market.ReleaseStatusAvailable,
 	}

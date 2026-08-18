@@ -10,6 +10,7 @@ import (
 
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 func TestDeactivateRuntimeAllConnectionsRemovesRotatedConnectorRoutes(t *testing.T) {
@@ -208,6 +209,6 @@ func testUninstallRoute(connectionID, connectorKey, releaseDigest string, genera
 	return &connectorRoute{
 		id: connectorRouteKey(connectionID, connectorKey), connectionID: connectionID,
 		connectorKey: connectorKey, releaseDigest: releaseDigest, generation: generation,
-		mcpTools: make(map[string]registeredMCPTool), processes: connectorruntime.NewProcessGroup(),
+		mcpTools: make(map[string]registeredMCPTool), processes: connectorprocess.NewGroup(),
 	}
 }

@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T) {
+func TestCatalogSourceMapsServerDescriptorWithoutDeprecatedArtifactKey(t *testing.T) {
 	itemCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer catalog-token" {
@@ -47,9 +47,10 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
     "commitSha": "0123456789abcdef",
     "publisher": {"name": "Tutti"},
     "artifact": {
-      "key": "connectors/github/1.0.0.zip",
       "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "sizeBytes": "123"
+      "sizeBytes": "123",
+      "releaseDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "mediaType": "application/zip"
     },
     "manifest": {
       "schemaVersion": "2",
@@ -106,6 +107,7 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
 	}
 	got := result.Releases[0]
 	if got.ConnectorKey != "github" || got.ReleaseID != "github@1.0.0" || got.Manifest.SchemaVersion != "1" ||
+		got.ReleaseDigest != strings.Repeat("d", 64) ||
 		got.ManifestDigest != strings.Repeat("b", 64) || got.Artifact.SizeBytes != 123 || got.Artifact.MediaType != "application/zip" ||
 		got.Manifest.Implementation.ManagedStdio == nil || len(got.Manifest.Permissions) != 1 || got.Manifest.Permissions[0] != "network:*" ||
 		got.Manifest.AgentRouting == nil || len(got.Manifest.AgentRouting.Aliases) != 2 || got.Manifest.AgentRouting.Aliases[1] != "代码托管" ||
@@ -124,6 +126,40 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
 	}
 	if itemCalls != 2 {
 		t.Fatalf("market item requests = %d, want 2", itemCalls)
+	}
+}
+
+func TestCatalogSourceResolvesAuthenticatedArtifactDownloadByReleaseDigest(t *testing.T) {
+	digest := strings.Repeat("d", 64)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/market/artifacts:resolve-download" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer catalog-token" {
+			t.Fatalf("authorization = %q", request.Header.Get("Authorization"))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"url":"https://artifacts.example.test/signed.zip?token=secret","expiresAtMs":"1787018520000","releaseDigest":"` + digest + `","sha256":"` + strings.Repeat("c", 64) + `","sizeBytes":"123","mediaType":"application/zip"}`))
+	}))
+	defer server.Close()
+
+	source, err := NewCatalogSource(CatalogSourceConfig{
+		BaseURL: server.URL, ExpectedMarketType: "overseas", HTTPClient: server.Client(),
+		AuthorizeRequest: func(request *http.Request) error {
+			request.Header.Set("Authorization", "Bearer catalog-token")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := source.ResolveArtifactDownload(context.Background(), digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ReleaseDigest != digest || resolved.SHA256 != strings.Repeat("c", 64) || resolved.SizeBytes != 123 || resolved.MediaType != "application/zip" ||
+		resolved.ExpiresAt.UnixMilli() != 1787018520000 || !strings.Contains(resolved.URL, "token=secret") {
+		t.Fatalf("resolved = %#v", resolved)
 	}
 }
 
@@ -176,7 +212,7 @@ func TestCatalogSourcePreservesRemoteRequiredCapabilities(t *testing.T) {
 	}
 
 	source := &CatalogSource{executionTarget: "darwin-arm64"}
-	release, err := source.mapItem(generatedMarketItem(t, manifest, "tencent-docs", "0.2.0", "tencent-docs/0.2.0/tencent-docs-0.2.0-any.tgz"))
+	release, err := source.mapItem(generatedMarketItem(t, manifest, "tencent-docs", "0.2.0"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +244,7 @@ func TestCatalogSourceRejectsLegacyConnectorManifestV1(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := &CatalogSource{executionTarget: "darwin-arm64"}
-	_, err := source.mapItem(generatedMarketItem(t, manifest, "github", "1.0.0", "connectors/github/1.0.0.zip"))
+	_, err := source.mapItem(generatedMarketItem(t, manifest, "github", "1.0.0"))
 	if err == nil {
 		t.Fatal("legacy connector manifest v1 was accepted")
 	}
@@ -340,7 +376,7 @@ func TestCatalogSourceRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
-func generatedMarketItem(t *testing.T, manifest map[string]any, itemKey, version, artifactKey string) *marketv1.PublicMarketItem {
+func generatedMarketItem(t *testing.T, manifest map[string]any, itemKey, version string) *marketv1.PublicMarketItem {
 	t.Helper()
 	manifestValue, err := structpb.NewStruct(manifest)
 	if err != nil {
@@ -348,7 +384,9 @@ func generatedMarketItem(t *testing.T, manifest map[string]any, itemKey, version
 	}
 	return &marketv1.PublicMarketItem{
 		ItemType: "connector", ItemKey: itemKey, Version: version, Manifest: manifestValue,
-		Artifact:      &marketv1.MarketArtifact{Key: artifactKey, Sha256: strings.Repeat("c", 64), SizeBytes: 123},
+		Artifact: &marketv1.MarketArtifactDescriptor{
+			Sha256: strings.Repeat("c", 64), SizeBytes: 123, ReleaseDigest: strings.Repeat("d", 64), MediaType: "application/gzip",
+		},
 		PublishedAtMs: 1785801600000,
 	}
 }

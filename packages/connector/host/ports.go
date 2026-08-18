@@ -17,6 +17,21 @@ type CatalogSource interface {
 	Refresh(context.Context) (CatalogSnapshot, error)
 }
 
+// ArtifactDownloadResolver exchanges an immutable server-owned release digest
+// for one short-lived, authenticated artifact download descriptor.
+type ArtifactDownloadResolver interface {
+	ResolveArtifactDownload(context.Context, string) (ArtifactDownload, error)
+}
+
+type ArtifactDownload struct {
+	URL           string
+	ExpiresAt     time.Time
+	ReleaseDigest string
+	SHA256        string
+	SizeBytes     int64
+	MediaType     string
+}
+
 type CatalogSourcePageQuery struct {
 	SectionID string
 	PageSize  int
@@ -92,6 +107,7 @@ type Repository interface {
 	RecoverableOperations(ctx context.Context) ([]Operation, error)
 	InstalledRelease(ctx context.Context, connectorKey, releaseDigest string) (Release, error)
 	RuntimeConvergence(ctx context.Context, scope OperationScope, connectorKey string) (RuntimeConvergence, error)
+	RuntimeConvergences(ctx context.Context, scope OperationScope, limit int) ([]RuntimeConvergence, error)
 	DueRuntimeConvergences(ctx context.Context, scope OperationScope, bootEpoch string, now time.Time, limit int) ([]RuntimeConvergence, error)
 	ClaimRuntimeConvergence(ctx context.Context, scope OperationScope, connectorKey, bootEpoch, owner string, now, leaseExpiresAt time.Time) (RuntimeConvergence, bool, error)
 	RenewRuntimeConvergenceLease(ctx context.Context, scope OperationScope, connectorKey, owner string, token uint64, now, leaseExpiresAt time.Time) error
@@ -258,13 +274,71 @@ type RuntimeObservation struct {
 	ReleaseDigest string
 }
 
-// ImplementationHost reconciles installed connector releases into global MCP
-// routes and CLI registrations.
-type ImplementationHost interface {
+// ImplementationCommands is the narrow command side for physical Connector
+// runtimes. It deliberately carries no observation or watch methods.
+type ImplementationCommands interface {
 	Reconcile(ctx context.Context, request RuntimeReconcileRequest) (RuntimeReceipt, error)
 	DeactivateRuntime(ctx context.Context, request RuntimeDeactivationRequest) error
 	// FailClosed stops all capability publication before best-effort fencing.
 	FailClosed(ctx context.Context, deadline time.Time) error
+}
+
+// ImplementationHost remains the compatibility name for command consumers.
+// New composition code should name the command and observation ports
+// separately.
+type ImplementationHost = ImplementationCommands
+
+type PhysicalRouteState string
+
+const (
+	PhysicalRouteStateReady    PhysicalRouteState = "ready"
+	PhysicalRouteStateDegraded PhysicalRouteState = "degraded"
+)
+
+// PhysicalRoute is non-secret runtime truth for one currently owned logical
+// route. CLI-only and remote routes are included even when they have no local
+// long-lived process.
+type PhysicalRoute struct {
+	ConnectorKey  string
+	ConnectionID  string
+	ReleaseDigest string
+	Generation    HostGeneration
+	State         PhysicalRouteState
+}
+
+type PhysicalRouteSnapshot struct {
+	// Revision and Routes describe the same linearization point. A producer
+	// must not return a revision whose event is absent from Routes.
+	Revision uint64
+	Routes   []PhysicalRoute
+}
+
+type PhysicalRouteEventKind string
+
+const (
+	PhysicalRouteEventChanged        PhysicalRouteEventKind = "changed"
+	PhysicalRouteEventUnexpectedExit PhysicalRouteEventKind = "unexpected_exit"
+)
+
+type PhysicalRouteEvent struct {
+	Revision uint64
+	Kind     PhysicalRouteEventKind
+	Route    PhysicalRoute
+}
+
+// PhysicalRouteWatch starts at Revision. Every delivered event must advance it
+// by exactly one. A closed Events channel is a watch failure and requires a
+// fresh Snapshot before trusting cached physical state again.
+type PhysicalRouteWatch struct {
+	Revision uint64
+	Events   <-chan PhysicalRouteEvent
+}
+
+// RouteObservation is the narrow physical-state side of the runtime boundary.
+// Snapshot is level-triggered truth; Watch only reduces repair latency.
+type RouteObservation interface {
+	Snapshot(context.Context) (PhysicalRouteSnapshot, error)
+	Watch(context.Context) (PhysicalRouteWatch, error)
 }
 
 type RuntimeReconcileRequest struct {

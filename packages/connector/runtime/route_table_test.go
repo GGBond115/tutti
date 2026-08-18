@@ -104,3 +104,39 @@ func TestRouteTableRemoveMatchingClosesEverySelectedConnection(t *testing.T) {
 		t.Fatalf("unrelated route changed: route=%v closes=%d", table.Route(unrelated.id), unrelated.closeCalls)
 	}
 }
+
+func TestRouteTableRetireExactNotifiesOnlyUnexpectedCurrentRouteBeforeClose(t *testing.T) {
+	table := NewRouteTable()
+	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 5}
+	route := &routeTableStub{id: "workspace\x00github", digest: "release-1", generation: generation}
+	if err := table.Commit(route); err != nil {
+		t.Fatal(err)
+	}
+	notifications := 0
+	if err := table.RetireExact(route, time.Now().Add(time.Second), func() {
+		notifications++
+		if len(table.ActiveRoutes()) != 0 || route.closeCalls != 0 {
+			t.Fatalf("notification was not delivered immediately after detach: routes=%d closes=%d",
+				len(table.ActiveRoutes()), route.closeCalls)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if notifications != 1 || route.closeCalls != 1 {
+		t.Fatalf("notifications=%d closes=%d", notifications, route.closeCalls)
+	}
+
+	intentional := &routeTableStub{id: "workspace\x00calendar", digest: "release-2", generation: generation}
+	if err := table.Commit(intentional); err != nil {
+		t.Fatal(err)
+	}
+	if err := table.Remove(intentional.id, generation, intentional.digest, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := table.RetireExact(intentional, time.Now().Add(time.Second), func() { notifications++ }); err != nil {
+		t.Fatal(err)
+	}
+	if notifications != 1 {
+		t.Fatalf("intentional retirement notifications=%d, want 1 total", notifications)
+	}
+}

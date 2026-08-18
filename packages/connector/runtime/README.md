@@ -8,6 +8,10 @@ identity, runtime ABI verification, typed Node package installation, MCP
 clients, the host-neutral ImplementationHost, RouteRegistry and MCPRegistry,
 Connector discovery, stable CLI shims, exact CLI execution, verified Connector Skill discovery, and
 the session-bound loopback MCP server used by native Agent MCP clients.
+`runtime/process` owns Connector process contracts, executable/artifact
+verification, bounded I/O, process-tree shutdown, and route process groups.
+Product composition constructs that transport directly; Agent process contracts
+are not part of the Connector runtime dependency surface.
 
 `ImplementationHost` validates the optional Skill tree before publishing a
 route and commits its metadata into `RouteRegistry` as an immutable projection.
@@ -75,6 +79,13 @@ path delivered by the host data plane, revalidates size, SHA, manifest, and
 inventory, and never downloads. `ReleaseInstaller` composes same-machine import
 and typed CLI installation behind the Host's single install port.
 
+`DirectFetcher` never joins a catalog object key to a client-owned CDN base.
+It resolves the server-owned release digest immediately before each download,
+accepts only a bounded, unexpired HTTPS URL whose digest, archive media type,
+SHA-256, and size match the catalog descriptor, and rejects redirects outside the resolved
+origin while preserving the host HTTP redirect policy. Signed URLs are kept
+only for the duration of that fetch and are not emitted in errors.
+
 Physical installation inspection revalidates artifact and CLI receipts and
 never executes Connector-owned commands. A managed CLI may separately provide
 a bounded `readinessProbe`; it runs only after the release has been resolved
@@ -115,7 +126,7 @@ broker can use the same Connector state directory, including on Windows where
 process-tree termination remains inside the injected process transport.
 
 Connector installation, MCP, CLI, and credential-broker processes intentionally
-do not use an OS process sandbox. `NewConnectorProcessTransport()` preserves
+do not use an OS process sandbox. `process.NewTransport()` preserves
 the security boundary through pinned packages, verified artifact receipts,
 immutable execution snapshots, executable SHA-256/size verification, an
 explicit environment, process groups, timeouts, and bounded output.

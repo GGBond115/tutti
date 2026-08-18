@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const larkTestIntegrity = "sha512-qbJYoJtNch6dV8RvYBO2wpcKO9+6Io3Cuf5alYFzvLbtkSntOKqoc+xHI7p6wRq4oH4F9fydgNJbTGy79ibPdg=="
@@ -35,10 +35,10 @@ func (stub nodePackageRuntimeStub) VerifyLaunch(string, string) (ConnectorExecut
 
 type nodePackageProcessStub struct {
 	mu    sync.Mutex
-	specs []agentruntime.ProcessSpec
+	specs []connectorprocess.Spec
 }
 
-func (stub *nodePackageProcessStub) Start(_ context.Context, spec agentruntime.ProcessSpec) (agentruntime.ProcessConnection, error) {
+func (stub *nodePackageProcessStub) Start(_ context.Context, spec connectorprocess.Spec) (connectorprocess.Connection, error) {
 	stub.mu.Lock()
 	stub.specs = append(stub.specs, spec)
 	stub.mu.Unlock()
@@ -48,19 +48,19 @@ func (stub *nodePackageProcessStub) Start(_ context.Context, spec agentruntime.P
 		}
 	}
 	exit := 0
-	return &nodePackageProcessConnection{frames: []agentruntime.ProcessFrame{{ExitCode: &exit}}}, nil
+	return &nodePackageProcessConnection{frames: []connectorprocess.Frame{{ExitCode: &exit}}}, nil
 }
 
-type nodePackageProcessConnection struct{ frames []agentruntime.ProcessFrame }
+type nodePackageProcessConnection struct{ frames []connectorprocess.Frame }
 
 func (*nodePackageProcessConnection) Send([]byte) error { return nil }
 func (*nodePackageProcessConnection) Close() error      { return nil }
 func (*nodePackageProcessConnection) CloseInput() error { return nil }
 func (*nodePackageProcessConnection) Terminate() error  { return nil }
 func (*nodePackageProcessConnection) Kill() error       { return nil }
-func (connection *nodePackageProcessConnection) Recv() (agentruntime.ProcessFrame, error) {
+func (connection *nodePackageProcessConnection) Recv() (connectorprocess.Frame, error) {
 	if len(connection.frames) == 0 {
-		return agentruntime.ProcessFrame{}, io.EOF
+		return connectorprocess.Frame{}, io.EOF
 	}
 	frame := connection.frames[0]
 	connection.frames = connection.frames[1:]
@@ -210,8 +210,7 @@ func testNodePackageRelease(connectorKey, digest string) market.Release {
 	return market.Release{
 		SchemaVersion: "1", ReleaseID: connectorKey + "@1.0.0", ConnectorKey: connectorKey,
 		Version: "1.0.0", ReleaseDigest: digest, ManifestDigest: strings.Repeat("3", 64),
-		Artifact: market.Artifact{Key: connectorKey + ".zip",
-			SHA256: strings.Repeat("4", 64), SizeBytes: 1, MediaType: "application/zip"},
+		Artifact:    market.Artifact{SHA256: strings.Repeat("4", 64), SizeBytes: 1, MediaType: "application/zip"},
 		PublishedAt: time.Unix(1, 0).UTC(), Status: market.ReleaseStatusAvailable,
 		Manifest: market.Manifest{
 			SchemaVersion: "1", DisplayName: "Lark", IconURL: "data:image/png;base64,iVBORw0KGgo=", AuthorizationKind: "none",

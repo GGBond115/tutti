@@ -10,6 +10,7 @@ import (
 
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 type registryMCPCaller struct {
@@ -42,7 +43,7 @@ func TestMCPRegistryListsCallsAndNotifies(t *testing.T) {
 	caller := &registryMCPCaller{}
 	route := &connectorRoute{id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github", connectorVersion: "2.0.0",
 		releaseDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		generation:    market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorruntime.NewProcessGroup(),
+		generation:    market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorprocess.NewGroup(),
 		mcpTools: map[string]registeredMCPTool{
 			"github_status": {routeID: "connector.github.mcp.status", localName: "github_status", upstreamName: "status",
 				description: "Read status", inputSchema: map[string]any{"type": "object", "oneOf": []any{map[string]any{"required": []any{"id"}}}}, client: caller},
@@ -110,10 +111,10 @@ func TestMCPRegistryCallDoesNotListUnrelatedConnector(t *testing.T) {
 	target := &registryMCPCaller{}
 	routes := []*connectorRoute{
 		{id: connectorRouteKey("default", "slow"), connectionID: "default", connectorKey: "slow", releaseDigest: strings.Repeat("a", 64),
-			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorruntime.NewProcessGroup(),
+			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorprocess.NewGroup(),
 			mcpTools: map[string]registeredMCPTool{"slow_wait": {client: failingListCaller{}}}},
 		{id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github", releaseDigest: strings.Repeat("b", 64),
-			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorruntime.NewProcessGroup(),
+			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorprocess.NewGroup(),
 			mcpTools: map[string]registeredMCPTool{"github_status": {client: target}}},
 	}
 	for _, route := range routes {
@@ -137,10 +138,10 @@ func TestMCPRegistryCallIsolatesFailingOverlappingNamespaceCandidate(t *testing.
 	target := &registryMCPCaller{}
 	routes := []*connectorRoute{
 		{id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github", releaseDigest: strings.Repeat("a", 64),
-			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorruntime.NewProcessGroup(),
+			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorprocess.NewGroup(),
 			mcpTools: map[string]registeredMCPTool{"github_wait": {client: failingListCaller{}}}},
 		{id: connectorRouteKey("default", "github_enterprise"), connectionID: "default", connectorKey: "github_enterprise", releaseDigest: strings.Repeat("b", 64),
-			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorruntime.NewProcessGroup(),
+			generation: market.HostGeneration{BootEpoch: "boot", Generation: 1}, processes: connectorprocess.NewGroup(),
 			mcpTools: map[string]registeredMCPTool{"github_enterprise_status": {client: target}}},
 	}
 	for _, route := range routes {
@@ -161,7 +162,7 @@ func TestMCPRegistryCallProjectedValidatedUsesSelectedLiveSchemaAndBinding(t *te
 	route := &connectorRoute{
 		id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github", connectorVersion: "2.0.0",
 		releaseDigest: strings.Repeat("a", 64), generation: market.HostGeneration{BootEpoch: "boot", Generation: 1},
-		processes: connectorruntime.NewProcessGroup(),
+		processes: connectorprocess.NewGroup(),
 		mcpTools:  map[string]registeredMCPTool{"github_status": {client: caller}},
 	}
 	if err := table.Commit(route); err != nil {
@@ -206,7 +207,7 @@ func TestMCPRegistryCallProjectedValidatedRejectsRenamedContractBeforeCall(t *te
 	route := &connectorRoute{
 		id: connectorRouteKey("default", "github"), connectionID: "default", connectorKey: "github",
 		releaseDigest: strings.Repeat("b", 64), generation: market.HostGeneration{BootEpoch: "boot", Generation: 1},
-		processes: connectorruntime.NewProcessGroup(),
+		processes: connectorprocess.NewGroup(),
 		mcpTools:  map[string]registeredMCPTool{"github_status": {client: caller}},
 	}
 	if err := table.Commit(route); err != nil {
@@ -239,7 +240,7 @@ func TestMCPRegistryCallProjectedValidatedRejectsChangedConnectorProvenance(t *t
 				id: connectorRouteKey("default", "foo_bar"), connectionID: "default",
 				connectorKey: "foo_bar", connectorVersion: "2.0.0",
 				releaseDigest: strings.Repeat("c", 64), generation: market.HostGeneration{BootEpoch: "boot", Generation: 1},
-				processes: connectorruntime.NewProcessGroup(),
+				processes: connectorprocess.NewGroup(),
 				mcpTools:  map[string]registeredMCPTool{"foo_bar_status": {client: caller}},
 			}
 			if err := table.Commit(route); err != nil {

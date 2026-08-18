@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 func TestAttachCredentialBrokerPreservesEmptyNativeCLIArguments(t *testing.T) {
@@ -45,7 +45,7 @@ func TestAttachCredentialBrokerPreservesEmptyNativeCLIArguments(t *testing.T) {
 type credentialAuthorizationHostStub struct {
 	mu          sync.Mutex
 	route       *connectorRoute
-	connections []agentruntime.ProcessConnection
+	connections []connectorprocess.Connection
 	requests    []credentialBrokerRequest
 	observed    []market.AuthorizationState
 }
@@ -75,7 +75,7 @@ func (stub *credentialAuthorizationHostStub) startCredentialBroker(
 	_ context.Context,
 	_ *connectorRoute,
 	request credentialBrokerRequest,
-) (agentruntime.ProcessConnection, uint64, error) {
+) (connectorprocess.Connection, uint64, error) {
 	stub.requests = append(stub.requests, request)
 	if len(stub.connections) == 0 {
 		return nil, 0, errors.New("unexpected credential broker start")
@@ -86,11 +86,11 @@ func (stub *credentialAuthorizationHostStub) startCredentialBroker(
 }
 
 type credentialBrokerConnection struct {
-	frames chan agentruntime.ProcessFrame
+	frames chan connectorprocess.Frame
 }
 
 func newCredentialBrokerConnection() *credentialBrokerConnection {
-	return &credentialBrokerConnection{frames: make(chan agentruntime.ProcessFrame, 8)}
+	return &credentialBrokerConnection{frames: make(chan connectorprocess.Frame, 8)}
 }
 
 func (*credentialBrokerConnection) Send([]byte) error { return nil }
@@ -99,10 +99,10 @@ func (*credentialBrokerConnection) CloseInput() error { return nil }
 func (*credentialBrokerConnection) Terminate() error  { return nil }
 func (*credentialBrokerConnection) Kill() error       { return nil }
 
-func (connection *credentialBrokerConnection) Recv() (agentruntime.ProcessFrame, error) {
+func (connection *credentialBrokerConnection) Recv() (connectorprocess.Frame, error) {
 	frame, ok := <-connection.frames
 	if !ok {
-		return agentruntime.ProcessFrame{}, io.EOF
+		return connectorprocess.Frame{}, io.EOF
 	}
 	return frame, nil
 }
@@ -117,7 +117,7 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 				"accounts.feishu.cn": {},
 			},
 		}},
-		connections: []agentruntime.ProcessConnection{connection},
+		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	request := market.AuthorizationStartRequest{OperationID: "authorize-1", Connector: market.Connector{Key: "lark-cli"}}
@@ -129,7 +129,7 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 		firstResult <- session
 		firstError <- err
 	}()
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://open.feishu.cn/page/cli?user_code=opaque"}` + "\n")}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://open.feishu.cn/page/cli?user_code=opaque"}` + "\n")}
 	if err := <-firstError; err != nil {
 		t.Fatal(err)
 	}
@@ -138,14 +138,14 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 		t.Fatalf("first session = %#v", first)
 	}
 
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.feishu.cn/device?user_code=user"}` + "\n")}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.feishu.cn/device?user_code=user"}` + "\n")}
 	second := awaitAuthorizationSession(t, provider, request, "https://accounts.feishu.cn/device?user_code=user")
 	if second.State != market.AuthorizationStatePending {
 		t.Fatalf("second session = %#v", second)
 	}
 
 	exitCode := 0
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"connected"}` + "\n"), ExitCode: &exitCode}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"connected"}` + "\n"), ExitCode: &exitCode}
 	connected := awaitAuthorizationSession(t, provider, request, "")
 	if connected.State != market.AuthorizationStateConnected {
 		t.Fatalf("connected session = %#v", connected)
@@ -165,7 +165,7 @@ func TestManagedCredentialAuthorizationReturnsDeviceCodeFromBroker(t *testing.T)
 		route: &connectorRoute{id: "default\x00github-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
 			timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"github.com": {}},
 		}},
-		connections: []agentruntime.ProcessConnection{connection},
+		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	result := make(chan market.AuthorizationSession, 1)
@@ -177,7 +177,7 @@ func TestManagedCredentialAuthorizationReturnsDeviceCodeFromBroker(t *testing.T)
 		result <- session
 		resultErr <- err
 	}()
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://github.com/login/device","code":"ABCD-EFGH"}` + "\n")}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://github.com/login/device","code":"ABCD-EFGH"}` + "\n")}
 
 	if err := <-resultErr; err != nil {
 		t.Fatal(err)
@@ -191,10 +191,10 @@ func TestManagedCredentialAuthorizationReturnsDeviceCodeFromBroker(t *testing.T)
 func TestManagedCredentialAuthorizationDisconnectUsesBrokerProtocol(t *testing.T) {
 	exitCode := 0
 	connection := newCredentialBrokerConnection()
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"disconnected"}` + "\n"), ExitCode: &exitCode}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"disconnected"}` + "\n"), ExitCode: &exitCode}
 	host := &credentialAuthorizationHostStub{
 		route:       &connectorRoute{id: "default\x00lark-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{timeout: 5 * time.Minute}},
-		connections: []agentruntime.ProcessConnection{connection},
+		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	err := provider.Disconnect(context.Background(), market.AuthorizationDisconnectRequest{Connector: market.Connector{Key: "lark-cli"}})
@@ -213,11 +213,11 @@ func TestManagedCredentialAuthorizationDisconnectUsesBrokerProtocol(t *testing.T
 func TestManagedCredentialAuthorizationInspectReturnsFencedObservation(t *testing.T) {
 	exitCode := 0
 	connection := newCredentialBrokerConnection()
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"expired","code":"token_expired","message":"login expired"}` + "\n"), ExitCode: &exitCode}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"expired","code":"token_expired","message":"login expired"}` + "\n"), ExitCode: &exitCode}
 	host := &credentialAuthorizationHostStub{
 		route: &connectorRoute{id: "account-1\x00lark-cli", connectorKey: "lark-cli", connectionID: "account-1",
 			releaseDigest: strings.Repeat("a", 64), credentialBrokerLaunch: &managedCredentialBrokerLaunch{timeout: 5 * time.Minute}},
-		connections: []agentruntime.ProcessConnection{connection},
+		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	connector := market.Connector{Key: "lark-cli", Release: market.Release{ReleaseDigest: strings.Repeat("a", 64)}}
@@ -318,7 +318,7 @@ func TestManagedCredentialAuthorizationSharesOneBrokerAcrossConcurrentBegins(t *
 		route: &connectorRoute{id: "default\x00example", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
 			timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
 		}},
-		connections: []agentruntime.ProcessConnection{connection},
+		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	results := make(chan market.AuthorizationSession, 2)
@@ -332,7 +332,7 @@ func TestManagedCredentialAuthorizationSharesOneBrokerAcrossConcurrentBegins(t *
 			errors <- err
 		}()
 	}
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com/device"}` + "\n")}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com/device"}` + "\n")}
 	for index := 0; index < 2; index++ {
 		if err := <-errors; err != nil {
 			t.Fatal(err)
@@ -353,7 +353,7 @@ func TestManagedCredentialAuthorizationRestartsFailedBrokerOnFirstRetry(t *testi
 		timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
 	}}
 	host := &credentialAuthorizationHostStub{
-		route: route, connections: []agentruntime.ProcessConnection{failedConnection, retryConnection},
+		route: route, connections: []connectorprocess.Connection{failedConnection, retryConnection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	firstRequest := market.AuthorizationStartRequest{OperationID: "authorize-first", Connector: market.Connector{Key: "example"}}
@@ -364,7 +364,7 @@ func TestManagedCredentialAuthorizationRestartsFailedBrokerOnFirstRetry(t *testi
 		firstResult <- session
 		firstError <- err
 	}()
-	failedConnection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com/first"}` + "\n")}
+	failedConnection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com/first"}` + "\n")}
 	if err := <-firstError; err != nil {
 		t.Fatal(err)
 	}
@@ -372,10 +372,10 @@ func TestManagedCredentialAuthorizationRestartsFailedBrokerOnFirstRetry(t *testi
 		t.Fatalf("first authorization session = %#v", result)
 	}
 	exitCode := 1
-	failedConnection.frames <- agentruntime.ProcessFrame{Stderr: []byte("broker failed"), ExitCode: &exitCode}
+	failedConnection.frames <- connectorprocess.Frame{Stderr: []byte("broker failed"), ExitCode: &exitCode}
 	awaitCachedAuthorizationFailure(t, provider, firstRequest.OperationID)
 
-	retryConnection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com/retry"}` + "\n")}
+	retryConnection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com/retry"}` + "\n")}
 	retry, err := provider.Begin(context.Background(), market.AuthorizationStartRequest{
 		OperationID: "authorize-retry", Connector: market.Connector{Key: "example"},
 	})
@@ -395,7 +395,7 @@ func TestManagedCredentialAuthorizationCancelWaitsForBrokerExit(t *testing.T) {
 	route := &connectorRoute{id: "default\x00dingtalk-cli", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
 		timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"login.dingtalk.com": {}},
 	}}
-	host := &credentialAuthorizationHostStub{route: route, connections: []agentruntime.ProcessConnection{connection}}
+	host := &credentialAuthorizationHostStub{route: route, connections: []connectorprocess.Connection{connection}}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	request := market.AuthorizationStartRequest{OperationID: "authorize-a", Connector: market.Connector{Key: "dingtalk-cli"}}
 	beginDone := make(chan error, 1)
@@ -403,7 +403,7 @@ func TestManagedCredentialAuthorizationCancelWaitsForBrokerExit(t *testing.T) {
 		_, err := provider.Begin(context.Background(), request)
 		beginDone <- err
 	}()
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://login.dingtalk.com/oauth"}` + "\n")}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://login.dingtalk.com/oauth"}` + "\n")}
 	if err := <-beginDone; err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestManagedCredentialAuthorizationRejectsUntrustedURL(t *testing.T) {
 		route: &connectorRoute{id: "default\x00example", credentialBrokerLaunch: &managedCredentialBrokerLaunch{
 			timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.example.com": {}},
 		}},
-		connections: []agentruntime.ProcessConnection{connection},
+		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
 	result := make(chan error, 1)
@@ -474,7 +474,7 @@ func TestManagedCredentialAuthorizationRejectsUntrustedURL(t *testing.T) {
 		})
 		result <- err
 	}()
-	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com.attacker.test/login"}` + "\n")}
+	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com.attacker.test/login"}` + "\n")}
 	if err := <-result; err == nil {
 		t.Fatal("untrusted authorization URL was accepted")
 	}

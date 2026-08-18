@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,9 @@ type activationGateDelegate struct {
 	deactivations           int
 	failClosed              int
 	lastReconcile           market.RuntimeReconcileRequest
+	physicalMu              sync.Mutex
+	physicalRevision        uint64
+	physicalRoute           *market.PhysicalRoute
 }
 
 func (delegate *activationGateDelegate) InspectReleaseInstallation(
@@ -52,6 +56,17 @@ func (delegate *activationGateDelegate) Reconcile(_ context.Context, request mar
 		delegate.reconcileFailures--
 		return market.RuntimeReceipt{}, errors.New("simulated runtime reconcile failure")
 	}
+	delegate.physicalMu.Lock()
+	delegate.physicalRevision++
+	if request.Enabled {
+		route := market.PhysicalRoute{ConnectorKey: request.Connector.Key, ConnectionID: request.ConnectionID,
+			ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
+			State: market.PhysicalRouteStateReady}
+		delegate.physicalRoute = &route
+	} else {
+		delegate.physicalRoute = nil
+	}
+	delegate.physicalMu.Unlock()
 	return market.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
 		Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady,
@@ -84,11 +99,41 @@ func (connectedAuthorizationObserver) Observe(_ context.Context, request market.
 }
 func (delegate *activationGateDelegate) DeactivateRuntime(context.Context, market.RuntimeDeactivationRequest) error {
 	delegate.deactivations++
+	delegate.physicalMu.Lock()
+	delegate.physicalRevision++
+	delegate.physicalRoute = nil
+	delegate.physicalMu.Unlock()
 	return nil
 }
 func (delegate *activationGateDelegate) FailClosed(context.Context, time.Time) error {
 	delegate.failClosed++
+	delegate.physicalMu.Lock()
+	delegate.physicalRevision++
+	delegate.physicalRoute = nil
+	delegate.physicalMu.Unlock()
 	return nil
+}
+
+func (delegate *activationGateDelegate) Snapshot(context.Context) (market.PhysicalRouteSnapshot, error) {
+	delegate.physicalMu.Lock()
+	defer delegate.physicalMu.Unlock()
+	snapshot := market.PhysicalRouteSnapshot{Revision: delegate.physicalRevision}
+	if delegate.physicalRoute != nil {
+		snapshot.Routes = []market.PhysicalRoute{*delegate.physicalRoute}
+	}
+	return snapshot, nil
+}
+
+func (delegate *activationGateDelegate) Watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+	delegate.physicalMu.Lock()
+	revision := delegate.physicalRevision
+	delegate.physicalMu.Unlock()
+	events := make(chan market.PhysicalRouteEvent)
+	go func() {
+		<-ctx.Done()
+		close(events)
+	}()
+	return market.PhysicalRouteWatch{Revision: revision, Events: events}, nil
 }
 
 func TestActivationGateStagesRecoveryUntilInitialCatalogRefresh(t *testing.T) {
@@ -250,7 +295,7 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 		}
 		return market.RuntimeBinding{ConnectionID: connectionID, Enabled: true}, nil
 	})
-	host, err := NewHost(ctx, HostConfig{
+	host, err := NewHost(HostConfig{
 		Repository:             store,
 		CatalogSource:          source,
 		ReleaseInstallations:   runtime,
@@ -267,8 +312,17 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	host.refreshWorkerStarted = true
-	t.Cleanup(host.Close)
+	host.catalogRefreshInitialDelay = time.Hour
+	if err := host.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := host.Close(closeCtx); err != nil {
+			t.Errorf("close connector host: %v", err)
+		}
+	})
 
 	if err := host.Bootstrap(ctx); err != nil {
 		t.Fatalf("partial bootstrap failed: %v", err)
@@ -482,7 +536,6 @@ func hostTestRelease() market.Release {
 				}},
 		},
 		Artifact: market.Artifact{
-			Key:       "connectors/github/1.0.0.tgz",
 			SHA256:    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			SizeBytes: 1024,
 			MediaType: "application/vnd.tutti.connector+tar+gzip",

@@ -25,10 +25,20 @@ type OperationScheduler struct {
 var _ market.OperationScheduler = (*OperationScheduler)(nil)
 
 func NewOperationScheduler(ctx context.Context) *OperationScheduler {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	return &OperationScheduler{ctx: ctx, active: make(map[string]struct{})}
+}
+
+func (scheduler *OperationScheduler) Start(ctx context.Context) error {
+	if scheduler == nil || ctx == nil {
+		return errors.New("connector market operation scheduler context is required")
+	}
+	scheduler.mu.Lock()
+	defer scheduler.mu.Unlock()
+	if scheduler.ctx != nil {
+		return errors.New("connector market operation scheduler is already started")
+	}
+	scheduler.ctx = ctx
+	return nil
 }
 
 func (scheduler *OperationScheduler) Bind(executor OperationExecutor) error {
@@ -49,6 +59,10 @@ func (scheduler *OperationScheduler) Schedule(_ context.Context, operationID str
 	if scheduler.executor == nil {
 		scheduler.mu.Unlock()
 		return errors.New("connector market operation executor is not bound")
+	}
+	if scheduler.ctx == nil {
+		scheduler.mu.Unlock()
+		return errors.New("connector market operation scheduler is not started")
 	}
 	if _, running := scheduler.active[operationID]; running {
 		scheduler.mu.Unlock()
