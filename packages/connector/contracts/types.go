@@ -534,6 +534,19 @@ type RuntimeConvergence struct {
 	UpdatedAt      time.Time       `json:"updatedAt"`
 }
 
+// RuntimeRetryHealth is the stable, per-Connector health projection of one
+// durable runtime convergence row. It deliberately excludes the persisted raw
+// error text: health consumers only receive a bounded error code.
+type RuntimeRetryHealth struct {
+	ConnectorKey        string    `json:"connectorKey"`
+	LastSuccess         time.Time `json:"lastSuccess,omitempty"`
+	ConsecutiveFailures uint32    `json:"consecutiveFailures"`
+	BackoffUntil        time.Time `json:"backoffUntil,omitempty"`
+	FailureBudget       uint32    `json:"failureBudget"`
+	Exhausted           bool      `json:"exhausted"`
+	FailureCode         ErrorCode `json:"failureCode,omitempty"`
+}
+
 type AuthorizationSession struct {
 	OperationID                 string                         `json:"operationId"`
 	ConnectorKey                string                         `json:"connectorKey"`

@@ -2497,7 +2497,15 @@ test("shared tuttid client preserves connector market read and install routes", 
     )
   );
 
-  assert.deepEqual(await client.getConnectorMarket(), snapshot);
+  assert.deepEqual(await client.getConnectorMarket(), {
+    catalogFreshness: {
+      state: "fresh",
+      sourceRevision: "sha256:catalog"
+    },
+    connectors: [],
+    operations: [],
+    revision: 7
+  });
   assert.deepEqual(
     await client.installConnectorMarketConnector("notion", {
       clientRequestId: "request-1",
@@ -2524,6 +2532,214 @@ test("shared tuttid client preserves connector market read and install routes", 
     path: "/v1/connector-market/connectors/notion:install",
     query: {}
   });
+});
+
+test("shared tuttid connector client canonicalizes every connector response", async () => {
+  const legacyConnector = {
+    key: "notion",
+    release: {
+      schemaVersion: "1",
+      releaseId: "release-1",
+      connectorKey: "notion",
+      version: "1.0.0",
+      releaseDigest: "sha256:release",
+      manifestDigest: "sha256:manifest",
+      manifest: {
+        schemaVersion: "1",
+        displayName: "Notion",
+        iconUrl: "data:image/png;base64,aWNvbg==",
+        permissions: [],
+        implementation: { kind: "managed_stdio" },
+        authorizationKind: "oauth2"
+      },
+      artifact: {
+        key: "legacy-key",
+        sha256: "a".repeat(64),
+        sizeBytes: 1,
+        mediaType: "application/zip"
+      },
+      publishedAt: "2026-08-03T00:00:00Z",
+      status: "available"
+    },
+    installation: {
+      state: "installed",
+      installedVersion: "1.0.0",
+      installedReleaseId: "release-1",
+      installedReleaseDigest: "sha256:release"
+    },
+    authorization: { state: "connected" },
+    compatibility: { state: "supported" },
+    revision: 4
+  };
+  const operation = {
+    operationId: "operation-1",
+    clientRequestId: "request-1",
+    connectorKey: "notion",
+    kind: "install",
+    state: "accepted",
+    attempt: 0,
+    createdAt: "2026-08-03T00:00:00Z",
+    updatedAt: "2026-08-03T00:00:00Z"
+  };
+  const { client } = captureClient((request) => {
+    if (request.method === "POST") {
+      return jsonResponse(
+        {
+          outcome: "accepted",
+          connector: legacyConnector,
+          operation,
+          revision: 8
+        },
+        202
+      );
+    }
+    if (request.path === "/v1/connector-market/catalog") {
+      return jsonResponse({
+        sectionId: "all",
+        items: [
+          { categoryId: "all", featured: false, connector: legacyConnector }
+        ],
+        revision: 7
+      });
+    }
+    if (request.path === "/v1/connector-market/connectors/notion") {
+      return jsonResponse(legacyConnector);
+    }
+    return jsonResponse({
+      catalogState: "ready",
+      sourceRevision: "server-7",
+      connectors: [legacyConnector],
+      operations: [],
+      revision: 7,
+      eventCursor: 3
+    });
+  });
+
+  const snapshot = await client.getConnectorMarket();
+  const page = await client.listConnectorMarketCatalog({ sectionId: "all" });
+  const connector = await client.getConnectorMarketConnector("notion");
+  const mutation = await client.installConnectorMarketConnector("notion", {
+    clientRequestId: "request-1",
+    expectedRevision: 7,
+    expectedConnectorRevision: 4
+  });
+  for (const presentation of [
+    snapshot.connectors[0]!.presentation,
+    page.items[0]!.connector.presentation,
+    connector.presentation,
+    mutation.connector!.presentation
+  ]) {
+    assert.deepEqual(presentation, {
+      state: "unsupported",
+      reasonCode: "legacy_runtime_observation_missing",
+      allowedActions: ["details", "remove_selection"]
+    });
+  }
+  assert.deepEqual(snapshot.catalogFreshness, {
+    state: "fresh",
+    sourceRevision: "server-7"
+  });
+  assert.equal("catalogState" in snapshot, false);
+  assert.equal("sourceRevision" in snapshot, false);
+});
+
+test("shared tuttid connector client fails closed on unknown presentation state or action", async () => {
+  const connector = {
+    key: "notion",
+    release: {
+      schemaVersion: "1",
+      releaseId: "release-1",
+      connectorKey: "notion",
+      version: "1.0.0",
+      releaseDigest: "sha256:release",
+      manifestDigest: "sha256:manifest",
+      manifest: {
+        schemaVersion: "1",
+        displayName: "Notion",
+        iconUrl: "data:image/png;base64,aWNvbg==",
+        permissions: [],
+        implementation: { kind: "managed_stdio" },
+        authorizationKind: "none"
+      },
+      artifact: {
+        key: "legacy-key",
+        sha256: "a".repeat(64),
+        sizeBytes: 1,
+        mediaType: "application/zip"
+      },
+      publishedAt: "2026-08-03T00:00:00Z",
+      status: "available"
+    },
+    installation: { state: "installed" },
+    authorization: { state: "not_required" },
+    compatibility: { state: "supported" },
+    presentation: {
+      state: "connected",
+      allowedActions: ["details", "select", "future_action"]
+    },
+    revision: 4
+  };
+  const operation = {
+    operationId: "operation-1",
+    clientRequestId: "request-1",
+    connectorKey: "notion",
+    kind: "install",
+    state: "accepted",
+    attempt: 0,
+    createdAt: "2026-08-03T00:00:00Z",
+    updatedAt: "2026-08-03T00:00:00Z"
+  };
+  const { client } = captureClient((request) => {
+    if (request.method === "POST") {
+      return jsonResponse(
+        {
+          outcome: "accepted",
+          connector,
+          operation,
+          revision: 8
+        },
+        202
+      );
+    }
+    if (request.path === "/v1/connector-market/catalog") {
+      return jsonResponse({
+        sectionId: "all",
+        items: [{ categoryId: "all", featured: false, connector }],
+        revision: 7
+      });
+    }
+    return jsonResponse(connector);
+  });
+  const expected = {
+    state: "unsupported",
+    reasonCode: "unsupported_connector_presentation",
+    allowedActions: ["details", "remove_selection"]
+  };
+  const page = await client.listConnectorMarketCatalog({ sectionId: "all" });
+  const detail = await client.getConnectorMarketConnector("notion");
+  const mutation = await client.installConnectorMarketConnector("notion", {
+    clientRequestId: "request-1",
+    expectedRevision: 7,
+    expectedConnectorRevision: 4
+  });
+  assert.deepEqual(page.items[0]!.connector.presentation, expected);
+  assert.deepEqual(detail.presentation, expected);
+  assert.deepEqual(mutation.connector!.presentation, expected);
+
+  const { client: futureStateClient } = captureClient(
+    jsonResponse({
+      ...connector,
+      presentation: {
+        state: "future_state",
+        allowedActions: []
+      }
+    })
+  );
+  assert.deepEqual(
+    (await futureStateClient.getConnectorMarketConnector("notion"))
+      .presentation,
+    expected
+  );
 });
 
 test("shared tuttid connector client fences one pending authorization attempt", async () => {

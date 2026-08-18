@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -67,7 +68,8 @@ func (group *workerGroup) Go(name string, run func(context.Context)) error {
 	group.health[name] = WorkerHealth{Name: name, Status: WorkerStatusRunning, StartedAt: time.Now().UTC()}
 	group.wait.Add(1)
 	go func() {
-		run(group.ctx)
+		reporter := workerHealthReporter{group: group, name: name}
+		run(context.WithValue(group.ctx, workerHealthReporterContextKey{}, reporter))
 		group.mu.Lock()
 		unexpected := !group.stopping
 		if unexpected {
@@ -76,6 +78,10 @@ func (group *workerGroup) Go(name string, run func(context.Context)) error {
 			health.Status = WorkerStatusFailed
 			health.ExitedAt = time.Now().UTC()
 			health.LastFailureAt = health.ExitedAt
+			if health.ConsecutiveFailures < math.MaxUint32 {
+				health.ConsecutiveFailures++
+			}
+			health.BackoffUntil = time.Time{}
 			health.FailureCode = "unexpected_exit"
 			group.health[name] = health
 		} else {
@@ -122,12 +128,98 @@ const (
 )
 
 type WorkerHealth struct {
-	Name          string
-	Status        WorkerStatus
-	StartedAt     time.Time
-	ExitedAt      time.Time
-	LastFailureAt time.Time
-	FailureCode   string
+	Name        string
+	Status      WorkerStatus
+	StartedAt   time.Time
+	ExitedAt    time.Time
+	LastSuccess time.Time
+	// LastFailureAt and FailureCode retain the most recent historical failure
+	// after recovery; ConsecutiveFailures and BackoffUntil describe current debt.
+	LastFailureAt       time.Time
+	ConsecutiveFailures uint32
+	BackoffUntil        time.Time
+	FailureBudget       *uint32
+	Exhausted           bool
+	FailureCode         string
+}
+
+type workerHealthReporterContextKey struct{}
+
+type workerHealthReporter struct {
+	group *workerGroup
+	name  string
+}
+
+func workerReporter(ctx context.Context) workerHealthReporter {
+	if ctx == nil {
+		return workerHealthReporter{}
+	}
+	reporter, _ := ctx.Value(workerHealthReporterContextKey{}).(workerHealthReporter)
+	return reporter
+}
+
+func (reporter workerHealthReporter) Success(at time.Time) {
+	if reporter.group == nil || reporter.name == "" {
+		return
+	}
+	reporter.group.mu.Lock()
+	defer reporter.group.mu.Unlock()
+	health, ok := reporter.group.health[reporter.name]
+	if !ok {
+		return
+	}
+	health.LastSuccess = at.UTC()
+	health.ConsecutiveFailures = 0
+	health.BackoffUntil = time.Time{}
+	health.FailureBudget = nil
+	health.Exhausted = false
+	reporter.group.health[reporter.name] = health
+}
+
+func (reporter workerHealthReporter) Failure(at time.Time, code string, backoffUntil time.Time, failureBudget *uint32) {
+	if reporter.group == nil || reporter.name == "" {
+		return
+	}
+	reporter.group.mu.Lock()
+	defer reporter.group.mu.Unlock()
+	health, ok := reporter.group.health[reporter.name]
+	if !ok {
+		return
+	}
+	health.LastFailureAt = at.UTC()
+	if health.ConsecutiveFailures < math.MaxUint32 {
+		health.ConsecutiveFailures++
+	}
+	health.BackoffUntil = backoffUntil.UTC()
+	health.FailureCode = code
+	health.FailureBudget = cloneFailureBudget(failureBudget)
+	health.Exhausted = failureBudget != nil && health.ConsecutiveFailures >= *failureBudget
+	reporter.group.health[reporter.name] = health
+}
+
+func (reporter workerHealthReporter) Reset() {
+	if reporter.group == nil || reporter.name == "" {
+		return
+	}
+	reporter.group.mu.Lock()
+	defer reporter.group.mu.Unlock()
+	health, ok := reporter.group.health[reporter.name]
+	if !ok {
+		return
+	}
+	health.ConsecutiveFailures = 0
+	health.BackoffUntil = time.Time{}
+	health.FailureBudget = nil
+	health.Exhausted = false
+	reporter.group.health[reporter.name] = health
+}
+
+func cloneFailureBudget(value *uint32) *uint32 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func (group *workerGroup) healthSnapshot() []WorkerHealth {
@@ -138,6 +230,7 @@ func (group *workerGroup) healthSnapshot() []WorkerHealth {
 	defer group.mu.Unlock()
 	result := make([]WorkerHealth, 0, len(group.health))
 	for _, health := range group.health {
+		health.FailureBudget = cloneFailureBudget(health.FailureBudget)
 		result = append(result, health)
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].Name < result[right].Name })

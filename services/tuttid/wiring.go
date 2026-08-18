@@ -428,7 +428,6 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			service.ConnectorMarketPolicy = connectorMarketHost.AgentPolicy()
 			service.ConnectorMarketCurrentScope = connectorMarketScope
 		}
-		api.ConnectorStateQueries = connectorMarketHost.StateQueries()
 		api.ConnectorCatalogQueries = connectorMarketHost.CatalogQueries()
 		api.ConnectorCatalogCommands = connectorMarketHost.CatalogCommands()
 		api.ConnectorInstallationCommands = connectorMarketHost.InstallationCommands()

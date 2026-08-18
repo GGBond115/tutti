@@ -38,6 +38,11 @@ export {
   ConnectorMarketClientError,
   createConnectorMarketClient,
   isConnectorMarketClientError,
+  type ConnectorMarketCanonicalAuthorizationResponse,
+  type ConnectorMarketCanonicalCatalogPage,
+  type ConnectorMarketCanonicalConnector,
+  type ConnectorMarketCanonicalMutationResponse,
+  type ConnectorMarketCanonicalSnapshot,
   type ConnectorMarketClient,
 } from "./connectorMarketClient.ts";
 export type { ConnectorMarketChangedEventV1 } from "@tutti-os/event-protocol";

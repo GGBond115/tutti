@@ -369,6 +369,11 @@ func (application *service) ListCatalogPageViewForScope(
 	if err != nil {
 		return contracts.CatalogPageView{}, err
 	}
+	if view.Revision != page.Revision {
+		return contracts.CatalogPageView{}, contracts.NewDomainError(
+			contracts.ErrorCodeRevisionConflict, "connector catalog changed during presentation", false, nil,
+		)
+	}
 	inputs, err := application.connectorPresentationInputs(ctx, scope, view.Freshness, connectors)
 	if err != nil {
 		return contracts.CatalogPageView{}, err

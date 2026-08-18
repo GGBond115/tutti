@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/tutti-os/tutti/packages/connector/application"
@@ -246,6 +247,7 @@ func (host *Host) runAuthorizationEventWorker(ctx context.Context) {
 		scope := host.bootstrapScope
 		host.bootstrapMu.Unlock()
 		if strings.TrimSpace(scope.AccountID) == "" {
+			workerReporter(ctx).Reset()
 			select {
 			case <-ctx.Done():
 				return
@@ -255,8 +257,13 @@ func (host *Host) runAuthorizationEventWorker(ctx context.Context) {
 		}
 		attemptCtx, cancel := context.WithCancel(ctx)
 		result := make(chan error, 1)
+		var sawEvent atomic.Bool
 		go func(accountID string) {
-			result <- host.authorizationEvents.RunAuthorizationEvents(attemptCtx, accountID, host.NotifyAuthorizationChanged)
+			result <- host.authorizationEvents.RunAuthorizationEvents(attemptCtx, accountID, func() {
+				sawEvent.Store(true)
+				reportWorkerSuccess(ctx)
+				host.NotifyAuthorizationChanged()
+			})
 		}(scope.AccountID)
 		select {
 		case <-ctx.Done():
@@ -267,6 +274,7 @@ func (host *Host) runAuthorizationEventWorker(ctx context.Context) {
 			cancel()
 			<-result
 			retry = time.Second
+			workerReporter(ctx).Reset()
 			continue
 		case err := <-result:
 			cancel()
@@ -274,6 +282,13 @@ func (host *Host) runAuthorizationEventWorker(ctx context.Context) {
 				slog.Warn("connector authorization realtime listener failed", "error", err)
 			}
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		if sawEvent.Load() {
+			retry = time.Second
+		}
+		reportWorkerFailure(ctx, workerFailureAuthorizationEvents, retry)
 		timer := time.NewTimer(retry)
 		select {
 		case <-ctx.Done():
@@ -282,10 +297,9 @@ func (host *Host) runAuthorizationEventWorker(ctx context.Context) {
 		case <-host.authorizationScopeWake:
 			timer.Stop()
 			retry = time.Second
+			workerReporter(ctx).Reset()
 		case <-timer.C:
-			if retry < time.Minute {
-				retry *= 2
-			}
+			retry = nextBoundedRetry(retry, time.Minute)
 		}
 	}
 }

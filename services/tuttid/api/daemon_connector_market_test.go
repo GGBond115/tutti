@@ -20,6 +20,7 @@ type stubConnectorMarketService struct {
 	snapshotFn   func(context.Context) (contracts.Snapshot, error)
 	categoriesFn func(context.Context) ([]contracts.CatalogCategory, error)
 	pageFn       func(context.Context, contracts.CatalogPageQuery) (contracts.CatalogPage, error)
+	connectorFn  func(context.Context, contracts.OperationScope, string) (contracts.Connector, error)
 	installFn    func(context.Context, contracts.ConnectorMutation) contracts.CommandResult
 	uninstallFn  func(context.Context, contracts.ConnectorMutation) contracts.CommandResult
 	refreshFn    func(context.Context, contracts.Mutation) contracts.CommandResult
@@ -31,7 +32,6 @@ type stubConnectorMarketService struct {
 
 func connectorMarketTestAPI(service stubConnectorMarketService) DaemonAPI {
 	return DaemonAPI{
-		ConnectorStateQueries:          service,
 		ConnectorCatalogQueries:        service,
 		ConnectorCatalogCommands:       service,
 		ConnectorInstallationCommands:  service,
@@ -90,6 +90,21 @@ func (service stubConnectorMarketService) SnapshotForScope(ctx context.Context, 
 	return snapshot, nil
 }
 
+func (service stubConnectorMarketService) SnapshotViewForScope(ctx context.Context, scope contracts.OperationScope) (contracts.SnapshotView, error) {
+	snapshot, err := service.SnapshotForScope(ctx, scope)
+	if err != nil {
+		return contracts.SnapshotView{}, err
+	}
+	result := contracts.SnapshotView{
+		CatalogFreshness: snapshot.CatalogFreshness, Operations: snapshot.Operations,
+		Revision: snapshot.Revision, EventCursor: snapshot.EventCursor,
+	}
+	for _, connector := range snapshot.Connectors {
+		result.Connectors = append(result.Connectors, connectorMarketTestView(connector))
+	}
+	return result, nil
+}
+
 func (service stubConnectorMarketService) Install(ctx context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
 	return service.installFn(ctx, mutation)
 }
@@ -116,6 +131,55 @@ func (service stubConnectorMarketService) ListCatalogCategories(ctx context.Cont
 
 func (service stubConnectorMarketService) ListCatalogPageForScope(ctx context.Context, _ contracts.OperationScope, query contracts.CatalogPageQuery) (contracts.CatalogPage, error) {
 	return service.pageFn(ctx, query)
+}
+
+func (service stubConnectorMarketService) GetConnectorForScope(ctx context.Context, scope contracts.OperationScope, connectorKey string) (contracts.Connector, error) {
+	if service.connectorFn == nil {
+		return contracts.Connector{}, contracts.ErrNotFound
+	}
+	return service.connectorFn(ctx, scope, connectorKey)
+}
+
+func (service stubConnectorMarketService) ListCatalogPageViewForScope(ctx context.Context, scope contracts.OperationScope, query contracts.CatalogPageQuery) (contracts.CatalogPageView, error) {
+	page, err := service.ListCatalogPageForScope(ctx, scope, query)
+	if err != nil {
+		return contracts.CatalogPageView{}, err
+	}
+	result := contracts.CatalogPageView{
+		SectionID: page.SectionID, NextPageToken: page.NextPageToken, Revision: page.Revision,
+	}
+	for _, item := range page.Items {
+		result.Items = append(result.Items, contracts.CatalogListingView{
+			CategoryID: item.CategoryID, Featured: item.Featured, Connector: connectorMarketTestView(item.Connector),
+		})
+	}
+	return result, nil
+}
+
+func (service stubConnectorMarketService) GetConnectorViewForScope(ctx context.Context, scope contracts.OperationScope, connectorKey string) (contracts.ConnectorView, error) {
+	connector, err := service.GetConnectorForScope(ctx, scope, connectorKey)
+	if err != nil {
+		return contracts.ConnectorView{}, err
+	}
+	return connectorMarketTestView(connector), nil
+}
+
+func (service stubConnectorMarketService) PresentConnectorForScope(_ context.Context, _ contracts.OperationScope, connector contracts.Connector) (contracts.ConnectorView, error) {
+	return connectorMarketTestView(connector), nil
+}
+
+func connectorMarketTestView(connector contracts.Connector) contracts.ConnectorView {
+	state := contracts.ConnectorStateSetupRequired
+	reason := "connector_not_installed"
+	actions := []contracts.ConnectorAction{contracts.ConnectorActionDetails, contracts.ConnectorActionRemoveSelection, contracts.ConnectorActionInstall}
+	if connector.Installation.State == contracts.InstallationStateInstalled {
+		state = contracts.ConnectorStateUnsupported
+		reason = "test_runtime_observation_missing"
+		actions = []contracts.ConnectorAction{contracts.ConnectorActionDetails, contracts.ConnectorActionRemoveSelection}
+	}
+	return contracts.ConnectorView{Connector: connector, Presentation: contracts.ConnectorPresentation{
+		State: state, ReasonCode: reason, AllowedActions: actions,
+	}}
 }
 
 func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T) {
@@ -151,6 +215,10 @@ func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T)
 	}
 	connectors := raw["connectors"].([]any)
 	connector := connectors[0].(map[string]any)
+	presentation := connector["presentation"].(map[string]any)
+	if presentation["state"] != string(contracts.ConnectorStateSetupRequired) {
+		t.Fatalf("presentation = %#v", presentation)
+	}
 	release := connector["release"].(map[string]any)
 	manifest := release["manifest"].(map[string]any)
 	implementation := manifest["implementation"].(map[string]any)
@@ -167,6 +235,62 @@ func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T)
 	aliases := routing["aliases"].([]any)
 	if len(aliases) != 2 || aliases[0] != "Notion" || aliases[1] != "Notion AI" {
 		t.Fatalf("public agent routing aliases = %#v", aliases)
+	}
+}
+
+func TestDaemonAPIConnectorMarketEmitsPresentationOnPageGetAndCommandConnector(t *testing.T) {
+	connector := connectorMarketTestConnector()
+	service := stubConnectorMarketService{
+		pageFn: func(context.Context, contracts.CatalogPageQuery) (contracts.CatalogPage, error) {
+			return contracts.CatalogPage{
+				SectionID: "all", Items: []contracts.CatalogListing{{CategoryID: "all", Connector: connector}}, Revision: 7,
+			}, nil
+		},
+		connectorFn: func(_ context.Context, _ contracts.OperationScope, key string) (contracts.Connector, error) {
+			if key != connector.Key {
+				return contracts.Connector{}, contracts.ErrNotFound
+			}
+			return connector, nil
+		},
+		installFn: func(_ context.Context, mutation contracts.ConnectorMutation) contracts.CommandResult {
+			operation := contracts.Operation{
+				OperationID: "operation-1", ClientRequestID: mutation.ClientRequestID, ConnectorKey: connector.Key,
+				Kind: contracts.OperationKindInstall, State: contracts.OperationStateAccepted,
+				CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			}
+			return contracts.CommandResult{
+				Outcome: contracts.CommandAccepted, Revision: 8, Connector: &connector, Operation: &operation,
+			}
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(connectorMarketTestAPI(service)))
+
+	requests := []struct {
+		method string
+		path   string
+		body   any
+		pluck  func(map[string]any) map[string]any
+	}{
+		{method: http.MethodGet, path: "/v1/connector-market/catalog?sectionId=all", pluck: func(body map[string]any) map[string]any {
+			return body["items"].([]any)[0].(map[string]any)["connector"].(map[string]any)
+		}},
+		{method: http.MethodGet, path: "/v1/connector-market/connectors/notion", pluck: func(body map[string]any) map[string]any { return body }},
+		{method: http.MethodPost, path: "/v1/connector-market/connectors/notion:install", body: map[string]any{
+			"clientRequestId": "request-1", "expectedRevision": 7,
+		}, pluck: func(body map[string]any) map[string]any { return body["connector"].(map[string]any) }},
+	}
+	for _, request := range requests {
+		recorder := performGeneratedRouteRequest(t, mux, request.method, request.path, request.body)
+		if recorder.Code != http.StatusOK && recorder.Code != http.StatusAccepted {
+			t.Fatalf("%s %s status = %d; body: %s", request.method, request.path, recorder.Code, recorder.Body.String())
+		}
+		var body map[string]any
+		decodeGeneratedRouteResponse(t, recorder, &body)
+		presentation, ok := request.pluck(body)["presentation"].(map[string]any)
+		if !ok || presentation["state"] != string(contracts.ConnectorStateSetupRequired) {
+			t.Fatalf("%s %s presentation = %#v", request.method, request.path, presentation)
+		}
 	}
 }
 

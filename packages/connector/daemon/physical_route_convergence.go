@@ -45,13 +45,13 @@ func (host *Host) runPhysicalRouteWatchWorker(ctx context.Context) {
 			} else {
 				slog.Warn("connector physical route watch returned no event stream")
 			}
+			reportWorkerFailure(ctx, workerFailureRuntimeRouteWatch, retry)
 			if !waitPhysicalRouteWatchRetry(ctx, retry) {
 				return
 			}
 			retry = nextPhysicalRouteWatchRetry(retry)
 			continue
 		}
-		retry = time.Second
 		expectedRevision := watch.Revision
 		watchFailed := false
 		for {
@@ -68,6 +68,8 @@ func (host *Host) runPhysicalRouteWatchWorker(ctx context.Context) {
 				} else {
 					expectedRevision = event.Revision
 					host.notifyPhysicalRouteChanged()
+					retry = time.Second
+					reportWorkerSuccess(ctx)
 				}
 			}
 			if watchFailed {
@@ -79,6 +81,7 @@ func (host *Host) runPhysicalRouteWatchWorker(ctx context.Context) {
 		// physical state. The convergence worker obtains the fresh Snapshot.
 		host.notifyPhysicalRouteChanged()
 		slog.Warn("connector physical route watch requires snapshot", "revision", expectedRevision)
+		reportWorkerFailure(ctx, workerFailureRuntimeRouteWatch, retry)
 		if !waitPhysicalRouteWatchRetry(ctx, retry) {
 			return
 		}
@@ -87,11 +90,7 @@ func (host *Host) runPhysicalRouteWatchWorker(ctx context.Context) {
 }
 
 func nextPhysicalRouteWatchRetry(current time.Duration) time.Duration {
-	next := current * 2
-	if next > physicalRouteWatchRetryMax {
-		return physicalRouteWatchRetryMax
-	}
-	return next
+	return nextBoundedRetry(current, physicalRouteWatchRetryMax)
 }
 
 func waitPhysicalRouteWatchRetry(ctx context.Context, delay time.Duration) bool {

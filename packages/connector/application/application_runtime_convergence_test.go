@@ -224,6 +224,46 @@ func TestRuntimeConvergenceSnapshotFailsClosedAboveBound(t *testing.T) {
 	}
 }
 
+func TestRuntimeRetryHealthKeepsConnectorFailureBudgetsIndependent(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	scope := contracts.OperationScope{AccountID: "account-1"}
+	lastSuccess := time.Date(2026, 8, 18, 1, 2, 3, 0, time.UTC)
+	backoffUntil := lastSuccess.Add(time.Minute)
+	repository.runtimeConvergences[memoryRuntimeConvergenceKey(scope, "github")] = contracts.RuntimeConvergence{
+		Desired:  contracts.RuntimeDesired{Scope: scope, ConnectorKey: "github", Generation: 1},
+		Observed: contracts.RuntimeObserved{ObservedAt: lastSuccess},
+		Attempt:  2, NextAttemptAt: backoffUntil, LastErrorCode: string(contracts.ErrorCodeInstallFailed),
+	}
+	repository.runtimeConvergences[memoryRuntimeConvergenceKey(scope, "slack")] = contracts.RuntimeConvergence{
+		Desired:  contracts.RuntimeDesired{Scope: scope, ConnectorKey: "slack", Generation: 1},
+		Observed: contracts.RuntimeObserved{ObservedAt: lastSuccess.Add(time.Second)},
+		Attempt:  contracts.RuntimeFailureBudget, NextAttemptAt: backoffUntil.Add(time.Hour), LastErrorCode: "provider leaked detail",
+	}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+
+	health, err := application.RuntimeRetryHealth(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(health) != 2 {
+		t.Fatalf("runtime health rows = %#v, want two independent Connector rows", health)
+	}
+	if health[0].ConnectorKey != "github" || health[0].ConsecutiveFailures != 2 ||
+		health[0].FailureBudget != contracts.RuntimeFailureBudget || health[0].Exhausted ||
+		!health[0].LastSuccess.Equal(lastSuccess) || !health[0].BackoffUntil.Equal(backoffUntil) ||
+		health[0].FailureCode != contracts.ErrorCodeInstallFailed {
+		t.Fatalf("github runtime health = %#v", health[0])
+	}
+	if health[1].ConnectorKey != "slack" || health[1].ConsecutiveFailures != contracts.RuntimeFailureBudget ||
+		!health[1].Exhausted || !health[1].BackoffUntil.IsZero() ||
+		health[1].FailureCode != contracts.ErrorCodeUnavailable {
+		t.Fatalf("slack runtime health = %#v", health[1])
+	}
+	if repository.runtimeConvergencesCalls != 1 || repository.runtimeConvergenceCalls != 0 {
+		t.Fatalf("runtime health batch reads=%d point reads=%d", repository.runtimeConvergencesCalls, repository.runtimeConvergenceCalls)
+	}
+}
+
 func TestUpdateKeepsCurrentReleaseUntilCandidateRuntimeIsObserved(t *testing.T) {
 	connector := testConnector("github")
 	oldRelease := connector.Release

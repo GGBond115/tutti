@@ -73,7 +73,6 @@ type DaemonAPI struct {
 	CLIRegistry                    *cliservice.Registry
 	AnalyticsReporter              reporterservice.Reporter
 	DesktopUpdateAdmissionService  DesktopUpdateAdmissionService
-	ConnectorStateQueries          application.StateQueries
 	ConnectorCatalogQueries        application.CatalogQueries
 	ConnectorCatalogCommands       application.CatalogCommands
 	ConnectorInstallationCommands  application.InstallationCommands

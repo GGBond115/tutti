@@ -88,6 +88,7 @@ type Host struct {
 	shutdownTimeout             time.Duration
 	catalogRefreshInitialDelay  time.Duration
 	catalogRetryJitter          func(time.Duration) time.Duration
+	catalogRetryWait            func(context.Context, time.Duration) bool
 	implementationCommands      application.ImplementationCommands
 	physicalRoutes              application.RouteObservation
 	physicalAntiEntropyInterval time.Duration
@@ -287,6 +288,23 @@ func (host *Host) Health() WorkerHealthSnapshot {
 	return WorkerHealthSnapshot{
 		Lifecycle: state, UnexpectedExits: workers.unexpectedNames(), Workers: workers.healthSnapshot(),
 	}
+}
+
+// RuntimeRetryHealth returns the application-owned, per-Connector durable
+// retry projection for the active scope. It intentionally remains separate
+// from WorkerHealth: independent Connector failure budgets must never be
+// collapsed into the runtime-convergence scanner's process health.
+func (host *Host) RuntimeRetryHealth(ctx context.Context) ([]contracts.RuntimeRetryHealth, error) {
+	if host == nil || host.runtimeMaintenance == nil {
+		return nil, errHostNotRunning
+	}
+	host.bootstrapMu.Lock()
+	bootstrapped, scope := host.bootstrapped, host.bootstrapScope
+	host.bootstrapMu.Unlock()
+	if !bootstrapped {
+		return nil, errHostNotRunning
+	}
+	return host.runtimeMaintenance.RuntimeRetryHealth(ctx, scope)
 }
 
 func (host *Host) handleUnexpectedWorkerExit(name string) {
@@ -675,28 +693,33 @@ func (host *Host) runCatalogRefreshWorker(ctx context.Context) {
 	backoff := time.Minute
 	for {
 		if delay > 0 {
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
+			wait := host.catalogRetryWait
+			if wait == nil {
+				wait = waitPhysicalRouteWatchRetry
+			}
+			if !wait(ctx, delay) {
 				return
-			case <-timer.C:
 			}
 		}
 		refreshContext, cancel := context.WithTimeout(ctx, 45*time.Second)
 		err := host.refreshAndWait(refreshContext)
 		cancel()
-		if err != nil && !errors.Is(err, context.Canceled) {
-			slog.Warn("connector market scheduled refresh failed", "error", err)
-			if backoff < 5*time.Minute {
-				backoff *= 2
-				if backoff > 5*time.Minute {
-					backoff = 5 * time.Minute
-				}
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if !errors.Is(err, context.Canceled) {
+				slog.Warn("connector market scheduled refresh failed", "error", err)
 			}
 			delay = host.catalogRetryDelay(backoff)
+			reportWorkerFailure(ctx, workerFailureCatalogRefresh, delay)
+			backoff = nextBoundedRetry(backoff, 5*time.Minute)
 			continue
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		reportWorkerSuccess(ctx)
 		backoff = time.Minute
 		delay = host.catalogRetryDelay(time.Minute)
 	}

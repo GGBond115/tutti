@@ -1750,6 +1750,93 @@ func (e ConnectorMarketOperationState) Valid() bool {
 	}
 }
 
+// Defines values for ConnectorMarketPresentationAction.
+const (
+	ConnectorMarketPresentationActionAuthorize       ConnectorMarketPresentationAction = "authorize"
+	ConnectorMarketPresentationActionCancel          ConnectorMarketPresentationAction = "cancel"
+	ConnectorMarketPresentationActionDetails         ConnectorMarketPresentationAction = "details"
+	ConnectorMarketPresentationActionDisconnect      ConnectorMarketPresentationAction = "disconnect"
+	ConnectorMarketPresentationActionInstall         ConnectorMarketPresentationAction = "install"
+	ConnectorMarketPresentationActionManage          ConnectorMarketPresentationAction = "manage"
+	ConnectorMarketPresentationActionRemoveSelection ConnectorMarketPresentationAction = "remove_selection"
+	ConnectorMarketPresentationActionRetry           ConnectorMarketPresentationAction = "retry"
+	ConnectorMarketPresentationActionSelect          ConnectorMarketPresentationAction = "select"
+	ConnectorMarketPresentationActionUninstall       ConnectorMarketPresentationAction = "uninstall"
+	ConnectorMarketPresentationActionUpdate          ConnectorMarketPresentationAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the ConnectorMarketPresentationAction enum.
+func (e ConnectorMarketPresentationAction) Valid() bool {
+	switch e {
+	case ConnectorMarketPresentationActionAuthorize:
+		return true
+	case ConnectorMarketPresentationActionCancel:
+		return true
+	case ConnectorMarketPresentationActionDetails:
+		return true
+	case ConnectorMarketPresentationActionDisconnect:
+		return true
+	case ConnectorMarketPresentationActionInstall:
+		return true
+	case ConnectorMarketPresentationActionManage:
+		return true
+	case ConnectorMarketPresentationActionRemoveSelection:
+		return true
+	case ConnectorMarketPresentationActionRetry:
+		return true
+	case ConnectorMarketPresentationActionSelect:
+		return true
+	case ConnectorMarketPresentationActionUninstall:
+		return true
+	case ConnectorMarketPresentationActionUpdate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConnectorMarketPresentationState.
+const (
+	ConnectorMarketPresentationStateAuthorizationRequired ConnectorMarketPresentationState = "authorization_required"
+	ConnectorMarketPresentationStateConnected             ConnectorMarketPresentationState = "connected"
+	ConnectorMarketPresentationStateConnecting            ConnectorMarketPresentationState = "connecting"
+	ConnectorMarketPresentationStateDegraded              ConnectorMarketPresentationState = "degraded"
+	ConnectorMarketPresentationStateDisabled              ConnectorMarketPresentationState = "disabled"
+	ConnectorMarketPresentationStateFailed                ConnectorMarketPresentationState = "failed"
+	ConnectorMarketPresentationStateLoading               ConnectorMarketPresentationState = "loading"
+	ConnectorMarketPresentationStateSetupRequired         ConnectorMarketPresentationState = "setup_required"
+	ConnectorMarketPresentationStateUnavailable           ConnectorMarketPresentationState = "unavailable"
+	ConnectorMarketPresentationStateUnsupported           ConnectorMarketPresentationState = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the ConnectorMarketPresentationState enum.
+func (e ConnectorMarketPresentationState) Valid() bool {
+	switch e {
+	case ConnectorMarketPresentationStateAuthorizationRequired:
+		return true
+	case ConnectorMarketPresentationStateConnected:
+		return true
+	case ConnectorMarketPresentationStateConnecting:
+		return true
+	case ConnectorMarketPresentationStateDegraded:
+		return true
+	case ConnectorMarketPresentationStateDisabled:
+		return true
+	case ConnectorMarketPresentationStateFailed:
+		return true
+	case ConnectorMarketPresentationStateLoading:
+		return true
+	case ConnectorMarketPresentationStateSetupRequired:
+		return true
+	case ConnectorMarketPresentationStateUnavailable:
+		return true
+	case ConnectorMarketPresentationStateUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectorMarketReleaseSchemaVersion.
 const (
 	ConnectorMarketReleaseSchemaVersionN1 ConnectorMarketReleaseSchemaVersion = "1"
@@ -4632,25 +4719,25 @@ func (e WorkspaceWorkflowCheckpointKind) Valid() bool {
 
 // Defines values for WorkspaceWorkflowCheckpointStatus.
 const (
-	Accepted   WorkspaceWorkflowCheckpointStatus = "accepted"
-	Canceled   WorkspaceWorkflowCheckpointStatus = "canceled"
-	Pending    WorkspaceWorkflowCheckpointStatus = "pending"
-	Rejected   WorkspaceWorkflowCheckpointStatus = "rejected"
-	Superseded WorkspaceWorkflowCheckpointStatus = "superseded"
+	WorkspaceWorkflowCheckpointStatusAccepted   WorkspaceWorkflowCheckpointStatus = "accepted"
+	WorkspaceWorkflowCheckpointStatusCanceled   WorkspaceWorkflowCheckpointStatus = "canceled"
+	WorkspaceWorkflowCheckpointStatusPending    WorkspaceWorkflowCheckpointStatus = "pending"
+	WorkspaceWorkflowCheckpointStatusRejected   WorkspaceWorkflowCheckpointStatus = "rejected"
+	WorkspaceWorkflowCheckpointStatusSuperseded WorkspaceWorkflowCheckpointStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceWorkflowCheckpointStatus enum.
 func (e WorkspaceWorkflowCheckpointStatus) Valid() bool {
 	switch e {
-	case Accepted:
+	case WorkspaceWorkflowCheckpointStatusAccepted:
 		return true
-	case Canceled:
+	case WorkspaceWorkflowCheckpointStatusCanceled:
 		return true
-	case Pending:
+	case WorkspaceWorkflowCheckpointStatusPending:
 		return true
-	case Rejected:
+	case WorkspaceWorkflowCheckpointStatusRejected:
 		return true
-	case Superseded:
+	case WorkspaceWorkflowCheckpointStatusSuperseded:
 		return true
 	default:
 		return false
@@ -6435,8 +6522,11 @@ type ConnectorMarketConnector struct {
 	Compatibility ConnectorMarketCompatibility `json:"compatibility"`
 	Installation  ConnectorMarketInstallation  `json:"installation"`
 	Key           string                       `json:"key"`
-	Release       ConnectorMarketRelease       `json:"release"`
-	Revision      int64                        `json:"revision"`
+
+	// Presentation Application-owned, scope-aware Connector presentation. Optional on the Connector schema for one compatibility version; current daemons emit it on every Connector returned by snapshot, page, get, and command routes.
+	Presentation *ConnectorMarketPresentation `json:"presentation,omitempty"`
+	Release      ConnectorMarketRelease       `json:"release"`
+	Revision     int64                        `json:"revision"`
 }
 
 // ConnectorMarketConnectorResponse defines model for ConnectorMarketConnectorResponse.
@@ -6552,6 +6642,19 @@ type ConnectorMarketOperationTarget struct {
 	ReleaseId      string  `json:"releaseId"`
 	Version        string  `json:"version"`
 }
+
+// ConnectorMarketPresentation Application-owned, scope-aware Connector presentation. Optional on the Connector schema for one compatibility version; current daemons emit it on every Connector returned by snapshot, page, get, and command routes.
+type ConnectorMarketPresentation struct {
+	AllowedActions []ConnectorMarketPresentationAction `json:"allowedActions"`
+	ReasonCode     *string                             `json:"reasonCode,omitempty"`
+	State          ConnectorMarketPresentationState    `json:"state"`
+}
+
+// ConnectorMarketPresentationAction defines model for ConnectorMarketPresentationAction.
+type ConnectorMarketPresentationAction string
+
+// ConnectorMarketPresentationState defines model for ConnectorMarketPresentationState.
+type ConnectorMarketPresentationState string
 
 // ConnectorMarketRelease defines model for ConnectorMarketRelease.
 type ConnectorMarketRelease struct {

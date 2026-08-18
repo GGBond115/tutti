@@ -51,6 +51,7 @@ func (host *Host) runRuntimeRecoveryWorker(ctx context.Context) {
 			case <-host.runtimeRecoveryWake:
 				timer.Stop()
 				retry = time.Second
+				workerReporter(ctx).Reset()
 				continue
 			case <-timer.C:
 			}
@@ -69,11 +70,11 @@ func (host *Host) runRuntimeRecoveryWorker(ctx context.Context) {
 				slog.Warn("connector runtime recovery retry failed", "error", err)
 			}
 			if !pending {
+				reportWorkerSuccess(ctx)
 				break
 			}
-			if retry < time.Minute {
-				retry *= 2
-			}
+			retry = nextBoundedRetry(retry, time.Minute)
+			reportWorkerFailure(ctx, workerFailureRuntimeRecovery, retry)
 		}
 	}
 }

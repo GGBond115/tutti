@@ -506,10 +506,70 @@ components:
           $ref: "#/components/schemas/ConnectorMarketAuthorization"
         compatibility:
           $ref: "#/components/schemas/ConnectorMarketCompatibility"
+        presentation:
+          $ref: "#/components/schemas/ConnectorMarketPresentation"
         revision:
           type: integer
           format: int64
           minimum: 0
+    ConnectorMarketPresentation:
+      type: object
+      additionalProperties: false
+      required: [state, allowedActions]
+      description: >-
+        Application-owned, scope-aware Connector presentation. Optional on the
+        Connector schema for one compatibility version; current daemons emit it
+        on every Connector returned by snapshot, page, get, and command routes.
+      properties:
+        state:
+          $ref: "#/components/schemas/ConnectorMarketPresentationState"
+        reasonCode:
+          type: string
+          minLength: 1
+        allowedActions:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ConnectorMarketPresentationAction"
+    ConnectorMarketPresentationState:
+      type: string
+      enum:
+        - unavailable
+        - loading
+        - setup_required
+        - authorization_required
+        - connecting
+        - connected
+        - degraded
+        - disabled
+        - unsupported
+        - failed
+    ConnectorMarketPresentationAction:
+      type: string
+      enum:
+        - details
+        - install
+        - update
+        - authorize
+        - cancel
+        - select
+        - remove_selection
+        - manage
+        - disconnect
+        - uninstall
+        - retry
+      x-enum-varnames:
+        - ConnectorMarketPresentationActionDetails
+        - ConnectorMarketPresentationActionInstall
+        - ConnectorMarketPresentationActionUpdate
+        - ConnectorMarketPresentationActionAuthorize
+        - ConnectorMarketPresentationActionCancel
+        - ConnectorMarketPresentationActionSelect
+        - ConnectorMarketPresentationActionRemoveSelection
+        - ConnectorMarketPresentationActionManage
+        - ConnectorMarketPresentationActionDisconnect
+        - ConnectorMarketPresentationActionUninstall
+        - ConnectorMarketPresentationActionRetry
     ConnectorMarketRelease:
       type: object
       additionalProperties: false
@@ -790,7 +850,12 @@ components:
       type: object
       additionalProperties: false
       required:
-        [clientRequestId, expectedRevision, expectedConnectorRevision, operationId]
+        [
+          clientRequestId,
+          expectedRevision,
+          expectedConnectorRevision,
+          operationId
+        ]
       properties:
         clientRequestId:
           type: string

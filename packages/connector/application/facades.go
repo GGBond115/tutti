@@ -115,6 +115,7 @@ type RuntimeMaintenance interface {
 	ReconcileRuntimeDesired(context.Context, contracts.OperationScope, string) error
 	ReconcileRuntimeAfterInvalidation(context.Context, contracts.OperationScope, string) error
 	RuntimeConvergenceSnapshot(context.Context, contracts.OperationScope) ([]contracts.RuntimeConvergence, error)
+	RuntimeRetryHealth(context.Context, contracts.OperationScope) ([]contracts.RuntimeRetryHealth, error)
 	RuntimeBootEpoch() string
 	ResetRuntimeFailureBudget(context.Context, contracts.OperationScope, string, uint64) error
 	InvalidateRuntimeObservation(context.Context, contracts.OperationScope, string, uint64) error

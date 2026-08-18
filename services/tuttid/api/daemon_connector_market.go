@@ -6,11 +6,11 @@ import (
 	"errors"
 	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
+	"time"
 )
 
 func (api DaemonAPI) connectorMarketAvailable() bool {
-	return api.ConnectorStateQueries != nil &&
-		api.ConnectorCatalogQueries != nil &&
+	return api.ConnectorCatalogQueries != nil &&
 		api.ConnectorCatalogCommands != nil &&
 		api.ConnectorInstallationCommands != nil &&
 		api.ConnectorAuthorizationCommands != nil &&
@@ -24,7 +24,7 @@ func (api DaemonAPI) GetConnectorMarket(
 	if !api.connectorMarketAvailable() {
 		return tuttigenerated.GetConnectorMarket503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
-	snapshot, err := api.ConnectorStateQueries.SnapshotForScope(
+	snapshot, err := api.ConnectorCatalogQueries.SnapshotViewForScope(
 		ctx,
 		contracts.OperationScope{AccountID: api.connectorMarketAccountID()},
 	)
@@ -78,7 +78,7 @@ func (api DaemonAPI) ListConnectorMarketCatalog(
 	if request.Params.Installation != nil {
 		installationFilter = contracts.CatalogInstallationFilter(*request.Params.Installation)
 	}
-	page, err := api.ConnectorCatalogQueries.ListCatalogPageForScope(ctx,
+	page, err := api.ConnectorCatalogQueries.ListCatalogPageViewForScope(ctx,
 		contracts.OperationScope{AccountID: api.connectorMarketAccountID()}, contracts.CatalogPageQuery{
 			SectionID: request.Params.SectionId, PageSize: pageSize, PageToken: pageToken, InstallationFilter: installationFilter,
 		})
@@ -103,7 +103,7 @@ func (api DaemonAPI) GetConnectorMarketConnector(
 	if !api.connectorMarketAvailable() {
 		return tuttigenerated.GetConnectorMarketConnector503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
-	connector, err := api.ConnectorCatalogQueries.GetConnectorForScope(ctx,
+	connector, err := api.ConnectorCatalogQueries.GetConnectorViewForScope(ctx,
 		contracts.OperationScope{AccountID: api.connectorMarketAccountID()}, request.ConnectorKey)
 	if err != nil {
 		payload, status := connectorMarketError(err)
@@ -136,7 +136,11 @@ func (api DaemonAPI) RefreshConnectorMarket(
 	}
 	mutation.Scope = contracts.OperationScope{AccountID: api.connectorMarketAccountID()}
 	result := api.ConnectorCatalogCommands.RefreshCatalog(ctx, mutation)
-	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](result)
+	view, err := api.connectorMarketCommandResultView(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](view)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +163,11 @@ func (api DaemonAPI) InstallConnectorMarketConnector(
 	}
 	mutation.AccountID = api.connectorMarketAccountID()
 	result := api.ConnectorInstallationCommands.Install(ctx, mutation)
-	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](result)
+	view, err := api.connectorMarketCommandResultView(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](view)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +190,11 @@ func (api DaemonAPI) UninstallConnectorMarketConnector(
 	}
 	mutation.AccountID = api.connectorMarketAccountID()
 	result := api.ConnectorInstallationCommands.Uninstall(ctx, mutation)
-	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](result)
+	view, err := api.connectorMarketCommandResultView(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](view)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +218,11 @@ func (api DaemonAPI) StartConnectorMarketAuthorization(
 	mutation.AccountID = api.connectorMarketAccountID()
 	defer clear(secret)
 	result := api.ConnectorAuthorizationCommands.BeginAuthorization(ctx, mutation, secret)
-	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketAuthorizationResponse](result)
+	view, err := api.connectorMarketAuthorizationCommandResultView(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketAuthorizationResponse](view)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +242,11 @@ func (api DaemonAPI) CancelConnectorMarketAuthorization(
 	}
 	command.AccountID = api.connectorMarketAccountID()
 	result := api.ConnectorAuthorizationCommands.CancelAuthorization(ctx, command)
-	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](result)
+	view, err := api.connectorMarketCommandResultView(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](view)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +266,11 @@ func (api DaemonAPI) DisconnectConnectorMarketAuthorization(
 	}
 	mutation.AccountID = api.connectorMarketAccountID()
 	result := api.ConnectorAuthorizationCommands.DisconnectAuthorization(ctx, mutation)
-	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](result)
+	view, err := api.connectorMarketCommandResultView(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketMutationResponse](view)
 	if err != nil {
 		return nil, err
 	}
@@ -374,6 +398,59 @@ func (api DaemonAPI) connectorMarketAccountID() string {
 	return api.ConnectorMarketScope().AccountID
 }
 
+type connectorMarketCommandView struct {
+	Outcome   contracts.CommandOutcome  `json:"outcome"`
+	Revision  uint64                    `json:"revision"`
+	Connector *contracts.ConnectorView  `json:"connector,omitempty"`
+	Operation *contracts.Operation      `json:"operation,omitempty"`
+	Failure   *contracts.CommandFailure `json:"failure,omitempty"`
+}
+
+type connectorMarketAuthorizationCommandView struct {
+	connectorMarketCommandView
+	AuthorizationURL       string                               `json:"authorizationUrl,omitempty"`
+	AuthorizationView      *contracts.AuthorizationViewEnvelope `json:"authorizationView,omitempty"`
+	AuthorizationExpiresAt *time.Time                           `json:"authorizationExpiresAt,omitempty"`
+}
+
+func (api DaemonAPI) connectorMarketCommandResultView(
+	ctx context.Context,
+	result contracts.CommandResult,
+) (connectorMarketCommandView, error) {
+	if err := result.Validate(); err != nil {
+		return connectorMarketCommandView{}, err
+	}
+	view := connectorMarketCommandView{
+		Outcome: result.Outcome, Revision: result.Revision, Operation: result.Operation, Failure: result.Failure,
+	}
+	if result.Connector == nil {
+		return view, nil
+	}
+	connector, err := api.ConnectorCatalogQueries.PresentConnectorForScope(
+		ctx, contracts.OperationScope{AccountID: api.connectorMarketAccountID()}, *result.Connector,
+	)
+	if err != nil {
+		return connectorMarketCommandView{}, err
+	}
+	view.Connector = &connector
+	return view, nil
+}
+
+func (api DaemonAPI) connectorMarketAuthorizationCommandResultView(
+	ctx context.Context,
+	result contracts.AuthorizationCommandResult,
+) (connectorMarketAuthorizationCommandView, error) {
+	view, err := api.connectorMarketCommandResultView(ctx, result.CommandResult)
+	if err != nil {
+		return connectorMarketAuthorizationCommandView{}, err
+	}
+	return connectorMarketAuthorizationCommandView{
+		connectorMarketCommandView: view,
+		AuthorizationURL:           result.AuthorizationURL, AuthorizationView: result.AuthorizationView,
+		AuthorizationExpiresAt: result.AuthorizationExpiresAt,
+	}, nil
+}
+
 func projectConnectorMarket[T any](value any) (T, error) {
 	var projected T
 	if err := validateConnectorMarketCommandResult(value); err != nil {
@@ -403,6 +480,19 @@ func validateConnectorMarketCommandResult(value any) error {
 
 func exposeConnectorMarketAuthorizationInteractionMode(value any) any {
 	switch typed := value.(type) {
+	case contracts.SnapshotView:
+		typed.Connectors = append([]contracts.ConnectorView{}, typed.Connectors...)
+		for index := range typed.Connectors {
+			typed.Connectors[index].Connector = exposeConnectorAuthorizationInteractionMode(typed.Connectors[index].Connector)
+		}
+		return struct {
+			contracts.SnapshotView
+			CatalogState   string `json:"catalogState"`
+			SourceRevision string `json:"sourceRevision,omitempty"`
+		}{
+			SnapshotView: typed, CatalogState: legacyConnectorCatalogState(typed.CatalogFreshness.State),
+			SourceRevision: typed.CatalogFreshness.SourceRevision,
+		}
 	case contracts.Snapshot:
 		typed.Connectors = append([]contracts.Connector{}, typed.Connectors...)
 		for index := range typed.Connectors {
@@ -420,6 +510,29 @@ func exposeConnectorMarketAuthorizationInteractionMode(value any) any {
 		typed.Items = append([]contracts.CatalogListing{}, typed.Items...)
 		for index := range typed.Items {
 			typed.Items[index].Connector = exposeConnectorAuthorizationInteractionMode(typed.Items[index].Connector)
+		}
+		return typed
+	case contracts.CatalogPageView:
+		typed.Items = append([]contracts.CatalogListingView{}, typed.Items...)
+		for index := range typed.Items {
+			typed.Items[index].Connector.Connector = exposeConnectorAuthorizationInteractionMode(typed.Items[index].Connector.Connector)
+		}
+		return typed
+	case contracts.ConnectorView:
+		typed.Connector = exposeConnectorAuthorizationInteractionMode(typed.Connector)
+		return typed
+	case connectorMarketCommandView:
+		if typed.Connector != nil {
+			connector := *typed.Connector
+			connector.Connector = exposeConnectorAuthorizationInteractionMode(connector.Connector)
+			typed.Connector = &connector
+		}
+		return typed
+	case connectorMarketAuthorizationCommandView:
+		if typed.Connector != nil {
+			connector := *typed.Connector
+			connector.Connector = exposeConnectorAuthorizationInteractionMode(connector.Connector)
+			typed.Connector = &connector
 		}
 		return typed
 	case contracts.Connector:

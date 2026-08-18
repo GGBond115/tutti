@@ -4851,8 +4851,43 @@ export type ConnectorMarketConnector = {
   installation: ConnectorMarketInstallation;
   authorization: ConnectorMarketAuthorization;
   compatibility: ConnectorMarketCompatibility;
+  presentation?: ConnectorMarketPresentation;
   revision: number;
 };
+
+/**
+ * Application-owned, scope-aware Connector presentation. Optional on the Connector schema for one compatibility version; current daemons emit it on every Connector returned by snapshot, page, get, and command routes.
+ */
+export type ConnectorMarketPresentation = {
+  state: ConnectorMarketPresentationState;
+  reasonCode?: string;
+  allowedActions: Array<ConnectorMarketPresentationAction>;
+};
+
+export type ConnectorMarketPresentationState =
+  | "unavailable"
+  | "loading"
+  | "setup_required"
+  | "authorization_required"
+  | "connecting"
+  | "connected"
+  | "degraded"
+  | "disabled"
+  | "unsupported"
+  | "failed";
+
+export type ConnectorMarketPresentationAction =
+  | "details"
+  | "install"
+  | "update"
+  | "authorize"
+  | "cancel"
+  | "select"
+  | "remove_selection"
+  | "manage"
+  | "disconnect"
+  | "uninstall"
+  | "retry";
 
 export type ConnectorMarketRelease = {
   schemaVersion: "1";
