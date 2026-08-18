@@ -106,6 +106,11 @@ func (a *standardACPAdapter) applySessionConfigOptions(
 	startResult json.RawMessage,
 ) error {
 	settings := session.SettingsValue()
+	if validate := a.config.validateStartupSettings; validate != nil {
+		if err := validate(session); err != nil {
+			return fmt.Errorf("agent session ACP startup settings are invalid: %w", err)
+		}
+	}
 	supported := acpConfigOptionIDs(startResult)
 	modelsAPI := acpModelsResultPresent(startResult)
 	if len(supported) == 0 && !modelsAPI {

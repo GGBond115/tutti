@@ -42,6 +42,10 @@ type standardACPConfig struct {
 	// right after it succeeds and may reject the start (setup probes use it to
 	// catch agents that create a session they cannot actually serve).
 	validateNewSessionResult func(json.RawMessage) error
+	// validateStartupSettings rejects provider-specific setting combinations
+	// before a session can accept a prompt. Generic ACP descriptors can expose
+	// provider-wide options even when the selected model narrows their support.
+	validateStartupSettings func(Session) error
 	// allowSyntheticNotice lets codex-acp-derived providers promote bare
 	// transport text ("Reconnecting... 1/5", "Falling back ... transport")
 	// streamed as ordinary chunks into system-notice banners instead of

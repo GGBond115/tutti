@@ -17,6 +17,8 @@ import (
 
 const opencodeModelListTimeout = 8 * time.Second
 
+const opencodeSparkModelID = "openai/gpt-5.3-codex-spark"
+
 var opencodeModelTokenPattern = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:-]*`)
 
 type OpenCodeCLIModelLister struct {
@@ -139,7 +141,7 @@ func normalizeVerboseOpenCodeModel(modelID string, metadata map[string]any) Agen
 	reasoningEfforts := make([]AgentModelReasoningEffortOption, 0, len(variants))
 	for value := range variants {
 		value = strings.TrimSpace(value)
-		if value != "" {
+		if value != "" && openCodeModelSupportsReasoningEffort(modelID, value) {
 			reasoningEfforts = append(reasoningEfforts, AgentModelReasoningEffortOption{Value: value})
 		}
 	}
@@ -162,6 +164,15 @@ func normalizeVerboseOpenCodeModel(modelID string, metadata map[string]any) Agen
 		SupportedReasoningEfforts:  reasoningEfforts,
 		SupportsImageInput:         supportsImageInput,
 	}
+}
+
+func openCodeModelSupportsReasoningEffort(modelID string, effort string) bool {
+	// OpenCode's verbose catalog currently exposes a provider-wide "none"
+	// variant for Spark, while the actual model rejects it in session/prompt.
+	// Keep this exception scoped to the confirmed model; other OpenCode models
+	// may legitimately support disabling reasoning.
+	return !(strings.EqualFold(strings.TrimSpace(modelID), opencodeSparkModelID) &&
+		strings.EqualFold(strings.TrimSpace(effort), "none"))
 }
 
 func openCodeModelDisplayName(modelID string, name string) string {

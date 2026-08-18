@@ -112,7 +112,7 @@ func (c *Controller) reportSessionBeforePublish(
 	if c.reportQueue == nil {
 		return c.report(request.ctx, request)
 	}
-	c.reportQueue.enqueue(request)
+	queueDepth := c.reportQueue.enqueue(request)
 	select {
 	case err := <-request.done:
 		return err
@@ -122,6 +122,7 @@ func (c *Controller) reportSessionBeforePublish(
 			"event", "agent_session.activity_report.terminal_barrier_timeout",
 			"room_id", session.RoomID,
 			"agent_session_id", session.AgentSessionID,
+			"queue_depth", queueDepth,
 			"error", reportCtx.Err(),
 		)
 		return reportCtx.Err()

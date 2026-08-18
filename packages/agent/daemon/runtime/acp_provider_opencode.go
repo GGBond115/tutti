@@ -19,6 +19,7 @@ const (
 	openCodePermissionAsk        = "ask"
 	openCodePermissionFullAccess = "full-access"
 	openCodePermissionEnv        = "OPENCODE_PERMISSION"
+	openCodeSparkModelID         = "openai/gpt-5.3-codex-spark"
 )
 
 func newOpenCodeAdapterFromProviderDescriptor(
@@ -37,7 +38,27 @@ func newOpenCodeAdapterFromProviderDescriptor(
 	}
 	adapter.config.automaticPermissionDecision = openCodeAutomaticPermissionDecision
 	adapter.config.filterPermissionOptions = openCodePermissionOptions
+	adapter.config.validateStartupSettings = validateOpenCodeStartupSettings
 	return adapter
+}
+
+func validateOpenCodeStartupSettings(session Session) error {
+	settings := session.SettingsValue()
+	model := strings.TrimSpace(settings.Model)
+	effort := strings.TrimSpace(settings.ReasoningEffort)
+	if !strings.EqualFold(model, openCodeSparkModelID) || !strings.EqualFold(effort, "none") {
+		return nil
+	}
+	// OpenCode's generic ACP descriptor advertises "none", but the selected
+	// Spark model rejects it at session/prompt. Do not silently choose a
+	// different reasoning level; the service-side model catalog filters this
+	// value for normal launches, while this adapter guard protects stale or
+	// out-of-band settings before any prompt is sent.
+	return fmt.Errorf(
+		"OpenCode model %q does not support reasoning effort %q; supported values: low, medium, high, xhigh",
+		model,
+		effort,
+	)
 }
 
 func openCodeConfigContent(

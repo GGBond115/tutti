@@ -43,6 +43,42 @@ func TestOpenCodeAdapterUsesOfficialACPCommand(t *testing.T) {
 	}
 }
 
+func TestOpenCodeAdapterRejectsSparkNoneBeforePrompt(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("OpenCode", "opencode-spark-session")
+	transport.conn.configOptions = []map[string]any{
+		{
+			"id": "model",
+			"options": []any{
+				map[string]any{"name": "GPT-5.3 Codex Spark", "value": openCodeSparkModelID},
+			},
+		},
+		{
+			"id":           "effort",
+			"currentValue": "none",
+			"options": []any{
+				map[string]any{"name": "Off", "value": "none"},
+				map[string]any{"name": "Low", "value": "low"},
+			},
+		},
+	}
+	adapter := newOpenCodeTestAdapter(transport)
+	session := standardTestSession(ProviderOpenCode)
+	session.Settings = &SessionSettings{Model: openCodeSparkModelID, ReasoningEffort: "none"}
+
+	if _, err := adapter.Start(context.Background(), session); err == nil ||
+		!strings.Contains(err.Error(), `does not support reasoning effort "none"`) {
+		t.Fatalf("Start error = %v, want actionable Spark capability error", err)
+	}
+	if calls := transport.conn.setConfigOptionCalls(); len(calls) != 0 {
+		t.Fatalf("startup config calls = %#v, want none after preflight rejection", calls)
+	}
+	if transport.conn.promptCallCount != 0 {
+		t.Fatalf("prompt call count = %d, want no prompt after preflight rejection", transport.conn.promptCallCount)
+	}
+}
+
 func TestOpenCodeACPEnvInjectsModelConfigContent(t *testing.T) {
 	t.Parallel()
 
