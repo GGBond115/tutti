@@ -184,6 +184,7 @@ export const AgentGUI = memo(function AgentGUI({
             agentHostApi={agentHostApi}
           >
             <AgentVisibleErrorPresentationProvider
+              scope={props.hostCapabilities?.visibleErrorPresentationScope}
               value={props.hostCapabilities?.visibleErrorPresentationOverrides}
             >
               <AgentGUINode {...nodeProps} />

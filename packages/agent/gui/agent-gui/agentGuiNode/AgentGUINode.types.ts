@@ -43,7 +43,10 @@ import type {
   AgentMentionReferenceTargetResolver,
   AgentWorkspaceReferenceInitialTargetResolver
 } from "./AgentGUINodeView";
-import type { AgentVisibleErrorOverrides } from "../../shared/agentEnv/agentErrorPresentation";
+import type {
+  AgentVisibleErrorOverrides,
+  AgentVisibleErrorPresentationScope
+} from "../../shared/agentEnv/agentErrorPresentation";
 import type {
   AgentComposerCapabilityMenuState,
   AgentComposerCapabilitySettingsTarget,
@@ -149,6 +152,11 @@ export interface AgentGUINodeHostCapabilities {
    * AgentGUI owns the generic card; product domains own product semantics.
    */
   visibleErrorPresentationOverrides?: AgentVisibleErrorOverrides | null;
+  /**
+   * Presentation-only remediation authority for visible errors. Omission
+   * retains local-owner behavior for backwards compatibility.
+   */
+  visibleErrorPresentationScope?: AgentVisibleErrorPresentationScope;
   agentTargets?: readonly AgentGUIAgentTarget[];
   agentTargetsLoading?: boolean;
   /** Complete presentation-only catalog for resolving Agent mention identity. */

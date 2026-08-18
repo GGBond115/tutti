@@ -735,6 +735,7 @@ function DesktopAgentGUISurfaceImpl({
           sideConversationEnabled ? agentSideConversationRuntime : null
         }
         agentHostApi={agentHostApiWithToast}
+        disabled={["clone-github-repository"]}
         tuttiModePlanReviewRuntime={
           capabilityMenuState?.tuttiMode?.enabled === false
             ? null

@@ -2011,6 +2011,24 @@ func (e DesktopMinimizeAnimation) Valid() bool {
 	}
 }
 
+// Defines values for DesktopPreferencesWriteMode.
+const (
+	DesktopPreferencesWriteModeInitializeIfAbsent DesktopPreferencesWriteMode = "initializeIfAbsent"
+	DesktopPreferencesWriteModeReplace            DesktopPreferencesWriteMode = "replace"
+)
+
+// Valid indicates whether the value is a known member of the DesktopPreferencesWriteMode enum.
+func (e DesktopPreferencesWriteMode) Valid() bool {
+	switch e {
+	case DesktopPreferencesWriteModeInitializeIfAbsent:
+		return true
+	case DesktopPreferencesWriteModeReplace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DesktopSleepPreventionMode.
 const (
 	Always            DesktopSleepPreventionMode = "always"
@@ -3918,15 +3936,18 @@ func (e WorkspaceAgentTurnProviderForkBindingState) Valid() bool {
 
 // Defines values for WorkspaceAgentTurnCancelResultReason.
 const (
-	AlreadySettled WorkspaceAgentTurnCancelResultReason = "already_settled"
-	NotFound       WorkspaceAgentTurnCancelResultReason = "not_found"
-	TurnCanceled   WorkspaceAgentTurnCancelResultReason = "turn_canceled"
+	AlreadySettled  WorkspaceAgentTurnCancelResultReason = "already_settled"
+	CancelRequested WorkspaceAgentTurnCancelResultReason = "cancel_requested"
+	NotFound        WorkspaceAgentTurnCancelResultReason = "not_found"
+	TurnCanceled    WorkspaceAgentTurnCancelResultReason = "turn_canceled"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceAgentTurnCancelResultReason enum.
 func (e WorkspaceAgentTurnCancelResultReason) Valid() bool {
 	switch e {
 	case AlreadySettled:
+		return true
+	case CancelRequested:
 		return true
 	case NotFound:
 		return true
@@ -6965,6 +6986,9 @@ type DesktopPreferencesStateResponse struct {
 	Preferences DesktopPreferences `json:"preferences"`
 }
 
+// DesktopPreferencesWriteMode replace performs the normal full preference update, and omitting writeMode is equivalent to replace. initializeIfAbsent atomically creates the preference row only when it does not exist after applying the daemon-owned Agent workspace-mode default to the supplied preferences. If the row already exists, it returns the authoritative stored preferences unchanged.
+type DesktopPreferencesWriteMode string
+
 // DesktopSleepPreventionMode defines model for DesktopSleepPreventionMode.
 type DesktopSleepPreventionMode string
 
@@ -8056,6 +8080,9 @@ type PutAutomationRuleRequest struct {
 // PutDesktopPreferencesRequest defines model for PutDesktopPreferencesRequest.
 type PutDesktopPreferencesRequest struct {
 	Preferences DesktopPreferences `json:"preferences"`
+
+	// WriteMode replace performs the normal full preference update, and omitting writeMode is equivalent to replace. initializeIfAbsent atomically creates the preference row only when it does not exist after applying the daemon-owned Agent workspace-mode default to the supplied preferences. If the row already exists, it returns the authoritative stored preferences unchanged.
+	WriteMode *DesktopPreferencesWriteMode `json:"writeMode,omitempty"`
 }
 
 // PutModelPlanRequest defines model for PutModelPlanRequest.
@@ -9476,11 +9503,11 @@ type WorkspaceAgentTurnCancelResponse struct {
 type WorkspaceAgentTurnCancelResult struct {
 	Canceled bool `json:"canceled"`
 
-	// Reason turn_canceled reports an active turn was stopped. already_settled and not_found are idempotent no-op successes, not errors.
+	// Reason turn_canceled reports an active turn was stopped. cancel_requested reports accepted cancellation whose exact provider delivery still needs canonical reconciliation. already_settled and not_found are idempotent no-op successes, not errors.
 	Reason WorkspaceAgentTurnCancelResultReason `json:"reason"`
 }
 
-// WorkspaceAgentTurnCancelResultReason turn_canceled reports an active turn was stopped. already_settled and not_found are idempotent no-op successes, not errors.
+// WorkspaceAgentTurnCancelResultReason turn_canceled reports an active turn was stopped. cancel_requested reports accepted cancellation whose exact provider delivery still needs canonical reconciliation. already_settled and not_found are idempotent no-op successes, not errors.
 type WorkspaceAgentTurnCancelResultReason string
 
 // WorkspaceAgentTurnError Protocol v2 turn-scoped error; never pollutes session state.

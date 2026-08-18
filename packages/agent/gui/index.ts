@@ -96,7 +96,8 @@ export type {
   AgentRunErrorCode,
   AgentVisibleErrorOverride,
   AgentVisibleErrorOverrideCode,
-  AgentVisibleErrorOverrides
+  AgentVisibleErrorOverrides,
+  AgentVisibleErrorPresentationScope
 } from "./shared/agentEnv/agentErrorPresentation";
 export type {
   AgentGUIComposerContentType,

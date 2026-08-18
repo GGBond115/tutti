@@ -852,6 +852,7 @@ export type {
   DesktopMinimizeAnimation,
   DesktopPreferences,
   DesktopPreferencesStateResponse,
+  DesktopPreferencesWriteMode,
   DesktopSleepPreventionMode,
   DesktopThemeSource,
   DesktopUpdateAdmissionArchitecture,
