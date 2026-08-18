@@ -252,8 +252,8 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 		t.Fatal("missing recommended system prompt")
 	}
 	for _, expected := range []string{
-		"Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider's native subagent or collaboration mechanism when available.")
-		"The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.")
+		"Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider's native subagent or collaboration mechanism when available.",
+		"The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.",
 	} {
 		if !strings.Contains(bundle.RecommendedSystemPrompt.Content, expected) {
 			t.Fatalf("recommended system prompt missing routing boundary %q: %q", expected, bundle.RecommendedSystemPrompt.Content)
