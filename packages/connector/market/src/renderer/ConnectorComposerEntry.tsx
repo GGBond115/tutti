@@ -4,7 +4,7 @@ import type { ConnectorMarketI18nRuntime } from "../i18n/connectorMarketI18n.ts"
 import { ConnectorComposerMenu } from "./components/composer/ConnectorComposerMenu.tsx";
 import type { ConnectorRendererEventSink } from "./connectorRendererEvents.ts";
 import {
-  normalizeConnectorRendererStatus,
+  normalizeConnectorPresentation,
   type ConnectorRendererAgentPolicySnapshot,
   type ConnectorRendererAgentTarget,
   type ConnectorRendererItem,
@@ -31,30 +31,51 @@ export interface ConnectorComposerEntryProps {
   onEvent: ConnectorRendererEventSink;
 }
 
+export function connectorComposerSelectionAllowed(
+  item: Pick<ConnectorComposerItem, "allowedActions"> | undefined,
+  selected: boolean
+): boolean {
+  return Boolean(
+    item?.allowedActions.includes(selected ? "remove_selection" : "select")
+  );
+}
+
 export function projectConnectorComposerItems(input: {
   readonly items: readonly ConnectorRendererItem[];
   readonly policy: ConnectorRendererAgentPolicySnapshot;
   readonly selectedConnectorKeys: readonly string[];
 }): readonly ConnectorComposerItem[] {
   const selectedKeys = new Set(input.selectedConnectorKeys);
-  const supportedKeys =
-    input.policy.supportedConnectorKeys === null
-      ? null
-      : new Set(input.policy.supportedConnectorKeys);
-  return input.items.map((item) => ({
-    connectorKey: item.connectorKey,
-    iconUrl: item.iconUrl,
-    name: item.name,
-    selected: selectedKeys.has(item.connectorKey),
-    status:
+  return input.items.map((item) => {
+    const presentation =
       input.policy.status === "loading"
-        ? "loading"
-        : input.policy.status !== "ready"
-          ? "unsupported"
-          : supportedKeys && !supportedKeys.has(item.connectorKey)
-            ? "disabled"
-            : normalizeConnectorRendererStatus(item.status)
-  }));
+        ? {
+            state: "loading" as const,
+            reasonCode: "agent_connector_policy_loading",
+            allowedActions: ["details" as const, "remove_selection" as const]
+          }
+        : input.policy.status === "ready"
+          ? normalizeConnectorPresentation(
+              input.policy.presentationsByConnectorKey[item.connectorKey] ?? {
+                state: "unsupported",
+                reasonCode: "agent_connector_policy_missing",
+                allowedActions: ["details", "remove_selection"]
+              }
+            )
+          : {
+              state: "unsupported" as const,
+              reasonCode: "agent_connector_policy_unavailable",
+              allowedActions: ["details" as const, "remove_selection" as const]
+            };
+    return {
+      allowedActions: presentation.allowedActions,
+      connectorKey: item.connectorKey,
+      iconUrl: item.iconUrl,
+      name: item.name,
+      selected: selectedKeys.has(item.connectorKey),
+      status: presentation.state
+    };
+  });
 }
 
 export function useConnectorRendererAgentPolicy(
@@ -95,10 +116,6 @@ export function ConnectorComposerEntry({
   );
   const selectedKeys = new Set(agent.draft.selectedConnectorKeys);
   const policy = useConnectorRendererAgentPolicy(model, agent.target);
-  const supportedKeys =
-    policy.supportedConnectorKeys === null
-      ? null
-      : new Set(policy.supportedConnectorKeys);
 
   if (!snapshot.entryAvailable) {
     return null;
@@ -134,25 +151,25 @@ export function ConnectorComposerEntry({
           void model.commands.refresh().catch(() => undefined);
         }
       }}
-      onOpenConnector={(connectorKey, status) => {
+      onOpenConnector={(connectorKey, _status, allowedActions) => {
         onEvent({
-          type:
-            status === "authorization_required"
-              ? "authorization.requested"
-              : "connector.details.requested",
+          type: allowedActions.includes("authorize")
+            ? "authorization.requested"
+            : "connector.details.requested",
           connectorKey
         });
       }}
       onOpenMarket={() => onEvent({ type: "catalog.requested" })}
       onSelectConnector={(connectorKey, selected) => {
+        const item = projectConnectorComposerItems({
+          items: snapshot.items,
+          policy,
+          selectedConnectorKeys: agent.draft.selectedConnectorKeys
+        }).find((candidate) => candidate.connectorKey === connectorKey);
         if (
-          !selectedKeys.has(connectorKey) &&
-          !snapshot.items.some(
-            (item) =>
-              item.connectorKey === connectorKey &&
-              item.status === "connected" &&
-              policy.status === "ready" &&
-              (!supportedKeys || supportedKeys.has(connectorKey))
+          !connectorComposerSelectionAllowed(
+            item,
+            selectedKeys.has(connectorKey)
           )
         ) {
           return;

@@ -12,6 +12,7 @@ import {
   OpenLinkLinedIcon
 } from "@tutti-os/ui-system";
 import { cn } from "@tutti-os/ui-system/utils";
+import type { ConnectorPresentationAction } from "../../../contracts/index.ts";
 
 const QUICK_CONNECTOR_LIMIT = 10;
 const CONNECTOR_PREVIEW_LIMIT = 3;
@@ -29,6 +30,7 @@ export type ConnectorComposerItemStatus =
   | "setup_required";
 
 export interface ConnectorComposerItem {
+  allowedActions: readonly ConnectorPresentationAction[];
   connectorKey: string;
   iconUrl?: string;
   name: string;
@@ -62,7 +64,8 @@ export interface ConnectorComposerMenuProps {
   onOpenChange?: (open: boolean) => void;
   onOpenConnector: (
     connectorKey: string,
-    status: ConnectorComposerItemStatus
+    status: ConnectorComposerItemStatus,
+    allowedActions: readonly ConnectorPresentationAction[]
   ) => void;
   onOpenMarket: () => void;
   onSelectConnector?: (connectorKey: string, selected: boolean) => void;
@@ -155,9 +158,18 @@ export function ConnectorComposerMenu({
           quickItems.map((item) => {
             const connected = item.status === "connected";
             const selected = item.selected === true;
-            const canRemove = selected && Boolean(onSelectConnector);
-            const canSelect = connected && Boolean(onSelectConnector);
-            const canOpen = connectorStatusCanOpen(item.status);
+            const canRemove =
+              selected &&
+              item.allowedActions.includes("remove_selection") &&
+              Boolean(onSelectConnector);
+            const canSelect =
+              item.allowedActions.includes("select") &&
+              Boolean(onSelectConnector);
+            const canOpen = item.allowedActions.some((action) =>
+              ["authorize", "details", "install", "manage", "update"].includes(
+                action
+              )
+            );
             const disabled = !(canRemove || canSelect || canOpen);
             const actionLabel = connectorStatusLabel(item.status, labels);
             return (
@@ -178,7 +190,11 @@ export function ConnectorComposerMenu({
                       return;
                     }
                     if (canOpen) {
-                      onOpenConnector(item.connectorKey, item.status);
+                      onOpenConnector(
+                        item.connectorKey,
+                        item.status,
+                        item.allowedActions
+                      );
                     }
                   });
                 }}
@@ -190,7 +206,11 @@ export function ConnectorComposerMenu({
                       return;
                     }
                     if (canOpen) {
-                      onOpenConnector(item.connectorKey, item.status);
+                      onOpenConnector(
+                        item.connectorKey,
+                        item.status,
+                        item.allowedActions
+                      );
                     }
                   });
                 }}
@@ -283,16 +303,6 @@ export function normalizeConnectorItems(
     }
   }
   return [...selectedItems, ...connectedItems, ...remainingItems];
-}
-
-function connectorStatusCanOpen(status: ConnectorComposerItemStatus): boolean {
-  return [
-    "authorization_required",
-    "degraded",
-    "failed",
-    "setup_required",
-    "unavailable"
-  ].includes(status);
 }
 
 function connectorStatusLabel(

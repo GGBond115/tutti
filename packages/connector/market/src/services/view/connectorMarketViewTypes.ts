@@ -1,8 +1,7 @@
 import type {
-  ConnectorAuthorizationState,
-  ConnectorCompatibilityState,
-  ConnectorInstallationState,
-  ConnectorOperationStage
+  ConnectorOperationStage,
+  ConnectorPresentationAction,
+  ConnectorPresentationState
 } from "../../contracts/index.ts";
 import type { AuthorizationViewEnvelopeV1 } from "@tutti-os/connector-authorization-protocol/v1";
 
@@ -15,7 +14,8 @@ export interface ConnectorCatalogErrorView {
 
 export type ConnectorCardAction =
   | "authorize"
-  | "busy"
+  | "cancel"
+  | "details"
   | "disconnect"
   | "install"
   | "manage"
@@ -24,24 +24,16 @@ export type ConnectorCardAction =
 
 export interface ConnectorCardView {
   action: ConnectorCardAction;
-  authorizationState: ConnectorAuthorizationState;
-  compatibilityState: ConnectorCompatibilityState;
+  allowedActions: ConnectorPresentationAction[];
   connectorKey: string;
   description: string;
   displayName: string;
   iconUrl: string;
   implementationTags: string[];
-  installationState: ConnectorInstallationState;
   operationStage: ConnectorOperationStage | null;
+  reasonCode?: string;
   canUninstall: boolean;
-  status:
-    | "authorization_required"
-    | "connected"
-    | "installing"
-    | "not_installed"
-    | "unavailable"
-    | "updating"
-    | "update_available";
+  status: ConnectorPresentationState;
 }
 
 export interface ConnectorSectionView {
@@ -87,6 +79,8 @@ export interface ConnectorAuthorizationDialogView extends ConnectorDialogBaseVie
   authorizationView?: AuthorizationViewEnvelopeV1;
   authorizing: boolean;
   brokeredAuthorization: boolean;
+  canAuthorize: boolean;
+  canCancel: boolean;
   kind: "authorization";
   pending: boolean;
 }
@@ -98,7 +92,8 @@ export interface ConnectorInstallationDialogView extends ConnectorDialogBaseView
 }
 
 export interface ConnectorManagementDialogView extends ConnectorDialogBaseView {
-  canAuthorize: boolean;
+  canDisconnect: boolean;
+  canTry: boolean;
   canUninstall: boolean;
   details: ConnectorDetailFieldView[];
   kind: "management";

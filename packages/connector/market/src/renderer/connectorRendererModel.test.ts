@@ -1,211 +1,183 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { createElement } from "react";
-import { act } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { Connector } from "../contracts/index.ts";
+import type {
+  Connector,
+  ConnectorPresentation,
+  ConnectorPresentationState
+} from "../contracts/index.ts";
+import type { ConnectorMarketI18nRuntime } from "../i18n/connectorMarketI18n.ts";
 import { createConnectorMarketStoreState } from "../services/connectorMarketState.ts";
 import {
   ConnectorComposerEntry,
+  connectorComposerSelectionAllowed,
   projectConnectorComposerItems,
   useConnectorRendererAgentPolicy
 } from "./ConnectorComposerEntry.tsx";
-import type { ConnectorMarketI18nRuntime } from "../i18n/connectorMarketI18n.ts";
 import {
-  normalizeConnectorRendererStatus,
   projectConnectorRendererSnapshot,
-  projectConnectorStatus,
   type ConnectorRendererItem,
   type ConnectorRendererModel
 } from "./connectorRendererModel.ts";
 
 type JsdomModule = {
-  JSDOM: new (html: string) => {
-    window: Window & typeof globalThis;
-  };
+  JSDOM: new (html: string) => { window: Window & typeof globalThis };
 };
-
 const require = createRequire(import.meta.url);
 const { JSDOM } = require("jsdom") as JsdomModule;
 
-const connectedItem: ConnectorRendererItem = {
-  connectorKey: "github",
-  name: "GitHub",
-  revision: 1,
-  status: "connected"
-};
+const states: readonly ConnectorPresentationState[] = [
+  "unavailable",
+  "loading",
+  "setup_required",
+  "authorization_required",
+  "connecting",
+  "connected",
+  "degraded",
+  "disabled",
+  "unsupported",
+  "failed"
+];
 
-test("unknown renderer states fail closed as unsupported", () => {
-  assert.equal(normalizeConnectorRendererStatus("future_state"), "unsupported");
+test("copies every canonical application presentation without lifecycle derivation", () => {
+  for (const state of states) {
+    const market = createConnectorMarketStoreState();
+    const presentation = presentationFor(state);
+    const connector = connectorFixture(presentation);
+    market.loadState = "ready";
+    market.catalogFreshness = {
+      state: "fresh",
+      snapshotId: "snapshot-1"
+    };
+    market.connectorKeys = [connector.key];
+    market.connectorsByKey[connector.key] = connector;
+
+    const projected = projectConnectorRendererSnapshot(market);
+    assert.deepEqual(projected.items[0]?.presentation, presentation);
+  }
 });
 
-test("projects the application-owned connector lifecycle", () => {
-  const base = {
-    authorization: "connected",
-    compatibility: "supported",
-    installation: "installed",
-    pendingAuthorization: false,
-    pendingInstallation: false
-  };
-
-  assert.equal(projectConnectorStatus(base), "connected");
-  assert.equal(
-    projectConnectorStatus({ ...base, installation: "not_installed" }),
-    "setup_required"
-  );
-  assert.equal(
-    projectConnectorStatus({ ...base, authorization: "expired" }),
-    "authorization_required"
-  );
-  assert.equal(
-    projectConnectorStatus({ ...base, pendingAuthorization: true }),
-    "connecting"
-  );
-  assert.equal(
-    projectConnectorStatus({ ...base, authorization: "failed" }),
-    "failed"
-  );
-  assert.equal(
-    projectConnectorStatus({
-      ...base,
-      compatibility: "unsupported_platform"
-    }),
-    "unsupported"
-  );
-});
-
-test("shared Agent without policy fails closed", () => {
-  assert.deepEqual(
-    projectConnectorComposerItems({
-      items: [connectedItem],
-      policy: { status: "unavailable", supportedConnectorKeys: [] },
-      selectedConnectorKeys: []
-    }),
-    [
-      {
-        connectorKey: "github",
-        iconUrl: undefined,
-        name: "GitHub",
-        selected: false,
-        status: "unsupported"
-      }
-    ]
-  );
-});
-
-test("shared Agent empty allowlist disables every catalog item", () => {
-  assert.equal(
-    projectConnectorComposerItems({
-      items: [connectedItem],
-      policy: { status: "ready", supportedConnectorKeys: [] },
-      selectedConnectorKeys: []
-    })[0]?.status,
-    "disabled"
-  );
-});
-
-test("neutral draft keys outside the Connector catalog are ignored", () => {
-  const projected = projectConnectorComposerItems({
-    items: [connectedItem],
-    policy: { status: "ready", supportedConnectorKeys: null },
-    selectedConnectorKeys: ["browser", "github"]
-  });
-
-  assert.deepEqual(
-    projected.map((item) => [item.connectorKey, item.selected]),
-    [["github", true]]
-  );
-});
-
-test("stale catalog metadata does not reinterpret physical readiness", () => {
+test("defensively normalizes unknown application state and actions to unsupported", () => {
   const market = createConnectorMarketStoreState();
-  const connector = connectorFixture();
-  market.loadState = "error";
+  const connector = connectorFixture({
+    state: "future_state" as ConnectorPresentationState,
+    reasonCode: "future",
+    allowedActions: ["future_action" as "details"]
+  });
+  market.loadState = "ready";
   market.connectorKeys = [connector.key];
   market.connectorsByKey[connector.key] = connector;
 
-  const snapshot = projectConnectorRendererSnapshot(market);
-
-  assert.equal(snapshot.phase, "failed");
-  assert.equal(snapshot.stale, true);
-  assert.equal(snapshot.entryAvailable, true);
-  assert.equal(snapshot.items[0]?.status, "connected");
+  assert.deepEqual(
+    projectConnectorRendererSnapshot(market).items[0]?.presentation,
+    {
+      state: "unsupported",
+      reasonCode: "unsupported_connector_presentation",
+      allowedActions: ["details", "remove_selection"]
+    }
+  );
 });
 
-test("authoritative catalog freshness marks a ready transport stale", () => {
+test("canonical freshness is the only catalog fact in the internal snapshot", () => {
   const market = createConnectorMarketStoreState();
-  const connector = connectorFixture();
   market.loadState = "ready";
-  market.catalogState = "refreshing";
   market.catalogFreshness = {
-    state: "refreshing",
+    state: "stale",
     snapshotId: "last-good",
+    sourceRevision: "catalog-8",
     staleSince: "2026-08-18T01:00:00Z"
   };
-  market.catalogMutationState = "blocked";
+  const connector = connectorFixture(presentationFor("connected"));
   market.connectorKeys = [connector.key];
   market.connectorsByKey[connector.key] = connector;
 
-  const snapshot = projectConnectorRendererSnapshot(market);
-
-  assert.equal(snapshot.phase, "ready");
-  assert.equal(snapshot.stale, true);
-  assert.equal(snapshot.entryAvailable, true);
-  assert.equal(snapshot.items[0]?.status, "connected");
+  const projected = projectConnectorRendererSnapshot(market);
+  assert.equal("catalogState" in market, false);
+  assert.equal("catalogMutationState" in market, false);
+  assert.equal("sourceRevision" in market, false);
+  assert.equal(projected.stale, true);
+  assert.equal(projected.items[0]?.presentation.state, "connected");
+  assert.equal(
+    projected.items[0]?.presentation.allowedActions.includes("update"),
+    false
+  );
 });
 
-test("daemon unavailable without a last-good catalog hides the entry", () => {
-  const market = createConnectorMarketStoreState();
-  market.loadState = "error";
-  const snapshot = projectConnectorRendererSnapshot(market);
-  assert.equal(snapshot.entryAvailable, false);
-  assert.equal(snapshot.stale, true);
+test("shared policy is per-connector and missing policy fails closed", () => {
+  const item = rendererItem(presentationFor("connected"));
+  const ready = projectConnectorComposerItems({
+    items: [item],
+    policy: {
+      status: "ready",
+      presentationsByConnectorKey: {
+        github: presentationFor("disabled")
+      }
+    },
+    selectedConnectorKeys: []
+  });
+  assert.equal(ready[0]?.status, "disabled");
+
+  const missing = projectConnectorComposerItems({
+    items: [item],
+    policy: { status: "ready", presentationsByConnectorKey: {} },
+    selectedConnectorKeys: ["github"]
+  });
+  assert.deepEqual(missing[0]?.allowedActions, ["details", "remove_selection"]);
+  assert.equal(missing[0]?.status, "unsupported");
 });
 
-test("composer entry hides unavailable daemon and keeps stale last-good visible", () => {
-  const render = (
-    entryAvailable: boolean,
-    items: readonly ConnectorRendererItem[]
-  ) =>
+test("composer selection requires exact select or remove_selection action", () => {
+  assert.equal(
+    connectorComposerSelectionAllowed(
+      {
+        allowedActions: ["details", "select", "remove_selection"]
+      },
+      false
+    ),
+    true
+  );
+  assert.equal(
+    connectorComposerSelectionAllowed(
+      { allowedActions: ["details", "remove_selection"] },
+      true
+    ),
+    true
+  );
+  assert.equal(
+    connectorComposerSelectionAllowed(
+      { allowedActions: ["details", "remove_selection"] },
+      false
+    ),
+    false
+  );
+  assert.equal(
+    connectorComposerSelectionAllowed(
+      { allowedActions: ["details", "select"] },
+      true
+    ),
+    false
+  );
+});
+
+test("composer entry hides unavailable daemon and keeps last-good visible", () => {
+  const render = (entryAvailable: boolean) =>
     renderToStaticMarkup(
       createElement(ConnectorComposerEntry, {
         agent: {
           target: { agentTargetId: "local", ownership: "local" },
           draft: { selectedConnectorKeys: [], setSelected: () => undefined }
         },
-        i18n: {
-          has: () => true,
-          t: (key: string) => key,
-          tFirst: (keys: readonly string[]) => keys[0] ?? ""
-        } as ConnectorMarketI18nRuntime,
-        model: {
-          commands: { refresh: async () => undefined },
-          getAgentPolicy: () => ({
-            status: "ready",
-            supportedConnectorKeys: null
-          }),
-          subscribeAgentPolicy: () => () => undefined,
-          getSnapshot: () => ({
-            entryAvailable,
-            items,
-            phase: "failed",
-            revision: 1,
-            stale: true
-          }),
-          subscribe: () => () => undefined
-        } as unknown as ConnectorRendererModel,
+        i18n: i18nFixture(),
+        model: modelFixture(entryAvailable),
         onEvent: () => undefined
       })
     );
-
-  assert.equal(render(false, []), "");
-  assert.match(
-    render(true, [connectedItem]),
-    /connector-market-composer-trigger/u
-  );
+  assert.equal(render(false), "");
+  assert.match(render(true), /connector-market-composer-trigger/u);
 });
 
 test("stable target identity does not resubscribe during parent rerenders", async () => {
@@ -218,35 +190,14 @@ test("stable target identity does not resubscribe during parent rerenders", asyn
   let reactRoot: Root | null = null;
   let subscriptions = 0;
   let unsubscriptions = 0;
-  const policy = Object.freeze({
-    status: "ready" as const,
-    supportedConnectorKeys: Object.freeze(["github"])
-  });
-  const model: ConnectorRendererModel = {
-    commands: {
-      refresh: async () => undefined
-    } as ConnectorRendererModel["commands"],
-    getAgentPolicy: () => policy,
-    getSnapshot: () => ({
-      entryAvailable: true,
-      items: [],
-      phase: "ready",
-      revision: 0,
-      stale: false
-    }),
-    getSurfaceSnapshot: () =>
-      ({ market: {}, ui: {}, view: {} }) as ReturnType<
-        ConnectorRendererModel["getSurfaceSnapshot"]
-      >,
-    subscribeSurface: () => () => undefined,
-    subscribe: () => () => undefined,
+  const model = modelFixture(true, {
     subscribeAgentPolicy: () => {
       subscriptions += 1;
       return () => {
         unsubscriptions += 1;
       };
     }
-  };
+  });
 
   function PolicyProbe(props: { targetId: string }): null {
     useConnectorRendererAgentPolicy(model, {
@@ -265,20 +216,16 @@ test("stable target identity does not resubscribe during parent rerenders", asyn
     const container = dom.window.document.getElementById("root");
     assert.ok(container);
     reactRoot = createRoot(container);
-
     await act(async () => {
       reactRoot?.render(createElement(PolicyProbe, { targetId: "shared-1" }));
     });
     await act(async () => {
       reactRoot?.render(createElement(PolicyProbe, { targetId: "shared-1" }));
     });
-
     assert.equal(subscriptions, 1);
     assert.equal(unsubscriptions, 0);
   } finally {
-    if (reactRoot) {
-      await act(async () => reactRoot?.unmount());
-    }
+    if (reactRoot) await act(async () => reactRoot?.unmount());
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;
     (
@@ -289,15 +236,89 @@ test("stable target identity does not resubscribe during parent rerenders", asyn
   assert.equal(unsubscriptions, 1);
 });
 
-function connectorFixture(): Connector {
+function presentationFor(
+  state: ConnectorPresentationState
+): ConnectorPresentation {
+  return state === "connected"
+    ? {
+        state,
+        allowedActions: [
+          "details",
+          "select",
+          "remove_selection",
+          "manage",
+          "disconnect",
+          "uninstall"
+        ]
+      }
+    : {
+        state,
+        reasonCode: `reason_${state}`,
+        allowedActions: ["details", "remove_selection"]
+      };
+}
+
+function rendererItem(
+  presentation: ConnectorPresentation
+): ConnectorRendererItem {
+  return {
+    connectorKey: "github",
+    name: "GitHub",
+    presentation,
+    revision: 1
+  };
+}
+
+function modelFixture(
+  entryAvailable: boolean,
+  overrides: Partial<ConnectorRendererModel> = {}
+): ConnectorRendererModel {
+  const presentation = presentationFor("connected");
+  const policy = Object.freeze({
+    status: "ready" as const,
+    presentationsByConnectorKey: Object.freeze({ github: presentation })
+  });
+  return {
+    commands: {
+      refresh: async () => undefined
+    } as ConnectorRendererModel["commands"],
+    getAgentPolicy: () => policy,
+    subscribeAgentPolicy: () => () => undefined,
+    getSnapshot: () => ({
+      entryAvailable,
+      catalogFreshness: { state: "stale", snapshotId: "last-good" },
+      items: [rendererItem(presentation)],
+      phase: "failed",
+      revision: 1,
+      stale: true
+    }),
+    subscribe: () => () => undefined,
+    getSurfaceSnapshot: () =>
+      ({ market: {}, ui: {}, view: {} }) as ReturnType<
+        ConnectorRendererModel["getSurfaceSnapshot"]
+      >,
+    subscribeSurface: () => () => undefined,
+    ...overrides
+  };
+}
+
+function i18nFixture(): ConnectorMarketI18nRuntime {
+  return {
+    has: () => true,
+    t: (key: string) => key,
+    tFirst: (keys: readonly string[]) => keys[0] ?? ""
+  } as ConnectorMarketI18nRuntime;
+}
+
+function connectorFixture(presentation: ConnectorPresentation): Connector {
   return {
     authorization: { state: "connected" },
     compatibility: { state: "supported" },
     installation: { state: "installed" },
     key: "github",
+    presentation,
     release: {
       artifact: {
-        key: "connectors/github.tgz",
         mediaType: "application/vnd.tutti.connector+tar+gzip",
         sha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -309,10 +330,7 @@ function connectorFixture(): Connector {
         description: "Manage repositories and pull requests",
         displayName: "GitHub",
         iconUrl: "data:image/png;base64,iVBORw0KGgo=",
-        implementation: {
-          builtin: { cli: true, mcp: true, providerId: "github" },
-          kind: "builtin"
-        },
+        implementation: { kind: "builtin" },
         permissions: ["repositories"],
         schemaVersion: "1"
       },

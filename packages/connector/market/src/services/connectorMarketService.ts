@@ -11,7 +11,8 @@ import type {
   ConnectorMarketChangedEvent,
   ConnectorMarketEventSource,
   ConnectorMutationResult,
-  ConnectorOperation
+  ConnectorOperation,
+  ConnectorPresentationAction
 } from "../contracts/index.ts";
 import type {
   ConnectorMarketServiceDependencies,
@@ -281,7 +282,6 @@ export class ConnectorMarketService implements IConnectorMarketService {
       return this.refreshInFlight;
     }
     const generation = this.dataGeneration;
-    this.dataStore.catalogState = "refreshing";
     const promise = this.dependencies.backend
       .refreshCatalog({
         clientRequestId: this.createRequestId(),
@@ -309,6 +309,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
           ) {
             throw new ConnectorCommandFailureError("uncertain", {
               code: "connector_market_unavailable",
+              // i18n-check-ignore: internal protocol diagnostic, never rendered directly.
               message: "catalog refresh returned an invalid result",
               retryable: true
             });
@@ -319,13 +320,6 @@ export class ConnectorMarketService implements IConnectorMarketService {
       })
       .catch((error) => {
         if (this.isCurrent(generation)) {
-          this.dataStore.catalogState = "failed";
-          this.dataStore.catalogFreshness = {
-            ...this.dataStore.catalogFreshness,
-            state:
-              this.dataStore.connectorKeys.length > 0 ? "stale" : "unavailable"
-          };
-          this.dataStore.catalogMutationState = "blocked";
           this.recordError(error);
         }
         throw error;
@@ -375,40 +369,33 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (this.disposed) {
       return "not_admitted";
     }
-    this.assertCatalogMutationAvailable();
+    this.assertConnectorActionAvailable(connectorKey, "install", "update");
     if (!this.canRequest()) {
       await this.dependencies.requestInstallAdmission?.();
     }
     if (this.disposed || !this.canRequest()) {
       return "not_admitted";
     }
-    this.assertCatalogMutationAvailable();
+    this.assertConnectorActionAvailable(connectorKey, "install", "update");
     const installed = await this.installConnector(connectorKey);
     return installed ? "installed" : "not_admitted";
   }
 
-  private assertCatalogMutationAvailable(): void {
+  private assertConnectorActionAvailable(
+    connectorKey: string,
+    ...actions: readonly ConnectorPresentationAction[]
+  ): void {
+    const allowedActions =
+      this.dataStore.connectorsByKey[connectorKey]?.presentation.allowedActions;
     if (
-      this.dataStore.loadState !== "ready" ||
-      this.dataStore.catalogMutationState !== "allowed"
+      !allowedActions ||
+      !actions.some((action) => allowedActions.includes(action))
     ) {
       throw new ConnectorMarketRequestUnavailableError();
     }
   }
 
   private installConnector(connectorKey: string): Promise<boolean> {
-    const connector = this.dataStore.connectorsByKey[connectorKey];
-    if (
-      connector?.installation.state === "installed" &&
-      connector.installation.installedReleaseDigest &&
-      connector.installation.installedReleaseDigest !==
-        connector.release.releaseDigest
-    ) {
-      this.automaticUpdateReleaseByConnectorKey.set(
-        connectorKey,
-        connector.release.releaseDigest
-      );
-    }
     return this.runConnectorMutation(
       connectorKey,
       () =>
@@ -426,6 +413,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (this.disposed || !this.canRequest()) {
       throw new ConnectorMarketRequestUnavailableError();
     }
+    this.assertConnectorActionAvailable(connectorKey, "uninstall");
     const result = await this.runConnectorMutationResult(connectorKey, () =>
       this.dependencies.backend.uninstallConnector({
         connectorKey,
@@ -472,6 +460,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (this.disposed || !this.canRequest()) {
       return Promise.resolve();
     }
+    this.assertConnectorActionAvailable(connectorKey, "authorize");
     const previousAttempt = this.authorizationAttempts.get(connectorKey);
     if (previousAttempt) {
       previousAttempt.canceled = true;
@@ -487,6 +476,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   async cancelAuthorization(connectorKey: string): Promise<void> {
+    this.assertConnectorActionAvailable(connectorKey, "cancel");
     const attempt = this.authorizationAttempts.get(connectorKey);
     const mutationToken = this.connectorMutations.get(connectorKey);
     if (attempt) {
@@ -567,6 +557,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (result.outcome !== "completed") {
       throw new ConnectorCommandFailureError("uncertain", {
         code: "connector_market_unavailable",
+        // i18n-check-ignore: internal protocol diagnostic, never rendered directly.
         message: "authorization cancellation returned an invalid result",
         retryable: true
       });
@@ -662,6 +653,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
         ) {
           throw new ConnectorCommandFailureError("uncertain", {
             code: "connector_market_unavailable",
+            // i18n-check-ignore: internal protocol diagnostic, never rendered directly.
             message: "authorization command returned an invalid result",
             retryable: true
           });
@@ -757,6 +749,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   async disconnectAuthorization(connectorKey: string): Promise<void> {
+    this.assertConnectorActionAvailable(connectorKey, "disconnect");
     await this.runConnectorMutation(connectorKey, () =>
       this.dependencies.backend.disconnectAuthorization({
         connectorKey,
@@ -1074,15 +1067,9 @@ export class ConnectorMarketService implements IConnectorMarketService {
       return;
     }
     for (const connector of Object.values(this.dataStore.connectorsByKey)) {
-      const installedReleaseDigest =
-        connector.installation.installedReleaseDigest;
       const targetReleaseDigest = connector.release.releaseDigest;
       if (
-        connector.compatibility.state !== "supported" ||
-        connector.release.status !== "available" ||
-        connector.installation.state !== "installed" ||
-        !installedReleaseDigest ||
-        installedReleaseDigest === targetReleaseDigest ||
+        !connector.presentation.allowedActions.includes("update") ||
         this.connectorMutations.has(connector.key) ||
         this.automaticUpdateReleaseByConnectorKey.get(connector.key) ===
           targetReleaseDigest
@@ -1165,6 +1152,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
       ) {
         throw new ConnectorCommandFailureError("uncertain", {
           code: "connector_market_unavailable",
+          // i18n-check-ignore: internal protocol diagnostic, never rendered directly.
           message: "connector command returned an invalid acceptance result",
           retryable: true
         });

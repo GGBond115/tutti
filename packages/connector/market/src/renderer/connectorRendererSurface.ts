@@ -1,9 +1,8 @@
 import type { AuthorizationViewEnvelopeV1 } from "@tutti-os/connector-authorization-protocol/v1";
 import type {
-  ConnectorAuthorizationState,
-  ConnectorCompatibilityState,
-  ConnectorInstallationState,
-  ConnectorOperationStage
+  ConnectorOperationStage,
+  ConnectorPresentationAction,
+  ConnectorPresentationState
 } from "../contracts/index.ts";
 
 export type ConnectorRendererSegment = "available" | "installed";
@@ -12,30 +11,23 @@ export type ConnectorRendererInstallOutcome = "installed" | "not_admitted";
 export interface ConnectorRendererCardView {
   action:
     | "authorize"
-    | "busy"
+    | "cancel"
+    | "details"
     | "disconnect"
     | "install"
     | "manage"
     | "unavailable"
     | "update";
-  authorizationState: ConnectorAuthorizationState;
-  compatibilityState: ConnectorCompatibilityState;
+  allowedActions: ConnectorPresentationAction[];
   connectorKey: string;
   description: string;
   displayName: string;
   iconUrl: string;
   implementationTags: string[];
-  installationState: ConnectorInstallationState;
   operationStage: ConnectorOperationStage | null;
+  reasonCode?: string;
   canUninstall: boolean;
-  status:
-    | "authorization_required"
-    | "connected"
-    | "installing"
-    | "not_installed"
-    | "unavailable"
-    | "updating"
-    | "update_available";
+  status: ConnectorPresentationState;
 }
 
 export interface ConnectorRendererSectionView {
@@ -81,6 +73,8 @@ export type ConnectorRendererDialogView =
       authorizationView?: AuthorizationViewEnvelopeV1;
       authorizing: boolean;
       brokeredAuthorization: boolean;
+      canAuthorize: boolean;
+      canCancel: boolean;
       kind: "authorization";
       pending: boolean;
     })
@@ -90,7 +84,8 @@ export type ConnectorRendererDialogView =
       updating: boolean;
     })
   | (ConnectorRendererDialogBase & {
-      canAuthorize: boolean;
+      canDisconnect: boolean;
+      canTry: boolean;
       canUninstall: boolean;
       details: ConnectorRendererDetailFieldView[];
       kind: "management";

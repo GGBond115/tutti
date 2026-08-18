@@ -12,8 +12,6 @@ export {
   type ConnectorComposerEntryProps
 } from "./ConnectorComposerEntry.tsx";
 export {
-  normalizeConnectorRendererStatus,
-  projectConnectorStatus,
   type ConnectorRendererCommands,
   type ConnectorRendererAgentPolicyPort,
   type ConnectorRendererAgentPolicySnapshot,

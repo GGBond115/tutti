@@ -9,7 +9,8 @@ import type {
   ConnectorMarketSnapshot
 } from "../../contracts/index.ts";
 import { ConnectorMarketModule } from "./connectorMarketModule.ts";
-import { getConnectorRendererModel } from "../../composition/renderer/connectorRendererModelAdapter.ts";
+import { getConnectorRendererModel } from "../../composition/index.ts";
+import type { ConnectorRendererAgentPolicyPort } from "../../renderer/index.ts";
 
 test("module activation runs all service startup jobs before ready", async () => {
   let snapshotLoads = 0;
@@ -73,14 +74,71 @@ test("module activation runs all service startup jobs before ready", async () =>
   assert.equal("dispose" in module.rendererPorts.uiState, false);
   assert.equal("start" in module.rendererPorts.view, false);
   assert.equal("dispose" in module.rendererPorts.view, false);
+  const defaultModel = getConnectorRendererModel(module.rendererPorts);
   assert.strictEqual(
-    getConnectorRendererModel(module.rendererPorts),
+    defaultModel,
     getConnectorRendererModel(module.rendererPorts)
   );
+  const sharedTarget = {
+    agentTargetId: "shared-agent-1",
+    ownership: "shared" as const
+  };
+  assert.deepEqual(defaultModel.getAgentPolicy(sharedTarget), {
+    status: "unavailable",
+    presentationsByConnectorKey: {}
+  });
+  let agentPolicySubscriptions = 0;
+  let agentPolicyUnsubscriptions = 0;
+  const sharedPolicy = Object.freeze({
+    status: "ready" as const,
+    presentationsByConnectorKey: Object.freeze({
+      github: {
+        state: "disabled" as const,
+        reasonCode: "shared_agent_connector_disabled",
+        allowedActions: ["details", "remove_selection"] as (
+          | "details"
+          | "remove_selection"
+        )[]
+      }
+    })
+  });
+  const agentPolicy: ConnectorRendererAgentPolicyPort = {
+    getSnapshot: () => sharedPolicy,
+    subscribe: () => {
+      agentPolicySubscriptions += 1;
+      return () => {
+        agentPolicyUnsubscriptions += 1;
+      };
+    }
+  };
+  const policyModel = getConnectorRendererModel(module.rendererPorts, {
+    agentPolicy
+  });
+  assert.strictEqual(policyModel, defaultModel);
+  assert.strictEqual(
+    policyModel,
+    getConnectorRendererModel(module.rendererPorts, { agentPolicy })
+  );
+  assert.deepEqual(policyModel.getAgentPolicy(sharedTarget), sharedPolicy);
+  assert.throws(
+    () =>
+      getConnectorRendererModel(module.rendererPorts, {
+        agentPolicy: { getSnapshot: () => sharedPolicy }
+      }),
+    /different Agent policy port/
+  );
+  const unsubscribePolicy = policyModel.subscribeAgentPolicy(
+    sharedTarget,
+    () => undefined
+  );
+  assert.equal(agentPolicySubscriptions, 1);
 
   module.dispose();
   assert.equal(module.lifecycle.phase, "disposed");
   assert.equal(unsubscriptions, 1);
+  assert.equal(agentPolicyUnsubscriptions, 1);
+  unsubscribePolicy();
+  assert.equal(agentPolicyUnsubscriptions, 1);
 });
 
 test("module activation skips market requests until the host admits them", async () => {
@@ -161,6 +219,16 @@ test("one dialog host projects authorization and management as mutually exclusiv
                 installedReleaseId: "github@1.0.0",
                 installedVersion: "1.0.0",
                 state: "installed"
+              },
+              presentation: {
+                state: "authorization_required",
+                reasonCode: "connector_authorization_required",
+                allowedActions: [
+                  "details",
+                  "remove_selection",
+                  "authorize",
+                  "uninstall"
+                ]
               }
             }),
             connector("notion", {
@@ -171,6 +239,17 @@ test("one dialog host projects authorization and management as mutually exclusiv
                 installedReleaseId: "notion@1.0.0",
                 installedVersion: "1.0.0",
                 state: "installed"
+              },
+              presentation: {
+                state: "connected",
+                allowedActions: [
+                  "details",
+                  "select",
+                  "remove_selection",
+                  "manage",
+                  "disconnect",
+                  "uninstall"
+                ]
               }
             })
           ])
@@ -196,7 +275,7 @@ test("one dialog host projects authorization and management as mutually exclusiv
   module.dispose();
 });
 
-test("a failed first install remains available for retry", async () => {
+test("application presentation remains authoritative when raw install state is failed", async () => {
   const module = new ConnectorMarketModule({
     market: {
       backend: backendWith({
@@ -236,9 +315,13 @@ function connector(key: string, overrides: Partial<Connector> = {}): Connector {
     compatibility: { state: "supported" },
     installation: { state: "not_installed" },
     key,
+    presentation: {
+      state: "setup_required",
+      reasonCode: "connector_not_installed",
+      allowedActions: ["details", "remove_selection", "install"]
+    },
     release: {
       artifact: {
-        key: `connectors/${key}.tgz`,
         mediaType: "application/vnd.tutti.connector+tar+gzip",
         sha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -249,10 +332,7 @@ function connector(key: string, overrides: Partial<Connector> = {}): Connector {
         authorizationKind: "none",
         displayName: "GitHub",
         iconUrl: "data:image/png;base64,iVBORw0KGgo=",
-        implementation: {
-          builtin: { cli: true, mcp: true, providerId: key },
-          kind: "builtin"
-        },
+        implementation: { kind: "builtin" },
         permissions: [],
         schemaVersion: "1"
       },
@@ -275,7 +355,13 @@ function snapshot(
   revision: number,
   connectors: Connector[]
 ): ConnectorMarketSnapshot {
-  return { catalogState: "ready", connectors, operations: [], revision };
+  return {
+    catalogFreshness: { state: "fresh", snapshotId: `snapshot-${revision}` },
+    connectors,
+    eventCursor: revision,
+    operations: [],
+    revision
+  };
 }
 
 function backendWith(

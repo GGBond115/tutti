@@ -382,6 +382,33 @@ describe("AgentGUINode memoization", () => {
     ).toBe(secondRenderer);
   });
 
+  it("omits an absent primary capability slot and preserves supplied identity", () => {
+    mockViewModel = createViewModel();
+    const initial = createProps();
+    const { rerender } = render(<AgentGUINode {...initial} />);
+
+    expect(
+      agentGuiNodeViewSpy.mock.calls.at(-1)?.[0].renderPrimaryCapability
+    ).toBeUndefined();
+
+    const primaryCapability = vi.fn(() => null);
+    agentGuiNodeViewSpy.mockClear();
+    rerender(
+      <AgentGUINode
+        {...initial}
+        renderSlots={{
+          ...initial.renderSlots,
+          primaryCapability
+        }}
+      />
+    );
+
+    expect(agentGuiNodeViewSpy).toHaveBeenCalledTimes(1);
+    expect(
+      agentGuiNodeViewSpy.mock.calls.at(-1)?.[0].renderPrimaryCapability
+    ).toBe(primaryCapability);
+  });
+
   it("keeps rail labels stable when provider-facing labels change", () => {
     mockViewModel = createViewModel();
     const props = createProps();

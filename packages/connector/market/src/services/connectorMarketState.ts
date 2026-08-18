@@ -12,9 +12,7 @@ import type { ConnectorMarketStoreState } from "./connectorMarketService.interfa
 export function createConnectorMarketStoreState(): ConnectorMarketStoreState {
   return {
     loadState: "idle",
-    catalogState: "stale",
     catalogFreshness: { state: "unavailable" },
-    catalogMutationState: "blocked",
     catalogOperation: null,
     catalogSections: [],
     connectorsByKey: {},
@@ -37,9 +35,7 @@ export function clearConnectorMarketStoreState(
 ): void {
   const initial = createConnectorMarketStoreState();
   state.loadState = initial.loadState;
-  state.catalogState = initial.catalogState;
   state.catalogFreshness = initial.catalogFreshness;
-  state.catalogMutationState = initial.catalogMutationState;
   state.catalogOperation = initial.catalogOperation;
   state.catalogSections = initial.catalogSections;
   state.connectorsByKey = initial.connectorsByKey;
@@ -194,8 +190,7 @@ export function applyConnectorMarketSnapshot(
     snapshotCatalogOperation = state.catalogOperation;
   }
   state.catalogOperation = snapshotCatalogOperation;
-  state.catalogState = next.catalogState;
-  applyCatalogFreshness(state, next);
+  state.catalogFreshness = { ...next.catalogFreshness };
   state.revision = Math.max(state.revision, next.revision);
   state.snapshotRevision = next.revision;
   state.lastEventCursor = Math.max(
@@ -204,48 +199,6 @@ export function applyConnectorMarketSnapshot(
   );
   state.loadState = "ready";
   state.lastError = null;
-}
-
-function applyCatalogFreshness(
-  state: ConnectorMarketStoreState,
-  snapshot: ConnectorMarketSnapshot
-): void {
-  if (snapshot.catalogFreshness) {
-    state.catalogFreshness = { ...snapshot.catalogFreshness };
-    state.catalogMutationState = catalogFreshnessAllowsMutation(
-      snapshot.catalogFreshness
-    )
-      ? "allowed"
-      : "blocked";
-    return;
-  }
-  if (snapshot.catalogState === "refreshing") {
-    return;
-  }
-  if (snapshot.catalogState === "ready") {
-    state.catalogFreshness = { state: "fresh" };
-    state.catalogMutationState = "allowed";
-    return;
-  }
-  state.catalogFreshness = {
-    state:
-      snapshot.catalogState === "stale" && snapshot.connectors.length > 0
-        ? "stale"
-        : "unavailable"
-  };
-  state.catalogMutationState = "blocked";
-}
-
-function catalogFreshnessAllowsMutation(
-  freshness: ConnectorMarketStoreState["catalogFreshness"]
-): boolean {
-  if (freshness.staleSince) {
-    return false;
-  }
-  return (
-    freshness.state === "fresh" ||
-    (freshness.state === "refreshing" && Boolean(freshness.snapshotId))
-  );
 }
 
 export function applyConnectorMutationResult(

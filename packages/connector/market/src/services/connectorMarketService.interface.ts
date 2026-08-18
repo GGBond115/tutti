@@ -3,7 +3,6 @@ import type { AuthorizationViewEnvelopeV1 } from "@tutti-os/connector-authorizat
 
 import type {
   Connector,
-  ConnectorCatalogState,
   ConnectorCatalogFreshness,
   ConnectorMarketCategory,
   ConnectorMarketBackend,
@@ -22,9 +21,7 @@ export interface ConnectorMarketSectionState extends ConnectorMarketCategory {
 
 export interface ConnectorMarketStoreState {
   loadState: ConnectorMarketLoadState;
-  catalogState: ConnectorCatalogState;
   catalogFreshness: ConnectorCatalogFreshness;
-  catalogMutationState: "allowed" | "blocked";
   catalogOperation: ConnectorOperation | null;
   catalogSections: ConnectorMarketSectionState[];
   connectorsByKey: Record<string, Connector>;

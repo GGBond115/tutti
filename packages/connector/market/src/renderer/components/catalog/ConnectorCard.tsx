@@ -15,10 +15,7 @@ import { useState } from "react";
 import type { ConnectorMarketI18nRuntime } from "../../../i18n/connectorMarketI18n.ts";
 import type { ConnectorRendererCardView as ConnectorCardView } from "../../connectorRendererSurface.ts";
 import { useConnectorMarketServices } from "../ConnectorMarketServicesContext.tsx";
-import {
-  connectorCardActionStartsInstallation,
-  connectorCardBusyActionLabelKey
-} from "./connectorCardAction.ts";
+import { connectorCardActionStartsInstallation } from "./connectorCardAction.ts";
 import { ConnectorIcon } from "./ConnectorIcon.tsx";
 
 export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
@@ -43,6 +40,12 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
         .finally(() => setDisconnecting(false));
       return;
     }
+    if (card.action === "cancel") {
+      void model.commands
+        .cancelAuthorization(connectorKey)
+        .catch(() => onError?.(i18n.t("connectorAuthorizationFailed")));
+      return;
+    }
     if (connectorCardActionStartsInstallation(card.action)) {
       void model.commands.install(connectorKey).catch(() => {
         onError?.(
@@ -55,7 +58,7 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
       });
       return;
     }
-    if (card.action !== "busy") {
+    if (card.action !== "unavailable") {
       model.commands.openConnector(connectorKey);
     }
   };
@@ -89,7 +92,7 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
             <DropdownMenuTrigger asChild>
               <Button
                 aria-label={i18n.t("actionMore")}
-                disabled={card.action === "busy"}
+                disabled={card.action === "unavailable"}
                 size="icon-xs"
                 title={i18n.t("actionMore")}
                 type="button"
@@ -118,7 +121,7 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
           <StatusDot
-            pulse={["installing", "updating"].includes(card.status)}
+            pulse={["connecting", "loading"].includes(card.status)}
             size="xs"
             tone={status.tone}
           />
@@ -129,7 +132,7 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
           </span>
         </div>
         <Button
-          disabled={card.action === "busy" || disconnecting}
+          disabled={card.action === "unavailable" || disconnecting}
           size="sm"
           type="button"
           variant={
@@ -141,9 +144,7 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
           }
           onClick={handleAction}
         >
-          {card.action === "busy" || disconnecting ? (
-            <Spinner size={14} />
-          ) : null}
+          {disconnecting ? <Spinner size={14} /> : null}
           {disconnecting ? i18n.t("actionDisconnecting") : actionLabel}
         </Button>
       </div>
@@ -152,16 +153,7 @@ export function ConnectorCard({ connectorKey }: { connectorKey: string }) {
 }
 
 function resolveActionLabel(
-  card: Readonly<
-    Pick<
-      ConnectorCardView,
-      | "action"
-      | "authorizationState"
-      | "installationState"
-      | "operationStage"
-      | "status"
-    >
-  >,
+  card: Readonly<Pick<ConnectorCardView, "action">>,
   t: ConnectorMarketI18nRuntime["t"]
 ): string {
   switch (card.action) {
@@ -171,25 +163,19 @@ function resolveActionLabel(
       return t("actionUpdate");
     case "authorize":
       return t("actionAuthorize");
+    case "cancel":
+      return t("cancel");
     case "disconnect":
       return t("actionDisconnect");
+    case "details":
     case "manage":
     case "unavailable":
       return t("actionManage");
-    case "busy":
-      return t(connectorCardBusyActionLabelKey(card));
   }
 }
 
 function resolveStatus(
-  status:
-    | "authorization_required"
-    | "connected"
-    | "installing"
-    | "not_installed"
-    | "unavailable"
-    | "updating"
-    | "update_available",
+  status: ConnectorCardView["status"],
   t: ConnectorMarketI18nRuntime["t"]
 ): {
   label: string;
@@ -200,16 +186,24 @@ function resolveStatus(
       return { label: t("connectedStatus"), tone: "green" };
     case "authorization_required":
       return { label: t("statusAuthorizationRequired"), tone: "amber" };
-    case "installing":
-      return { label: t("actionInstalling"), tone: "blue" };
-    case "updating":
-      return { label: t("actionUpdating"), tone: "blue" };
+    case "connecting":
+      return { label: t("statusConnecting"), tone: "blue" };
+    case "loading":
+      return { label: t("loading"), tone: "neutral" };
+    case "degraded":
+      return { label: t("statusDegraded"), tone: "amber" };
+    case "disabled":
+      return { label: t("statusDisabled"), tone: "neutral" };
+    case "unsupported":
+      return { label: t("statusUnsupported"), tone: "neutral" };
+    case "failed":
+      return { label: t("operationFailed"), tone: "red" };
     case "unavailable":
       return { label: t("statusUnavailable"), tone: "red" };
-    case "not_installed":
+    case "setup_required":
       return { label: t("statusNotInstalled"), tone: "neutral" };
-    case "update_available":
-      return { label: t("statusUpdateAvailable"), tone: "blue" };
+    default:
+      return { label: t("statusUnsupported"), tone: "neutral" };
   }
 }
 

@@ -1,42 +1,38 @@
 import type {
+  Connector,
+  ConnectorCatalogFreshness,
+  ConnectorPresentation,
+  ConnectorPresentationAction,
+  ConnectorPresentationState
+} from "../contracts/index.ts";
+import type {
   ConnectorRendererInstallOutcome,
   ConnectorRendererSegment,
   ConnectorRendererSurfaceSnapshot
 } from "./connectorRendererSurface.ts";
-import type { Connector, ConnectorOperation } from "../contracts/index.ts";
-export type { ConnectorRendererSurfaceSnapshot } from "./connectorRendererSurface.ts";
 
-export type ConnectorRendererStatus =
-  | "unavailable"
-  | "loading"
-  | "setup_required"
-  | "authorization_required"
-  | "connecting"
-  | "connected"
-  | "degraded"
-  | "disabled"
-  | "unsupported"
-  | "failed";
+export type { ConnectorRendererSurfaceSnapshot } from "./connectorRendererSurface.ts";
+export type ConnectorRendererStatus = ConnectorPresentationState;
 
 export interface ConnectorRendererItem {
   readonly connectorKey: string;
   readonly iconUrl?: string;
   readonly name: string;
+  readonly presentation: Readonly<ConnectorPresentation>;
   readonly revision: number;
-  readonly status: ConnectorRendererStatus;
 }
 
 export interface ConnectorRendererSnapshot {
   /** Application-owned entry admission; hosts must not infer daemon health. */
   readonly entryAvailable: boolean;
   readonly phase: "loading" | "ready" | "failed";
+  readonly catalogFreshness: Readonly<ConnectorCatalogFreshness>;
   readonly items: readonly ConnectorRendererItem[];
   readonly revision: number;
   readonly stale: boolean;
 }
 
 export interface ConnectorRendererCommands {
-  /** Forces an authoritative local-daemon reload. */
   refresh(): Promise<void>;
   refreshCatalog(): Promise<void>;
   loadMore(sectionId: string): Promise<void>;
@@ -58,10 +54,12 @@ export interface ConnectorRendererAgentTarget {
   readonly ownership: "local" | "shared";
 }
 
+/** Per-Connector application projection for one Agent target. */
 export interface ConnectorRendererAgentPolicySnapshot {
   readonly status: "loading" | "ready" | "unavailable";
-  /** `null` means the local Agent supports the validated catalog. */
-  readonly supportedConnectorKeys: readonly string[] | null;
+  readonly presentationsByConnectorKey: Readonly<
+    Record<string, Readonly<ConnectorPresentation>>
+  >;
 }
 
 export interface ConnectorRendererAgentPolicyPort {
@@ -105,9 +103,8 @@ const secureSubmissionPorts = new WeakMap<
 export function requireConnectorRendererSecureSubmissionPort(
   model: ConnectorRendererModel
 ): ConnectorRendererSecureSubmissionPort {
-  const port = secureSubmissionPorts.get(model);
   return (
-    port ?? {
+    secureSubmissionPorts.get(model) ?? {
       beginAuthorization: () =>
         Promise.reject(new Error("Connector renderer model is not available"))
     }
@@ -121,7 +118,7 @@ export function registerConnectorRendererSecureSubmissionPort(
   secureSubmissionPorts.set(model, port);
 }
 
-const connectorRendererStatuses = new Set<ConnectorRendererStatus>([
+const presentationStates = new Set<ConnectorPresentationState>([
   "unavailable",
   "loading",
   "setup_required",
@@ -133,54 +130,75 @@ const connectorRendererStatuses = new Set<ConnectorRendererStatus>([
   "unsupported",
   "failed"
 ]);
+const presentationActions = new Set<ConnectorPresentationAction>([
+  "details",
+  "install",
+  "update",
+  "authorize",
+  "cancel",
+  "select",
+  "remove_selection",
+  "manage",
+  "disconnect",
+  "uninstall"
+]);
 
-const localAgentPolicySnapshot: ConnectorRendererAgentPolicySnapshot =
-  Object.freeze({ status: "ready", supportedConnectorKeys: null });
-const unavailableSharedAgentPolicySnapshot: ConnectorRendererAgentPolicySnapshot =
-  Object.freeze({ status: "unavailable", supportedConnectorKeys: [] });
+const unsupportedPresentation = Object.freeze<ConnectorPresentation>({
+  state: "unsupported",
+  reasonCode: "unsupported_connector_presentation",
+  allowedActions: Object.freeze([
+    "details",
+    "remove_selection"
+  ]) as unknown as ConnectorPresentationAction[]
+});
 
-/** Unknown future values remain visible but fail closed. */
-export function normalizeConnectorRendererStatus(
-  status: string
-): ConnectorRendererStatus {
-  return connectorRendererStatuses.has(status as ConnectorRendererStatus)
-    ? (status as ConnectorRendererStatus)
-    : "unsupported";
+/** Defensive validation only; lifecycle and action derivation belong upstream. */
+export function normalizeConnectorPresentation(
+  value: Readonly<ConnectorPresentation>
+): Readonly<ConnectorPresentation> {
+  const state = value.state as string;
+  const actions = value.allowedActions as readonly string[];
+  if (
+    !presentationStates.has(state as ConnectorPresentationState) ||
+    !Array.isArray(actions) ||
+    actions.some(
+      (action) =>
+        !presentationActions.has(action as ConnectorPresentationAction)
+    ) ||
+    new Set(actions).size !== actions.length ||
+    (state === "connected") !== actions.includes("select") ||
+    (state !== "connected" && !value.reasonCode?.trim())
+  ) {
+    return unsupportedPresentation;
+  }
+  return Object.freeze({
+    state: state as ConnectorPresentationState,
+    ...(value.reasonCode ? { reasonCode: value.reasonCode } : {}),
+    allowedActions: Object.freeze([...actions]) as ConnectorPresentationAction[]
+  });
 }
 
 export function projectConnectorRendererSnapshot(
   market: ConnectorRendererProjectionSource
 ): ConnectorRendererSnapshot {
-  const stale =
-    market.loadState !== "ready" || market.catalogMutationState === "blocked";
   const items = market.connectorKeys.flatMap((connectorKey) => {
     const connector = market.connectorsByKey[connectorKey];
-    if (!connector) {
-      return [];
-    }
-    const operation = market.operationsByConnectorKey[connectorKey];
-    const status = projectConnectorStatus({
-      authorization: connector.authorization.state,
-      compatibility: connector.compatibility.state,
-      installation: connector.installation.state,
-      operationState: operation?.state,
-      operationStage: operation?.stage,
-      pendingAuthorization:
-        market.pendingAuthorizationsByConnectorKey[connectorKey] === true,
-      pendingInstallation:
-        market.pendingInstallationsByConnectorKey[connectorKey] === true
-    });
+    if (!connector) return [];
     return [
-      {
+      Object.freeze({
         connectorKey,
         iconUrl: connector.release.manifest.iconUrl,
         name: connector.release.manifest.displayName,
-        revision: connector.revision,
-        status
-      }
+        presentation: normalizeConnectorPresentation(connector.presentation),
+        revision: connector.revision
+      })
     ];
   });
-
+  const stale =
+    market.loadState !== "ready" ||
+    market.catalogFreshness.state === "stale" ||
+    market.catalogFreshness.state === "unavailable" ||
+    Boolean(market.catalogFreshness.staleSince);
   return Object.freeze({
     entryAvailable:
       market.loadState === "ready" ||
@@ -191,6 +209,7 @@ export function projectConnectorRendererSnapshot(
         : market.loadState === "error"
           ? "failed"
           : "ready",
+    catalogFreshness: Object.freeze({ ...market.catalogFreshness }),
     items: Object.freeze(items),
     revision: market.revision,
     stale
@@ -199,60 +218,8 @@ export function projectConnectorRendererSnapshot(
 
 export interface ConnectorRendererProjectionSource {
   readonly loadState: string;
-  readonly catalogMutationState: "allowed" | "blocked";
+  readonly catalogFreshness: Readonly<ConnectorCatalogFreshness>;
   readonly connectorKeys: readonly string[];
   readonly connectorsByKey: Readonly<Record<string, Connector>>;
-  readonly operationsByConnectorKey: Readonly<
-    Record<string, ConnectorOperation>
-  >;
-  readonly pendingAuthorizationsByConnectorKey: Readonly<Record<string, true>>;
-  readonly pendingInstallationsByConnectorKey: Readonly<Record<string, true>>;
   readonly revision: number;
-}
-
-export function projectConnectorStatus(input: {
-  authorization: string;
-  compatibility: string;
-  installation: string;
-  operationState?: string;
-  operationStage?: string;
-  pendingAuthorization: boolean;
-  pendingInstallation: boolean;
-}): ConnectorRendererStatus {
-  if (input.compatibility !== "supported") {
-    return input.compatibility.startsWith("unsupported_")
-      ? "unsupported"
-      : "unavailable";
-  }
-  if (
-    input.installation === "failed" ||
-    input.authorization === "failed" ||
-    input.operationState === "failed" ||
-    input.operationStage === "failed"
-  ) {
-    return "failed";
-  }
-  if (
-    input.pendingInstallation ||
-    input.pendingAuthorization ||
-    ["installing", "updating", "uninstalling"].includes(input.installation) ||
-    input.authorization === "pending" ||
-    (input.operationState !== undefined &&
-      !["completed", "failed"].includes(input.operationState))
-  ) {
-    return "connecting";
-  }
-  if (input.installation === "not_installed") {
-    return "setup_required";
-  }
-  if (input.installation !== "installed") {
-    return "unsupported";
-  }
-  if (["disconnected", "expired"].includes(input.authorization)) {
-    return "authorization_required";
-  }
-  if (["connected", "not_required"].includes(input.authorization)) {
-    return "connected";
-  }
-  return "unsupported";
 }

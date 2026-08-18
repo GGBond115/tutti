@@ -117,7 +117,7 @@ export function ConnectorMarketDialogs() {
       model.commands.closeDialog();
       return;
     }
-    if (!dialog.authorizing && !dialog.pending) {
+    if (!dialog.canCancel) {
       model.commands.closeDialog();
       return;
     }
@@ -219,6 +219,8 @@ export function ConnectorMarketDialogs() {
               }
               authorizing={dialog.authorizing}
               brokeredAuthorization={dialog.brokeredAuthorization}
+              canAuthorize={dialog.canAuthorize}
+              canCancel={dialog.canCancel}
               displayName={dialog.displayName}
               iconUrl={dialog.iconUrl}
               i18n={i18n}
@@ -235,7 +237,8 @@ export function ConnectorMarketDialogs() {
             />
           ) : dialog.kind === "management" ? (
             <ConnectorManagementDialog
-              canDisconnectAuthorization={dialog.canAuthorize}
+              canDisconnectAuthorization={dialog.canDisconnect}
+              canTry={dialog.canTry}
               canUninstall={dialog.canUninstall}
               description={dialog.description}
               displayName={dialog.displayName}

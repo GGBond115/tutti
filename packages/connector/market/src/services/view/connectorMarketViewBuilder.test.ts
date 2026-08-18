@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { Connector } from "../../contracts/index.ts";
+import type {
+  Connector,
+  ConnectorPresentation,
+  ConnectorPresentationState
+} from "../../contracts/index.ts";
 import { createConnectorMarketStoreState } from "../connectorMarketState.ts";
 import type { ConnectorMarketUiState } from "../ui-state/connectorMarketUiStateService.interface.ts";
 import { buildConnectorMarketView } from "./connectorMarketViewBuilder.ts";
@@ -14,620 +18,256 @@ const uiState: ConnectorMarketUiState = {
   started: true
 };
 
-function createReadyConnectorMarketStoreState() {
-  const market = createConnectorMarketStoreState();
-  market.loadState = "ready";
-  market.catalogState = "ready";
-  market.catalogFreshness = { state: "fresh" };
-  market.catalogMutationState = "allowed";
-  return market;
-}
+const states: readonly ConnectorPresentationState[] = [
+  "unavailable",
+  "loading",
+  "setup_required",
+  "authorization_required",
+  "connecting",
+  "connected",
+  "degraded",
+  "disabled",
+  "unsupported",
+  "failed"
+];
 
-test("maps manifest failures to a non-technical catalog error", () => {
-  const market = createReadyConnectorMarketStoreState();
-  market.loadState = "error";
-  market.lastError = {
-    code: "connector_manifest_invalid",
-    message: "permission must be a lowercase stable identifier",
-    retryable: false
-  };
-
-  const view = buildConnectorMarketView(market, uiState);
-
-  assert.deepEqual(view.catalogError, {
-    kind: "invalid_data",
-    retryable: false
-  });
-  assert.equal("lastErrorCode" in view, false);
+test("maps all ten application-owned states without reading raw lifecycle facts", () => {
+  for (const state of states) {
+    const presentation = presentationFor(state);
+    const market = marketWith(connectorFixture(presentation));
+    const card = buildConnectorMarketView(market, uiState).cardsByKey.github;
+    assert.equal(card?.status, state);
+    assert.deepEqual(card?.allowedActions, presentation.allowedActions);
+  }
 });
 
-test("maps retryable upstream failures to an unavailable catalog error", () => {
-  const market = createReadyConnectorMarketStoreState();
-  market.loadState = "error";
-  market.lastError = {
-    code: "connector_market_upstream_unavailable",
-    message: "catalog request failed",
-    retryable: true
-  };
-
-  const view = buildConnectorMarketView(market, uiState);
-
-  assert.deepEqual(view.catalogError, {
-    kind: "unavailable",
-    retryable: true
-  });
-});
-
-test("keeps a failed catalog section visible without failing the whole view", () => {
-  const market = createReadyConnectorMarketStoreState();
-  market.loadState = "ready";
-  market.catalogSections = [
-    {
-      categoryId: "other",
-      kind: "category",
-      sortOrder: 40,
-      itemCount: 1,
-      connectorKeys: [],
-      loadState: "error"
-    }
+test("card primary action follows application action priority only", () => {
+  const cases = [
+    { actions: ["details", "install"] as const, want: "install" },
+    { actions: ["details", "update"] as const, want: "update" },
+    { actions: ["details", "authorize"] as const, want: "authorize" },
+    { actions: ["details", "cancel"] as const, want: "cancel" },
+    { actions: ["details", "disconnect"] as const, want: "disconnect" },
+    { actions: ["details", "manage"] as const, want: "manage" }
   ];
-
-  const view = buildConnectorMarketView(market, uiState);
-
-  assert.equal(view.status, "ready");
-  assert.equal(view.sections[0]?.id, "other");
-  assert.equal(view.sections[0]?.error, true);
-  assert.equal(view.catalogError, null);
+  for (const { actions, want } of cases) {
+    const connector = connectorFixture({
+      state: want === "install" ? "setup_required" : "failed",
+      reasonCode: "test",
+      allowedActions: [...actions]
+    });
+    assert.equal(
+      buildConnectorMarketView(marketWith(connector), uiState).cardsByKey.github
+        ?.action,
+      want
+    );
+  }
 });
 
-test("projects server-owned category names into the renderer view", () => {
-  const market = createReadyConnectorMarketStoreState();
-  market.loadState = "ready";
-  market.catalogSections = [
-    {
-      categoryId: "business-operations",
-      kind: "category",
-      sortOrder: 60,
-      itemCount: 1,
-      displayNameZh: "商业与运营",
-      displayNameEn: "Business & Operations",
-      connectorKeys: [],
-      loadState: "loading"
-    }
-  ];
-
-  const view = buildConnectorMarketView(market, uiState);
-
-  assert.equal(view.sections[0]?.id, "business-operations");
-  assert.equal(view.sections[0]?.displayNameZh, "商业与运营");
-  assert.equal(view.sections[0]?.displayNameEn, "Business & Operations");
-});
-
-test("keeps connector details open through installation and advances to authorization", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-  const dialogState: ConnectorMarketUiState = {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" }
+test("raw installation authorization and compatibility cannot change state or action", () => {
+  const presentation: ConnectorPresentation = {
+    state: "disabled",
+    reasonCode: "agent_policy_disabled",
+    allowedActions: ["details", "remove_selection"]
   };
-
-  const beforeInstall = buildConnectorMarketView(market, dialogState).dialog;
-  assert.equal(beforeInstall?.kind, "installation");
-  assert.equal(
-    beforeInstall?.description,
-    "Manage repositories and pull requests"
-  );
-  assert.equal(
-    beforeInstall?.kind === "installation" && beforeInstall.installing,
-    false
-  );
-
-  market.pendingInstallationsByConnectorKey[connector.key] = true;
-  const pendingInstall = buildConnectorMarketView(market, dialogState);
-  assert.equal(pendingInstall.cardsByKey[connector.key]?.action, "busy");
-  assert.equal(pendingInstall.cardsByKey[connector.key]?.status, "installing");
-  assert.equal(
-    pendingInstall.dialog?.kind === "installation" &&
-      pendingInstall.dialog.installing,
-    true
-  );
-  delete market.pendingInstallationsByConnectorKey[connector.key];
-
-  connector.installation = { state: "installing" };
-  market.connectorsByKey[connector.key] = connector;
-  const installing = buildConnectorMarketView(market, dialogState).dialog;
-  assert.equal(installing?.kind, "installation");
-  assert.equal(
-    installing?.kind === "installation" && installing.installing,
-    true
-  );
-
+  const connector = connectorFixture(presentation);
   connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    state: "installed"
+    state: "installed",
+    installedReleaseDigest: connector.release.releaseDigest
   };
-  market.connectorsByKey[connector.key] = connector;
-  const installed = buildConnectorMarketView(market, dialogState).dialog;
-  assert.equal(installed?.kind, "authorization");
-  assert.equal(
-    installed?.kind === "authorization" && installed.authorizing,
-    false
-  );
+  connector.authorization = { state: "connected" };
+  connector.compatibility = { state: "supported" };
+  const before = buildConnectorMarketView(marketWith(connector), uiState)
+    .cardsByKey.github;
 
-  market.authorizingConnectorKeys[connector.key] = true;
-  connector.authorization = { state: "pending" };
-  market.connectorsByKey[connector.key] = connector;
-  const authorizing = buildConnectorMarketView(market, dialogState).dialog;
-  assert.equal(
-    authorizing?.kind === "authorization" && authorizing.authorizing,
-    true
-  );
-  assert.equal(
-    authorizing?.kind === "authorization" && authorizing.pending,
-    true
-  );
+  connector.installation = { state: "failed", failureCode: "broken" };
+  connector.authorization = { state: "failed", failureCode: "expired" };
+  connector.compatibility = { state: "unsupported_platform" };
+  const after = buildConnectorMarketView(marketWith(connector), uiState)
+    .cardsByKey.github;
 
-  connector.authorization = { state: "disconnected" };
-  market.connectorsByKey[connector.key] = connector;
-  market.pendingAuthorizationsByConnectorKey[connector.key] = true;
-  const pendingSession = buildConnectorMarketView(market, dialogState).dialog;
-  assert.equal(
-    pendingSession?.kind === "authorization" && pendingSession.pending,
-    true
-  );
-  market.authorizationViewsByConnectorKey[connector.key] = {
-    protocol: "tutti.connector.authorization.view.v1",
-    viewId: "wecom-authorization-1",
-    view: {
-      type: "qr_code",
-      source: {
-        type: "payload",
-        value: "https://work.weixin.qq.com/ai/qc/c?s=opaque"
-      }
-    }
-  };
-  const qrDialog = buildConnectorMarketView(market, dialogState).dialog;
-  assert.equal(
-    qrDialog?.kind === "authorization" &&
-      qrDialog.authorizationView?.view.type === "qr_code"
-      ? qrDialog.authorizationView.view.source.value
-      : undefined,
-    "https://work.weixin.qq.com/ai/qc/c?s=opaque"
-  );
+  assert.deepEqual([before?.status, before?.action], ["disabled", "details"]);
+  assert.deepEqual([after?.status, after?.action], ["disabled", "details"]);
 });
 
-test("preserves the connector authorization interaction for the dialog", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  const interaction = {
-    protocol: "tutti.connector.authorization.declarative.v1",
-    initialView: {
-      defaultLocale: "en-US",
-      locales: {
-        "en-US": {
-          type: "form",
-          fields: [
-            {
-              type: "secret",
-              name: "personal_token",
-              label: "Personal token",
-              required: true
-            }
-          ]
-        }
-      }
+test("dialogs are selected and gated by presentation state and actions", () => {
+  const cases = [
+    {
+      presentation: {
+        state: "setup_required",
+        reasonCode: "setup",
+        allowedActions: ["details", "install", "remove_selection"]
+      } satisfies ConnectorPresentation,
+      kind: "installation"
     },
-    submission: { kind: "native_secret", secretField: "personal_token" }
-  };
-  connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    state: "installed"
-  };
-  connector.release.manifest.authorizationKind = "api_key";
-  connector.release.manifest.authorizationInteraction = interaction;
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
-  const dialog = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" }
-  }).dialog;
-
-  assert.equal(dialog?.kind, "authorization");
-  assert.deepEqual(
-    dialog?.kind === "authorization"
-      ? dialog.authorizationInteraction
-      : undefined,
-    interaction
-  );
-});
-
-test("marks managed credential brokers for managed authorization handling", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    state: "installed"
-  };
-  connector.release.manifest.authorizationKind = "api_key";
-  connector.release.manifest.authorizationInteractionMode = "managed";
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
-  const dialog = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" }
-  }).dialog;
-
-  assert.equal(
-    dialog?.kind === "authorization" && dialog.brokeredAuthorization,
-    true
-  );
-});
-
-test("keeps a physical repair in the available segment until installation completes", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    installedReleaseId: connector.release.releaseId,
-    installedVersion: connector.release.version,
-    state: "installing"
-  };
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-  market.catalogSections = [
     {
-      categoryId: "productivity",
-      connectorKeys: [connector.key],
-      itemCount: 1,
-      kind: "category",
-      loadState: "ready",
-      sortOrder: 10
+      presentation: {
+        state: "authorization_required",
+        reasonCode: "auth",
+        allowedActions: ["details", "authorize", "remove_selection"]
+      } satisfies ConnectorPresentation,
+      kind: "authorization"
+    },
+    {
+      presentation: {
+        state: "connected",
+        allowedActions: [
+          "details",
+          "select",
+          "remove_selection",
+          "manage",
+          "disconnect",
+          "uninstall"
+        ]
+      } satisfies ConnectorPresentation,
+      kind: "management"
+    },
+    {
+      presentation: {
+        state: "unsupported",
+        reasonCode: "unsupported",
+        allowedActions: ["details", "remove_selection"]
+      } satisfies ConnectorPresentation,
+      kind: "blocked"
     }
   ];
-  market.operationsByConnectorKey[connector.key] = {
-    attempt: 1,
-    clientRequestId: "repair-github",
-    connectorKey: connector.key,
-    createdAt: "2026-08-11T00:00:00Z",
-    kind: "install",
-    operationId: "repair-operation",
-    stage: "installing",
-    state: "running",
-    updatedAt: "2026-08-11T00:00:01Z"
-  };
+  for (const { presentation, kind } of cases) {
+    const market = marketWith(connectorFixture(presentation));
+    const view = buildConnectorMarketView(market, {
+      ...uiState,
+      dialog: { connectorKey: "github", kind: "connector" }
+    });
+    assert.equal(view.dialog?.kind, kind);
+  }
+});
 
-  const installingView = buildConnectorMarketView(market, uiState);
-  assert.equal(installingView.installedCount, 0);
-  assert.equal(installingView.availableCount, 1);
-  assert.deepEqual(installingView.sections[0]?.connectorKeys, [connector.key]);
-  assert.equal(installingView.cardsByKey[connector.key]?.status, "installing");
-
-  connector.installation.state = "installed";
-  market.operationsByConnectorKey[connector.key] = {
-    ...market.operationsByConnectorKey[connector.key]!,
-    stage: "completed",
-    state: "completed",
-    updatedAt: "2026-08-11T00:00:02Z"
-  };
-  const installedView = buildConnectorMarketView(market, {
-    ...uiState,
-    segment: "installed"
+test("stale exact-connected remains connected without mutation actions", () => {
+  const connector = connectorFixture({
+    state: "connected",
+    allowedActions: [
+      "details",
+      "select",
+      "remove_selection",
+      "manage",
+      "disconnect",
+      "uninstall"
+    ]
   });
-  assert.equal(installedView.installedCount, 1);
-  assert.deepEqual(installedView.sections[0]?.connectorKeys, [connector.key]);
-});
-
-test("requires an installed connector to update before authorization when the active release changes", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest:
-      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    installedReleaseId: "github@0.9.0",
-    installedVersion: "0.9.0",
-    state: "installed"
-  };
-  connector.authorization = { state: "failed" };
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-  const dialogState: ConnectorMarketUiState = {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" },
-    segment: "installed"
-  };
-
-  const view = buildConnectorMarketView(market, dialogState);
-
-  assert.equal(view.cardsByKey[connector.key]?.action, "update");
-  assert.equal(view.cardsByKey[connector.key]?.status, "update_available");
-  assert.deepEqual(view.sections[0]?.connectorKeys, [connector.key]);
-  assert.equal(view.dialog?.kind, "installation");
-  assert.equal(
-    view.dialog?.kind === "installation" && view.dialog.updating,
-    true
-  );
-
-  market.pendingInstallationsByConnectorKey[connector.key] = true;
-  const pendingUpdate = buildConnectorMarketView(market, dialogState);
-  assert.equal(pendingUpdate.cardsByKey[connector.key]?.action, "busy");
-  assert.equal(pendingUpdate.cardsByKey[connector.key]?.status, "updating");
-
-  delete market.pendingInstallationsByConnectorKey[connector.key];
-  connector.installation.state = "updating";
-  const updating = buildConnectorMarketView(market, dialogState);
-  assert.equal(updating.cardsByKey[connector.key]?.action, "busy");
-  assert.equal(updating.cardsByKey[connector.key]?.status, "updating");
-});
-
-test("stale last-good catalog never offers install for an uninstalled connector", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  market.loadState = "ready";
-  market.catalogState = "stale";
+  const market = marketWith(connector);
   market.catalogFreshness = {
     state: "stale",
     snapshotId: "last-good",
     staleSince: "2026-08-18T01:00:00Z"
   };
-  market.catalogMutationState = "blocked";
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
   const view = buildConnectorMarketView(market, {
     ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" }
-  });
-
-  assert.equal(view.cardsByKey[connector.key]?.action, "unavailable");
-  assert.equal(view.cardsByKey[connector.key]?.status, "unavailable");
-  assert.deepEqual(view.dialog, {
-    connectorKey: connector.key,
-    description: connector.release.manifest.description,
-    displayName: connector.release.manifest.displayName,
-    iconUrl: connector.release.manifest.iconUrl,
-    kind: "blocked",
-    permissions: [{ id: "repositories", name: "repositories" }],
-    reason: "connector_catalog_stale"
-  });
-});
-
-test("loading with a retained connector never reopens install", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  market.loadState = "loading";
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
-  const view = buildConnectorMarketView(market, uiState);
-
-  assert.equal(view.cardsByKey[connector.key]?.action, "unavailable");
-  assert.equal(view.cardsByKey[connector.key]?.status, "unavailable");
-});
-
-test("stale update metadata preserves connected management mutations", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest:
-      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    installedReleaseId: "github@0.9.0",
-    installedVersion: "0.9.0",
-    state: "installed"
-  };
-  connector.authorization = { state: "connected" };
-  market.loadState = "ready";
-  market.catalogState = "refreshing";
-  market.catalogFreshness = {
-    state: "refreshing",
-    snapshotId: "last-good",
-    staleSince: "2026-08-18T01:00:00Z"
-  };
-  market.catalogMutationState = "blocked";
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
-  const view = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" },
+    dialog: { connectorKey: "github", kind: "connector" },
     segment: "installed"
   });
 
-  assert.equal(view.cardsByKey[connector.key]?.action, "disconnect");
-  assert.equal(view.cardsByKey[connector.key]?.status, "connected");
-  assert.equal(view.cardsByKey[connector.key]?.canUninstall, true);
+  assert.equal(view.cardsByKey.github?.status, "connected");
+  assert.equal(view.cardsByKey.github?.action, "disconnect");
+  assert.equal(
+    view.cardsByKey.github?.allowedActions.includes("update"),
+    false
+  );
+  assert.equal(
+    view.cardsByKey.github?.allowedActions.includes("install"),
+    false
+  );
   assert.equal(view.dialog?.kind, "management");
 });
 
-test("exposes disconnect directly for an authorized connector", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    state: "installed"
+test("catalog freshness remains canonical while local load state controls shell phase", () => {
+  const market = marketWith(
+    connectorFixture(presentationFor("setup_required"))
+  );
+  market.loadState = "error";
+  market.catalogFreshness = { state: "fresh", snapshotId: "snapshot-1" };
+  market.lastError = {
+    code: "connector_market_upstream_unavailable",
+    message: "network unavailable",
+    retryable: true
   };
-  connector.authorization = { state: "connected" };
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
+  const view = buildConnectorMarketView(market, uiState);
+  assert.equal(view.status, "error");
+  assert.equal(view.catalogError?.kind, "unavailable");
+  assert.equal(market.catalogFreshness.state, "fresh");
+  assert.equal("catalogState" in market, false);
+});
+
+test("projects server-owned sections and operation stage as presentation detail", () => {
+  const connector = connectorFixture(presentationFor("connecting"));
+  const market = marketWith(connector);
+  market.catalogSections = [
+    {
+      categoryId: "business",
+      kind: "category",
+      sortOrder: 10,
+      itemCount: 1,
+      displayNameZh: "商业",
+      displayNameEn: "Business",
+      connectorKeys: [connector.key],
+      loadState: "ready"
+    }
+  ];
   market.operationsByConnectorKey[connector.key] = {
-    attempt: 1,
-    clientRequestId: "authorize",
+    operationId: "operation-1",
+    clientRequestId: "request-1",
     connectorKey: connector.key,
-    createdAt: "2026-08-06T00:00:00Z",
-    kind: "start_authorization",
-    operationId: "authorize-operation",
-    stage: "completed",
-    state: "completed",
-    updatedAt: "2026-08-06T00:00:01Z"
-  };
-
-  const view = buildConnectorMarketView(market, {
-    ...uiState,
-    segment: "installed"
-  });
-
-  assert.equal(view.cardsByKey[connector.key]?.action, "disconnect");
-  assert.equal(view.cardsByKey[connector.key]?.canUninstall, true);
-  assert.equal(view.cardsByKey[connector.key]?.status, "connected");
-  assert.equal(view.cardsByKey[connector.key]?.operationStage, "completed");
-});
-
-test("keeps authorization-free connectors on the management action", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    state: "installed"
-  };
-  connector.authorization = { state: "not_required" };
-  connector.release.manifest.authorizationKind = "none";
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
-  const view = buildConnectorMarketView(market, {
-    ...uiState,
-    segment: "installed"
-  });
-
-  assert.equal(view.cardsByKey[connector.key]?.action, "manage");
-});
-
-test("projects an uninstall confirmation independently from authorization state", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    state: "installed"
-  };
-  connector.authorization = { state: "disconnected" };
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
-  const dialog = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: {
-      connectorKey: connector.key,
-      kind: "uninstall_confirmation"
-    },
-    segment: "installed"
-  }).dialog;
-
-  assert.equal(dialog?.kind, "uninstall_confirmation");
-  assert.equal(dialog?.displayName, "GitHub");
-});
-
-test("disables uninstall controls while one connector mutation is active", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    installedReleaseDigest: connector.release.releaseDigest,
-    state: "updating"
-  };
-  connector.authorization = { state: "connected" };
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-  market.operationsByConnectorKey[connector.key] = {
-    attempt: 1,
-    clientRequestId: "update-github",
-    connectorKey: connector.key,
-    createdAt: "2026-08-11T00:00:00Z",
     kind: "install",
-    operationId: "update-operation",
-    stage: "installing",
     state: "running",
-    updatedAt: "2026-08-11T00:00:01Z"
+    stage: "runtime_pending",
+    attempt: 1,
+    createdAt: "2026-08-18T00:00:00Z",
+    updatedAt: "2026-08-18T00:00:01Z"
   };
-
-  const view = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: {
-      connectorKey: connector.key,
-      kind: "uninstall_confirmation"
-    },
-    segment: "installed"
-  });
-
-  assert.equal(view.cardsByKey[connector.key]?.canUninstall, false);
-  assert.equal(view.dialog, null);
-
-  connector.installation.state = "installed";
-  const management = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" },
-    segment: "installed"
-  }).dialog;
-  assert.equal(management?.kind, "management");
-  assert.equal(
-    management?.kind === "management" && management.canUninstall,
-    false
-  );
+  const view = buildConnectorMarketView(market, uiState);
+  assert.equal(view.sections[0]?.displayNameEn, "Business");
+  assert.equal(view.cardsByKey.github?.operationStage, "runtime_pending");
+  assert.equal(view.cardsByKey.github?.status, "connecting");
 });
 
-test("offers repair when calibration finds the installed implementation absent", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    failureCode: "connector_installation_absent",
-    installedReleaseDigest: connector.release.releaseDigest,
-    installedReleaseId: connector.release.releaseId,
-    installedVersion: connector.release.version,
-    state: "failed"
-  };
+function marketWith(connector: Connector) {
+  const market = createConnectorMarketStoreState();
+  market.loadState = "ready";
+  market.catalogFreshness = { state: "fresh", snapshotId: "snapshot-1" };
   market.connectorKeys = [connector.key];
   market.connectorsByKey[connector.key] = connector;
+  return market;
+}
 
-  const view = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" },
-    segment: "installed"
-  });
+function presentationFor(
+  state: ConnectorPresentationState
+): ConnectorPresentation {
+  return state === "connected"
+    ? {
+        state,
+        allowedActions: [
+          "details",
+          "select",
+          "remove_selection",
+          "manage",
+          "disconnect",
+          "uninstall"
+        ]
+      }
+    : {
+        state,
+        reasonCode: `reason_${state}`,
+        allowedActions: ["details", "remove_selection"]
+      };
+}
 
-  assert.equal(view.cardsByKey[connector.key]?.action, "install");
-  assert.equal(view.cardsByKey[connector.key]?.canUninstall, true);
-  assert.equal(view.cardsByKey[connector.key]?.status, "not_installed");
-  assert.equal(view.dialog?.kind, "installation");
-  assert.equal(
-    view.dialog?.kind === "installation" && view.dialog.updating,
-    false
-  );
-});
-
-test("offers repair when the installed implementation is invalid", () => {
-  const market = createReadyConnectorMarketStoreState();
-  const connector = connectorFixture();
-  connector.installation = {
-    failureCode: "connector_installation_invalid",
-    installedReleaseDigest: connector.release.releaseDigest,
-    installedReleaseId: connector.release.releaseId,
-    installedVersion: connector.release.version,
-    state: "failed"
-  };
-  market.connectorKeys = [connector.key];
-  market.connectorsByKey[connector.key] = connector;
-
-  const view = buildConnectorMarketView(market, {
-    ...uiState,
-    dialog: { connectorKey: connector.key, kind: "connector" },
-    segment: "installed"
-  });
-
-  assert.equal(view.cardsByKey[connector.key]?.action, "install");
-  assert.equal(view.cardsByKey[connector.key]?.status, "not_installed");
-  assert.equal(view.dialog?.kind, "installation");
-});
-
-function connectorFixture(): Connector {
+function connectorFixture(presentation: ConnectorPresentation): Connector {
   return {
     authorization: { state: "disconnected" },
     compatibility: { state: "supported" },
     installation: { state: "not_installed" },
     key: "github",
+    presentation,
     release: {
       artifact: {
-        key: "connectors/github.tgz",
         mediaType: "application/vnd.tutti.connector+tar+gzip",
         sha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -639,10 +279,7 @@ function connectorFixture(): Connector {
         description: "Manage repositories and pull requests",
         displayName: "GitHub",
         iconUrl: "data:image/png;base64,iVBORw0KGgo=",
-        implementation: {
-          builtin: { cli: true, mcp: true, providerId: "github" },
-          kind: "builtin"
-        },
+        implementation: { kind: "builtin" },
         permissions: ["repositories"],
         schemaVersion: "1"
       },

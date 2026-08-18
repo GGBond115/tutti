@@ -19,6 +19,10 @@ test("public renderer surfaces accept only the readonly renderer model", () => {
     assert.doesNotMatch(source, /IConnectorMarketRoot/u);
     assert.doesNotMatch(source, /\broot\s*:/u);
   }
+  assert.doesNotMatch(
+    publicSources[0]!,
+    /normalizeConnectorPresentation|projectConnectorRendererSnapshot|projectConnectorStatus/u
+  );
   assert.match(publicSources[1]!, /model:\s*ConnectorRendererModel/u);
   assert.match(publicSources[2]!, /model:\s*ConnectorRendererModel/u);
 });

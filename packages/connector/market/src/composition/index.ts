@@ -1,1 +1,4 @@
-export { getConnectorRendererModel } from "./renderer/connectorRendererModelAdapter.ts";
+export {
+  getConnectorRendererModel,
+  type ConnectorRendererModelOptions
+} from "./renderer/connectorRendererModelAdapter.ts";

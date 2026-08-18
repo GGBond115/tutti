@@ -21,7 +21,35 @@ export type ConnectorCompatibilityState =
   | "unsupported_version"
   | "unsupported_implementation";
 
-export type ConnectorCatalogState = "ready" | "refreshing" | "stale" | "failed";
+export type ConnectorPresentationState =
+  | "unavailable"
+  | "loading"
+  | "setup_required"
+  | "authorization_required"
+  | "connecting"
+  | "connected"
+  | "degraded"
+  | "disabled"
+  | "unsupported"
+  | "failed";
+
+export type ConnectorPresentationAction =
+  | "details"
+  | "install"
+  | "update"
+  | "authorize"
+  | "cancel"
+  | "select"
+  | "remove_selection"
+  | "manage"
+  | "disconnect"
+  | "uninstall";
+
+export interface ConnectorPresentation {
+  state: ConnectorPresentationState;
+  reasonCode?: string;
+  allowedActions: ConnectorPresentationAction[];
+}
 
 export interface ConnectorCatalogFreshness {
   state: "unavailable" | "refreshing" | "fresh" | "stale";
@@ -58,68 +86,11 @@ export type ConnectorOperationStage =
   | "completed"
   | "failed";
 
-export interface ConnectorBuiltinImplementation {
-  providerId: string;
-  mcp: boolean;
-  cli: boolean;
-}
-
-export interface ConnectorRuntimeRequirement {
-  language: "node" | "python";
-  profile: string;
-  abi: string;
-}
-
-export interface ConnectorManagedMcpInterface {
-  entrypoint: string;
-  arguments?: string[];
-}
-
-export interface ConnectorManagedCliCommand {
-  name: string;
-  description?: string;
-}
-
-export interface ConnectorManagedCliInterface {
-  entrypoint: string;
-  arguments?: string[];
-  readinessProbe?: {
-    arguments: string[];
-    timeoutMs: number;
-  };
-  commands: ConnectorManagedCliCommand[];
-}
-
-export interface ConnectorManagedCredentialBroker {
-  protocol: "tutti.connector.credentials.v1";
-  entrypoint: string;
-  timeoutMs: number;
-  allowedHosts: string[];
-}
-
-export interface ConnectorManagedStdioImplementation {
-  runtime: ConnectorRuntimeRequirement;
-  mcp?: ConnectorManagedMcpInterface;
-  cli?: ConnectorManagedCliInterface;
-  credentialBroker?: ConnectorManagedCredentialBroker;
-}
-
-export interface ConnectorRemoteStreamableHttpImplementation {
-  protocolVersion: "2026-07-28";
-  bindingRef: string;
-  contractVersion: number;
-  bindingContractHash: string;
-}
-
 export interface ConnectorManifestImplementation {
   kind: "builtin" | "managed_stdio" | "remote_streamable_http";
-  builtin?: ConnectorBuiltinImplementation;
-  managedStdio?: ConnectorManagedStdioImplementation;
-  remoteStreamableHttp?: ConnectorRemoteStreamableHttpImplementation;
 }
 
 export interface ConnectorReleaseArtifact {
-  key: string;
   sha256: string;
   sizeBytes: number;
   mediaType: string;
@@ -142,7 +113,6 @@ export interface ConnectorManifest {
   description?: string;
   agentRouting?: ConnectorAgentRouting;
   permissions: string[];
-  requiredCapabilities?: string[];
   implementation: ConnectorManifestImplementation;
   authorizationKind: string;
   authorizationInteraction?: unknown;
@@ -187,6 +157,7 @@ export interface Connector {
   installation: ConnectorInstallation;
   authorization: ConnectorAuthorization;
   compatibility: ConnectorCompatibility;
+  presentation: ConnectorPresentation;
   revision: number;
 }
 
@@ -213,14 +184,11 @@ export interface ConnectorOperationTarget {
 }
 
 export interface ConnectorMarketSnapshot {
-  catalogState: ConnectorCatalogState;
-  /** Optional for one-version compatibility with daemons predating freshness. */
-  catalogFreshness?: ConnectorCatalogFreshness;
+  catalogFreshness: ConnectorCatalogFreshness;
   connectors: Connector[];
   operations: ConnectorOperation[];
   revision: number;
-  eventCursor?: number;
-  sourceRevision?: string;
+  eventCursor: number;
 }
 
 export type ConnectorMarketCategoryKind = "category" | "featured";

@@ -28,6 +28,10 @@ function item(
   selected = false
 ): ConnectorComposerItem {
   return {
+    allowedActions:
+      status === "connected"
+        ? ["details", "select", "remove_selection"]
+        : ["details", "remove_selection"],
     connectorKey,
     name: connectorKey,
     selected,

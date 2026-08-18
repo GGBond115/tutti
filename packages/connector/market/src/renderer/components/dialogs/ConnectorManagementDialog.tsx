@@ -11,6 +11,7 @@ import { ConnectorIcon } from "../catalog/ConnectorIcon.tsx";
 
 export interface ConnectorManagementDialogProps {
   canDisconnectAuthorization: boolean;
+  canTry: boolean;
   canUninstall: boolean;
   description: string;
   displayName: string;
@@ -23,6 +24,7 @@ export interface ConnectorManagementDialogProps {
 
 export function ConnectorManagementDialog({
   canDisconnectAuthorization,
+  canTry,
   canUninstall,
   description,
   displayName,
@@ -44,15 +46,16 @@ export function ConnectorManagementDialog({
       </p>
 
       <DialogFooter className="gap-2.5 pt-2 sm:justify-center">
-        <Button
-          disabled={!canUninstall}
-          size="dialog"
-          type="button"
-          variant="destructive-secondary"
-          onClick={onRequestUninstall}
-        >
-          {i18n.t("actionUninstall")}
-        </Button>
+        {canUninstall ? (
+          <Button
+            size="dialog"
+            type="button"
+            variant="destructive-secondary"
+            onClick={onRequestUninstall}
+          >
+            {i18n.t("actionUninstall")}
+          </Button>
+        ) : null}
         {canDisconnectAuthorization ? (
           <Button
             size="dialog"
@@ -63,9 +66,11 @@ export function ConnectorManagementDialog({
             {i18n.t("actionDisconnect")}
           </Button>
         ) : null}
-        <Button size="dialog" type="button" onClick={onTry}>
-          {i18n.t("actionTry")}
-        </Button>
+        {canTry ? (
+          <Button size="dialog" type="button" onClick={onTry}>
+            {i18n.t("actionTry")}
+          </Button>
+        ) : null}
       </DialogFooter>
     </DialogContent>
   );

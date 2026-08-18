@@ -49,8 +49,8 @@
     },
     "effectCount": 134,
     "fileLines": {
-      "packages/agent/gui/app/renderer/i18n/locales/en.ts": 1893,
-      "packages/agent/gui/app/renderer/i18n/locales/zh-CN.ts": 1773
+      "packages/agent/gui/app/renderer/i18n/locales/en.ts": 1827,
+      "packages/agent/gui/app/renderer/i18n/locales/zh-CN.ts": 1708
     },
     "goFileLengthExemptions": 1,
     "identityProviderBranches": 1,

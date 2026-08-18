@@ -35,14 +35,10 @@ function connector(key: string, revision: number): Connector {
         displayName: key,
         iconUrl: "data:image/png;base64,iVBORw0KGgo=",
         permissions: [],
-        implementation: {
-          kind: "builtin",
-          builtin: { providerId: key, mcp: true, cli: false }
-        },
+        implementation: { kind: "builtin" },
         authorizationKind: "none"
       },
       artifact: {
-        key: `connectors/${key}/1.0.0.tgz`,
         sha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         sizeBytes: 1024,
@@ -54,6 +50,21 @@ function connector(key: string, revision: number): Connector {
     installation: { state: "not_installed" },
     authorization: { state: "not_required" },
     compatibility: { state: "supported" },
+    presentation: {
+      state: "setup_required",
+      reasonCode: "connector_not_installed",
+      allowedActions: [
+        "details",
+        "remove_selection",
+        "install",
+        "update",
+        "authorize",
+        "cancel",
+        "manage",
+        "disconnect",
+        "uninstall"
+      ]
+    },
     revision
   };
 }
@@ -63,8 +74,9 @@ function snapshot(
   connectors: Connector[]
 ): ConnectorMarketSnapshot {
   return {
-    catalogState: "ready",
+    catalogFreshness: { state: "fresh", snapshotId: `snapshot-${revision}` },
     connectors,
+    eventCursor: revision,
     operations: [],
     revision
   };
@@ -168,9 +180,10 @@ function backendWith(overrides: TestBackendOverrides): ConnectorMarketBackend {
 
 function admitFreshCatalog(service: ConnectorMarketService): void {
   service.dataStore.loadState = "ready";
-  service.dataStore.catalogState = "ready";
-  service.dataStore.catalogFreshness = { state: "fresh" };
-  service.dataStore.catalogMutationState = "allowed";
+  service.dataStore.catalogFreshness = {
+    state: "fresh",
+    snapshotId: "test-snapshot"
+  };
   const available = connector("github", service.dataStore.revision || 1);
   service.dataStore.connectorsByKey.github = available;
   if (!service.dataStore.connectorKeys.includes("github")) {
@@ -294,7 +307,7 @@ test("orders opaque dynamic categories by server sort order", async () => {
   service.dispose();
 });
 
-test("automatically updates an installed connector when catalog discovery observes a new release", async () => {
+test("automatically updates only when catalog presentation allows update", async () => {
   const installed = connector("github", 1);
   installed.release.releaseDigest =
     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
@@ -304,12 +317,35 @@ test("automatically updates an installed connector when catalog discovery observ
     installedReleaseId: installed.release.releaseId,
     installedVersion: installed.release.version
   };
+  installed.presentation = {
+    state: "connected",
+    allowedActions: [
+      "details",
+      "select",
+      "remove_selection",
+      "manage",
+      "disconnect",
+      "uninstall"
+    ]
+  };
   const available = structuredClone(installed);
   available.release.releaseId = "github@1.1.0";
   available.release.version = "1.1.0";
   available.release.releaseDigest =
     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
   available.revision = 2;
+  available.presentation = {
+    state: "connected",
+    allowedActions: [
+      "details",
+      "select",
+      "remove_selection",
+      "manage",
+      "disconnect",
+      "uninstall",
+      "update"
+    ]
+  };
   const updated = structuredClone(available);
   updated.installation = {
     state: "installed",
@@ -318,6 +354,7 @@ test("automatically updates an installed connector when catalog discovery observ
     installedVersion: available.release.version
   };
   updated.revision = 3;
+  updated.presentation = installed.presentation;
   const installInputs: Parameters<
     ConnectorMarketBackend["installConnector"]
   >[0][] = [];
@@ -390,6 +427,18 @@ test("attempts automatic update only once for the same failed release", async ()
     installedReleaseDigest:
       "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   };
+  installed.presentation = {
+    state: "connected",
+    allowedActions: [
+      "details",
+      "select",
+      "remove_selection",
+      "manage",
+      "disconnect",
+      "uninstall",
+      "update"
+    ]
+  };
   let installCalls = 0;
   const service = new ConnectorMarketService({
     autoUpdateInstalledConnectors: true,
@@ -408,6 +457,43 @@ test("attempts automatic update only once for the same failed release", async ()
   await Promise.resolve();
 
   assert.equal(installCalls, 1);
+  service.dispose();
+});
+
+test("does not infer automatic update from installed release metadata", async () => {
+  const installed = connector("github", 1);
+  installed.installation = {
+    state: "installed",
+    installedReleaseDigest:
+      "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  };
+  installed.presentation = {
+    state: "connected",
+    allowedActions: [
+      "details",
+      "select",
+      "remove_selection",
+      "manage",
+      "disconnect",
+      "uninstall"
+    ]
+  };
+  let installCalls = 0;
+  const service = new ConnectorMarketService({
+    autoUpdateInstalledConnectors: true,
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, [installed]),
+      installConnector: async () => {
+        installCalls += 1;
+        throw new Error("presentation did not admit update");
+      }
+    })
+  });
+
+  await service.ensureLoaded();
+  await Promise.resolve();
+
+  assert.equal(installCalls, 0);
   service.dispose();
 });
 
@@ -670,6 +756,11 @@ test("rejects install and update mutations from a stale last-good catalog", asyn
   let admissionRequests = 0;
   let installCalls = 0;
   const stale = connector("github", 1);
+  stale.presentation = {
+    state: "setup_required",
+    reasonCode: "connector_catalog_stale",
+    allowedActions: ["details", "remove_selection"]
+  };
   const service = new ConnectorMarketService({
     backend: backendWith({
       installConnector: async () => {
@@ -708,11 +799,15 @@ test("rejects install and update mutations from a stale last-good catalog", asyn
 test("preserves stale admission while an accepted snapshot is refreshing", async () => {
   let installCalls = 0;
   const stale = connector("github", 1);
+  stale.presentation = {
+    state: "setup_required",
+    reasonCode: "connector_catalog_stale",
+    allowedActions: ["details", "remove_selection"]
+  };
   const service = new ConnectorMarketService({
     backend: backendWith({
       getSnapshot: async () => ({
         ...snapshot(3, [stale]),
-        catalogState: "refreshing",
         catalogFreshness: {
           state: "refreshing",
           snapshotId: "last-good",
@@ -729,7 +824,6 @@ test("preserves stale admission while an accepted snapshot is refreshing", async
   await service.ensureLoaded();
 
   assert.equal(service.dataStore.loadState, "ready");
-  assert.equal(service.dataStore.catalogMutationState, "blocked");
   assert.equal(
     service.dataStore.catalogFreshness.staleSince,
     "2026-08-18T01:00:00Z"
@@ -753,7 +847,6 @@ test("allows mutation from a refreshing accepted snapshot without staleSince", a
     backend: backendWith({
       getSnapshot: async () => ({
         ...snapshot(3, [available]),
-        catalogState: "refreshing",
         catalogFreshness: {
           state: "refreshing",
           snapshotId: "accepted-snapshot"
@@ -782,7 +875,6 @@ test("allows mutation from a refreshing accepted snapshot without staleSince", a
 
   await service.ensureLoaded();
 
-  assert.equal(service.dataStore.catalogMutationState, "allowed");
   assert.equal(await service.install(available.key), "installed");
   assert.equal(installCalls, 1);
   service.dispose();
@@ -1223,7 +1315,9 @@ test("reconciles refresh completion from the local snapshot without reloading re
   });
 
   await service.refreshCatalog();
-  await waitFor(() => service.dataStore.catalogState === "ready");
+  await waitFor(
+    () => service.dataStore.catalogOperation?.state === "completed"
+  );
 
   assert.equal(categoryCalls, 0);
   assert.equal(snapshotCalls, 2);
@@ -2389,6 +2483,37 @@ test("keeps the visible catalog ready while a background reload is pending", asy
   });
   await waitFor(() => service.dataStore.revision === 2);
   assert.equal(service.dataStore.catalogSections[0]?.loadState, "ready");
+  service.dispose();
+});
+
+test("does not rewrite authoritative catalog freshness when a local reload fails", async () => {
+  let loads = 0;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        loads += 1;
+        if (loads > 1) throw new Error("temporary transport failure");
+        return {
+          ...snapshot(7, [connector("github", 7)]),
+          catalogFreshness: {
+            state: "stale",
+            snapshotId: "snapshot-7",
+            sourceRevision: "sha256:catalog-7",
+            staleSince: "2026-08-18T00:00:00Z"
+          }
+        };
+      }
+    })
+  });
+
+  await service.ensureLoaded();
+  const authoritativeFreshness = {
+    ...service.dataStore.catalogFreshness
+  };
+  await assert.rejects(service.reload(), /temporary transport failure/);
+
+  assert.deepEqual(service.dataStore.catalogFreshness, authoritativeFreshness);
+  assert.equal(service.dataStore.loadState, "ready");
   service.dispose();
 });
 

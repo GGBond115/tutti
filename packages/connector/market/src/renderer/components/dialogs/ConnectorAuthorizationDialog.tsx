@@ -31,6 +31,8 @@ export interface ConnectorAuthorizationDialogProps {
   authorizationView?: AuthorizationViewEnvelopeV1;
   authorizing: boolean;
   brokeredAuthorization: boolean;
+  canAuthorize: boolean;
+  canCancel: boolean;
   displayName: string;
   iconUrl: string;
   i18n: ConnectorMarketI18nRuntime;
@@ -49,6 +51,8 @@ export function ConnectorAuthorizationDialog({
   authorizationView,
   authorizing,
   brokeredAuthorization,
+  canAuthorize,
+  canCancel,
   displayName,
   iconUrl,
   i18n,
@@ -80,7 +84,7 @@ export function ConnectorAuthorizationDialog({
     });
     if (!validated.ok) return;
     if (validated.value.event.type === "cancel") {
-      onCancel();
+      if (canCancel) onCancel();
       return;
     }
     if (validated.value.event.type === "activate") {
@@ -94,7 +98,7 @@ export function ConnectorAuthorizationDialog({
       if (url) void onOpenAuthorizationUrl(url);
       return;
     }
-    if (authorizationView || resolved.kind !== "form") return;
+    if (!canAuthorize || authorizationView || resolved.kind !== "form") return;
     const submission = resolveDeclarativeAuthorizationSubmission(
       resolved,
       validated.value
@@ -170,27 +174,31 @@ export function ConnectorAuthorizationDialog({
         </>
       ) : (
         <DialogFooter className="sm:justify-center">
-          <Button
-            size="dialog"
-            type="button"
-            variant="secondary"
-            onClick={onCancel}
-          >
-            {i18n.t("cancel")}
-          </Button>
-          <Button
-            disabled={authorizing}
-            size="dialog"
-            type="button"
-            onClick={() => void onAuthorize()}
-          >
-            {authorizing && !pending ? <Spinner size={14} /> : null}
-            {authorizing && pending
-              ? i18n.t("actionWaitingAuthorization")
-              : pending
-                ? i18n.t("actionContinueAuthorization")
-                : i18n.t("actionAuthorize")}
-          </Button>
+          {canCancel ? (
+            <Button
+              size="dialog"
+              type="button"
+              variant="secondary"
+              onClick={onCancel}
+            >
+              {i18n.t("cancel")}
+            </Button>
+          ) : null}
+          {canAuthorize ? (
+            <Button
+              disabled={authorizing}
+              size="dialog"
+              type="button"
+              onClick={() => void onAuthorize()}
+            >
+              {authorizing && !pending ? <Spinner size={14} /> : null}
+              {authorizing && pending
+                ? i18n.t("actionWaitingAuthorization")
+                : pending
+                  ? i18n.t("actionContinueAuthorization")
+                  : i18n.t("actionAuthorize")}
+            </Button>
+          ) : null}
         </DialogFooter>
       )}
       <p className="m-0 text-center text-[11px] text-[var(--text-tertiary)]">
