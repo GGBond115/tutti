@@ -297,8 +297,7 @@ const connectorPresentationActions = new Set<ConnectorMarketPresentationAction>(
     "remove_selection",
     "manage",
     "disconnect",
-    "uninstall",
-    "retry"
+    "uninstall"
   ]
 );
 
@@ -499,9 +498,7 @@ function deriveLegacyConnectorMarketPresentation(
         state: "failed",
         reasonCode:
           connector.installation.failureCode || "connector_installation_failed",
-        allowedActions: permitsNewMutation
-          ? [...safeActions, "retry"]
-          : safeActions
+        allowedActions: safeActions
       };
     case "installed":
       break;
@@ -534,9 +531,7 @@ function deriveLegacyConnectorMarketPresentation(
         reasonCode:
           connector.authorization.failureCode ||
           "connector_authorization_failed",
-        allowedActions: permitsNewMutation
-          ? [...safeActions, "retry"]
-          : safeActions
+        allowedActions: safeActions
       };
     case "not_required":
     case "connected":

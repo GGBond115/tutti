@@ -1759,7 +1759,6 @@ const (
 	ConnectorMarketPresentationActionInstall         ConnectorMarketPresentationAction = "install"
 	ConnectorMarketPresentationActionManage          ConnectorMarketPresentationAction = "manage"
 	ConnectorMarketPresentationActionRemoveSelection ConnectorMarketPresentationAction = "remove_selection"
-	ConnectorMarketPresentationActionRetry           ConnectorMarketPresentationAction = "retry"
 	ConnectorMarketPresentationActionSelect          ConnectorMarketPresentationAction = "select"
 	ConnectorMarketPresentationActionUninstall       ConnectorMarketPresentationAction = "uninstall"
 	ConnectorMarketPresentationActionUpdate          ConnectorMarketPresentationAction = "update"
@@ -1781,8 +1780,6 @@ func (e ConnectorMarketPresentationAction) Valid() bool {
 	case ConnectorMarketPresentationActionManage:
 		return true
 	case ConnectorMarketPresentationActionRemoveSelection:
-		return true
-	case ConnectorMarketPresentationActionRetry:
 		return true
 	case ConnectorMarketPresentationActionSelect:
 		return true

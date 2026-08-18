@@ -4886,8 +4886,7 @@ export type ConnectorMarketPresentationAction =
   | "remove_selection"
   | "manage"
   | "disconnect"
-  | "uninstall"
-  | "retry";
+  | "uninstall";
 
 export type ConnectorMarketRelease = {
   schemaVersion: "1";

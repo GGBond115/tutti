@@ -557,7 +557,6 @@ components:
         - manage
         - disconnect
         - uninstall
-        - retry
       x-enum-varnames:
         - ConnectorMarketPresentationActionDetails
         - ConnectorMarketPresentationActionInstall
@@ -569,7 +568,6 @@ components:
         - ConnectorMarketPresentationActionManage
         - ConnectorMarketPresentationActionDisconnect
         - ConnectorMarketPresentationActionUninstall
-        - ConnectorMarketPresentationActionRetry
     ConnectorMarketRelease:
       type: object
       additionalProperties: false

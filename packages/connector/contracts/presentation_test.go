@@ -24,7 +24,7 @@ func TestConnectorPresentationAcceptsEveryClosedState(t *testing.T) {
 func TestConnectorPresentationRejectsUnknownDuplicateAndUnsafeActions(t *testing.T) {
 	tests := []ConnectorPresentation{
 		{State: "future", ReasonCode: "future", AllowedActions: []ConnectorAction{ConnectorActionDetails}},
-		{State: ConnectorStateUnsupported, ReasonCode: "unknown", AllowedActions: []ConnectorAction{"future"}},
+		{State: ConnectorStateUnsupported, ReasonCode: "unknown", AllowedActions: []ConnectorAction{"retry"}},
 		{State: ConnectorStateUnsupported, ReasonCode: "unknown", AllowedActions: []ConnectorAction{ConnectorActionDetails, ConnectorActionDetails}},
 		{State: ConnectorStateDegraded, ReasonCode: "route_lost", AllowedActions: []ConnectorAction{ConnectorActionSelect}},
 		{State: ConnectorStateConnected, AllowedActions: []ConnectorAction{ConnectorActionDetails}},

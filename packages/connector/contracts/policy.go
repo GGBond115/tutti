@@ -66,7 +66,6 @@ const (
 	ConnectorActionManage          ConnectorAction = "manage"
 	ConnectorActionDisconnect      ConnectorAction = "disconnect"
 	ConnectorActionUninstall       ConnectorAction = "uninstall"
-	ConnectorActionRetry           ConnectorAction = "retry"
 )
 
 // ConnectorPresentation is the application-owned display and interaction

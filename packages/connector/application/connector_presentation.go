@@ -268,9 +268,6 @@ func connectorAllowedActions(
 			actions = append(actions, contracts.ConnectorActionUpdate)
 		}
 	case contracts.ConnectorStateDegraded:
-		if mutationFresh {
-			actions = append(actions, contracts.ConnectorActionRetry)
-		}
 		actions = append(actions, contracts.ConnectorActionManage)
 		if connector.Authorization.State == contracts.AuthorizationStateConnected {
 			actions = append(actions, contracts.ConnectorActionDisconnect)
@@ -281,9 +278,6 @@ func connectorAllowedActions(
 			actions = append(actions, contracts.ConnectorActionDisconnect)
 		}
 	case contracts.ConnectorStateFailed:
-		if mutationFresh {
-			actions = append(actions, contracts.ConnectorActionRetry)
-		}
 	}
 	if installed && state != contracts.ConnectorStateConnecting {
 		actions = append(actions, contracts.ConnectorActionUninstall)

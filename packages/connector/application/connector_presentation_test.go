@@ -74,8 +74,21 @@ func TestConnectorPresentationProjectsClosedTenStateMachine(t *testing.T) {
 			if (presentation.State == contracts.ConnectorStateConnected) != hasConnectorAction(presentation, contracts.ConnectorActionSelect) {
 				t.Fatalf("select admission = %#v", presentation.AllowedActions)
 			}
+			if (presentation.State == contracts.ConnectorStateDegraded || presentation.State == contracts.ConnectorStateFailed) &&
+				hasConnectorActionValue(presentation, "retry") {
+				t.Fatalf("unimplemented retry action admitted: %#v", presentation.AllowedActions)
+			}
 		})
 	}
+}
+
+func hasConnectorActionValue(presentation contracts.ConnectorPresentation, action string) bool {
+	for _, candidate := range presentation.AllowedActions {
+		if string(candidate) == action {
+			return true
+		}
+	}
+	return false
 }
 
 func TestConnectorPresentationRequiresEveryExactRuntimeObservationField(t *testing.T) {

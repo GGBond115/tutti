@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ConnectorMarketClientError,
   createTuttidClient,
   createClient,
   getTuttidErrorI18nCandidates,
@@ -2641,6 +2640,25 @@ test("shared tuttid connector client canonicalizes every connector response", as
   });
   assert.equal("catalogState" in snapshot, false);
   assert.equal("sourceRevision" in snapshot, false);
+
+  const { client: failedLegacyClient } = captureClient(
+    jsonResponse({
+      ...legacyConnector,
+      installation: {
+        state: "failed",
+        failureCode: "connector_install_failed"
+      }
+    })
+  );
+  assert.deepEqual(
+    (await failedLegacyClient.getConnectorMarketConnector("notion"))
+      .presentation,
+    {
+      state: "failed",
+      reasonCode: "connector_install_failed",
+      allowedActions: ["details", "remove_selection"]
+    }
+  );
 });
 
 test("shared tuttid connector client fails closed on unknown presentation state or action", async () => {
@@ -2675,7 +2693,7 @@ test("shared tuttid connector client fails closed on unknown presentation state 
     compatibility: { state: "supported" },
     presentation: {
       state: "connected",
-      allowedActions: ["details", "select", "future_action"]
+      allowedActions: ["details", "select", "retry"]
     },
     revision: 4
   };

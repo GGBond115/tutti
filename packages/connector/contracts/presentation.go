@@ -21,7 +21,7 @@ func IsConnectorAction(value ConnectorAction) bool {
 	case ConnectorActionDetails, ConnectorActionInstall, ConnectorActionUpdate,
 		ConnectorActionAuthorize, ConnectorActionCancel, ConnectorActionSelect,
 		ConnectorActionRemoveSelection, ConnectorActionManage, ConnectorActionDisconnect,
-		ConnectorActionUninstall, ConnectorActionRetry:
+		ConnectorActionUninstall:
 		return true
 	default:
 		return false

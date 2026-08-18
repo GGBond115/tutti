@@ -294,6 +294,12 @@ func TestDaemonAPIConnectorMarketEmitsPresentationOnPageGetAndCommandConnector(t
 	}
 }
 
+func TestConnectorMarketPresentationActionRejectsUnimplementedRetry(t *testing.T) {
+	if tuttigenerated.ConnectorMarketPresentationAction("retry").Valid() {
+		t.Fatal("retry unexpectedly remained a valid Connector presentation action")
+	}
+}
+
 func TestProjectConnectorMarketPreservesRuntimeAuthorizationView(t *testing.T) {
 	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketAuthorizationResponse](contracts.AuthorizationResult{
 		AuthorizationView: &contracts.AuthorizationViewEnvelope{
