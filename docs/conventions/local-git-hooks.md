@@ -227,6 +227,21 @@ Renderer feature internals are enforced in two modes:
 
 The script prevents files outside a feature from importing that feature's `services/internal/**` implementation surface. It also prevents ordinary renderer files from reading `window.tutti` directly; window container files pass that preload API into feature registrations instead.
 
+## Connector Boundary Enforcement
+
+`pnpm check:connector-boundaries` is a repository architecture check selected
+by `check:changed`, pre-push validation, and pull-request CI for Connector and
+AgentGUI boundary changes. It scans the complete production trees rather than
+only changed lines, so a change cannot make a legacy Connector dependency leak
+the new baseline. The check owns Connector/AgentGUI import direction, renderer
+recursive dependencies, and public Connector package export/build/declaration
+parity. Its negative fixtures run through the repository tool-contract suite.
+
+Market generated-client provenance stays in the existing
+`pnpm check:api-generated` lane. The repository selector includes the Market
+OpenAPI fragment, pinned source lock, generated Go files, and sync tool so hash
+or commit drift is not deferred to a release build.
+
 ## Electron Runtime Boundary Enforcement
 
 Electron runtime import boundaries are enforced in two modes:

@@ -43,6 +43,13 @@
         "import": "./dist/v1/index.js"
       }
     },
-    "types": "./dist/index.d.ts"
+    "types": "./dist/index.d.ts",
+    "typesVersions": {
+      "*": {
+        "v1": [
+          "./dist/v1/index.d.ts"
+        ]
+      }
+    }
   }
 }

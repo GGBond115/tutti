@@ -124,6 +124,13 @@ export const repositoryCheckDefinitions = [
   },
   {
     group: "boundaries",
+    key: "boundary:connector",
+    label: "Connector architecture boundary",
+    script: "check:connector-boundaries",
+    matches: isConnectorBoundaryRelevant
+  },
+  {
+    group: "boundaries",
     key: "boundary:agent-activity-runtime",
     label: "Agent activity runtime boundary",
     script: "check:agent-activity-runtime-boundaries",
@@ -262,8 +269,12 @@ function isApiContractRelevant(file) {
     file.startsWith("services/tuttid/api/openapi/") ||
     file.startsWith("services/tuttid/api/generated/") ||
     file.startsWith("packages/clients/tuttid-ts/src/generated/") ||
+    file.startsWith("packages/clients/market-go/generated/") ||
+    file === "packages/clients/market-go/source.lock.json" ||
+    file === "packages/connector/market/openapi/connector-market.v1.yaml" ||
     file === "packages/workbench/snapshot/src/schema.json" ||
     file === "tools/scripts/generate-openapi.mjs" ||
+    file === "tools/scripts/sync-market-go-client.mjs" ||
     file === "tools/scripts/sync-workbench-openapi-schema.mjs" ||
     file === "tools/scripts/check-agent-protocol-enums.mjs"
   );
@@ -354,6 +365,16 @@ export function isRendererBoundaryRelevant(file) {
     file.startsWith("apps/desktop/src/renderer/src/") ||
     file === "tools/scripts/check-renderer-feature-boundaries.mjs" ||
     file === "tools/scripts/check-renderer-feature-boundaries.test.mjs"
+  );
+}
+
+export function isConnectorBoundaryRelevant(file) {
+  return (
+    file.startsWith("packages/connector/") ||
+    file.startsWith("packages/agent/gui/") ||
+    file === "package.json" ||
+    file === "tools/scripts/check-connector-boundaries.mjs" ||
+    file === "tools/scripts/check-connector-boundaries.test.mjs"
   );
 }
 

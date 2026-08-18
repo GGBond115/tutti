@@ -33,6 +33,7 @@ Repository entrypoints:
 - `pnpm check:agent-gui-provider-catalog-generated`
 - `pnpm check:agent-host-boundary`
 - `pnpm check:agent-provider-strategy-boundaries`
+- `pnpm check:connector-boundaries`
 - `pnpm check:runtime-image-budgets`
 
 `pnpm check:full` remains the full local validation command and includes
@@ -311,6 +312,34 @@ change touches `packages/agent/gui`, `packages/agent/activity-core`, Desktop's
 `workspace-agent` or `workspace-workbench` features, or the checker/fixture
 implementation itself. This keeps the same boundary in the normal changed-file
 loop instead of discovering violations only in `check:full`.
+
+`pnpm check:connector-boundaries` protects the Connector extraction boundary.
+Connector production code cannot import Agent, AgentGUI, Desktop, TSH, preload,
+or host client implementation surfaces, and cross-workspace TypeScript imports
+must use declared package exports. The pinned generated Market client has one
+narrow exception: only the Connector Market catalog source adapter may consume
+it. AgentGUI is scanned as a complete package and may expose only the neutral
+`primaryCapability` contract; Connector imports, identifiers, and legacy
+`{ type: "connector", connectorKey }` wire vocabulary are rejected.
+
+The same check walks the Connector renderer import graph. Renderer code may
+depend only on Connector-owned renderer, contract, application-port and i18n
+surfaces plus React, UI System, and the Connector authorization protocol. It
+cannot reach services/core, infrastructure, Desktop or AgentGUI, or read global
+window state. Connector application and service code cannot import React or a
+renderer. For public Connector TypeScript packages, workspace exports, tsup
+entries, publish exports, declaration entries, and `typesVersions` are compared
+bidirectionally. During the compatibility window, `./renderer` is canonical and
+`./ui` must contain only a re-export of it. Fixture tests keep known legacy
+imports, wire shapes, dependency leaks, missing build entries, and unpublished
+exports as negative controls.
+
+The boundary lane is selected for changes under `packages/connector` or
+`packages/agent/gui`, and for its checker, tests, or root script
+registration. Market generated provenance remains owned by
+`pnpm check:api-generated`: `source.lock.json` pins a full tsh-server commit and
+SHA-256 for every generated target, and changes to the lock, generated files,
+Market OpenAPI fragment, or sync tool select that generated-contract lane.
 
 `pnpm check:agent-host-boundary` protects the Agent Host boundary. Agent
 application-core lifecycle semantics (session/turn/goal/runtime-operation
