@@ -73,6 +73,7 @@ type DaemonAPI struct {
 	CLIRegistry                   *cliservice.Registry
 	AnalyticsReporter             reporterservice.Reporter
 	DesktopUpdateAdmissionService DesktopUpdateAdmissionService
+	SideConversationService       SideConversationService
 	ConnectorMarketService        market.Service
 	ConnectorMarketScope          func() market.OperationScope
 	ConnectorAuthorizationReady   func(string) bool
