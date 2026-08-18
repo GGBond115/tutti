@@ -9,9 +9,9 @@ import (
 )
 
 // defaultCodexAppServerMCPFailureGraceWindow gives the app-server a short
-// chance to finish an in-flight lifecycle response after rmcp reports a fatal
-// MCP authentication failure. A broken MCP worker must not turn into the
-// generic 30-second thread/start or thread/resume timeout, while a response
+// chance to finish an in-flight lifecycle response after rmcp or app-server
+// reports a fatal MCP startup failure. A broken MCP worker must not turn into
+// the generic 30-second thread/start or thread/resume timeout, while a response
 // already in flight still wins the race.
 const defaultCodexAppServerMCPFailureGraceWindow = time.Second
 
@@ -52,6 +52,18 @@ func codexMCPServerStartupFailureFromStderr(detail string) error {
 		Status:        "failed",
 		FailureReason: "reauthenticationRequired",
 		Detail:        truncateACPLogValue(detail, 1200),
+	}
+}
+
+func codexMCPServerStartupFailureFromStatus(status map[string]any) error {
+	if !strings.EqualFold(asString(status["status"]), "failed") {
+		return nil
+	}
+	return &codexMCPServerStartupError{
+		Name:          asString(status["name"]),
+		Status:        asString(status["status"]),
+		FailureReason: asString(status["failureReason"]),
+		Detail:        truncateACPLogValue(strings.TrimSpace(asString(status["error"])), 1200),
 	}
 }
 

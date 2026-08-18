@@ -338,6 +338,7 @@ func (r codexAppServerReducer) reduceNotification(
 			}),
 		}
 		if strings.EqualFold(asString(status["status"]), "failed") {
+			client.observeMCPStartupStatus(status)
 			events = append(events, codexMCPServerStartupWarningEvent(client, session, turnID, status))
 		}
 		a.emitSessionEvents(session.AgentSessionID, events)

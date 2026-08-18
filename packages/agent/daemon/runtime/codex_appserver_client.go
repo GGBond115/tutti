@@ -28,7 +28,7 @@ type codexAppServerClient struct {
 	// parsedNotificationMethods tracks notification methods already run
 	// through the typed schema parse (telemetry only).
 	parsedNotificationMethods sync.Map
-	stderrMu                  sync.Mutex
+	mcpFailureMu              sync.Mutex
 	mcpFailureScheduled       bool
 }
 
@@ -101,18 +101,27 @@ func (c *codexAppServerClient) observeMCPStderr(chunk []byte) {
 	diagnostics := c.raw.Diagnostics()
 	detail := diagnostics.StderrTail
 	failure := codexMCPServerStartupFailureFromStderr(detail)
-	if failure == nil {
+	c.scheduleMCPFailure(failure, "stderr")
+}
+
+func (c *codexAppServerClient) observeMCPStartupStatus(status map[string]any) {
+	c.scheduleMCPFailure(codexMCPServerStartupFailureFromStatus(status), "notification")
+}
+
+func (c *codexAppServerClient) scheduleMCPFailure(failure error, source string) {
+	if c == nil || failure == nil {
 		return
 	}
-	c.stderrMu.Lock()
+	c.mcpFailureMu.Lock()
 	if c.mcpFailureScheduled {
-		c.stderrMu.Unlock()
+		c.mcpFailureMu.Unlock()
 		return
 	}
 	c.mcpFailureScheduled = true
-	c.stderrMu.Unlock()
+	c.mcpFailureMu.Unlock()
 	slog.Warn("agent session Codex MCP server startup failed",
 		"event", "agent_session.codex.mcp.startup_failed",
+		"source", source,
 		"error", failure.Error(),
 		"grace_ms", defaultCodexAppServerMCPFailureGraceWindow.Milliseconds(),
 	)
