@@ -327,8 +327,9 @@ The check also encodes the Connector Go dependency DAG. `contracts` has no
 Connector dependencies; `application` may depend only on `contracts` and may
 not import repository-generated transport. `runtime`, `store-sqlite`, and
 `market/source` implement application ports and may depend only on
-`application` and `contracts`. `daemon` may depend on `application`,
-`contracts`, and `market/source`, but none of those modules may depend back on
+`application` and `contracts`. `daemon` is another outer adapter and may depend
+only on `application` and `contracts`; product composition injects the Market
+source through the application port. None of those modules may depend back on
 `daemon`. Production imports outside these directed edges fail the check. The
 same pass parses every Connector cohort `go.mod`, including both `require` and
 `replace` directives, so a forbidden module edge cannot hide behind an unused

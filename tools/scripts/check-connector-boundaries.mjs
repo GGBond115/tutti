@@ -45,7 +45,7 @@ const connectorGoModules = [
 const allowedConnectorGoDependencies = new Map([
   ["contracts", new Set()],
   ["application", new Set(["contracts"])],
-  ["daemon", new Set(["application", "contracts", "market/source"])],
+  ["daemon", new Set(["application", "contracts"])],
   ["runtime", new Set(["application", "contracts"])],
   ["store-sqlite", new Set(["application", "contracts"])],
   ["market/source", new Set(["application", "contracts"])]
@@ -781,7 +781,7 @@ function isForbiddenConnectorDependency(specifier, importerFile) {
 }
 
 function connectorGoModuleFromFile(relativeFile) {
-  if (!relativeFile.startsWith('packages/connector/')) return null;
+  if (!relativeFile.startsWith("packages/connector/")) return null;
   return connectorGoModules.find(
     (moduleName) =>
       relativeFile === `packages/connector/${moduleName}` ||

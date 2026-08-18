@@ -60,11 +60,11 @@ test("allows the pinned Market client only in market/source, never daemon", (t) 
     ({ rule }) => rule === "connector-host-dependency"
   );
   assert.ok(
-    violations.some(({ file }) => file.endsWith('daemon/catalog_source.go')),
+    violations.some(({ file }) => file.endsWith("daemon/catalog_source.go")),
     formatViolations(violations)
   );
   assert.ok(
-    violations.some(({ file }) => file.endsWith('daemon/go.mod')),
+    violations.some(({ file }) => file.endsWith("daemon/go.mod")),
     formatViolations(violations)
   );
   assert.ok(
@@ -121,6 +121,7 @@ test("enforces the Connector Go module dependency DAG", (t) => {
     "packages/connector/daemon/reverse.go": `package daemon
       import _ "github.com/tutti-os/tutti/packages/connector/runtime"
       import _ "github.com/tutti-os/tutti/packages/connector/store-sqlite"
+      import _ "github.com/tutti-os/tutti/packages/connector/market/source"
     `,
     "packages/connector/runtime/reverse.go": `package runtime
       import _ "github.com/tutti-os/tutti/packages/connector/daemon"
@@ -148,7 +149,7 @@ test("enforces the Connector Go module dependency DAG", (t) => {
       ["application", "daemon", "runtime", "store-sqlite", "market/source"]
     ],
     ["application", ["daemon", "runtime", "store-sqlite", "market/source"]],
-    ["daemon", ["runtime", "store-sqlite"]],
+    ["daemon", ["runtime", "store-sqlite", "market/source"]],
     ["runtime", ["daemon", "store-sqlite", "market/source"]],
     ["store-sqlite", ["daemon", "runtime", "market/source"]],
     ["market/source", ["daemon", "runtime", "store-sqlite"]]
@@ -180,7 +181,6 @@ test("accepts only the forward Connector Go dependency edges", (t) => {
     "packages/connector/daemon/host.go": `package daemon
       import _ "github.com/tutti-os/tutti/packages/connector/application"
       import _ "github.com/tutti-os/tutti/packages/connector/contracts"
-      import _ "github.com/tutti-os/tutti/packages/connector/market/source"
     `,
     "packages/connector/runtime/adapter.go": `package runtime
       import _ "github.com/tutti-os/tutti/packages/connector/application"
@@ -200,6 +200,40 @@ test("accepts only the forward Connector Go dependency edges", (t) => {
 
   const violations = inspectConnectorBoundaries(root);
   assert.equal(violations.length, 0, formatViolations(violations));
+});
+
+test("rejects daemon-to-Market-source source and go.mod edges", (t) => {
+  const root = fixtureRoot(t, {
+    "packages/connector/daemon/go.mod": `module github.com/tutti-os/tutti/packages/connector/daemon
+      require github.com/tutti-os/tutti/packages/connector/market/source v0.0.0
+      replace github.com/tutti-os/tutti/packages/connector/market/source => ../market/source
+    `,
+    "packages/connector/daemon/catalog_source.go": `package daemon
+      import _ "github.com/tutti-os/tutti/packages/connector/market/source"
+    `
+  });
+
+  const violations = inspectConnectorBoundaries(root).filter(
+    ({ rule }) => rule === "connector-go-module-dag"
+  );
+  assert.ok(
+    violations.some(
+      ({ file, message }) =>
+        file === "packages/connector/daemon/catalog_source.go" &&
+        message.includes("daemon cannot depend on Connector market/source")
+    ),
+    formatViolations(violations)
+  );
+  assert.ok(
+    violations.some(
+      ({ file, message }) =>
+        file === "packages/connector/daemon/go.mod" &&
+        message.includes(
+          "daemon go.mod cannot depend on Connector market/source"
+        )
+    ),
+    formatViolations(violations)
+  );
 });
 
 test("rejects a forbidden Connector go.mod edge without a test-only import", (t) => {
@@ -355,6 +389,29 @@ test("accepts the closed Connector renderer dependency surface", (t) => {
 
   const violations = inspectConnectorBoundaries(root);
   assert.equal(violations.length, 0, formatViolations(violations));
+});
+
+test("rejects transport clients reached transitively through Connector contracts", (t) => {
+  const root = fixtureRoot(t, {
+    "packages/connector/market/src/contracts/index.ts": `
+      import type { ConnectorMarketCanonicalSnapshot } from "@tutti-os/client-tuttid-ts";
+      export type Snapshot = ConnectorMarketCanonicalSnapshot;
+    `,
+    "packages/connector/market/src/renderer/index.ts": `
+      import type { Snapshot } from "../contracts/index.ts";
+      export const revision = (snapshot: Snapshot) => snapshot.revision;
+    `
+  });
+
+  const violations = inspectConnectorBoundaries(root);
+  assert.ok(
+    violations.some(
+      ({ rule, message }) =>
+        rule === "connector-renderer-dependency" &&
+        message.includes("@tutti-os/client-tuttid-ts")
+    ),
+    formatViolations(violations)
+  );
 });
 
 test("detects unpublished exports and missing build entries bidirectionally", (t) => {
