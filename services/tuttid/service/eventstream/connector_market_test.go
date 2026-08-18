@@ -2,9 +2,8 @@ package eventstream
 
 import (
 	"context"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"testing"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
 func TestConnectorMarketPublisherUsesCatalogTopic(t *testing.T) {
@@ -16,7 +15,7 @@ func TestConnectorMarketPublisherUsesCatalogTopic(t *testing.T) {
 	}
 	if err := (ConnectorMarketPublisher{Service: service}).PublishConnectorMarketChanged(
 		context.Background(),
-		market.ChangedEvent{ConnectorKey: "github", OperationID: "legacy-operation", Revision: 2},
+		contracts.ChangedEvent{ConnectorKey: "github", OperationID: "legacy-operation", Revision: 2},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -36,13 +35,13 @@ func TestConnectorMarketPublisherOnlyDeliversAccountOperationEventToOwner(t *tes
 	currentAccountID := "account-b"
 	publisher := ConnectorMarketPublisher{
 		Service: service,
-		CurrentScope: func() market.OperationScope {
-			return market.OperationScope{AccountID: currentAccountID}
+		CurrentScope: func() contracts.OperationScope {
+			return contracts.OperationScope{AccountID: currentAccountID}
 		},
 	}
-	event := market.ChangedEvent{
+	event := contracts.ChangedEvent{
 		ConnectorKey: "github", OperationID: "operation-a", OwnerAccountID: "account-a",
-		Visibility: market.OperationVisibilityAccount, Revision: 2,
+		Visibility: contracts.OperationVisibilityAccount, Revision: 2,
 	}
 	if err := publisher.PublishConnectorMarketChanged(context.Background(), event); err != nil {
 		t.Fatal(err)

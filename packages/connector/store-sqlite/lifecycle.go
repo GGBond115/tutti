@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const maxLifecycleCleanupBatchSize = 500
@@ -102,7 +102,7 @@ func backfillInstalledReleaseEvidence(ctx context.Context, tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	var connectors []market.Connector
+	var connectors []contracts.Connector
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -155,61 +155,61 @@ WHERE connector_key = ? AND release_digest = ?`, connector.Key, digest).Scan(&hi
 	return nil
 }
 
-func legacyInstalledReleaseEvidence(ctx context.Context, tx *sql.Tx, connector market.Connector, digest string) (market.Release, bool, error) {
+func legacyInstalledReleaseEvidence(ctx context.Context, tx *sql.Tx, connector contracts.Connector, digest string) (contracts.Release, bool, error) {
 	var currentPayload string
 	err := tx.QueryRowContext(ctx, `SELECT release_json FROM connector_market_installed_releases
 WHERE connector_key = ? AND release_digest = ?`, connector.Key, digest).Scan(&currentPayload)
 	if err == nil {
-		var release market.Release
+		var release contracts.Release
 		if err := json.Unmarshal([]byte(currentPayload), &release); err != nil {
-			return market.Release{}, false, fmt.Errorf("decode current installed connector release: %w", err)
+			return contracts.Release{}, false, fmt.Errorf("decode current installed connector release: %w", err)
 		}
 		return release, true, nil
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return market.Release{}, false, err
+		return contracts.Release{}, false, err
 	}
 	if connector.Release.ReleaseDigest == digest {
 		return connector.Release, true, nil
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT operation_json FROM connector_market_operations
 WHERE connector_key = ? AND kind = ? AND state = ? ORDER BY updated_at_unix_ms DESC`,
-		connector.Key, market.OperationKindInstall, market.OperationStateCompleted)
+		connector.Key, contracts.OperationKindInstall, contracts.OperationStateCompleted)
 	if err != nil {
-		return market.Release{}, false, err
+		return contracts.Release{}, false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
-			return market.Release{}, false, err
+			return contracts.Release{}, false, err
 		}
 		operation, err := decodeOperation(payload)
 		if err != nil {
-			return market.Release{}, false, err
+			return contracts.Release{}, false, err
 		}
 		if operation.Target != nil && operation.Target.Release != nil && operation.Target.ReleaseDigest == digest {
 			return *operation.Target.Release, true, nil
 		}
 	}
-	return market.Release{}, false, rows.Err()
+	return contracts.Release{}, false, rows.Err()
 }
 
-func saveInstalledReleaseEvidenceOn(ctx context.Context, tx *sql.Tx, operation market.Operation) error {
+func saveInstalledReleaseEvidenceOn(ctx context.Context, tx *sql.Tx, operation contracts.Operation) error {
 	switch operation.Kind {
-	case market.OperationKindInstall:
-		if operation.Execution.ReleaseInstallation == nil && operation.State != market.OperationStateCompleted {
+	case contracts.OperationKindInstall:
+		if operation.Execution.ReleaseInstallation == nil && operation.State != contracts.OperationStateCompleted {
 			return nil
 		}
 		if operation.Target == nil || operation.Target.Release == nil || operation.Target.ReleaseDigest == "" {
 			return errors.New("prepared connector install is missing release evidence")
 		}
-		if operation.State == market.OperationStateCompleted {
+		if operation.State == contracts.OperationStateCompleted {
 			return saveInstalledReleaseOn(ctx, tx, *operation.Target.Release)
 		}
 		return saveReleaseInstallationOn(ctx, tx, *operation.Target.Release)
-	case market.OperationKindUninstall:
-		if operation.State != market.OperationStateCompleted {
+	case contracts.OperationKindUninstall:
+		if operation.State != contracts.OperationStateCompleted {
 			return nil
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM connector_market_installed_releases WHERE connector_key = ?`, operation.ConnectorKey)
@@ -223,7 +223,7 @@ func saveInstalledReleaseEvidenceOn(ctx context.Context, tx *sql.Tx, operation m
 	}
 }
 
-func saveInstalledReleaseOn(ctx context.Context, tx *sql.Tx, release market.Release) error {
+func saveInstalledReleaseOn(ctx context.Context, tx *sql.Tx, release contracts.Release) error {
 	if err := saveReleaseInstallationOn(ctx, tx, release); err != nil {
 		return err
 	}
@@ -240,7 +240,7 @@ ON CONFLICT(connector_key) DO UPDATE SET
 	return err
 }
 
-func saveReleaseInstallationOn(ctx context.Context, tx *sql.Tx, release market.Release) error {
+func saveReleaseInstallationOn(ctx context.Context, tx *sql.Tx, release contracts.Release) error {
 	payload, err := json.Marshal(release)
 	if err != nil {
 		return err
@@ -253,16 +253,16 @@ ON CONFLICT(connector_key, release_digest) DO UPDATE SET
 	return err
 }
 
-func (store *Store) CleanupLifecycle(ctx context.Context, request market.LifecycleCleanupRequest) (market.LifecycleCleanupResult, error) {
+func (store *Store) CleanupLifecycle(ctx context.Context, request contracts.LifecycleCleanupRequest) (contracts.LifecycleCleanupResult, error) {
 	if request.BatchSize <= 0 || request.BatchSize > maxLifecycleCleanupBatchSize {
-		return market.LifecycleCleanupResult{}, fmt.Errorf("connector market lifecycle cleanup batch size must be between 1 and %d", maxLifecycleCleanupBatchSize)
+		return contracts.LifecycleCleanupResult{}, fmt.Errorf("connector market lifecycle cleanup batch size must be between 1 and %d", maxLifecycleCleanupBatchSize)
 	}
 	if request.TerminalOperationsUpdatedThrough.IsZero() || request.PublishedEventsPublishedThrough.IsZero() {
-		return market.LifecycleCleanupResult{}, errors.New("connector market lifecycle cleanup cutoffs are required")
+		return contracts.LifecycleCleanupResult{}, errors.New("connector market lifecycle cleanup cutoffs are required")
 	}
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
-		return market.LifecycleCleanupResult{}, err
+		return contracts.LifecycleCleanupResult{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	operationResult, err := tx.ExecContext(ctx, `
@@ -276,7 +276,7 @@ AND state IN ('completed', 'failed') AND updated_at_unix_ms <= ?`,
 		request.TerminalOperationsUpdatedThrough.UTC().UnixMilli(), request.BatchSize,
 		request.TerminalOperationsUpdatedThrough.UTC().UnixMilli())
 	if err != nil {
-		return market.LifecycleCleanupResult{}, err
+		return contracts.LifecycleCleanupResult{}, err
 	}
 	outboxResult, err := tx.ExecContext(ctx, `
 DELETE FROM connector_market_outbox
@@ -289,20 +289,20 @@ AND published_at_unix_ms IS NOT NULL AND published_at_unix_ms <= ?`,
 		request.PublishedEventsPublishedThrough.UTC().UnixMilli(), request.BatchSize,
 		request.PublishedEventsPublishedThrough.UTC().UnixMilli())
 	if err != nil {
-		return market.LifecycleCleanupResult{}, err
+		return contracts.LifecycleCleanupResult{}, err
 	}
 	operationsDeleted, err := operationResult.RowsAffected()
 	if err != nil {
-		return market.LifecycleCleanupResult{}, err
+		return contracts.LifecycleCleanupResult{}, err
 	}
 	eventsDeleted, err := outboxResult.RowsAffected()
 	if err != nil {
-		return market.LifecycleCleanupResult{}, err
+		return contracts.LifecycleCleanupResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return market.LifecycleCleanupResult{}, err
+		return contracts.LifecycleCleanupResult{}, err
 	}
-	return market.LifecycleCleanupResult{
+	return contracts.LifecycleCleanupResult{
 		TerminalOperationsDeleted: operationsDeleted,
 		PublishedEventsDeleted:    eventsDeleted,
 	}, nil

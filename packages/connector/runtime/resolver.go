@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	connectorhost "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const (
@@ -38,7 +38,7 @@ type ConnectorExecutable struct {
 
 // VerifyRuntimeABI binds a connector's published runtime requirement to the
 // locally resolved runtime before any connector-controlled entrypoint starts.
-func VerifyRuntimeABI(requirement connectorhost.RuntimeRequirement, resolved ResolvedConnectorRuntime) error {
+func VerifyRuntimeABI(requirement contracts.RuntimeRequirement, resolved ResolvedConnectorRuntime) error {
 	if requirement.Profile != resolved.Profile || requirement.ABI != resolved.ABI {
 		return errors.New("connector runtime ABI does not match the verified local runtime")
 	}

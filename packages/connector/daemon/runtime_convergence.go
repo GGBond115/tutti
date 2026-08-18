@@ -85,7 +85,7 @@ func (host *Host) convergeDueRuntimes(ctx context.Context) error {
 	if !bootstrapped {
 		return nil
 	}
-	due, err := host.Application.DueRuntimeConvergences(ctx, scope, runtimeConvergenceBatchSize)
+	due, err := host.runtimeMaintenance.DueRuntimeConvergences(ctx, scope, runtimeConvergenceBatchSize)
 	if err != nil || len(due) == 0 {
 		return err
 	}
@@ -105,7 +105,7 @@ func (host *Host) convergeDueRuntimes(ctx context.Context) error {
 				return
 			}
 			convergeContext, cancel := context.WithTimeout(ctx, runtimeConvergenceTimeout)
-			err := host.Application.ConvergeRuntime(convergeContext, scope, connectorKey)
+			err := host.runtimeMaintenance.ConvergeRuntime(convergeContext, scope, connectorKey)
 			cancel()
 			if err != nil && !errors.Is(err, context.Canceled) {
 				errorsFound <- err

@@ -16,7 +16,8 @@ import (
 
 	marketclient "github.com/tutti-os/tutti/packages/clients/market-go"
 	marketv1 "github.com/tutti-os/tutti/packages/clients/market-go/generated/sandbox/v1"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const maxCatalogResponseBytes = marketclient.MaxResponseBodyBytes
@@ -39,8 +40,8 @@ type CatalogSource struct {
 	executionTarget    string
 }
 
-var _ market.CatalogSource = (*CatalogSource)(nil)
-var _ market.ArtifactDownloadResolver = (*CatalogSource)(nil)
+var _ application.CatalogSource = (*CatalogSource)(nil)
+var _ application.ArtifactDownloadResolver = (*CatalogSource)(nil)
 
 func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	expectedMarketType := strings.ToLower(strings.TrimSpace(config.ExpectedMarketType))
@@ -58,9 +59,9 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	executionTarget := strings.TrimSpace(config.ExecutionTarget)
 	var executionTargetErr error
 	if executionTarget == "" {
-		executionTarget, executionTargetErr = market.ExecutionTarget(runtime.GOOS, runtime.GOARCH)
+		executionTarget, executionTargetErr = contracts.ExecutionTarget(runtime.GOOS, runtime.GOARCH)
 	} else {
-		executionTarget, executionTargetErr = market.NormalizeExecutionTarget(executionTarget)
+		executionTarget, executionTargetErr = contracts.NormalizeExecutionTarget(executionTarget)
 	}
 	if executionTargetErr != nil {
 		return nil, executionTargetErr
@@ -68,43 +69,43 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	return &CatalogSource{expectedMarketType: expectedMarketType, marketClient: client, executionTarget: executionTarget}, nil
 }
 
-func (source *CatalogSource) Refresh(ctx context.Context) (market.CatalogSnapshot, error) {
+func (source *CatalogSource) Refresh(ctx context.Context) (contracts.CatalogSnapshot, error) {
 	// The current Market API does not expose a catalog snapshot revision, so a
 	// refresh intentionally pays for two complete reads and accepts only equal
 	// validated results. A future server revision can replace this 2x-read fence.
 	first, err := source.fetchSnapshot(ctx)
 	if err != nil {
-		return market.CatalogSnapshot{}, err
+		return contracts.CatalogSnapshot{}, err
 	}
 	second, err := source.fetchSnapshot(ctx)
 	if err != nil {
-		return market.CatalogSnapshot{}, err
+		return contracts.CatalogSnapshot{}, err
 	}
 	if !reflect.DeepEqual(first, second) {
-		return market.CatalogSnapshot{}, market.NewDomainError(market.ErrorCodeUpstreamUnavailable,
+		return contracts.CatalogSnapshot{}, contracts.NewDomainError(contracts.ErrorCodeUpstreamUnavailable,
 			"connector market changed while a complete snapshot was being read", true, nil)
 	}
 	return second, nil
 }
 
-func (source *CatalogSource) fetchSnapshot(ctx context.Context) (market.CatalogSnapshot, error) {
+func (source *CatalogSource) fetchSnapshot(ctx context.Context) (contracts.CatalogSnapshot, error) {
 	categories, err := source.fetchCategories(ctx)
 	if err != nil {
-		return market.CatalogSnapshot{}, err
+		return contracts.CatalogSnapshot{}, err
 	}
 	primaryPlacements := make(map[string]struct{})
 	primarySections := 0
-	entries := make([]market.CatalogEntry, 0)
+	entries := make([]contracts.CatalogEntry, 0)
 	for _, category := range categories {
 		if category.Kind == "category" {
 			primarySections++
 		}
 		sectionEntries, err := source.fetchSection(ctx, category.CategoryID)
 		if err != nil {
-			return market.CatalogSnapshot{}, err
+			return contracts.CatalogSnapshot{}, err
 		}
 		if int64(len(sectionEntries)) != category.ItemCount {
-			return market.CatalogSnapshot{}, errors.New("connector market category item count does not match the complete section")
+			return contracts.CatalogSnapshot{}, errors.New("connector market category item count does not match the complete section")
 		}
 		for index := range sectionEntries {
 			entry := &sectionEntries[index]
@@ -112,7 +113,7 @@ func (source *CatalogSource) fetchSnapshot(ctx context.Context) (market.CatalogS
 			entry.Order = index
 			if category.Kind == "category" {
 				if _, exists := primaryPlacements[entry.Release.ConnectorKey]; exists {
-					return market.CatalogSnapshot{}, errors.New("connector market catalog contains duplicate primary placements")
+					return contracts.CatalogSnapshot{}, errors.New("connector market catalog contains duplicate primary placements")
 				}
 				primaryPlacements[entry.Release.ConnectorKey] = struct{}{}
 			}
@@ -120,12 +121,12 @@ func (source *CatalogSource) fetchSnapshot(ctx context.Context) (market.CatalogS
 		entries = append(entries, sectionEntries...)
 	}
 	if primarySections == 0 {
-		return market.CatalogSnapshot{}, errors.New("connector market catalog returned no primary categories")
+		return contracts.CatalogSnapshot{}, errors.New("connector market catalog returned no primary categories")
 	}
-	return market.CatalogSnapshot{Categories: categories, Entries: entries}, nil
+	return contracts.CatalogSnapshot{Categories: categories, Entries: entries}, nil
 }
 
-func (source *CatalogSource) fetchCategories(ctx context.Context) ([]market.CatalogCategory, error) {
+func (source *CatalogSource) fetchCategories(ctx context.Context) ([]contracts.CatalogCategory, error) {
 	payload, err := source.marketClient.ListMarketCategories(ctx, &marketv1.ListMarketCategoriesRequest{ItemType: "connector"})
 	if err != nil {
 		return nil, fmt.Errorf("request connector market catalog: %w", err)
@@ -133,7 +134,7 @@ func (source *CatalogSource) fetchCategories(ctx context.Context) ([]market.Cata
 	if payload.GetMarketType() != source.expectedMarketType {
 		return nil, errors.New("connector market type does not match configured market")
 	}
-	categories := make([]market.CatalogCategory, 0, len(payload.GetCategories()))
+	categories := make([]contracts.CatalogCategory, 0, len(payload.GetCategories()))
 	seen := make(map[string]struct{}, len(payload.GetCategories()))
 	for _, category := range payload.GetCategories() {
 		if category == nil || strings.TrimSpace(category.GetCategoryId()) == "" ||
@@ -145,7 +146,7 @@ func (source *CatalogSource) fetchCategories(ctx context.Context) ([]market.Cata
 			return nil, errors.New("connector market category is duplicated")
 		}
 		seen[category.GetCategoryId()] = struct{}{}
-		categories = append(categories, market.CatalogCategory{
+		categories = append(categories, contracts.CatalogCategory{
 			CategoryID: category.GetCategoryId(), Kind: category.GetKind(), SortOrder: category.GetSortOrder(), ItemCount: category.GetItemCount(),
 			DisplayNameZH: category.GetDisplayNameZh(), DisplayNameEN: category.GetDisplayNameEn(),
 		})
@@ -159,8 +160,8 @@ func (source *CatalogSource) fetchCategories(ctx context.Context) ([]market.Cata
 	return categories, nil
 }
 
-func (source *CatalogSource) fetchSection(ctx context.Context, sectionID string) ([]market.CatalogEntry, error) {
-	entries := make([]market.CatalogEntry, 0)
+func (source *CatalogSource) fetchSection(ctx context.Context, sectionID string) ([]contracts.CatalogEntry, error) {
+	entries := make([]contracts.CatalogEntry, 0)
 	seenConnectors := make(map[string]struct{})
 	pageToken := ""
 	seenPageTokens := make(map[string]struct{})
@@ -186,7 +187,7 @@ func (source *CatalogSource) fetchSection(ctx context.Context, sectionID string)
 				return nil, errors.New("connector market section contains duplicate placements")
 			}
 			seenConnectors[release.ConnectorKey] = struct{}{}
-			entries = append(entries, market.CatalogEntry{SectionID: sectionID, CategoryID: item.GetCategoryId(), Featured: item.GetFeatured(), Release: release})
+			entries = append(entries, contracts.CatalogEntry{SectionID: sectionID, CategoryID: item.GetCategoryId(), Featured: item.GetFeatured(), Release: release})
 		}
 		nextPageToken := strings.TrimSpace(payload.GetNextPageToken())
 		if nextPageToken == "" {
@@ -200,19 +201,19 @@ func (source *CatalogSource) fetchSection(ctx context.Context, sectionID string)
 	}
 }
 
-func (source *CatalogSource) ResolveArtifactDownload(ctx context.Context, releaseDigest string) (market.ArtifactDownload, error) {
+func (source *CatalogSource) ResolveArtifactDownload(ctx context.Context, releaseDigest string) (contracts.ArtifactDownload, error) {
 	releaseDigest = strings.TrimSpace(releaseDigest)
 	if !isSHA256Hex(releaseDigest) {
-		return market.ArtifactDownload{}, errors.New("connector artifact release digest is invalid")
+		return contracts.ArtifactDownload{}, errors.New("connector artifact release digest is invalid")
 	}
 	payload, err := source.marketClient.ResolveMarketArtifactDownload(ctx, &marketv1.ResolveMarketArtifactDownloadRequest{ReleaseDigest: releaseDigest})
 	if err != nil {
-		return market.ArtifactDownload{}, fmt.Errorf("resolve connector artifact download: %w", err)
+		return contracts.ArtifactDownload{}, fmt.Errorf("resolve connector artifact download: %w", err)
 	}
 	if payload == nil {
-		return market.ArtifactDownload{}, errors.New("resolve connector artifact download: response is missing")
+		return contracts.ArtifactDownload{}, errors.New("resolve connector artifact download: response is missing")
 	}
-	return market.ArtifactDownload{
+	return contracts.ArtifactDownload{
 		URL:           payload.GetUrl(),
 		ExpiresAt:     time.UnixMilli(payload.GetExpiresAtMs()).UTC(),
 		ReleaseDigest: payload.GetReleaseDigest(),
@@ -222,35 +223,35 @@ func (source *CatalogSource) ResolveArtifactDownload(ctx context.Context, releas
 	}, nil
 }
 
-func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (market.Release, error) {
+func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (contracts.Release, error) {
 	if item == nil || item.GetItemType() != "connector" || item.GetItemKey() == "" || item.GetVersion() == "" || item.GetArtifact() == nil ||
 		!isSHA256Hex(item.GetArtifact().GetReleaseDigest()) || !supportedArtifactMediaType(item.GetArtifact().GetMediaType()) || item.GetManifest() == nil {
-		return market.Release{}, errors.New("connector market item identity is incomplete")
+		return contracts.Release{}, errors.New("connector market item identity is incomplete")
 	}
 	manifestBytes, err := json.Marshal(item.GetManifest().AsMap())
 	if err != nil {
-		return market.Release{}, err
+		return contracts.Release{}, err
 	}
 	var connectorManifest wireConnectorMarketManifest
 	// Connector market manifests are extensible. Unknown fields cannot alter
 	// the semantics of known fields; breaking changes require a new major.
 	decoder := json.NewDecoder(bytes.NewReader(manifestBytes))
 	if err := decoder.Decode(&connectorManifest); err != nil {
-		return market.Release{}, fmt.Errorf("decode connector market manifest: %w", err)
+		return contracts.Release{}, fmt.Errorf("decode connector market manifest: %w", err)
 	}
 	if connectorManifest.ItemType != "connector" || connectorManifest.ItemKey != item.GetItemKey() || connectorManifest.Version != item.GetVersion() {
-		return market.Release{}, errors.New("connector manifest identity does not match item")
+		return contracts.Release{}, errors.New("connector manifest identity does not match item")
 	}
 	if !isSHA256Hex(connectorManifest.Payload.PackageManifestSHA256) {
-		return market.Release{}, errors.New("connector manifest package digest is invalid")
+		return contracts.Release{}, errors.New("connector manifest package digest is invalid")
 	}
 	implementation, err := source.resolveManifestImplementation(connectorManifest)
 	if err != nil {
-		return market.Release{}, err
+		return contracts.Release{}, err
 	}
 	authorizationInteraction, err := connectorManifest.Payload.Authorization.interaction()
 	if err != nil {
-		return market.Release{}, err
+		return contracts.Release{}, err
 	}
 	iconURL := connectorManifest.Display.IconURL
 	if strings.TrimSpace(iconURL) == "" {
@@ -259,40 +260,40 @@ func (source *CatalogSource) mapItem(item *marketv1.PublicMarketItem) (market.Re
 	// The server's v2 envelope is the generic, market-neutral publication
 	// contract. V3 selects one target first. Both project into the stable host
 	// manifest contract; these schema versions describe different boundaries.
-	manifest := market.Manifest{SchemaVersion: "1", DisplayName: connectorManifest.Display.Name, IconURL: iconURL,
+	manifest := contracts.Manifest{SchemaVersion: "1", DisplayName: connectorManifest.Display.Name, IconURL: iconURL,
 		Description: connectorManifest.Display.Description, AgentRouting: connectorManifest.Payload.AgentRouting,
 		Permissions:          connectorManifest.Payload.Permissions,
 		RequiredCapabilities: connectorManifest.Payload.RequiredCapabilities,
 		Implementation:       implementation, AuthorizationKind: connectorManifest.Payload.Authorization.Kind,
 		AuthorizationInteraction: authorizationInteraction,
 		Compatibility:            connectorManifest.Payload.Compatibility}
-	release := market.Release{SchemaVersion: "1", ReleaseID: item.GetItemKey() + "@" + item.GetVersion(),
+	release := contracts.Release{SchemaVersion: "1", ReleaseID: item.GetItemKey() + "@" + item.GetVersion(),
 		ConnectorKey: item.GetItemKey(), Version: item.GetVersion(),
 		ReleaseDigest: item.GetArtifact().GetReleaseDigest(), ManifestDigest: connectorManifest.Payload.PackageManifestSHA256,
-		Manifest: manifest, Artifact: market.Artifact{SHA256: item.GetArtifact().GetSha256(),
+		Manifest: manifest, Artifact: contracts.Artifact{SHA256: item.GetArtifact().GetSha256(),
 			SizeBytes: item.GetArtifact().GetSizeBytes(), MediaType: item.GetArtifact().GetMediaType()},
-		PublishedAt: time.UnixMilli(item.GetPublishedAtMs()).UTC(), Status: market.ReleaseStatusAvailable}
-	if err := market.ValidateReleaseShape(release); err != nil {
-		return market.Release{}, err
+		PublishedAt: time.UnixMilli(item.GetPublishedAtMs()).UTC(), Status: contracts.ReleaseStatusAvailable}
+	if err := contracts.ValidateReleaseShape(release); err != nil {
+		return contracts.Release{}, err
 	}
 	return release, nil
 }
 
-func (source *CatalogSource) resolveManifestImplementation(manifest wireConnectorMarketManifest) (market.Implementation, error) {
+func (source *CatalogSource) resolveManifestImplementation(manifest wireConnectorMarketManifest) (contracts.Implementation, error) {
 	payload := manifest.Payload
 	switch manifest.SchemaVersion {
 	case "2":
 		if payload.Implementation == nil || len(payload.TargetImplementations) != 0 {
-			return market.Implementation{}, errors.New("connector v2 manifest must provide one market-neutral implementation")
+			return contracts.Implementation{}, errors.New("connector v2 manifest must provide one market-neutral implementation")
 		}
 		return *payload.Implementation, nil
 	case "3":
 		if payload.Implementation != nil || len(payload.TargetImplementations) == 0 {
-			return market.Implementation{}, errors.New("connector v3 manifest must provide targetImplementations")
+			return contracts.Implementation{}, errors.New("connector v3 manifest must provide targetImplementations")
 		}
-		return market.ResolveTargetImplementation(source.executionTarget, payload.TargetImplementations)
+		return contracts.ResolveTargetImplementation(source.executionTarget, payload.TargetImplementations)
 	default:
-		return market.Implementation{}, fmt.Errorf("connector manifest schemaVersion %q is unsupported", manifest.SchemaVersion)
+		return contracts.Implementation{}, fmt.Errorf("connector manifest schemaVersion %q is unsupported", manifest.SchemaVersion)
 	}
 }
 
@@ -312,14 +313,14 @@ type wireConnectorDisplay struct {
 }
 
 type wireConnectorManifestPayload struct {
-	Permissions           []string                         `json:"permissions"`
-	RequiredCapabilities  []string                         `json:"requiredCapabilities"`
-	AgentRouting          *market.AgentRouting             `json:"agentRouting,omitempty"`
-	PackageManifestSHA256 string                           `json:"packageManifestSha256"`
-	Authorization         wireConnectorAuthorization       `json:"authorization"`
-	Compatibility         market.CompatibilityRequirements `json:"compatibility"`
-	Implementation        *market.Implementation           `json:"implementation,omitempty"`
-	TargetImplementations map[string]market.Implementation `json:"targetImplementations,omitempty"`
+	Permissions           []string                            `json:"permissions"`
+	RequiredCapabilities  []string                            `json:"requiredCapabilities"`
+	AgentRouting          *contracts.AgentRouting             `json:"agentRouting,omitempty"`
+	PackageManifestSHA256 string                              `json:"packageManifestSha256"`
+	Authorization         wireConnectorAuthorization          `json:"authorization"`
+	Compatibility         contracts.CompatibilityRequirements `json:"compatibility"`
+	Implementation        *contracts.Implementation           `json:"implementation,omitempty"`
+	TargetImplementations map[string]contracts.Implementation `json:"targetImplementations,omitempty"`
 }
 
 type wireConnectorAuthorization struct {

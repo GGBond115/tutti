@@ -5,23 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 type ConnectorMarketPublisher struct {
 	Service      *Service
-	CurrentScope func() market.OperationScope
+	CurrentScope func() contracts.OperationScope
 }
 
 func (publisher ConnectorMarketPublisher) PublishConnectorMarketChanged(
 	ctx context.Context,
-	event market.ChangedEvent,
+	event contracts.ChangedEvent,
 ) error {
 	if publisher.Service == nil {
 		return errors.New("connector market event service is unavailable")
 	}
-	if event.Visibility == market.OperationVisibilityAccount {
+	if event.Visibility == contracts.OperationVisibilityAccount {
 		if publisher.CurrentScope == nil ||
 			publisher.CurrentScope().AccountID != event.OwnerAccountID {
 			return nil
@@ -45,7 +44,7 @@ func (publisher ConnectorMarketPublisher) PublishConnectorMarketChanged(
 func validateConnectorMarketChangedPayload(payload []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
-	var event market.ChangedEvent
+	var event contracts.ChangedEvent
 	if err := decoder.Decode(&event); err != nil {
 		return err
 	}

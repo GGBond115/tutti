@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 func TestDeactivateRuntimeAllConnectionsRemovesRotatedConnectorRoutes(t *testing.T) {
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 7}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 7}
 	host := &Host{
 		routes:                connectorruntime.NewRouteTable(),
 		authorizationRoutes:   make(map[string]*connectorRoute),
@@ -43,7 +43,7 @@ func TestDeactivateRuntimeAllConnectionsRemovesRotatedConnectorRoutes(t *testing
 		t.Fatal(err)
 	}
 
-	if err := host.DeactivateRuntime(context.Background(), market.RuntimeDeactivationRequest{
+	if err := host.DeactivateRuntime(context.Background(), contracts.RuntimeDeactivationRequest{
 		ConnectionID: "connection-after-rotation", ConnectorKey: "github", ReleaseDigest: "release-1",
 		AllConnections: true, Generation: generation, Deadline: time.Now().Add(time.Second),
 	}); err != nil {
@@ -63,7 +63,7 @@ func TestDeactivateRuntimeAllConnectionsRemovesRotatedConnectorRoutes(t *testing
 }
 
 func TestDisabledReconcileRemovesRotatedConnectorRoutes(t *testing.T) {
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 7}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 7}
 	host := &Host{
 		routes:                connectorruntime.NewRouteTable(),
 		authorizationRoutes:   make(map[string]*connectorRoute),
@@ -81,9 +81,9 @@ func TestDisabledReconcileRemovesRotatedConnectorRoutes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	receipt, err := host.Reconcile(context.Background(), ReconcileRequest{Runtime: market.RuntimeReconcileRequest{
+	receipt, err := host.Reconcile(context.Background(), ReconcileRequest{Runtime: contracts.RuntimeReconcileRequest{
 		OperationID: "disable-github", ConnectionID: "connection-after-rotation",
-		Connector: market.Connector{Key: "github", Installation: market.Installation{
+		Connector: contracts.Connector{Key: "github", Installation: contracts.Installation{
 			InstalledReleaseDigest: "release-1",
 		}},
 		Enabled: false, Generation: generation,
@@ -96,8 +96,8 @@ func TestDisabledReconcileRemovesRotatedConnectorRoutes(t *testing.T) {
 			t.Fatalf("route %q survived disabled convergence", route.id)
 		}
 	}
-	if receipt.Readiness.State != market.RuntimeReadinessBlocked ||
-		receipt.Readiness.ReasonCode != market.RuntimeReadinessReasonRuntimeDisabled {
+	if receipt.Readiness.State != contracts.RuntimeReadinessBlocked ||
+		receipt.Readiness.ReasonCode != contracts.RuntimeReadinessReasonRuntimeDisabled {
 		t.Fatalf("disabled receipt = %#v", receipt)
 	}
 }
@@ -112,17 +112,17 @@ func TestDisabledCandidateReconcileReturnsRequestedReleaseDigest(t *testing.T) {
 	}
 	host.authorizationProvider.host = host
 	const releaseDigest = "candidate-release"
-	receipt, err := host.Reconcile(context.Background(), ReconcileRequest{Runtime: market.RuntimeReconcileRequest{
+	receipt, err := host.Reconcile(context.Background(), ReconcileRequest{Runtime: contracts.RuntimeReconcileRequest{
 		OperationID: "disable-unauthed-linear", ConnectionID: "account-linear",
-		Connector: market.Connector{
+		Connector: contracts.Connector{
 			Key:     "linear",
-			Release: market.Release{ReleaseDigest: releaseDigest},
-			Installation: market.Installation{
-				State:                  market.InstallationStateInstalling,
+			Release: contracts.Release{ReleaseDigest: releaseDigest},
+			Installation: contracts.Installation{
+				State:                  contracts.InstallationStateInstalling,
 				CandidateReleaseDigest: releaseDigest,
 			},
 		},
-		Enabled: false, Generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 8},
+		Enabled: false, Generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: 8},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -130,8 +130,8 @@ func TestDisabledCandidateReconcileReturnsRequestedReleaseDigest(t *testing.T) {
 	if receipt.ReleaseDigest != releaseDigest {
 		t.Fatalf("receipt release digest = %q, want %q", receipt.ReleaseDigest, releaseDigest)
 	}
-	if receipt.Readiness.State != market.RuntimeReadinessBlocked ||
-		receipt.Readiness.ReasonCode != market.RuntimeReadinessReasonRuntimeDisabled {
+	if receipt.Readiness.State != contracts.RuntimeReadinessBlocked ||
+		receipt.Readiness.ReasonCode != contracts.RuntimeReadinessReasonRuntimeDisabled {
 		t.Fatalf("disabled candidate receipt = %#v", receipt)
 	}
 }
@@ -145,18 +145,18 @@ func TestDeactivateRuntimeAllConnectionsCancelsPendingAuthorizationRoute(t *test
 		mcpRegistry:           NewMCPRegistry(),
 	}
 	host.authorizationProvider.host = host
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 3}
-	route := testUninstallRoute("account-pending", "github", "superseded-release", market.HostGeneration{BootEpoch: "authorization", Generation: 2})
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 3}
+	route := testUninstallRoute("account-pending", "github", "superseded-release", contracts.HostGeneration{BootEpoch: "authorization", Generation: 2})
 	host.authorizationRoutes[route.id] = route
 	canceled := make(chan struct{})
 	const operationID = "authorization-pending"
 	host.authorizationProvider.sessions[operationID] = &credentialBrokerSession{
 		operationID: operationID, route: route,
-		cancel: func() { close(canceled) }, changed: make(chan struct{}), state: market.AuthorizationStatePending,
+		cancel: func() { close(canceled) }, changed: make(chan struct{}), state: contracts.AuthorizationStatePending,
 	}
 	host.authorizationProvider.activeByRoute[route.id] = operationID
 
-	if err := host.DeactivateRuntime(context.Background(), market.RuntimeDeactivationRequest{
+	if err := host.DeactivateRuntime(context.Background(), contracts.RuntimeDeactivationRequest{
 		ConnectionID: "current-connection", ConnectorKey: "github", ReleaseDigest: "release-1",
 		AllConnections: true, Generation: generation, Deadline: time.Now().Add(time.Second),
 	}); err != nil {
@@ -194,9 +194,9 @@ func TestDeactivateRuntimeAllConnectionsRemovesOrphanedManagedCLIShim(t *testing
 		t.Fatal(err)
 	}
 
-	if err := host.DeactivateRuntime(context.Background(), market.RuntimeDeactivationRequest{
+	if err := host.DeactivateRuntime(context.Background(), contracts.RuntimeDeactivationRequest{
 		ConnectionID: "missing", ConnectorKey: "github", ReleaseDigest: "release-1", AllConnections: true,
-		Generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 1}, Deadline: time.Now().Add(time.Second),
+		Generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: 1}, Deadline: time.Now().Add(time.Second),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestDeactivateRuntimeAllConnectionsRemovesOrphanedManagedCLIShim(t *testing
 	}
 }
 
-func testUninstallRoute(connectionID, connectorKey, releaseDigest string, generation market.HostGeneration) *connectorRoute {
+func testUninstallRoute(connectionID, connectorKey, releaseDigest string, generation contracts.HostGeneration) *connectorRoute {
 	return &connectorRoute{
 		id: connectorRouteKey(connectionID, connectorKey), connectionID: connectionID,
 		connectorKey: connectorKey, releaseDigest: releaseDigest, generation: generation,

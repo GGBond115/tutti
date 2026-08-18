@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 // AuthorizationObserver receives runtime-side credential binding outcomes.
@@ -20,7 +20,7 @@ type AuthorizationObserver interface {
 type AuthorizationObservation struct {
 	ConnectorKey string
 	ConnectionID string
-	State        market.AuthorizationState
+	State        contracts.AuthorizationState
 	ObservedAt   time.Time
 }
 
@@ -38,7 +38,7 @@ type routeObservationHub struct {
 }
 
 type routeWatcher struct {
-	events chan market.PhysicalRouteEvent
+	events chan contracts.PhysicalRouteEvent
 	done   chan struct{}
 }
 
@@ -46,7 +46,7 @@ func newRouteObservationHub() *routeObservationHub {
 	return &routeObservationHub{watchers: make(map[uint64]*routeWatcher)}
 }
 
-func (hub *routeObservationHub) publish(kind market.PhysicalRouteEventKind, route market.PhysicalRoute) {
+func (hub *routeObservationHub) publish(kind contracts.PhysicalRouteEventKind, route contracts.PhysicalRoute) {
 	if hub == nil {
 		return
 	}
@@ -56,7 +56,7 @@ func (hub *routeObservationHub) publish(kind market.PhysicalRouteEventKind, rout
 		return
 	}
 	hub.revision++
-	event := market.PhysicalRouteEvent{Revision: hub.revision, Kind: kind, Route: route}
+	event := contracts.PhysicalRouteEvent{Revision: hub.revision, Kind: kind, Route: route}
 	for watcherID, watcher := range hub.watchers {
 		select {
 		case watcher.events <- event:
@@ -70,21 +70,21 @@ func (hub *routeObservationHub) publish(kind market.PhysicalRouteEventKind, rout
 	}
 }
 
-func (hub *routeObservationHub) watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+func (hub *routeObservationHub) watch(ctx context.Context) (contracts.PhysicalRouteWatch, error) {
 	if hub == nil || ctx == nil {
-		return market.PhysicalRouteWatch{}, errors.New("connector physical route watch context is required")
+		return contracts.PhysicalRouteWatch{}, errors.New("connector physical route watch context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return market.PhysicalRouteWatch{}, err
+		return contracts.PhysicalRouteWatch{}, err
 	}
 	hub.mu.Lock()
 	if hub.closed {
 		hub.mu.Unlock()
-		return market.PhysicalRouteWatch{}, errors.New("connector physical route observation is closed")
+		return contracts.PhysicalRouteWatch{}, errors.New("connector physical route observation is closed")
 	}
 	hub.nextWatcher++
 	watcherID := hub.nextWatcher
-	watcher := &routeWatcher{events: make(chan market.PhysicalRouteEvent, physicalRouteWatchBuffer), done: make(chan struct{})}
+	watcher := &routeWatcher{events: make(chan contracts.PhysicalRouteEvent, physicalRouteWatchBuffer), done: make(chan struct{})}
 	hub.watchers[watcherID] = watcher
 	revision := hub.revision
 	hub.mu.Unlock()
@@ -101,7 +101,7 @@ func (hub *routeObservationHub) watch(ctx context.Context) (market.PhysicalRoute
 		case <-watcher.done:
 		}
 	}()
-	return market.PhysicalRouteWatch{Revision: revision, Events: watcher.events}, nil
+	return contracts.PhysicalRouteWatch{Revision: revision, Events: watcher.events}, nil
 }
 
 func (hub *routeObservationHub) currentRevision() uint64 {
@@ -130,21 +130,21 @@ func (hub *routeObservationHub) close() {
 	}
 }
 
-func physicalRoute(route *connectorRoute) market.PhysicalRoute {
-	state := market.PhysicalRouteStateReady
-	if route == nil || route.readiness.State != market.RuntimeReadinessReady {
-		state = market.PhysicalRouteStateDegraded
+func physicalRoute(route *connectorRoute) contracts.PhysicalRoute {
+	state := contracts.PhysicalRouteStateReady
+	if route == nil || route.readiness.State != contracts.RuntimeReadinessReady {
+		state = contracts.PhysicalRouteStateDegraded
 	}
 	if route == nil {
-		return market.PhysicalRoute{State: state}
+		return contracts.PhysicalRoute{State: state}
 	}
-	return market.PhysicalRoute{
+	return contracts.PhysicalRoute{
 		ConnectorKey: route.connectorKey, ConnectionID: route.connectionID,
 		ReleaseDigest: route.releaseDigest, Generation: route.generation, State: state,
 	}
 }
 
-func sortPhysicalRoutes(routes []market.PhysicalRoute) {
+func sortPhysicalRoutes(routes []contracts.PhysicalRoute) {
 	sort.Slice(routes, func(left, right int) bool {
 		if routes[left].ConnectorKey != routes[right].ConnectorKey {
 			return routes[left].ConnectorKey < routes[right].ConnectorKey

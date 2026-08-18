@@ -5,18 +5,18 @@ import (
 	"errors"
 	"testing"
 
-	connectorhost "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestConnectorOptionsProjectsEveryCatalogState(t *testing.T) {
-	source := snapshotStub{snapshot: connectorhost.Snapshot{Connectors: []connectorhost.Connector{
-		connectorFixture("github", "GitHub", connectorhost.InstallationStateInstalled, connectorhost.AuthorizationStateConnected, connectorhost.CompatibilityStateSupported),
-		connectorFixture("notion", "", connectorhost.InstallationStateInstalled, connectorhost.AuthorizationStateDisconnected, connectorhost.CompatibilityStateSupported),
-		connectorFixture("legacy", "Legacy", connectorhost.InstallationStateInstalled, connectorhost.AuthorizationStateConnected, connectorhost.CompatibilityStateUnsupportedVersion),
-		connectorFixture("slack", "Slack", connectorhost.InstallationStateNotInstalled, connectorhost.AuthorizationStateConnected, connectorhost.CompatibilityStateSupported),
+	source := snapshotStub{snapshot: contracts.AgentConnectorPolicySnapshot{Connectors: []contracts.AgentConnectorPolicy{
+		{Connector: connectorFixture("github", "GitHub"), State: contracts.ConnectorStateConnected},
+		{Connector: connectorFixture("notion", ""), State: contracts.ConnectorStateAuthorizationRequired},
+		{Connector: connectorFixture("legacy", "Legacy"), State: contracts.ConnectorStateUnsupported},
+		{Connector: connectorFixture("slack", "Slack"), State: contracts.ConnectorStateSetupRequired},
 	}}}
 
-	options, err := ConnectorOptions(context.Background(), source)
+	options, err := ConnectorOptions(context.Background(), source, contracts.AgentTarget{TargetID: "local:codex", Ownership: contracts.AgentOwnershipLocal})
 	if err != nil {
 		t.Fatalf("ConnectorOptions() error = %v", err)
 	}
@@ -39,37 +39,31 @@ func TestConnectorOptionsProjectsEveryCatalogState(t *testing.T) {
 
 func TestConnectorOptionsPreservesSnapshotReadError(t *testing.T) {
 	want := errors.New("snapshot unavailable")
-	_, err := ConnectorOptions(context.Background(), snapshotStub{err: want})
+	_, err := ConnectorOptions(context.Background(), snapshotStub{err: want}, contracts.AgentTarget{TargetID: "local:codex", Ownership: contracts.AgentOwnershipLocal})
 	if !errors.Is(err, want) {
 		t.Fatalf("ConnectorOptions() error = %v, want %v", err, want)
 	}
 }
 
 type snapshotStub struct {
-	snapshot connectorhost.Snapshot
+	snapshot contracts.AgentConnectorPolicySnapshot
 	err      error
 }
 
-func (stub snapshotStub) Snapshot(context.Context) (connectorhost.Snapshot, error) {
+func (stub snapshotStub) Evaluate(context.Context, contracts.AgentTarget) (contracts.AgentConnectorPolicySnapshot, error) {
 	return stub.snapshot, stub.err
 }
 
 func connectorFixture(
 	key string,
 	label string,
-	installation connectorhost.InstallationState,
-	authorization connectorhost.AuthorizationState,
-	compatibility connectorhost.CompatibilityState,
-) connectorhost.Connector {
-	return connectorhost.Connector{
+) contracts.Connector {
+	return contracts.Connector{
 		Key: key,
-		Release: connectorhost.Release{Manifest: connectorhost.Manifest{
+		Release: contracts.Release{Manifest: contracts.Manifest{
 			DisplayName: label,
 			IconURL:     "data:image/png;base64,aWNvbg==",
 			Description: key + " connector",
 		}},
-		Installation:  connectorhost.Installation{State: installation},
-		Authorization: connectorhost.Authorization{State: authorization},
-		Compatibility: connectorhost.Compatibility{State: compatibility},
 	}
 }

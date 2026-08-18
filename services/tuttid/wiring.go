@@ -18,8 +18,9 @@ import (
 	agenthttpx "github.com/tutti-os/tutti/packages/agent/daemon/httpx"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	connectorcontrolplane "github.com/tutti-os/tutti/packages/clients/connector-controlplane"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	connectormarketdaemon "github.com/tutti-os/tutti/packages/connector/daemon"
-	connectormarkethost "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectoragentgateway "github.com/tutti-os/tutti/packages/connector/runtime/agentgateway"
 	marketartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
@@ -382,24 +383,28 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		api.CLIRegistry.AppCommands = cliservice.CompositeDynamicCommandRegistry{Registries: []cliservice.DynamicCommandRegistry{
 			api.CLIRegistry.AppCommands, connectorCommands,
 		}}
-		connectorAuthorizationReadiness := connectormarkethost.NewAuthorizationReadinessGate()
-		connectorMarketScope := func() connectormarkethost.OperationScope {
+		connectorAuthorizationReadiness := application.NewAuthorizationReadinessGate()
+		connectorRuntimeBindings := application.AccountRuntimeBindingResolver{
+			Projections: connectorMarketStore, Readiness: connectorAuthorizationReadiness,
+		}
+		connectorMarketScope := func() contracts.OperationScope {
 			session, sessionErr := accountService.ReadSession()
 			if sessionErr != nil || session == nil {
-				return connectormarkethost.OperationScope{}
+				return contracts.OperationScope{}
 			}
-			return connectormarkethost.OperationScope{AccountID: strings.TrimSpace(session.UserID)}
+			return contracts.OperationScope{AccountID: strings.TrimSpace(session.UserID)}
 		}
 		connectorMarketHost, err := connectormarketdaemon.NewHost(connectormarketdaemon.HostConfig{
 			Repository: connectorMarketStore, CatalogSource: connectorCatalog,
-			ReleaseInstallations: releaseInstaller, ImplementationHost: connectorRuntime,
+			ReleaseInstallations: releaseInstaller, ImplementationCommands: connectorRuntime,
 			PhysicalRoutes: implementationHost,
 			Authorization:  connectorAuthorization, Compatibility: compatibility,
 			AuthorizationProjections: connectorMarketStore,
 			AuthorizationSnapshots:   connectorAuthorizationClient,
 			AuthorizationEvents:      connectorAuthorizationEvents,
 			AuthorizationReadiness:   connectorAuthorizationReadiness,
-			RuntimeBindings:          connectormarkethost.AccountRuntimeBindingResolver{Projections: connectorMarketStore, Readiness: connectorAuthorizationReadiness},
+			RuntimeBindings:          connectorRuntimeBindings,
+			RuntimeIntents:           connectorRuntimeBindings,
 			ImplementationRegistry:   implementations, Outbox: connectorMarketStore, Lifecycle: connectorMarketStore,
 			Publisher: eventstreamservice.ConnectorMarketPublisher{Service: events, CurrentScope: connectorMarketScope},
 		})
@@ -409,7 +414,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			providerAuthWatcher.Close()
 			return fmt.Errorf("configure connector market host: %w", err)
 		}
-		if err := connectorMarketHost.Start(ctx); err != nil {
+		if err := connectorMarketHost.Start(ctx, connectorMarketScope()); err != nil {
 			closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			_ = connectorMarketHost.Close(closeCtx)
 			cancel()
@@ -419,12 +424,16 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			return fmt.Errorf("start connector market host: %w", err)
 		}
 		if service, ok := api.AgentSessionService.(*agentservice.Service); ok {
-			service.ConnectorMarketSnapshots = connectorMarketHost.Application
+			service.ConnectorMarketPolicy = connectorMarketHost.AgentPolicy()
 			service.ConnectorMarketCurrentScope = connectorMarketScope
 		}
-		api.ConnectorMarketService = connectorMarketHost.Application
+		api.ConnectorStateQueries = connectorMarketHost.StateQueries()
+		api.ConnectorCatalogQueries = connectorMarketHost.CatalogQueries()
+		api.ConnectorCatalogCommands = connectorMarketHost.CatalogCommands()
+		api.ConnectorInstallationCommands = connectorMarketHost.InstallationCommands()
+		api.ConnectorAuthorizationCommands = connectorMarketHost.AuthorizationCommands()
+		api.ConnectorOperationQueries = connectorMarketHost.OperationQueries()
 		api.ConnectorMarketScope = connectorMarketScope
-		api.ConnectorAuthorizationReady = connectorAuthorizationReadiness.Ready
 		existingAccountLoginCompleted := accountService.OnLoginCompleted
 		accountService.OnLoginCompleted = func(loginContext context.Context) {
 			if existingAccountLoginCompleted != nil {
@@ -440,20 +449,13 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			connectorAgent.RevokeAll()
 			fenceContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if fenceErr := connectorMarketHost.FenceForScope(fenceContext, connectormarkethost.OperationScope{}); fenceErr != nil {
-				slog.Warn("connector market logout fence failed", "error", fenceErr)
+			if switchErr := connectorMarketHost.ActivateScope(fenceContext, contracts.OperationScope{}); switchErr != nil {
+				slog.Warn("connector market logout scope transition failed", "error", switchErr)
 			}
 		}
 		w.connectorMarketStore = connectorMarketStore
 		w.connectorMarketHost = connectorMarketHost
 		connectorRegistry.MCPRegistry().SetAuthorizationErrorObserver(connectorMarketHost.NotifyAuthorizationChanged)
-		startExistingListenerWork := api.OnListenerReady
-		api.OnListenerReady = func() {
-			if startExistingListenerWork != nil {
-				startExistingListenerWork()
-			}
-			go bootstrapConnectorMarket(connectorMarketHost, connectorMarketScope)
-		}
 	}
 	agentTargetSetup, ok := api.AgentTargetSetupService.(*agentextensionservice.SetupService)
 	if !ok {
@@ -699,17 +701,17 @@ func openWorkspaceStore(ctx context.Context) (*workspacedata.SQLiteStore, error)
 	return workspaceStore, nil
 }
 
-func bootstrapConnectorMarket(host *connectormarketdaemon.Host, scope func() connectormarkethost.OperationScope) {
+func bootstrapConnectorMarket(host *connectormarketdaemon.Host, scope func() contracts.OperationScope) {
 	if host == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	operationScope := connectormarkethost.OperationScope{}
+	operationScope := contracts.OperationScope{}
 	if scope != nil {
 		operationScope = scope()
 	}
-	err := host.BootstrapForScope(ctx, operationScope)
+	err := host.ActivateScope(ctx, operationScope)
 	if err != nil {
 		slog.Warn("connector market bootstrap failed; routes remain fenced", "error", err)
 	}

@@ -19,8 +19,9 @@ use ./packages/device-link
 use ./packages/desktop/update-admission
 
 use (
+	./packages/connector/contracts
 	./packages/connector/daemon
-	./packages/connector/host
+	./packages/connector/application
 	./packages/connector/runtime
 	./packages/connector/store-sqlite
 )

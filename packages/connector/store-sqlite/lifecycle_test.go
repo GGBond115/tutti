@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestStoreCleanupLifecycleHonorsCutoffsBatchesAndProtectedRows(t *testing.T) {
@@ -23,19 +24,19 @@ func TestStoreCleanupLifecycleHonorsCutoffsBatchesAndProtectedRows(t *testing.T)
 	defer store.Close()
 
 	cutoff := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	operations := []market.Operation{
-		lifecycleTestOperation("completed-before", "connector-completed", market.OperationStateCompleted, cutoff.Add(-time.Millisecond)),
-		lifecycleTestOperation("failed-at", "connector-failed", market.OperationStateFailed, cutoff),
-		lifecycleTestOperation("completed-after", "connector-newer", market.OperationStateCompleted, cutoff.Add(time.Millisecond)),
-		lifecycleTestOperation("accepted-old", "connector-accepted", market.OperationStateAccepted, cutoff.Add(-time.Hour)),
-		lifecycleTestOperation("running-old", "connector-running", market.OperationStateRunning, cutoff.Add(-time.Hour)),
+	operations := []contracts.Operation{
+		lifecycleTestOperation("completed-before", "connector-completed", contracts.OperationStateCompleted, cutoff.Add(-time.Millisecond)),
+		lifecycleTestOperation("failed-at", "connector-failed", contracts.OperationStateFailed, cutoff),
+		lifecycleTestOperation("completed-after", "connector-newer", contracts.OperationStateCompleted, cutoff.Add(time.Millisecond)),
+		lifecycleTestOperation("accepted-old", "connector-accepted", contracts.OperationStateAccepted, cutoff.Add(-time.Hour)),
+		lifecycleTestOperation("running-old", "connector-running", contracts.OperationStateRunning, cutoff.Add(-time.Hour)),
 	}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		for index, operation := range operations {
 			if err := tx.SaveOperation(operation); err != nil {
 				return err
 			}
-			if err := tx.EnqueueConnectorMarketChanged(market.ChangedEvent{OperationID: operation.OperationID, Revision: uint64(index + 1)}); err != nil {
+			if err := tx.EnqueueConnectorMarketChanged(contracts.ChangedEvent{OperationID: operation.OperationID, Revision: uint64(index + 1)}); err != nil {
 				return err
 			}
 		}
@@ -54,7 +55,7 @@ func TestStoreCleanupLifecycleHonorsCutoffsBatchesAndProtectedRows(t *testing.T)
 		}
 	}
 
-	request := market.LifecycleCleanupRequest{
+	request := contracts.LifecycleCleanupRequest{
 		TerminalOperationsUpdatedThrough: cutoff,
 		PublishedEventsPublishedThrough:  cutoff,
 		BatchSize:                        1,
@@ -77,7 +78,7 @@ func TestStoreCleanupLifecycleHonorsCutoffsBatchesAndProtectedRows(t *testing.T)
 		t.Fatalf("cleanup results = %#v, %#v, %#v", first, second, third)
 	}
 	for _, operationID := range []string{"completed-before", "failed-at"} {
-		if _, err := store.Operation(ctx, operationID); !errors.Is(err, market.ErrNotFound) {
+		if _, err := store.Operation(ctx, operationID); !errors.Is(err, contracts.ErrNotFound) {
 			t.Fatalf("operation %q error = %v, want not found", operationID, err)
 		}
 	}
@@ -86,9 +87,9 @@ func TestStoreCleanupLifecycleHonorsCutoffsBatchesAndProtectedRows(t *testing.T)
 			t.Fatalf("protected operation %q error = %v", operationID, err)
 		}
 	}
-	reusedRequest := lifecycleTestOperation("accepted-reused-request", "connector-reused-request", market.OperationStateAccepted, cutoff.Add(time.Minute))
+	reusedRequest := lifecycleTestOperation("accepted-reused-request", "connector-reused-request", contracts.OperationStateAccepted, cutoff.Add(time.Minute))
 	reusedRequest.ClientRequestID = operations[0].ClientRequestID
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		return tx.SaveOperation(reusedRequest)
 	}); err != nil {
 		t.Fatalf("reuse expired client request ID: %v", err)
@@ -107,7 +108,7 @@ func TestStoreCleanupLifecycleHonorsCutoffsBatchesAndProtectedRows(t *testing.T)
 	if publishedRows != 2 {
 		t.Fatalf("published outbox rows = %d, want 2 protected newer rows", publishedRows)
 	}
-	if _, err := store.CleanupLifecycle(ctx, market.LifecycleCleanupRequest{
+	if _, err := store.CleanupLifecycle(ctx, contracts.LifecycleCleanupRequest{
 		TerminalOperationsUpdatedThrough: cutoff,
 		PublishedEventsPublishedThrough:  cutoff,
 		BatchSize:                        maxLifecycleCleanupBatchSize + 1,
@@ -130,12 +131,12 @@ func TestStoreCleanupLifecycleIsSafeAcrossConnections(t *testing.T) {
 	}
 	defer second.Close()
 	cutoff := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	if err := first.Transaction(ctx, func(tx market.Transaction) error {
+	if err := first.Transaction(ctx, func(tx application.Transaction) error {
 		for index := range 20 {
 			operation := lifecycleTestOperation(
 				fmt.Sprintf("terminal-%02d", index),
 				fmt.Sprintf("connector-%02d", index),
-				market.OperationStateCompleted,
+				contracts.OperationStateCompleted,
 				cutoff.Add(-time.Hour),
 			)
 			if err := tx.SaveOperation(operation); err != nil {
@@ -146,13 +147,13 @@ func TestStoreCleanupLifecycleIsSafeAcrossConnections(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	request := market.LifecycleCleanupRequest{
+	request := contracts.LifecycleCleanupRequest{
 		TerminalOperationsUpdatedThrough: cutoff,
 		PublishedEventsPublishedThrough:  cutoff,
 		BatchSize:                        7,
 	}
 	start := make(chan struct{})
-	results := make(chan market.LifecycleCleanupResult, 2)
+	results := make(chan contracts.LifecycleCleanupResult, 2)
 	errorsFound := make(chan error, 2)
 	var wait sync.WaitGroup
 	for _, candidate := range []*Store{first, second} {
@@ -204,14 +205,14 @@ func TestStoreCleanupPreservesRecoverableWorkAcrossReopen(t *testing.T) {
 	operation := lifecycleTestOperation(
 		"accepted-restart",
 		"connector-restart",
-		market.OperationStateAccepted,
+		contracts.OperationStateAccepted,
 		time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC),
 	)
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		if err := tx.SaveOperation(operation); err != nil {
 			return err
 		}
-		return tx.EnqueueConnectorMarketChanged(market.ChangedEvent{
+		return tx.EnqueueConnectorMarketChanged(contracts.ChangedEvent{
 			ConnectorKey: operation.ConnectorKey,
 			OperationID:  operation.OperationID,
 			Revision:     1,
@@ -220,7 +221,7 @@ func TestStoreCleanupPreservesRecoverableWorkAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	cutoff := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	if _, err := store.CleanupLifecycle(ctx, market.LifecycleCleanupRequest{
+	if _, err := store.CleanupLifecycle(ctx, contracts.LifecycleCleanupRequest{
 		TerminalOperationsUpdatedThrough: cutoff,
 		PublishedEventsPublishedThrough:  cutoff,
 		BatchSize:                        10,
@@ -261,20 +262,20 @@ func TestStoreInstalledReleaseEvidenceSurvivesTerminalCleanupAndReopen(t *testin
 	}
 	release := testConnector().Release
 	connector := testConnector()
-	connector.Installation = market.Installation{
-		State:                  market.InstallationStateInstalled,
+	connector.Installation = contracts.Installation{
+		State:                  contracts.InstallationStateInstalled,
 		InstalledVersion:       release.Version,
 		InstalledReleaseID:     release.ReleaseID,
 		InstalledReleaseDigest: release.ReleaseDigest,
 	}
 	completedAt := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	operation := lifecycleTestOperation("install-evidence", connector.Key, market.OperationStateCompleted, completedAt)
-	operation.Kind = market.OperationKindInstall
-	operation.Target = &market.OperationTarget{
+	operation := lifecycleTestOperation("install-evidence", connector.Key, contracts.OperationStateCompleted, completedAt)
+	operation.Kind = contracts.OperationKindInstall
+	operation.Target = &contracts.OperationTarget{
 		ConnectorKey: connector.Key, Version: release.Version, ReleaseID: release.ReleaseID,
 		ReleaseDigest: release.ReleaseDigest, ArtifactSHA256: release.Artifact.SHA256, Release: &release,
 	}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		connector.Revision = tx.AdvanceRevision()
 		if err := tx.SaveConnector(connector); err != nil {
 			return err
@@ -287,13 +288,13 @@ func TestStoreInstalledReleaseEvidenceSurvivesTerminalCleanupAndReopen(t *testin
 	connector.Release.ReleaseID = "43"
 	connector.Release.ReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	connector.Release.ManifestDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		connector.Revision = tx.AdvanceRevision()
 		return tx.SaveConnector(connector)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := store.CleanupLifecycle(ctx, market.LifecycleCleanupRequest{
+	result, err := store.CleanupLifecycle(ctx, contracts.LifecycleCleanupRequest{
 		TerminalOperationsUpdatedThrough: completedAt,
 		PublishedEventsPublishedThrough:  completedAt,
 		BatchSize:                        10,
@@ -301,7 +302,7 @@ func TestStoreInstalledReleaseEvidenceSurvivesTerminalCleanupAndReopen(t *testin
 	if err != nil || result.TerminalOperationsDeleted != 1 {
 		t.Fatalf("cleanup result = %#v, error = %v", result, err)
 	}
-	if _, err := store.Operation(ctx, operation.OperationID); !errors.Is(err, market.ErrNotFound) {
+	if _, err := store.Operation(ctx, operation.OperationID); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("cleaned operation error = %v", err)
 	}
 	if err := store.Close(); err != nil {
@@ -327,14 +328,14 @@ func TestStoreCompletedLocalUninstallDeletesReleaseEvidenceButKeepsAuthorization
 	defer store.Close()
 	release := testConnector().Release
 	connector := testConnector()
-	connector.Installation = market.Installation{State: market.InstallationStateInstalled,
+	connector.Installation = contracts.Installation{State: contracts.InstallationStateInstalled,
 		InstalledVersion: release.Version, InstalledReleaseID: release.ReleaseID, InstalledReleaseDigest: release.ReleaseDigest}
 	installedAt := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	install := lifecycleTestOperation("install-before-local-uninstall", connector.Key, market.OperationStateCompleted, installedAt)
-	install.Kind = market.OperationKindInstall
-	install.Target = &market.OperationTarget{ConnectorKey: connector.Key, Version: release.Version, ReleaseID: release.ReleaseID,
+	install := lifecycleTestOperation("install-before-local-uninstall", connector.Key, contracts.OperationStateCompleted, installedAt)
+	install.Kind = contracts.OperationKindInstall
+	install.Target = &contracts.OperationTarget{ConnectorKey: connector.Key, Version: release.Version, ReleaseID: release.ReleaseID,
 		ReleaseDigest: release.ReleaseDigest, ArtifactSHA256: release.Artifact.SHA256, Release: &release}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		connector.Revision = tx.AdvanceRevision()
 		if err := tx.SaveConnector(connector); err != nil {
 			return err
@@ -343,18 +344,18 @@ func TestStoreCompletedLocalUninstallDeletesReleaseEvidenceButKeepsAuthorization
 	}); err != nil {
 		t.Fatal(err)
 	}
-	projection := market.AuthorizationProjection{AccountID: "account-1", ConnectorKey: connector.Key,
-		ConnectionID: "connection-1", State: market.AuthorizationStateConnected, ServerRevision: 8,
+	projection := contracts.AuthorizationProjection{AccountID: "account-1", ConnectorKey: connector.Key,
+		ConnectionID: "connection-1", State: contracts.AuthorizationStateConnected, ServerRevision: 8,
 		ServerSynchronized: true, UpdatedAt: installedAt}
 	if err := store.SaveAuthorizationProjection(ctx, projection); err != nil {
 		t.Fatal(err)
 	}
-	uninstall := lifecycleTestOperation("local-uninstall", connector.Key, market.OperationStateCompleted, installedAt.Add(time.Minute))
-	uninstall.Kind = market.OperationKindUninstall
-	uninstall.Target = &market.OperationTarget{ConnectorKey: connector.Key, Version: release.Version,
+	uninstall := lifecycleTestOperation("local-uninstall", connector.Key, contracts.OperationStateCompleted, installedAt.Add(time.Minute))
+	uninstall.Kind = contracts.OperationKindUninstall
+	uninstall.Target = &contracts.OperationTarget{ConnectorKey: connector.Key, Version: release.Version,
 		ReleaseID: release.ReleaseID, ReleaseDigest: release.ReleaseDigest}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
-		connector.Installation = market.Installation{State: market.InstallationStateNotInstalled}
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
+		connector.Installation = contracts.Installation{State: contracts.InstallationStateNotInstalled}
 		connector.Revision = tx.AdvanceRevision()
 		if err := tx.SaveConnector(connector); err != nil {
 			return err
@@ -363,7 +364,7 @@ func TestStoreCompletedLocalUninstallDeletesReleaseEvidenceButKeepsAuthorization
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.InstalledRelease(ctx, connector.Key, release.ReleaseDigest); !errors.Is(err, market.ErrNotFound) {
+	if _, err := store.InstalledRelease(ctx, connector.Key, release.ReleaseDigest); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("installed release error = %v, want not found", err)
 	}
 	storedProjection, err := store.AuthorizationProjection(ctx, projection.AccountID, projection.ConnectorKey)
@@ -382,8 +383,8 @@ func TestStoreRetainsCurrentAndPreparedCandidateReleaseEvidence(t *testing.T) {
 
 	connector := testConnector()
 	current := connector.Release
-	connector.Installation = market.Installation{
-		State: market.InstallationStateUpdating, InstalledVersion: current.Version,
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateUpdating, InstalledVersion: current.Version,
 		InstalledReleaseID: current.ReleaseID, InstalledReleaseDigest: current.ReleaseDigest,
 	}
 	candidate := current
@@ -392,24 +393,24 @@ func TestStoreRetainsCurrentAndPreparedCandidateReleaseEvidence(t *testing.T) {
 	candidate.ReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	candidate.ManifestDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	installedAt := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	currentOperation := lifecycleTestOperation("current-release", connector.Key, market.OperationStateCompleted, installedAt)
-	currentOperation.Kind = market.OperationKindInstall
-	currentOperation.Target = &market.OperationTarget{
+	currentOperation := lifecycleTestOperation("current-release", connector.Key, contracts.OperationStateCompleted, installedAt)
+	currentOperation.Kind = contracts.OperationKindInstall
+	currentOperation.Target = &contracts.OperationTarget{
 		ConnectorKey: connector.Key, Version: current.Version, ReleaseID: current.ReleaseID,
 		ReleaseDigest: current.ReleaseDigest, ArtifactSHA256: current.Artifact.SHA256, Release: &current,
 	}
-	candidateOperation := lifecycleTestOperation("candidate-release", connector.Key, market.OperationStateRunning, installedAt.Add(time.Minute))
-	candidateOperation.Kind = market.OperationKindInstall
-	candidateOperation.Stage = market.OperationStageRuntimePending
-	candidateOperation.Target = &market.OperationTarget{
+	candidateOperation := lifecycleTestOperation("candidate-release", connector.Key, contracts.OperationStateRunning, installedAt.Add(time.Minute))
+	candidateOperation.Kind = contracts.OperationKindInstall
+	candidateOperation.Stage = contracts.OperationStageRuntimePending
+	candidateOperation.Target = &contracts.OperationTarget{
 		ConnectorKey: connector.Key, Version: candidate.Version, ReleaseID: candidate.ReleaseID,
 		ReleaseDigest: candidate.ReleaseDigest, ArtifactSHA256: candidate.Artifact.SHA256, Release: &candidate,
 	}
-	candidateOperation.Execution.ReleaseInstallation = &market.ReleaseInstallationReceipt{
+	candidateOperation.Execution.ReleaseInstallation = &contracts.ReleaseInstallationReceipt{
 		OperationID: candidateOperation.OperationID, ConnectorKey: connector.Key,
 		Version: candidate.Version, ReleaseID: candidate.ReleaseID, ReleaseDigest: candidate.ReleaseDigest,
 	}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		connector.Revision = tx.AdvanceRevision()
 		if err := tx.SaveConnector(connector); err != nil {
 			return err
@@ -430,16 +431,16 @@ WHERE connector_key = ?`, connector.Key).Scan(&currentDigest); err != nil {
 		t.Fatalf("current release pointer = %q, want %q", currentDigest, current.ReleaseDigest)
 	}
 
-	for name, expected := range map[string]market.Release{"current": current, "candidate": candidate} {
+	for name, expected := range map[string]contracts.Release{"current": current, "candidate": candidate} {
 		got, err := store.InstalledRelease(ctx, connector.Key, expected.ReleaseDigest)
 		if err != nil || got.ReleaseDigest != expected.ReleaseDigest || got.ManifestDigest != expected.ManifestDigest {
 			t.Fatalf("%s release = %#v, error = %v", name, got, err)
 		}
 	}
 
-	candidateOperation.State = market.OperationStateCompleted
-	candidateOperation.Stage = market.OperationStageCompleted
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	candidateOperation.State = contracts.OperationStateCompleted
+	candidateOperation.Stage = contracts.OperationStageCompleted
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		return tx.SaveOperation(candidateOperation)
 	}); err != nil {
 		t.Fatal(err)
@@ -486,8 +487,8 @@ func TestStoreMigrationBackfillsLifecycleTimestampAndInstalledReleaseEvidence(t 
 	}
 	installedRelease := testConnector().Release
 	connector := testConnector()
-	connector.Installation = market.Installation{
-		State:                  market.InstallationStateInstalled,
+	connector.Installation = contracts.Installation{
+		State:                  contracts.InstallationStateInstalled,
 		InstalledVersion:       installedRelease.Version,
 		InstalledReleaseID:     installedRelease.ReleaseID,
 		InstalledReleaseDigest: installedRelease.ReleaseDigest,
@@ -497,11 +498,11 @@ func TestStoreMigrationBackfillsLifecycleTimestampAndInstalledReleaseEvidence(t 
 	operation := lifecycleTestOperation(
 		"legacy-install",
 		connector.Key,
-		market.OperationStateCompleted,
+		contracts.OperationStateCompleted,
 		time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC),
 	)
-	operation.Kind = market.OperationKindInstall
-	operation.Target = &market.OperationTarget{
+	operation.Kind = contracts.OperationKindInstall
+	operation.Target = &contracts.OperationTarget{
 		ConnectorKey: connector.Key, Version: installedRelease.Version, ReleaseID: installedRelease.ReleaseID,
 		ReleaseDigest: installedRelease.ReleaseDigest, ArtifactSHA256: installedRelease.Artifact.SHA256, Release: &installedRelease,
 	}
@@ -571,15 +572,15 @@ func TestStoreReopenToleratesMissingLegacyInstalledReleaseEvidence(t *testing.T)
 	}
 	connector := testConnector()
 	installedRelease := connector.Release
-	connector.Installation = market.Installation{
-		State: market.InstallationStateInstalled, InstalledVersion: installedRelease.Version,
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledVersion: installedRelease.Version,
 		InstalledReleaseID: installedRelease.ReleaseID, InstalledReleaseDigest: installedRelease.ReleaseDigest,
 	}
 	connector.Release.Version = "2.0.0"
 	connector.Release.ReleaseID = connector.Key + "@2.0.0"
 	connector.Release.ReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	connector.Release.ManifestDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		connector.Revision = tx.AdvanceRevision()
 		return tx.SaveConnector(connector)
 	}); err != nil {
@@ -597,15 +598,15 @@ func TestStoreReopenToleratesMissingLegacyInstalledReleaseEvidence(t *testing.T)
 	if _, err := reopened.Connector(ctx, connector.Key); err != nil {
 		t.Fatalf("load connector after compatible reopen: %v", err)
 	}
-	if _, err := reopened.InstalledRelease(ctx, connector.Key, installedRelease.ReleaseDigest); !errors.Is(err, market.ErrNotFound) {
+	if _, err := reopened.InstalledRelease(ctx, connector.Key, installedRelease.ReleaseDigest); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("missing release evidence error = %v, want not found", err)
 	}
 }
 
-func lifecycleTestOperation(operationID, connectorKey string, state market.OperationState, updatedAt time.Time) market.Operation {
-	return market.Operation{
+func lifecycleTestOperation(operationID, connectorKey string, state contracts.OperationState, updatedAt time.Time) contracts.Operation {
+	return contracts.Operation{
 		OperationID: operationID, ClientRequestID: "request-" + operationID, ConnectorKey: connectorKey,
-		Kind: market.OperationKindRefreshCatalog, State: state, Stage: market.OperationStageCompleted,
+		Kind: contracts.OperationKindRefreshCatalog, State: state, Stage: contracts.OperationStageCompleted,
 		CreatedAt: updatedAt.Add(-time.Minute), UpdatedAt: updatedAt,
 	}
 }

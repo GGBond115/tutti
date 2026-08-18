@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
@@ -33,7 +33,7 @@ type CLIExecutionRequest struct {
 	ConnectorKey     string
 	ConnectorVersion string
 	ReleaseDigest    string
-	Generation       market.HostGeneration
+	Generation       contracts.HostGeneration
 	CLIContractHash  string
 	Arguments        []string
 }

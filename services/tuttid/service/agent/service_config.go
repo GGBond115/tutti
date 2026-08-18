@@ -7,7 +7,7 @@ import (
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	application "github.com/tutti-os/tutti/packages/connector/application"
 	reporterservice "github.com/tutti-os/tutti/services/tuttid/service/reporter"
 )
 
@@ -80,7 +80,7 @@ type ServiceComposerConfig struct {
 	AgentComposerDefaultsReader   AgentComposerDefaultsReader
 	DesktopPreferencesReader      DesktopPreferencesReader
 	CapabilityLister              ComposerCapabilityLister
-	ConnectorMarketSnapshots      market.SnapshotReader
+	ConnectorMarketPolicy         application.AgentConnectorPolicyQueries
 	ExtensionComposerProfiles     ExtensionComposerProfileResolver
 	ProviderAvailabilityCacheTTL  time.Duration
 	CapabilityCatalogCacheTTL     time.Duration
@@ -158,7 +158,7 @@ func (s *Service) applyConfig(config ServiceConfig) {
 	s.BrowserUseAvailable = config.Runtime.BrowserUseAvailable
 	s.ComputerUseAvailable = config.Runtime.ComputerUseAvailable
 	s.CapabilityLister = config.Composer.CapabilityLister
-	s.ConnectorMarketSnapshots = config.Composer.ConnectorMarketSnapshots
+	s.ConnectorMarketPolicy = config.Composer.ConnectorMarketPolicy
 	s.ExtensionComposerProfiles = config.Composer.ExtensionComposerProfiles
 	s.AgentComposerDefaultsReader = config.Composer.AgentComposerDefaultsReader
 	s.DesktopPreferencesReader = config.Composer.DesktopPreferencesReader

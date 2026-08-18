@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
@@ -39,10 +39,10 @@ func TestMonitorMCPRoutePublishesUnexpectedCurrentRouteExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 4}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 4}
 	route := &connectorRoute{id: connectorRouteKey("connection-1", "calendar"), connectionID: "connection-1",
 		connectorKey: "calendar", releaseDigest: routeObserverTestDigest, generation: generation,
-		readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady}, processes: connectorprocess.NewGroup()}
+		readiness: contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady}, processes: connectorprocess.NewGroup()}
 	if err := routes.Commit(route); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestMonitorMCPRoutePublishesUnexpectedCurrentRouteExit(t *testing.T) {
 	}
 	host.monitorMCPRoute(route, client)
 	event := <-watch.Events
-	if event.Revision != watch.Revision+1 || event.Kind != market.PhysicalRouteEventUnexpectedExit ||
+	if event.Revision != watch.Revision+1 || event.Kind != contracts.PhysicalRouteEventUnexpectedExit ||
 		event.Route.ConnectorKey != "calendar" || event.Route.ConnectionID != "connection-1" ||
 		event.Route.ReleaseDigest != routeObserverTestDigest || event.Route.Generation != generation {
 		t.Fatalf("route event = %+v, watch revision = %d", event, watch.Revision)
@@ -73,7 +73,7 @@ func TestMonitorMCPRouteDoesNotReportIntentionalRemovalAsUnexpected(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 1}
+			generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 1}
 			route := &connectorRoute{id: connectorRouteKey("connection-1", "calendar"), connectionID: "connection-1",
 				connectorKey: "calendar", releaseDigest: routeObserverTestDigest, generation: generation,
 				processes: connectorprocess.NewGroup()}
@@ -85,7 +85,7 @@ func TestMonitorMCPRouteDoesNotReportIntentionalRemovalAsUnexpected(t *testing.T
 				err = routes.Remove(route.id, generation, routeObserverTestDigest, time.Now().Add(time.Second))
 			case "replace":
 				replacement := &connectorRoute{id: route.id, connectionID: route.connectionID, connectorKey: route.connectorKey,
-					releaseDigest: route.releaseDigest, generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 2},
+					releaseDigest: route.releaseDigest, generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: 2},
 					processes: connectorprocess.NewGroup()}
 				err = routes.Commit(replacement)
 			case "close":
@@ -111,10 +111,10 @@ func TestMonitorMCPRouteDoesNotReportIntentionalRemovalAsUnexpected(t *testing.T
 func TestPhysicalRouteSnapshotIncludesUnpublishedLogicalRoute(t *testing.T) {
 	routes := connectorruntime.NewRouteTable()
 	host := &Host{routes: routes, observations: newRouteObservationHub()}
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 9}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 9}
 	route := &connectorRoute{id: connectorRouteKey("connection-1", "calendar"), connectionID: "connection-1",
 		connectorKey: "calendar", releaseDigest: routeObserverTestDigest, generation: generation,
-		readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady}, processes: connectorprocess.NewGroup(),
+		readiness: contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady}, processes: connectorprocess.NewGroup(),
 		cliLaunch: &managedCLILaunch{}}
 	if err := routes.Commit(route); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestPhysicalRouteSnapshotIncludesUnpublishedLogicalRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(snapshot.Routes) != 1 || snapshot.Routes[0].ConnectorKey != "calendar" ||
-		snapshot.Routes[0].Generation != generation || snapshot.Routes[0].State != market.PhysicalRouteStateReady {
+		snapshot.Routes[0].Generation != generation || snapshot.Routes[0].State != contracts.PhysicalRouteStateReady {
 		t.Fatalf("physical route snapshot = %+v", snapshot)
 	}
 }
@@ -139,7 +139,7 @@ func TestPhysicalRouteWatchClosesOnBoundedBufferOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index := 0; index <= physicalRouteWatchBuffer; index++ {
-		hub.publish(market.PhysicalRouteEventChanged, market.PhysicalRoute{ConnectorKey: "calendar"})
+		hub.publish(contracts.PhysicalRouteEventChanged, contracts.PhysicalRoute{ConnectorKey: "calendar"})
 	}
 	count := 0
 	for range watch.Events {
@@ -157,12 +157,12 @@ func TestPhysicalRouteSnapshotRevisionIsLinearWithRoutes(t *testing.T) {
 		for generation := uint64(1); generation <= 200; generation++ {
 			route := &connectorRoute{id: connectorRouteKey("connection-1", "calendar"), connectionID: "connection-1",
 				connectorKey: "calendar", releaseDigest: routeObserverTestDigest,
-				generation: market.HostGeneration{BootEpoch: "boot-1", Generation: generation},
-				readiness:  market.RuntimeReadiness{State: market.RuntimeReadinessReady}, processes: connectorprocess.NewGroup()}
+				generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: generation},
+				readiness:  contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady}, processes: connectorprocess.NewGroup()}
 			host.routeObservationMu.Lock()
 			err := host.routes.Commit(route)
 			if err == nil {
-				host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(route))
+				host.observations.publish(contracts.PhysicalRouteEventChanged, physicalRoute(route))
 			}
 			host.routeObservationMu.Unlock()
 			if err != nil {

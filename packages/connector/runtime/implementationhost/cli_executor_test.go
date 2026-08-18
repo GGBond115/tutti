@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
@@ -171,7 +171,7 @@ func TestStartCLIEnforcesManifestTimeout(t *testing.T) {
 
 func newCLIExecutionTestHost(t *testing.T) (*Host, *connectorRoute, *cliExecutionTransportStub, CLIExecutionRequest) {
 	t.Helper()
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 7}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 7}
 	transport := &cliExecutionTransportStub{}
 	table := connectorruntime.NewRouteTable()
 	route := &connectorRoute{

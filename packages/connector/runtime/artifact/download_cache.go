@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const (
@@ -73,15 +73,15 @@ func NewDownloadCache(config DownloadCacheConfig) (*DownloadCache, error) {
 
 func (cache *DownloadCache) PrepareCandidate(
 	ctx context.Context,
-	request market.PrepareArtifactRequest,
+	request contracts.PrepareArtifactRequest,
 ) (CachedArtifact, error) {
-	return cache.prepareCandidate(ctx, request, market.ValidateReleaseShape)
+	return cache.prepareCandidate(ctx, request, contracts.ValidateReleaseShape)
 }
 
 func (cache *DownloadCache) prepareCandidate(
 	ctx context.Context,
-	request market.PrepareArtifactRequest,
-	validate func(market.Release) error,
+	request contracts.PrepareArtifactRequest,
+	validate func(contracts.Release) error,
 ) (CachedArtifact, error) {
 	if cache == nil {
 		return CachedArtifact{}, errors.New("connector download cache is unavailable")
@@ -122,7 +122,7 @@ func (cache *DownloadCache) prepareCandidate(
 func (cache *DownloadCache) PromoteCandidate(
 	ctx context.Context,
 	candidate CachedArtifact,
-	release market.Release,
+	release contracts.Release,
 ) (CachedArtifact, error) {
 	if cache == nil {
 		return CachedArtifact{}, errors.New("connector download cache is unavailable")
@@ -208,7 +208,7 @@ func (cache *DownloadCache) lockConnector(connectorKey string) func() {
 func (cache *DownloadCache) downloadCandidate(
 	ctx context.Context,
 	root string,
-	request market.PrepareArtifactRequest,
+	request contracts.PrepareArtifactRequest,
 ) (CachedArtifact, error) {
 	release := request.Release
 	staging := filepath.Join(root, ".candidate-staging")
@@ -291,7 +291,7 @@ func (*DownloadCache) readSlot(
 	root string,
 	slot string,
 	operationID string,
-	release market.Release,
+	release contracts.Release,
 ) (CachedArtifact, bool) {
 	directory := filepath.Join(root, slot)
 	data, err := os.ReadFile(filepath.Join(directory, downloadCacheReceiptFile))

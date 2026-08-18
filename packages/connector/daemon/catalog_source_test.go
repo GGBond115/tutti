@@ -11,7 +11,7 @@ import (
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	marketv1 "github.com/tutti-os/tutti/packages/clients/market-go/generated/sandbox/v1"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -52,8 +52,8 @@ func TestCatalogSourceRejectsMutationBetweenPaginatedFullReads(t *testing.T) {
 	client := &mutatingCatalogClient{t: t}
 	source := &CatalogSource{expectedMarketType: "overseas", marketClient: client, executionTarget: "darwin-arm64"}
 	_, err := source.Refresh(context.Background())
-	var domainError *market.DomainError
-	if !errors.As(err, &domainError) || domainError.Code != market.ErrorCodeUpstreamUnavailable || !domainError.Retryable {
+	var domainError *contracts.DomainError
+	if !errors.As(err, &domainError) || domainError.Code != contracts.ErrorCodeUpstreamUnavailable || !domainError.Retryable {
 		t.Fatalf("error = %#v", err)
 	}
 	if client.itemCalls != 4 {
@@ -316,16 +316,16 @@ func TestCatalogSourceSelectsExactV3ExecutionTarget(t *testing.T) {
 	source := &CatalogSource{expectedMarketType: "overseas", executionTarget: "linux-arm64"}
 	manifest := wireConnectorMarketManifest{
 		SchemaVersion: "3",
-		Payload: wireConnectorManifestPayload{TargetImplementations: map[string]market.Implementation{
-			"darwin-arm64": {Kind: market.ImplementationKindManagedStdio},
-			"linux-arm64":  {Kind: market.ImplementationKindBuiltin},
+		Payload: wireConnectorManifestPayload{TargetImplementations: map[string]contracts.Implementation{
+			"darwin-arm64": {Kind: contracts.ImplementationKindManagedStdio},
+			"linux-arm64":  {Kind: contracts.ImplementationKindBuiltin},
 		}},
 	}
 	implementation, err := source.resolveManifestImplementation(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if implementation.Kind != market.ImplementationKindBuiltin {
+	if implementation.Kind != contracts.ImplementationKindBuiltin {
 		t.Fatalf("implementation = %#v", implementation)
 	}
 	delete(manifest.Payload.TargetImplementations, "linux-arm64")
@@ -335,7 +335,7 @@ func TestCatalogSourceSelectsExactV3ExecutionTarget(t *testing.T) {
 }
 
 func TestCatalogSourceKeepsV2MarketNeutralImplementation(t *testing.T) {
-	implementation := market.Implementation{Kind: market.ImplementationKindManagedStdio}
+	implementation := contracts.Implementation{Kind: contracts.ImplementationKindManagedStdio}
 	source := &CatalogSource{expectedMarketType: "domestic", executionTarget: "darwin-arm64"}
 	got, err := source.resolveManifestImplementation(wireConnectorMarketManifest{
 		SchemaVersion: "2",

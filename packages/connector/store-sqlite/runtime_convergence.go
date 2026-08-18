@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const (
@@ -56,17 +56,17 @@ SET attempt = COALESCE(CAST(json_extract(convergence_json, '$.attempt') AS INTEG
 
 func (store *Store) RuntimeConvergence(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey string,
-) (market.RuntimeConvergence, error) {
+) (contracts.RuntimeConvergence, error) {
 	return runtimeConvergenceOn(ctx, store.db, scope, connectorKey)
 }
 
 func (store *Store) RuntimeConvergences(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	limit int,
-) ([]market.RuntimeConvergence, error) {
+) ([]contracts.RuntimeConvergence, error) {
 	if limit <= 0 || limit > maxRuntimeConvergenceSnapshotRows {
 		limit = maxRuntimeConvergenceSnapshotRows
 	}
@@ -80,7 +80,7 @@ LIMIT ?`, strings.TrimSpace(scope.AccountID), limit)
 		return nil, err
 	}
 	defer rows.Close()
-	result := make([]market.RuntimeConvergence, 0)
+	result := make([]contracts.RuntimeConvergence, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -97,11 +97,11 @@ LIMIT ?`, strings.TrimSpace(scope.AccountID), limit)
 
 func (store *Store) DueRuntimeConvergences(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	bootEpoch string,
 	now time.Time,
 	limit int,
-) ([]market.RuntimeConvergence, error) {
+) ([]contracts.RuntimeConvergence, error) {
 	if limit <= 0 || limit > maxDueRuntimeConvergences {
 		limit = maxDueRuntimeConvergences
 	}
@@ -114,13 +114,13 @@ WHERE account_id = ?
   AND next_attempt_at_unix_ms <= ?
   AND (lease_owner = '' OR lease_expires_at_unix_ms IS NULL OR lease_expires_at_unix_ms <= ?)
 ORDER BY next_attempt_at_unix_ms, connector_key
-LIMIT ?`, strings.TrimSpace(scope.AccountID), strings.TrimSpace(bootEpoch), market.RuntimeFailureBudget,
+LIMIT ?`, strings.TrimSpace(scope.AccountID), strings.TrimSpace(bootEpoch), contracts.RuntimeFailureBudget,
 		now.UTC().UnixMilli(), now.UTC().UnixMilli(), limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make([]market.RuntimeConvergence, 0)
+	result := make([]contracts.RuntimeConvergence, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -137,13 +137,13 @@ LIMIT ?`, strings.TrimSpace(scope.AccountID), strings.TrimSpace(bootEpoch), mark
 
 func (store *Store) ClaimRuntimeConvergence(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey, bootEpoch, owner string,
 	now, leaseExpiresAt time.Time,
-) (market.RuntimeConvergence, bool, error) {
+) (contracts.RuntimeConvergence, bool, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
-		return market.RuntimeConvergence{}, false, err
+		return contracts.RuntimeConvergence{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	accountID, connectorKey := runtimeConvergenceKey(scope, connectorKey)
@@ -156,17 +156,17 @@ WHERE account_id = ? AND connector_key = ?
   AND next_attempt_at_unix_ms <= ?
   AND (lease_owner = '' OR lease_expires_at_unix_ms IS NULL OR lease_expires_at_unix_ms <= ?)`,
 		strings.TrimSpace(owner), leaseExpiresAt.UTC().UnixMilli(), accountID, connectorKey,
-		strings.TrimSpace(bootEpoch), market.RuntimeFailureBudget, now.UTC().UnixMilli(), now.UTC().UnixMilli())
+		strings.TrimSpace(bootEpoch), contracts.RuntimeFailureBudget, now.UTC().UnixMilli(), now.UTC().UnixMilli())
 	if err != nil {
-		return market.RuntimeConvergence{}, false, err
+		return contracts.RuntimeConvergence{}, false, err
 	}
 	changed, err := result.RowsAffected()
 	if err != nil {
-		return market.RuntimeConvergence{}, false, err
+		return contracts.RuntimeConvergence{}, false, err
 	}
 	convergence, err := runtimeConvergenceOn(ctx, tx, scope, connectorKey)
 	if err != nil {
-		return market.RuntimeConvergence{}, false, err
+		return contracts.RuntimeConvergence{}, false, err
 	}
 	if changed == 0 {
 		return convergence, false, tx.Commit()
@@ -175,24 +175,24 @@ WHERE account_id = ? AND connector_key = ?
 	if err := tx.QueryRowContext(ctx, `
 SELECT lease_token FROM connector_market_runtime_convergence
 WHERE account_id = ? AND connector_key = ?`, accountID, connectorKey).Scan(&token); err != nil {
-		return market.RuntimeConvergence{}, false, err
+		return contracts.RuntimeConvergence{}, false, err
 	}
 	expiresAt := leaseExpiresAt.UTC()
 	convergence.LeaseOwner = strings.TrimSpace(owner)
 	convergence.LeaseToken = token
 	convergence.LeaseExpiresAt = &expiresAt
 	if err := saveRuntimeConvergenceOn(ctx, tx, convergence); err != nil {
-		return market.RuntimeConvergence{}, false, err
+		return contracts.RuntimeConvergence{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return market.RuntimeConvergence{}, false, err
+		return contracts.RuntimeConvergence{}, false, err
 	}
 	return convergence, true, nil
 }
 
 func (store *Store) RenewRuntimeConvergenceLease(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey, owner string,
 	token uint64,
 	now, leaseExpiresAt time.Time,
@@ -208,7 +208,7 @@ func (store *Store) RenewRuntimeConvergenceLease(
 	}
 	if convergence.LeaseOwner != strings.TrimSpace(owner) || convergence.LeaseToken != token ||
 		convergence.LeaseExpiresAt == nil || !convergence.LeaseExpiresAt.After(now.UTC()) {
-		return market.ErrOperationLeaseLost
+		return contracts.ErrOperationLeaseLost
 	}
 	expiresAt := leaseExpiresAt.UTC()
 	convergence.LeaseExpiresAt = &expiresAt
@@ -220,7 +220,7 @@ func (store *Store) RenewRuntimeConvergenceLease(
 
 func (store *Store) ReleaseRuntimeConvergenceLease(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey, owner string,
 	token uint64,
 ) error {
@@ -246,14 +246,14 @@ func (store *Store) ReleaseRuntimeConvergenceLease(
 
 func (store *Store) CompleteRuntimeConvergence(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey, owner string,
 	token, desiredGeneration uint64,
-	observed market.RuntimeObserved,
+	observed contracts.RuntimeObserved,
 	now time.Time,
 ) error {
 	return store.finishRuntimeConvergence(ctx, scope, connectorKey, owner, token, desiredGeneration, now,
-		func(convergence *market.RuntimeConvergence) {
+		func(convergence *contracts.RuntimeConvergence) {
 			convergence.Observed = observed
 			applyRuntimeFailureReadiness(convergence)
 			convergence.NextAttemptAt = time.Time{}
@@ -264,7 +264,7 @@ func (store *Store) CompleteRuntimeConvergence(
 
 func (store *Store) RetryRuntimeConvergence(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey, owner string,
 	token, desiredGeneration uint64,
 	nextAttemptAt time.Time,
@@ -272,7 +272,7 @@ func (store *Store) RetryRuntimeConvergence(
 	now time.Time,
 ) error {
 	return store.finishRuntimeConvergence(ctx, scope, connectorKey, owner, token, desiredGeneration, now,
-		func(convergence *market.RuntimeConvergence) {
+		func(convergence *contracts.RuntimeConvergence) {
 			convergence.Attempt++
 			applyRuntimeFailureReadiness(convergence)
 			convergence.NextAttemptAt = nextAttemptAt.UTC()
@@ -281,28 +281,28 @@ func (store *Store) RetryRuntimeConvergence(
 		})
 }
 
-func applyRuntimeFailureReadiness(convergence *market.RuntimeConvergence) {
+func applyRuntimeFailureReadiness(convergence *contracts.RuntimeConvergence) {
 	if convergence == nil {
 		return
 	}
 	switch {
-	case convergence.Attempt >= market.RuntimeFailureBudget:
-		convergence.Observed.Readiness.State = market.RuntimeReadinessFailed
-		convergence.Observed.Readiness.ReasonCode = market.RuntimeReadinessReasonFailureBudgetExhausted
+	case convergence.Attempt >= contracts.RuntimeFailureBudget:
+		convergence.Observed.Readiness.State = contracts.RuntimeReadinessFailed
+		convergence.Observed.Readiness.ReasonCode = contracts.RuntimeReadinessReasonFailureBudgetExhausted
 		convergence.Observed.Readiness.Interfaces = nil
-	case convergence.Attempt >= market.RuntimeFailureDegradedThreshold:
-		convergence.Observed.Readiness.State = market.RuntimeReadinessDegraded
-		convergence.Observed.Readiness.ReasonCode = market.RuntimeReadinessReasonFailureBudgetDegraded
+	case convergence.Attempt >= contracts.RuntimeFailureDegradedThreshold:
+		convergence.Observed.Readiness.State = contracts.RuntimeReadinessDegraded
+		convergence.Observed.Readiness.ReasonCode = contracts.RuntimeReadinessReasonFailureBudgetDegraded
 	}
 }
 
 func (store *Store) finishRuntimeConvergence(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey, owner string,
 	token, desiredGeneration uint64,
 	now time.Time,
-	update func(*market.RuntimeConvergence),
+	update func(*contracts.RuntimeConvergence),
 ) error {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -314,11 +314,11 @@ func (store *Store) finishRuntimeConvergence(
 		return err
 	}
 	if convergence.Desired.Generation != desiredGeneration {
-		return market.ErrOperationLeaseLost
+		return contracts.ErrOperationLeaseLost
 	}
 	if convergence.LeaseOwner != strings.TrimSpace(owner) || convergence.LeaseToken != token ||
 		convergence.LeaseExpiresAt == nil || !convergence.LeaseExpiresAt.After(now.UTC()) {
-		return market.ErrOperationLeaseLost
+		return contracts.ErrOperationLeaseLost
 	}
 	update(&convergence)
 	convergence.LeaseOwner = ""
@@ -335,20 +335,20 @@ func runtimeConvergenceOn(
 	database interface {
 		QueryRowContext(context.Context, string, ...any) *sql.Row
 	},
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey string,
-) (market.RuntimeConvergence, error) {
+) (contracts.RuntimeConvergence, error) {
 	accountID, connectorKey := runtimeConvergenceKey(scope, connectorKey)
 	var payload string
 	if err := database.QueryRowContext(ctx, `
 SELECT convergence_json FROM connector_market_runtime_convergence
 WHERE account_id = ? AND connector_key = ?`, accountID, connectorKey).Scan(&payload); err != nil {
-		return market.RuntimeConvergence{}, mapNotFound(err)
+		return contracts.RuntimeConvergence{}, mapNotFound(err)
 	}
 	return decodeRuntimeConvergence(payload)
 }
 
-func saveRuntimeConvergenceOn(ctx context.Context, tx *sql.Tx, convergence market.RuntimeConvergence) error {
+func saveRuntimeConvergenceOn(ctx context.Context, tx *sql.Tx, convergence contracts.RuntimeConvergence) error {
 	accountID, connectorKey := runtimeConvergenceKey(convergence.Desired.Scope, convergence.Desired.ConnectorKey)
 	if connectorKey == "" || convergence.Desired.Generation == 0 {
 		return errors.New("connector runtime convergence requires a connector key and desired generation")
@@ -385,14 +385,14 @@ ON CONFLICT(account_id, connector_key) DO UPDATE SET
 	return err
 }
 
-func decodeRuntimeConvergence(payload string) (market.RuntimeConvergence, error) {
-	var convergence market.RuntimeConvergence
+func decodeRuntimeConvergence(payload string) (contracts.RuntimeConvergence, error) {
+	var convergence contracts.RuntimeConvergence
 	if err := json.Unmarshal([]byte(payload), &convergence); err != nil {
-		return market.RuntimeConvergence{}, fmt.Errorf("decode connector runtime convergence: %w", err)
+		return contracts.RuntimeConvergence{}, fmt.Errorf("decode connector runtime convergence: %w", err)
 	}
 	return convergence, nil
 }
 
-func runtimeConvergenceKey(scope market.OperationScope, connectorKey string) (string, string) {
+func runtimeConvergenceKey(scope contracts.OperationScope, connectorKey string) (string, string) {
 	return strings.TrimSpace(scope.AccountID), strings.TrimSpace(connectorKey)
 }

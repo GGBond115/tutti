@@ -8,11 +8,11 @@ import (
 	"runtime"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 )
 
-func (host *Host) deactivateConnector(request market.RuntimeDeactivationRequest) error {
+func (host *Host) deactivateConnector(request contracts.RuntimeDeactivationRequest) error {
 	match := func(route connectorruntime.ManagedRoute) bool {
 		candidate, ok := route.(*connectorRoute)
 		return ok && candidate.connectorKey == request.ConnectorKey
@@ -27,7 +27,7 @@ func (host *Host) deactivateConnector(request market.RuntimeDeactivationRequest)
 	routeErr := host.routes.RemoveMatching(match, request.Generation, request.Deadline)
 	for _, route := range removed {
 		if !host.routes.IsCurrent(route) {
-			host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(route))
+			host.observations.publish(contracts.PhysicalRouteEventChanged, physicalRoute(route))
 		}
 	}
 	host.routeObservationMu.Unlock()

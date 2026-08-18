@@ -5,24 +5,25 @@ import (
 	"errors"
 	"fmt"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 // ReleaseInstaller composes the same-machine artifact and optional CLI
 // installation mechanics behind the host's single physical installation
-// boundary. Remote products implement market.ReleaseInstallationManager in
+// boundary. Remote products implement application.ReleaseInstallationManager in
 // their control-plane adapter and use the same lower-level importer and CLI
 // installer inside the runtime machine.
 type ReleaseInstaller struct {
-	artifacts market.ArtifactPreparer
-	cli       market.CLIInstallationManager
+	artifacts application.ArtifactPreparer
+	cli       application.CLIInstallationManager
 }
 
-var _ market.ReleaseInstallationManager = (*ReleaseInstaller)(nil)
+var _ application.ReleaseInstallationManager = (*ReleaseInstaller)(nil)
 
 func NewReleaseInstaller(
-	artifacts market.ArtifactPreparer,
-	cli market.CLIInstallationManager,
+	artifacts application.ArtifactPreparer,
+	cli application.CLIInstallationManager,
 ) (*ReleaseInstaller, error) {
 	if artifacts == nil {
 		return nil, errors.New("connector release artifact preparer is required")
@@ -32,20 +33,20 @@ func NewReleaseInstaller(
 
 func (installer *ReleaseInstaller) InstallRelease(
 	ctx context.Context,
-	request market.InstallReleaseRequest,
-) (market.ReleaseInstallationReceipt, error) {
+	request contracts.InstallReleaseRequest,
+) (contracts.ReleaseInstallationReceipt, error) {
 	if installer == nil || installer.artifacts == nil {
-		return market.ReleaseInstallationReceipt{}, errors.New("connector release installer is unavailable")
+		return contracts.ReleaseInstallationReceipt{}, errors.New("connector release installer is unavailable")
 	}
-	if err := market.ValidateReleaseShape(request.Release); err != nil {
-		return market.ReleaseInstallationReceipt{}, err
+	if err := contracts.ValidateReleaseShape(request.Release); err != nil {
+		return contracts.ReleaseInstallationReceipt{}, err
 	}
-	prepared, err := installer.artifacts.Prepare(ctx, market.PrepareArtifactRequest(request))
+	prepared, err := installer.artifacts.Prepare(ctx, contracts.PrepareArtifactRequest(request))
 	if err != nil {
-		return market.ReleaseInstallationReceipt{}, fmt.Errorf("prepare connector release artifact: %w", err)
+		return contracts.ReleaseInstallationReceipt{}, fmt.Errorf("prepare connector release artifact: %w", err)
 	}
 
-	receipt := market.ReleaseInstallationReceipt{
+	receipt := contracts.ReleaseInstallationReceipt{
 		OperationID:    request.OperationID,
 		ConnectorKey:   request.Release.ConnectorKey,
 		Version:        request.Release.Version,
@@ -58,11 +59,11 @@ func (installer *ReleaseInstaller) InstallRelease(
 		return receipt, nil
 	}
 	if installer.cli == nil {
-		return market.ReleaseInstallationReceipt{}, errors.New("connector CLI installation is required but unavailable")
+		return contracts.ReleaseInstallationReceipt{}, errors.New("connector CLI installation is required but unavailable")
 	}
-	cliReceipt, err := installer.cli.InstallCLI(ctx, market.InstallCLIRequest(request))
+	cliReceipt, err := installer.cli.InstallCLI(ctx, contracts.InstallCLIRequest(request))
 	if err != nil {
-		rollbackErr := installer.artifacts.Remove(context.WithoutCancel(ctx), market.RemoveArtifactRequest{
+		rollbackErr := installer.artifacts.Remove(context.WithoutCancel(ctx), contracts.RemoveArtifactRequest{
 			OperationID:   request.OperationID,
 			Scope:         request.Scope,
 			Generation:    request.Generation,
@@ -70,7 +71,7 @@ func (installer *ReleaseInstaller) InstallRelease(
 			Version:       request.Release.Version,
 			ReleaseDigest: request.Release.ReleaseDigest,
 		})
-		return market.ReleaseInstallationReceipt{}, fmt.Errorf(
+		return contracts.ReleaseInstallationReceipt{}, fmt.Errorf(
 			"install connector CLI package: %w",
 			errors.Join(err, rollbackErr),
 		)
@@ -81,25 +82,25 @@ func (installer *ReleaseInstaller) InstallRelease(
 
 func (installer *ReleaseInstaller) InspectReleaseInstallation(
 	ctx context.Context,
-	request market.InspectReleaseInstallationRequest,
-) (market.ReleaseInstallationObservation, error) {
-	observation := market.ReleaseInstallationObservation{
+	request contracts.InspectReleaseInstallationRequest,
+) (contracts.ReleaseInstallationObservation, error) {
+	observation := contracts.ReleaseInstallationObservation{
 		ConnectorKey:  request.Release.ConnectorKey,
 		ReleaseDigest: request.Release.ReleaseDigest,
 	}
 	if installer == nil || installer.artifacts == nil {
-		observation.State = market.ReleaseInstallationIndeterminate
+		observation.State = contracts.ReleaseInstallationIndeterminate
 		observation.ReasonCode = "installation_manager_unavailable"
 		return observation, nil
 	}
-	if err := market.ValidateRuntimeReleaseShape(request.Release); err != nil {
-		return market.ReleaseInstallationObservation{}, err
+	if err := contracts.ValidateRuntimeReleaseShape(request.Release); err != nil {
+		return contracts.ReleaseInstallationObservation{}, err
 	}
 	prepared, err := installer.artifacts.ResolvePrepared(ctx, request.Release)
 	if err != nil {
 		return classifyReleaseInstallationError(observation, "artifact", err)
 	}
-	receipt := market.ReleaseInstallationReceipt{
+	receipt := contracts.ReleaseInstallationReceipt{
 		OperationID:    prepared.OperationID,
 		ConnectorKey:   request.Release.ConnectorKey,
 		Version:        request.Release.Version,
@@ -110,7 +111,7 @@ func (installer *ReleaseInstaller) InspectReleaseInstallation(
 	}
 	if releaseRequiresCLIInstallation(request.Release) {
 		if installer.cli == nil {
-			observation.State = market.ReleaseInstallationInvalid
+			observation.State = contracts.ReleaseInstallationInvalid
 			observation.ReasonCode = "cli_inspector_unavailable"
 			return observation, nil
 		}
@@ -120,46 +121,46 @@ func (installer *ReleaseInstaller) InspectReleaseInstallation(
 		}
 		receipt.CLIInstallation = &cliReceipt
 	}
-	observation.State = market.ReleaseInstallationPresent
+	observation.State = contracts.ReleaseInstallationPresent
 	observation.Receipt = &receipt
 	return observation, nil
 }
 
 func classifyReleaseInstallationError(
-	observation market.ReleaseInstallationObservation,
+	observation contracts.ReleaseInstallationObservation,
 	component string,
 	err error,
-) (market.ReleaseInstallationObservation, error) {
+) (contracts.ReleaseInstallationObservation, error) {
 	switch {
-	case errors.Is(err, market.ErrReleaseInstallationAbsent):
-		observation.State = market.ReleaseInstallationAbsent
+	case errors.Is(err, contracts.ErrReleaseInstallationAbsent):
+		observation.State = contracts.ReleaseInstallationAbsent
 		observation.ReasonCode = component + "_absent"
 		return observation, nil
-	case errors.Is(err, market.ErrReleaseInstallationInvalid):
-		observation.State = market.ReleaseInstallationInvalid
+	case errors.Is(err, contracts.ErrReleaseInstallationInvalid):
+		observation.State = contracts.ReleaseInstallationInvalid
 		observation.ReasonCode = component + "_invalid"
 		return observation, nil
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		observation.State = market.ReleaseInstallationIndeterminate
+		observation.State = contracts.ReleaseInstallationIndeterminate
 		observation.ReasonCode = component + "_inspection_interrupted"
 		return observation, nil
 	default:
-		return market.ReleaseInstallationObservation{}, err
+		return contracts.ReleaseInstallationObservation{}, err
 	}
 }
 
 func (installer *ReleaseInstaller) UninstallRelease(
 	ctx context.Context,
-	request market.UninstallReleaseRequest,
+	request contracts.UninstallReleaseRequest,
 ) error {
 	if installer == nil || installer.artifacts == nil {
 		return errors.New("connector release installer is unavailable")
 	}
-	if err := market.ValidateRuntimeReleaseShape(request.Release); err != nil {
+	if err := contracts.ValidateRuntimeReleaseShape(request.Release); err != nil {
 		return err
 	}
 	var cleanupErrors []error
-	connectorRemoval := market.RemoveConnectorInstallationRequest{
+	connectorRemoval := contracts.RemoveConnectorInstallationRequest{
 		OperationID:  request.OperationID,
 		Scope:        request.Scope,
 		Generation:   request.Generation,
@@ -178,14 +179,14 @@ func (installer *ReleaseInstaller) UninstallRelease(
 
 func (*ReleaseInstaller) CommitReleaseInstallation(
 	context.Context,
-	market.CommitReleaseInstallationRequest,
+	contracts.CommitReleaseInstallationRequest,
 ) error {
 	// Same-machine preparation already atomically published its latest verified
 	// archive. Remote adapters defer candidate promotion until this callback.
 	return nil
 }
 
-func releaseRequiresCLIInstallation(release market.Release) bool {
+func releaseRequiresCLIInstallation(release contracts.Release) bool {
 	managed := release.Manifest.Implementation.ManagedStdio
 	return managed != nil && managed.CLI != nil && managed.CLI.Install != nil &&
 		managed.CLI.Install.NodePackage != nil

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestDownloadCacheKeepsCurrentUntilCandidateIsPromoted(t *testing.T) {
@@ -23,7 +23,7 @@ func TestDownloadCacheKeepsCurrentUntilCandidateIsPromoted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := cache.PrepareCandidate(context.Background(), market.PrepareArtifactRequest{OperationID: "install-1", Release: first})
+	candidate, err := cache.PrepareCandidate(context.Background(), contracts.PrepareArtifactRequest{OperationID: "install-1", Release: first})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestDownloadCacheKeepsCurrentUntilCandidateIsPromoted(t *testing.T) {
 	second.Artifact.SizeBytes = int64(len(secondArchive))
 	fetcher.body = secondArchive
 
-	secondCandidate, err := cache.PrepareCandidate(context.Background(), market.PrepareArtifactRequest{OperationID: "install-2", Release: second})
+	secondCandidate, err := cache.PrepareCandidate(context.Background(), contracts.PrepareArtifactRequest{OperationID: "install-2", Release: second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,11 +76,11 @@ func TestDownloadCacheRejectsDownloadedHashAndSizeMismatch(t *testing.T) {
 	archive := testZIP(t, map[string][]byte{packagedManifestPath: manifest, "version": []byte("one")})
 	tests := []struct {
 		name   string
-		mutate func(*market.Release)
+		mutate func(*contracts.Release)
 		want   string
 	}{
-		{name: "hash", mutate: func(release *market.Release) { release.Artifact.SHA256 = strings.Repeat("c", 64) }, want: "SHA-256"},
-		{name: "size", mutate: func(release *market.Release) { release.Artifact.SizeBytes++ }, want: "declared size"},
+		{name: "hash", mutate: func(release *contracts.Release) { release.Artifact.SHA256 = strings.Repeat("c", 64) }, want: "SHA-256"},
+		{name: "size", mutate: func(release *contracts.Release) { release.Artifact.SizeBytes++ }, want: "declared size"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -94,7 +94,7 @@ func TestDownloadCacheRejectsDownloadedHashAndSizeMismatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = cache.PrepareCandidate(context.Background(), market.PrepareArtifactRequest{OperationID: "install-1", Release: release})
+			_, err = cache.PrepareCandidate(context.Background(), contracts.PrepareArtifactRequest{OperationID: "install-1", Release: release})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("PrepareCandidate() error = %v, want %q", err, test.want)
 			}

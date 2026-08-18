@@ -3,13 +3,11 @@ package connectormarket
 import (
 	"context"
 	"errors"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
+	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	"os"
 	"path/filepath"
 	"testing"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
-	implementationhost "github.com/tutti-os/tutti/packages/connector/runtime/implementationhost"
-	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 )
 
 func TestConnectorCommandProviderReadsValidatedRouteProjection(t *testing.T) {
@@ -22,8 +20,8 @@ func TestConnectorCommandProviderReadsValidatedRouteProjection(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	connector.Release.Manifest.AgentRouting = &market.AgentRouting{Aliases: []string{"飞书", "Feishu"}}
-	if _, err := host.Reconcile(context.Background(), market.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
+	connector.Release.Manifest.AgentRouting = &contracts.AgentRouting{Aliases: []string{"飞书", "Feishu"}}
+	if _, err := host.Reconcile(context.Background(), contracts.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
 		Connector: connector, Enabled: true, Generation: generation}); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +33,7 @@ func TestConnectorCommandProviderReadsValidatedRouteProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connectors, ok := available.Value["connectors"].([]implementationhost.ConnectorSummary)
+	connectors, ok := available.Value["connectors"].([]contracts.ConnectorSummary)
 	if !ok || len(connectors) != 1 || connectors[0].Name != connector.Release.Manifest.DisplayName ||
 		len(connectors[0].Skills) != 1 || connectors[0].Skills[0].Name != "run-diagnostic" ||
 		len(connectors[0].Interfaces) != 1 || connectors[0].Interfaces[0].Kind != "cli" {

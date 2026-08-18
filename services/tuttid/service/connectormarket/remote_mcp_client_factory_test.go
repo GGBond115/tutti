@@ -3,13 +3,12 @@ package connectormarket
 import (
 	"context"
 	"encoding/json"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
+	implementationhost "github.com/tutti-os/tutti/packages/connector/runtime/implementationhost"
+	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
-	implementationhost "github.com/tutti-os/tutti/packages/connector/runtime/implementationhost"
-	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
 )
 
 func TestDirectRemoteMCPClientFactoryBuildsFixedGatewayRouteAndAuthorizesAccount(t *testing.T) {
@@ -45,7 +44,7 @@ func TestDirectRemoteMCPClientFactoryBuildsFixedGatewayRouteAndAuthorizesAccount
 	}
 	client, err := factory.NewRemoteMCPClient(context.Background(), implementationhost.RemoteMCPClientRequest{
 		ConnectorKey: "documents", AccountID: "account-1", Version: "1.2.3",
-		Implementation: market.RemoteStreamableHTTPImplementation{ProtocolVersion: mcp.ModernProtocolVersion},
+		Implementation: contracts.RemoteStreamableHTTPImplementation{ProtocolVersion: mcp.ModernProtocolVersion},
 	})
 	if err != nil {
 		t.Fatal(err)

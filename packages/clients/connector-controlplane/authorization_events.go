@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
 )
 
 const (
@@ -153,4 +153,4 @@ func connectorRealtimeEndpoint(rawURL, deviceID string) (string, error) {
 	return parsed.String(), nil
 }
 
-var _ market.AuthorizationEventSource = (*AuthorizationEventSource)(nil)
+var _ application.AuthorizationEventSource = (*AuthorizationEventSource)(nil)

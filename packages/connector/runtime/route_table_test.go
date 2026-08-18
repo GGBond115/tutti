@@ -5,22 +5,22 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 type routeTableStub struct {
 	id         string
 	digest     string
-	generation market.HostGeneration
+	generation contracts.HostGeneration
 	closeErrs  int
 	closeCalls int
 	fenced     bool
 }
 
-func (route *routeTableStub) RouteID() string                        { return route.id }
-func (route *routeTableStub) RouteGeneration() market.HostGeneration { return route.generation }
-func (route *routeTableStub) RouteReleaseDigest() string             { return route.digest }
-func (route *routeTableStub) Fence()                                 { route.fenced = true }
+func (route *routeTableStub) RouteID() string                           { return route.id }
+func (route *routeTableStub) RouteGeneration() contracts.HostGeneration { return route.generation }
+func (route *routeTableStub) RouteReleaseDigest() string                { return route.digest }
+func (route *routeTableStub) Fence()                                    { route.fenced = true }
 func (route *routeTableStub) Close(time.Time) error {
 	route.closeCalls++
 	if route.closeErrs > 0 {
@@ -32,7 +32,7 @@ func (route *routeTableStub) Close(time.Time) error {
 
 func TestRouteTableRetainsFencedRouteUntilCloseRetrySucceeds(t *testing.T) {
 	table := NewRouteTable()
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 2}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 2}
 	route := &routeTableStub{id: "workspace\x00github", digest: "release-1", generation: generation, closeErrs: 1}
 	if err := table.Commit(route); err != nil {
 		t.Fatal(err)
@@ -53,12 +53,12 @@ func TestRouteTableRetainsFencedRouteUntilCloseRetrySucceeds(t *testing.T) {
 
 func TestRouteTableRejectsGenerationAtOrBehindFence(t *testing.T) {
 	table := NewRouteTable()
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 4}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 4}
 	if err := table.Remove("workspace\x00github", generation, "", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, candidate := range []uint64{3, 4} {
-		route := &routeTableStub{id: "workspace\x00github", digest: "release-1", generation: market.HostGeneration{BootEpoch: "boot-1", Generation: candidate}}
+		route := &routeTableStub{id: "workspace\x00github", digest: "release-1", generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: candidate}}
 		if err := table.Commit(route); err == nil {
 			t.Fatalf("generation %d unexpectedly crossed fence", candidate)
 		}
@@ -68,8 +68,8 @@ func TestRouteTableRejectsGenerationAtOrBehindFence(t *testing.T) {
 func TestRouteTablePublishesReadyCandidateBeforeOldRouteCleanup(t *testing.T) {
 	table := NewRouteTable()
 	key := "workspace\x00github"
-	old := &routeTableStub{id: key, digest: "release-1", generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 1}, closeErrs: 1}
-	next := &routeTableStub{id: key, digest: "release-2", generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 2}}
+	old := &routeTableStub{id: key, digest: "release-1", generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: 1}, closeErrs: 1}
+	next := &routeTableStub{id: key, digest: "release-2", generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: 2}}
 	if err := table.Commit(old); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestRouteTablePublishesReadyCandidateBeforeOldRouteCleanup(t *testing.T) {
 
 func TestRouteTableRemoveMatchingClosesEverySelectedConnection(t *testing.T) {
 	table := NewRouteTable()
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 4}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 4}
 	first := &routeTableStub{id: "connection-a\x00github", digest: "release-1", generation: generation}
 	second := &routeTableStub{id: "connection-b\x00github", digest: "release-1", generation: generation}
 	unrelated := &routeTableStub{id: "connection-a\x00notion", digest: "release-2", generation: generation}
@@ -107,7 +107,7 @@ func TestRouteTableRemoveMatchingClosesEverySelectedConnection(t *testing.T) {
 
 func TestRouteTableRetireExactNotifiesOnlyUnexpectedCurrentRouteBeforeClose(t *testing.T) {
 	table := NewRouteTable()
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 5}
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 5}
 	route := &routeTableStub{id: "workspace\x00github", digest: "release-1", generation: generation}
 	if err := table.Commit(route); err != nil {
 		t.Fatal(err)

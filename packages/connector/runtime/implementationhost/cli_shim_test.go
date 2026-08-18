@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 )
 
@@ -29,7 +29,7 @@ func TestConnectorCLIShimExecutesVerifiedEntrypointThroughNormalShellPath(t *tes
 	}
 	route := &connectorRoute{
 		connectionID: "default", connectorKey: "github", userHome: root,
-		generation: market.HostGeneration{BootEpoch: "boot", Generation: 1},
+		generation: contracts.HostGeneration{BootEpoch: "boot", Generation: 1},
 		cliLaunch: &managedCLILaunch{executable: connectorruntime.ConnectorExecutable{Path: entrypoint},
 			arguments: []string{"fixed argument"}, cwd: working, stateDir: filepath.Join(root, "state"), language: "node"},
 	}
@@ -64,12 +64,12 @@ func TestAttachCLIUsesArtifactNativeExecutableWithoutManagedRuntimeArgument(t *t
 	if err := os.WriteFile(entrypoint, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	managed := &market.ManagedStdioImplementation{Runtime: market.RuntimeRequirement{Language: "node"},
-		CLI: &market.ManagedCLIInterface{Entrypoint: entrypointRelative, Command: "gh", TimeoutMS: 30_000,
-			Launch: &market.CLIArtifactLaunch{Kind: market.CLIArtifactLaunchKindNative,
+	managed := &contracts.ManagedStdioImplementation{Runtime: contracts.RuntimeRequirement{Language: "node"},
+		CLI: &contracts.ManagedCLIInterface{Entrypoint: entrypointRelative, Command: "gh", TimeoutMS: 30_000,
+			Launch: &contracts.CLIArtifactLaunch{Kind: contracts.CLIArtifactLaunchKindNative,
 				SHA256: strings.Repeat("a", 64), SizeBytes: int64(len(content))}}}
 	route := &connectorRoute{}
-	if err := (&Host{}).attachCLI(route, managed, market.PreparedArtifactReceipt{PreparedPath: root}, nil,
+	if err := (&Host{}).attachCLI(route, managed, contracts.PreparedArtifactReceipt{PreparedPath: root}, nil,
 		connectorruntime.ConnectorExecutable{Path: filepath.Join(root, "node")}, filepath.Join(root, "state"), nil); err != nil {
 		t.Fatal(err)
 	}

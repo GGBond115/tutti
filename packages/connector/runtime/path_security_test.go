@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestSecureConnectorStateDirRejectsTraversalBeforeCreatingIt(t *testing.T) {
@@ -93,7 +93,7 @@ func TestExecutionSnapshotterMarksOnlyDeclaredArtifactNativeEntrypointExecutable
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := snapshotter.Create(market.PreparedArtifactReceipt{PreparedPath: source, InventoryDigest: digest}, executableRelative)
+	snapshot, err := snapshotter.Create(contracts.PreparedArtifactReceipt{PreparedPath: source, InventoryDigest: digest}, executableRelative)
 	if err != nil {
 		t.Fatal(err)
 	}

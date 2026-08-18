@@ -14,23 +14,23 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
 )
 
 type releaseArtifactStub struct {
-	prepared         market.PreparedArtifactReceipt
+	prepared         contracts.PreparedArtifactReceipt
 	releaseRemoves   int
 	connectorRemoves int
 }
 
-func (stub *releaseArtifactStub) Prepare(_ context.Context, request market.PrepareArtifactRequest) (market.PreparedArtifactReceipt, error) {
+func (stub *releaseArtifactStub) Prepare(_ context.Context, request contracts.PrepareArtifactRequest) (contracts.PreparedArtifactReceipt, error) {
 	receipt := stub.prepared
 	receipt.OperationID = request.OperationID
 	return receipt, nil
 }
 
-func (stub *releaseArtifactStub) ResolvePrepared(_ context.Context, release market.Release) (market.PreparedArtifactReceipt, error) {
+func (stub *releaseArtifactStub) ResolvePrepared(_ context.Context, release contracts.Release) (contracts.PreparedArtifactReceipt, error) {
 	receipt := stub.prepared
 	receipt.ConnectorKey = release.ConnectorKey
 	receipt.Version = release.Version
@@ -39,19 +39,19 @@ func (stub *releaseArtifactStub) ResolvePrepared(_ context.Context, release mark
 	return receipt, nil
 }
 
-func (stub *releaseArtifactStub) Remove(context.Context, market.RemoveArtifactRequest) error {
+func (stub *releaseArtifactStub) Remove(context.Context, contracts.RemoveArtifactRequest) error {
 	stub.releaseRemoves++
 	return nil
 }
 
-func (stub *releaseArtifactStub) RemoveConnector(context.Context, market.RemoveConnectorInstallationRequest) error {
+func (stub *releaseArtifactStub) RemoveConnector(context.Context, contracts.RemoveConnectorInstallationRequest) error {
 	stub.connectorRemoves++
 	return nil
 }
 
 func TestReleaseInstallerDoesNotActivateRuntime(t *testing.T) {
 	release := runtimeTestRelease()
-	artifacts := &releaseArtifactStub{prepared: market.PreparedArtifactReceipt{
+	artifacts := &releaseArtifactStub{prepared: contracts.PreparedArtifactReceipt{
 		ConnectorKey: release.ConnectorKey, Version: release.Version, ReleaseDigest: release.ReleaseDigest,
 		ArtifactSHA256: release.Artifact.SHA256,
 	}}
@@ -59,7 +59,7 @@ func TestReleaseInstallerDoesNotActivateRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := installer.InstallRelease(context.Background(), market.InstallReleaseRequest{
+	receipt, err := installer.InstallRelease(context.Background(), contracts.InstallReleaseRequest{
 		OperationID: "install-1", Release: release,
 	})
 	if err != nil {
@@ -77,7 +77,7 @@ func TestReleaseInstallerUninstallRemovesPreparedArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := installer.UninstallRelease(context.Background(), market.UninstallReleaseRequest{
+	if err := installer.UninstallRelease(context.Background(), contracts.UninstallReleaseRequest{
 		OperationID: "uninstall-1",
 		Release:     release,
 	}); err != nil {
@@ -130,13 +130,13 @@ func TestReleaseInstallerUninstallRemovesEveryConnectorRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstReceipt, err := installer.InstallRelease(context.Background(), market.InstallReleaseRequest{
+	firstReceipt, err := installer.InstallRelease(context.Background(), contracts.InstallReleaseRequest{
 		OperationID: "install-v1", Release: first,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondReceipt, err := installer.InstallRelease(context.Background(), market.InstallReleaseRequest{
+	secondReceipt, err := installer.InstallRelease(context.Background(), contracts.InstallReleaseRequest{
 		OperationID: "install-v2", Release: second,
 	})
 	if err != nil {
@@ -156,7 +156,7 @@ func TestReleaseInstallerUninstallRemovesEveryConnectorRelease(t *testing.T) {
 	if err := os.WriteFile(sharedMarker, []byte("shared"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := installer.UninstallRelease(context.Background(), market.UninstallReleaseRequest{
+	if err := installer.UninstallRelease(context.Background(), contracts.UninstallReleaseRequest{
 		OperationID: "uninstall", Release: second,
 	}); err != nil {
 		t.Fatal(err)
@@ -206,33 +206,33 @@ func releaseInstallerTestZIP(t *testing.T, manifest []byte, version string) []by
 	return output.Bytes()
 }
 
-func releaseInstallerNodeRelease(version, releaseDigest string, archive, manifest []byte) market.Release {
+func releaseInstallerNodeRelease(version, releaseDigest string, archive, manifest []byte) contracts.Release {
 	release := testNodePackageRelease("lark", releaseDigest)
 	artifactDigest := sha256.Sum256(archive)
 	manifestDigest := sha256.Sum256(manifest)
 	release.ReleaseID = release.ConnectorKey + "@" + version
 	release.Version = version
 	release.ManifestDigest = hex.EncodeToString(manifestDigest[:])
-	release.Artifact = market.Artifact{SHA256: hex.EncodeToString(artifactDigest[:]),
+	release.Artifact = contracts.Artifact{SHA256: hex.EncodeToString(artifactDigest[:]),
 		SizeBytes: int64(len(archive)), MediaType: "application/zip"}
 	return release
 }
 
-func runtimeTestRelease() market.Release {
-	return market.Release{
+func runtimeTestRelease() contracts.Release {
+	return contracts.Release{
 		SchemaVersion: "1", ReleaseID: "example@1.0.0", ConnectorKey: "example", Version: "1.0.0",
 		ReleaseDigest:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ManifestDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		Manifest: market.Manifest{SchemaVersion: "1", DisplayName: "Example",
+		Manifest: contracts.Manifest{SchemaVersion: "1", DisplayName: "Example",
 			IconURL: "data:image/png;base64,YQ==", AuthorizationKind: "none",
-			Implementation: market.Implementation{Kind: market.ImplementationKindManagedStdio,
-				ManagedStdio: &market.ManagedStdioImplementation{
-					Runtime: market.RuntimeRequirement{Language: "node", Profile: "connector-node-static", ABI: "node24-linux-arm64"},
-					MCP:     &market.ManagedMCPInterface{Entrypoint: "connector.js"},
+			Implementation: contracts.Implementation{Kind: contracts.ImplementationKindManagedStdio,
+				ManagedStdio: &contracts.ManagedStdioImplementation{
+					Runtime: contracts.RuntimeRequirement{Language: "node", Profile: "connector-node-static", ABI: "node24-linux-arm64"},
+					MCP:     &contracts.ManagedMCPInterface{Entrypoint: "connector.js"},
 				}},
 		},
-		Artifact: market.Artifact{SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		Artifact: contracts.Artifact{SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			SizeBytes: 1, MediaType: "application/zip"},
-		PublishedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Status: market.ReleaseStatusAvailable,
+		PublishedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Status: contracts.ReleaseStatusAvailable,
 	}
 }

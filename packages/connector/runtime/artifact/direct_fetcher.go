@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	connectorhost "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const (
@@ -22,7 +23,7 @@ const (
 var errArtifactRedirectOrigin = errors.New("connector artifact redirect leaves the resolved origin")
 
 type DirectFetcherConfig struct {
-	Resolver   connectorhost.ArtifactDownloadResolver
+	Resolver   application.ArtifactDownloadResolver
 	HTTPClient *http.Client
 	Now        func() time.Time
 }
@@ -32,7 +33,7 @@ type DirectFetcherConfig struct {
 // DownloadCache independently enforces the declared digest and size before
 // bytes can become an install candidate.
 type DirectFetcher struct {
-	resolver   connectorhost.ArtifactDownloadResolver
+	resolver   application.ArtifactDownloadResolver
 	httpClient *http.Client
 	now        func() time.Time
 }
@@ -104,7 +105,7 @@ func (err artifactDownloadTransportError) Unwrap() error {
 	return err.cause
 }
 
-func validateResolvedArtifact(resolved connectorhost.ArtifactDownload, release connectorhost.Release, now time.Time) (*url.URL, error) {
+func validateResolvedArtifact(resolved contracts.ArtifactDownload, release contracts.Release, now time.Time) (*url.URL, error) {
 	rawURL := resolved.URL
 	if len(rawURL) == 0 || len(rawURL) > maxResolvedArtifactURLBytes || strings.TrimSpace(rawURL) != rawURL {
 		return nil, errors.New("connector artifact resolved URL is invalid")

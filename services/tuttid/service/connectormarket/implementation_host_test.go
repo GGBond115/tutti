@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
+	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
+	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 	"io"
 	"net"
 	"net/http"
@@ -16,16 +20,11 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
-	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
-	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
-	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const implementationHostTestReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 
-func completeImplementationHostTestRelease(release market.Release) market.Release {
+func completeImplementationHostTestRelease(release contracts.Release) contracts.Release {
 	release.SchemaVersion = "1"
 	release.ReleaseID = "github@1.0.0"
 	release.ConnectorKey = "github"
@@ -37,9 +36,9 @@ func completeImplementationHostTestRelease(release market.Release) market.Releas
 	if managed := release.Manifest.Implementation.ManagedStdio; managed != nil && managed.CLI != nil {
 		managed.Runtime.VersionRange = ">=20.0.0 <21.0.0"
 	}
-	release.Artifact = market.Artifact{SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", SizeBytes: 1024, MediaType: "application/vnd.tutti.connector+zip"}
+	release.Artifact = contracts.Artifact{SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", SizeBytes: 1024, MediaType: "application/vnd.tutti.connector+zip"}
 	release.PublishedAt = time.Unix(1, 0).UTC()
-	release.Status = market.ReleaseStatusAvailable
+	release.Status = contracts.ReleaseStatusAvailable
 	return release
 }
 
@@ -118,7 +117,7 @@ func (connection *mcpConnectionStub) exit() {
 }
 
 type preparedResolverStub struct {
-	receipt market.PreparedArtifactReceipt
+	receipt contracts.PreparedArtifactReceipt
 }
 
 type blockingStartProcessStub struct{ started chan struct{} }
@@ -133,11 +132,11 @@ func (stub *blockingStartProcessStub) Start(ctx context.Context, _ connectorproc
 	return nil, ctx.Err()
 }
 
-func testCLIHost(t *testing.T, processes connectorprocess.Transport) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
+func testCLIHost(t *testing.T, processes connectorprocess.Transport) (*ImplementationHost, *ConnectorRuntimeRegistry, contracts.Connector, contracts.HostGeneration) {
 	return testCLIHostWithSetup(t, processes, nil)
 }
 
-func testCLIHostWithSetup(t *testing.T, processes connectorprocess.Transport, setup func(string)) (*ImplementationHost, *ConnectorRuntimeRegistry, market.Connector, market.HostGeneration) {
+func testCLIHostWithSetup(t *testing.T, processes connectorprocess.Transport, setup func(string)) (*ImplementationHost, *ConnectorRuntimeRegistry, contracts.Connector, contracts.HostGeneration) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "connector.js"), []byte("// connector"), 0o600); err != nil {
@@ -155,7 +154,7 @@ func testCLIHostWithSetup(t *testing.T, processes connectorprocess.Transport, se
 		t.Fatal(err)
 	}
 	commands := NewConnectorRuntimeRegistry()
-	host, err := NewImplementationHost(ImplementationHostConfig{Artifacts: preparedResolverStub{receipt: market.PreparedArtifactReceipt{PreparedPath: root, InventoryDigest: inventory}},
+	host, err := NewImplementationHost(ImplementationHostConfig{Artifacts: preparedResolverStub{receipt: contracts.PreparedArtifactReceipt{PreparedPath: root, InventoryDigest: inventory}},
 		Runtimes: connectorRuntimeStub{executable: connectorruntime.ConnectorExecutable{Path: runtimePath,
 			SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SizeBytes: 7}},
 		Processes: processes, Registry: commands, StateRoot: t.TempDir(), MCPStartupTimeout: 20 * time.Millisecond})
@@ -163,18 +162,18 @@ func testCLIHostWithSetup(t *testing.T, processes connectorprocess.Transport, se
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = host.Close() })
-	connector := market.Connector{Key: "github", Installation: market.Installation{State: market.InstallationStateInstalled,
-		InstalledReleaseDigest: implementationHostTestReleaseDigest}, Authorization: market.Authorization{State: market.AuthorizationStateNotRequired}}
-	connector.Release = completeImplementationHostTestRelease(market.Release{Manifest: market.Manifest{AuthorizationKind: "none", IconURL: "data:image/png;base64,iVBORw0KGgo=",
-		Implementation: market.Implementation{Kind: market.ImplementationKindManagedStdio, ManagedStdio: &market.ManagedStdioImplementation{
-			Runtime: market.RuntimeRequirement{Language: "node", Profile: connectorruntime.ConnectorNodeProfile, ABI: "node20-" + runtime.GOOS + "-" + runtime.GOARCH},
-			CLI: &market.ManagedCLIInterface{Entrypoint: "connector.js", Commands: []market.CLICommand{{Name: "status",
+	connector := contracts.Connector{Key: "github", Installation: contracts.Installation{State: contracts.InstallationStateInstalled,
+		InstalledReleaseDigest: implementationHostTestReleaseDigest}, Authorization: contracts.Authorization{State: contracts.AuthorizationStateNotRequired}}
+	connector.Release = completeImplementationHostTestRelease(contracts.Release{Manifest: contracts.Manifest{AuthorizationKind: "none", IconURL: "data:image/png;base64,iVBORw0KGgo=",
+		Implementation: contracts.Implementation{Kind: contracts.ImplementationKindManagedStdio, ManagedStdio: &contracts.ManagedStdioImplementation{
+			Runtime: contracts.RuntimeRequirement{Language: "node", Profile: connectorruntime.ConnectorNodeProfile, ABI: "node20-" + runtime.GOOS + "-" + runtime.GOARCH},
+			CLI: &contracts.ManagedCLIInterface{Entrypoint: "connector.js", Commands: []contracts.CLICommand{{Name: "status",
 				InputSchema: map[string]any{"type": "object"}, TimeoutMS: 120_000}}},
 		}}}})
-	return host, commands, connector, market.HostGeneration{BootEpoch: "boot-1", Generation: 2}
+	return host, commands, connector, contracts.HostGeneration{BootEpoch: "boot-1", Generation: 2}
 }
 
-func (stub preparedResolverStub) ResolvePrepared(context.Context, market.Release) (market.PreparedArtifactReceipt, error) {
+func (stub preparedResolverStub) ResolvePrepared(context.Context, contracts.Release) (contracts.PreparedArtifactReceipt, error) {
 	return stub.receipt, nil
 }
 
@@ -241,15 +240,15 @@ func TestImplementationHostChecksCLIReadinessWithDeclaredArguments(t *testing.T)
 	host, _, connector, generation := testCLIHost(t, processes)
 	cli := connector.Release.Manifest.Implementation.ManagedStdio.CLI
 	cli.Arguments = []string{"--non-interactive"}
-	cli.ReadinessProbe = &market.CLIReadinessProbe{Arguments: []string{"doctor", "--quiet"}, TimeoutMS: 1_000}
-	request := market.RuntimeReconcileRequest{OperationID: "reconcile-1", ConnectionID: "workspace-1",
+	cli.ReadinessProbe = &contracts.CLIReadinessProbe{Arguments: []string{"doctor", "--quiet"}, TimeoutMS: 1_000}
+	request := contracts.RuntimeReconcileRequest{OperationID: "reconcile-1", ConnectionID: "workspace-1",
 		Connector: connector, Enabled: true, Generation: generation}
 
 	receipt, err := host.Reconcile(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.Readiness.State != market.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
+	if receipt.Readiness.State != contracts.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
 		receipt.Readiness.Interfaces[0].Kind != "cli" {
 		t.Fatalf("readiness = %#v", receipt.Readiness)
 	}
@@ -284,7 +283,7 @@ func TestImplementationHostRegistersWorkspaceFencedCLIAndDeactivatesIt(t *testin
 	commands := NewConnectorRuntimeRegistry()
 	stateRoot := t.TempDir()
 	host, err := NewImplementationHost(ImplementationHostConfig{
-		Artifacts: preparedResolverStub{receipt: market.PreparedArtifactReceipt{PreparedPath: root, InventoryDigest: inventory}},
+		Artifacts: preparedResolverStub{receipt: contracts.PreparedArtifactReceipt{PreparedPath: root, InventoryDigest: inventory}},
 		Runtimes: connectorRuntimeStub{executable: connectorruntime.ConnectorExecutable{Path: runtimePath,
 			SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SizeBytes: 7}},
 		Processes: &connectorProcessStub{}, Registry: commands, StateRoot: stateRoot,
@@ -292,21 +291,21 @@ func TestImplementationHostRegistersWorkspaceFencedCLIAndDeactivatesIt(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	connector := market.Connector{Key: "github", Installation: market.Installation{State: market.InstallationStateInstalled,
-		InstalledReleaseDigest: implementationHostTestReleaseDigest}, Authorization: market.Authorization{State: market.AuthorizationStateNotRequired}}
-	connector.Release = completeImplementationHostTestRelease(market.Release{Manifest: market.Manifest{AuthorizationKind: "none", IconURL: "data:image/png;base64,iVBORw0KGgo=",
-		Implementation: market.Implementation{Kind: market.ImplementationKindManagedStdio, ManagedStdio: &market.ManagedStdioImplementation{
-			Runtime: market.RuntimeRequirement{Language: "node", Profile: connectorruntime.ConnectorNodeProfile, ABI: "node20-" + runtime.GOOS + "-" + runtime.GOARCH},
-			CLI: &market.ManagedCLIInterface{Entrypoint: "connector.js", Commands: []market.CLICommand{{Name: "status",
+	connector := contracts.Connector{Key: "github", Installation: contracts.Installation{State: contracts.InstallationStateInstalled,
+		InstalledReleaseDigest: implementationHostTestReleaseDigest}, Authorization: contracts.Authorization{State: contracts.AuthorizationStateNotRequired}}
+	connector.Release = completeImplementationHostTestRelease(contracts.Release{Manifest: contracts.Manifest{AuthorizationKind: "none", IconURL: "data:image/png;base64,iVBORw0KGgo=",
+		Implementation: contracts.Implementation{Kind: contracts.ImplementationKindManagedStdio, ManagedStdio: &contracts.ManagedStdioImplementation{
+			Runtime: contracts.RuntimeRequirement{Language: "node", Profile: connectorruntime.ConnectorNodeProfile, ABI: "node20-" + runtime.GOOS + "-" + runtime.GOARCH},
+			CLI: &contracts.ManagedCLIInterface{Entrypoint: "connector.js", Commands: []contracts.CLICommand{{Name: "status",
 				InputSchema: map[string]any{"type": "object"}, TimeoutMS: 1_000}}},
 		}}}})
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 2}
-	receipt, err := host.Reconcile(context.Background(), market.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 2}
+	receipt, err := host.Reconcile(context.Background(), contracts.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
 		Connector: connector, Enabled: true, Generation: generation})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.Readiness.State != market.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
+	if receipt.Readiness.State != contracts.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
 		receipt.Readiness.Interfaces[0].Kind != "cli" || len(receipt.Readiness.Interfaces[0].RouteIDs) != 0 {
 		t.Fatalf("readiness = %#v", receipt.Readiness)
 	}
@@ -318,8 +317,8 @@ func TestImplementationHostRegistersWorkspaceFencedCLIAndDeactivatesIt(t *testin
 	if _, err := os.Stat(shimPath); err != nil {
 		t.Fatalf("CLI shim was not published: %v", err)
 	}
-	if err := host.DeactivateRuntime(context.Background(), market.RuntimeDeactivationRequest{ConnectionID: "workspace-1", ConnectorKey: "github",
-		ReleaseDigest: implementationHostTestReleaseDigest, Generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 3}}); err != nil {
+	if err := host.DeactivateRuntime(context.Background(), contracts.RuntimeDeactivationRequest{ConnectionID: "workspace-1", ConnectorKey: "github",
+		ReleaseDigest: implementationHostTestReleaseDigest, Generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: 3}}); err != nil {
 		t.Fatal(err)
 	}
 	if routes := commands.runtime.Routes(); len(routes) != 0 {
@@ -401,7 +400,7 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 		t.Fatal(err)
 	}
 	host, err := NewImplementationHost(ImplementationHostConfig{
-		Artifacts: preparedResolverStub{receipt: market.PreparedArtifactReceipt{PreparedPath: root}}, Runtimes: connectorRuntimeStub{executable: connectorruntime.ConnectorExecutable{
+		Artifacts: preparedResolverStub{receipt: contracts.PreparedArtifactReceipt{PreparedPath: root}}, Runtimes: connectorRuntimeStub{executable: connectorruntime.ConnectorExecutable{
 			Path: runtimePath, SHA256: strings.Repeat("a", 64), SizeBytes: 7,
 		}}, Processes: &connectorProcessStub{}, Registry: commands, StateRoot: t.TempDir(),
 		RemoteMCPClientFactory: remoteMCPClientFactory,
@@ -410,26 +409,26 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = host.Close() })
-	connector := market.Connector{Key: "github", Installation: market.Installation{
-		State: market.InstallationStateInstalled, InstalledReleaseDigest: implementationHostTestReleaseDigest,
-	}, Authorization: market.Authorization{State: market.AuthorizationStateNotRequired}}
-	connector.Release = completeImplementationHostTestRelease(market.Release{Manifest: market.Manifest{
+	connector := contracts.Connector{Key: "github", Installation: contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledReleaseDigest: implementationHostTestReleaseDigest,
+	}, Authorization: contracts.Authorization{State: contracts.AuthorizationStateNotRequired}}
+	connector.Release = completeImplementationHostTestRelease(contracts.Release{Manifest: contracts.Manifest{
 		AuthorizationKind: "none", IconURL: "data:image/png;base64,iVBORw0KGgo=",
 		RequiredCapabilities: []string{"tools"},
-		Implementation: market.Implementation{Kind: market.ImplementationKindRemoteStreamableHTTP,
-			RemoteStreamableHTTP: &market.RemoteStreamableHTTPImplementation{
+		Implementation: contracts.Implementation{Kind: contracts.ImplementationKindRemoteStreamableHTTP,
+			RemoteStreamableHTTP: &contracts.RemoteStreamableHTTPImplementation{
 				ProtocolVersion: mcp.ModernProtocolVersion, BindingRef: "github.primary", ContractVersion: 1,
 				BindingContractHash: "sha256:" + strings.Repeat("b", 64),
 			}},
 	}})
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 2}
-	receipt, err := host.Reconcile(context.Background(), market.RuntimeReconcileRequest{
-		OperationID: "op-remote", Scope: market.OperationScope{AccountID: "account-1"}, ConnectionID: "default", Connector: connector, Enabled: true, Generation: generation,
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 2}
+	receipt, err := host.Reconcile(context.Background(), contracts.RuntimeReconcileRequest{
+		OperationID: "op-remote", Scope: contracts.OperationScope{AccountID: "account-1"}, ConnectionID: "default", Connector: connector, Enabled: true, Generation: generation,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.Readiness.State != market.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
+	if receipt.Readiness.State != contracts.RuntimeReadinessReady || len(receipt.Readiness.Interfaces) != 1 ||
 		len(receipt.Readiness.Interfaces[0].RouteIDs) != 1 || receipt.Readiness.Interfaces[0].RouteIDs[0] != "connector.github.mcp.status" {
 		t.Fatalf("readiness = %#v", receipt.Readiness)
 	}
@@ -459,7 +458,7 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 func TestImplementationHostPublishesStagedRoutesAtomically(t *testing.T) {
 	host, commands, connector, generation := testCLIHost(t, &connectorProcessStub{})
 	host.SetCapabilityPublication(false)
-	_, err := host.Reconcile(context.Background(), market.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
+	_, err := host.Reconcile(context.Background(), contracts.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
 		Connector: connector, Enabled: true, Generation: generation})
 	if err != nil {
 		t.Fatal(err)
@@ -486,12 +485,12 @@ func TestImplementationHostPaginatesMCPToolsSeparatesCLIPathAndRemovesDeadMCPRou
 		t.Fatal(err)
 	}
 	managed := connector.Release.Manifest.Implementation.ManagedStdio
-	managed.MCP = &market.ManagedMCPInterface{Entrypoint: "connector.js"}
-	if _, err := host.Reconcile(context.Background(), market.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
+	managed.MCP = &contracts.ManagedMCPInterface{Entrypoint: "connector.js"}
+	if _, err := host.Reconcile(context.Background(), contracts.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
 		Connector: connector, Enabled: true, Generation: generation}); err != nil {
 		t.Fatal(err)
 	}
-	if event := <-watch.Events; event.Kind != market.PhysicalRouteEventChanged || event.Revision != watch.Revision+1 {
+	if event := <-watch.Events; event.Kind != contracts.PhysicalRouteEventChanged || event.Revision != watch.Revision+1 {
 		t.Fatalf("managed route activation event = %+v", event)
 	}
 	routes := commands.runtime.Routes()
@@ -508,7 +507,7 @@ func TestImplementationHostPaginatesMCPToolsSeparatesCLIPathAndRemovesDeadMCPRou
 	connection.exit()
 	select {
 	case event := <-watch.Events:
-		if event.Kind != market.PhysicalRouteEventUnexpectedExit || event.Route.ConnectorKey != connector.Key {
+		if event.Kind != contracts.PhysicalRouteEventUnexpectedExit || event.Route.ConnectorKey != connector.Key {
 			t.Fatalf("managed route exit event = %+v", event)
 		}
 	case <-time.After(time.Second):
@@ -530,9 +529,9 @@ func TestImplementationHostBoundsMCPProcessStart(t *testing.T) {
 	processes := &blockingStartProcessStub{started: make(chan struct{})}
 	host, _, connector, generation := testCLIHost(t, processes)
 	connector.Release.Manifest.Implementation.ManagedStdio.CLI = nil
-	connector.Release.Manifest.Implementation.ManagedStdio.MCP = &market.ManagedMCPInterface{Entrypoint: "connector.js"}
+	connector.Release.Manifest.Implementation.ManagedStdio.MCP = &contracts.ManagedMCPInterface{Entrypoint: "connector.js"}
 	startedAt := time.Now()
-	if _, err := host.Reconcile(context.Background(), market.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
+	if _, err := host.Reconcile(context.Background(), contracts.RuntimeReconcileRequest{OperationID: "op-1", ConnectionID: "workspace-1",
 		Connector: connector, Enabled: true, Generation: generation}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Reconcile() error = %v, want deadline", err)
 	}

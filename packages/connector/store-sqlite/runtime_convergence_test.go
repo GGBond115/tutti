@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestRuntimeConvergencePersistsAndReconcilesPerBootEpoch(t *testing.T) {
@@ -18,9 +19,9 @@ func TestRuntimeConvergencePersistsAndReconcilesPerBootEpoch(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 8, 15, 2, 0, 0, 0, time.UTC)
-	scope := market.OperationScope{AccountID: "account-1"}
+	scope := contracts.OperationScope{AccountID: "account-1"}
 	desired := runtimeConvergenceFixture(scope, "github", 1, now)
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		return tx.SaveRuntimeConvergence(desired)
 	}); err != nil {
 		t.Fatal(err)
@@ -50,13 +51,13 @@ func TestRuntimeConvergencePersistsAndReconcilesPerBootEpoch(t *testing.T) {
 	if !ok || claimed.LeaseToken == 0 {
 		t.Fatalf("claimed convergence = %#v, claimed = %v", claimed, ok)
 	}
-	observed := market.RuntimeObserved{
+	observed := contracts.RuntimeObserved{
 		DesiredGeneration: 1,
 		BootEpoch:         "boot-1",
 		Enabled:           true,
 		ConnectionID:      desired.Desired.ConnectionID,
 		ReleaseDigest:     desired.Desired.ReleaseDigest,
-		Readiness:         market.RuntimeReadiness{State: market.RuntimeReadinessReady},
+		Readiness:         contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady},
 		ObservedAt:        now.Add(time.Second),
 	}
 	if err := store.CompleteRuntimeConvergence(
@@ -88,9 +89,9 @@ func TestRuntimeConvergenceRejectsStaleGenerationCompletion(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Date(2026, 8, 15, 3, 0, 0, 0, time.UTC)
-	scope := market.OperationScope{AccountID: "account-1"}
+	scope := contracts.OperationScope{AccountID: "account-1"}
 	first := runtimeConvergenceFixture(scope, "github", 1, now)
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		return tx.SaveRuntimeConvergence(first)
 	}); err != nil {
 		t.Fatal(err)
@@ -110,14 +111,14 @@ func TestRuntimeConvergenceRejectsStaleGenerationCompletion(t *testing.T) {
 	second.LeaseToken = claimed.LeaseToken + 1
 	second.LeaseExpiresAt = nil
 	second.UpdatedAt = now.Add(time.Second)
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		return tx.SaveRuntimeConvergence(second)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	err = store.CompleteRuntimeConvergence(ctx, scope, "github", "worker-1", claimed.LeaseToken, 1,
-		market.RuntimeObserved{DesiredGeneration: 1, BootEpoch: "boot-1"}, now.Add(2*time.Second))
-	if !errors.Is(err, market.ErrOperationLeaseLost) {
+		contracts.RuntimeObserved{DesiredGeneration: 1, BootEpoch: "boot-1"}, now.Add(2*time.Second))
+	if !errors.Is(err, contracts.ErrOperationLeaseLost) {
 		t.Fatalf("stale completion error = %v", err)
 	}
 	stored, err := store.RuntimeConvergence(ctx, scope, "github")
@@ -137,11 +138,11 @@ func TestRuntimeConvergencesReadsOneOrderedBoundedScope(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)
-	targetScope := market.OperationScope{AccountID: "account-1"}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
-		for _, fixture := range []market.RuntimeConvergence{
+	targetScope := contracts.OperationScope{AccountID: "account-1"}
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
+		for _, fixture := range []contracts.RuntimeConvergence{
 			runtimeConvergenceFixture(targetScope, "notion", 1, now),
-			runtimeConvergenceFixture(market.OperationScope{AccountID: "account-2"}, "ignored", 1, now),
+			runtimeConvergenceFixture(contracts.OperationScope{AccountID: "account-2"}, "ignored", 1, now),
 			runtimeConvergenceFixture(targetScope, "github", 1, now),
 		} {
 			if err := tx.SaveRuntimeConvergence(fixture); err != nil {
@@ -169,12 +170,12 @@ func TestRuntimeConvergenceFailureBudgetPersistsAndSuppressesClaims(t *testing.T
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 8, 18, 5, 0, 0, 0, time.UTC)
-	scope := market.OperationScope{AccountID: "account-1"}
+	scope := contracts.OperationScope{AccountID: "account-1"}
 	fixture := runtimeConvergenceFixture(scope, "github", 1, now)
-	if err := store.Transaction(ctx, func(tx market.Transaction) error { return tx.SaveRuntimeConvergence(fixture) }); err != nil {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error { return tx.SaveRuntimeConvergence(fixture) }); err != nil {
 		t.Fatal(err)
 	}
-	for attempt := uint32(1); attempt <= market.RuntimeFailureBudget; attempt++ {
+	for attempt := uint32(1); attempt <= contracts.RuntimeFailureBudget; attempt++ {
 		claimed, ok, claimErr := store.ClaimRuntimeConvergence(ctx, scope, "github", "boot-1", "worker-1", now, now.Add(time.Minute))
 		if claimErr != nil || !ok {
 			t.Fatalf("claim attempt %d = %#v, %t, %v", attempt, claimed, ok, claimErr)
@@ -190,8 +191,8 @@ func TestRuntimeConvergenceFailureBudgetPersistsAndSuppressesClaims(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Attempt != market.RuntimeFailureBudget || stored.Observed.Readiness.State != market.RuntimeReadinessFailed ||
-		stored.Observed.Readiness.ReasonCode != market.RuntimeReadinessReasonFailureBudgetExhausted {
+	if stored.Attempt != contracts.RuntimeFailureBudget || stored.Observed.Readiness.State != contracts.RuntimeReadinessFailed ||
+		stored.Observed.Readiness.ReasonCode != contracts.RuntimeReadinessReasonFailureBudgetExhausted {
 		t.Fatalf("exhausted convergence = %#v", stored)
 	}
 	if err := store.Close(); err != nil {
@@ -219,8 +220,8 @@ func TestRuntimeConvergenceLeaseCannotBeReenteredBySameWorker(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Date(2026, 8, 15, 4, 0, 0, 0, time.UTC)
-	scope := market.OperationScope{AccountID: "account-1"}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	scope := contracts.OperationScope{AccountID: "account-1"}
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		return tx.SaveRuntimeConvergence(runtimeConvergenceFixture(scope, "github", 1, now))
 	}); err != nil {
 		t.Fatal(err)
@@ -250,12 +251,12 @@ func TestSnapshotHidesLegacyRuntimeReconcileOperations(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Date(2026, 8, 15, 5, 0, 0, 0, time.UTC)
-	operation := market.Operation{
+	operation := contracts.Operation{
 		OperationID: "runtime-legacy", ClientRequestID: "runtime-legacy", ConnectorKey: "github",
-		Kind: market.OperationKindReconcileRuntime, State: market.OperationStateCompleted,
-		Stage: market.OperationStageCompleted, CreatedAt: now, UpdatedAt: now,
+		Kind: contracts.OperationKindReconcileRuntime, State: contracts.OperationStateCompleted,
+		Stage: contracts.OperationStageCompleted, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error { return tx.SaveOperation(operation) }); err != nil {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error { return tx.SaveOperation(operation) }); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := store.Snapshot(ctx)
@@ -271,15 +272,15 @@ func TestSnapshotHidesLegacyRuntimeReconcileOperations(t *testing.T) {
 }
 
 func runtimeConvergenceFixture(
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey string,
 	generation uint64,
 	now time.Time,
-) market.RuntimeConvergence {
-	return market.RuntimeConvergence{
-		Desired: market.RuntimeDesired{
+) contracts.RuntimeConvergence {
+	return contracts.RuntimeConvergence{
+		Desired: contracts.RuntimeDesired{
 			Scope: scope, ConnectorKey: connectorKey, Generation: generation, Enabled: true,
-			ConnectionID: "account-connection", ReleaseDigest: "sha256:release", AuthorizationState: market.AuthorizationStateConnected,
+			ConnectionID: "account-connection", ReleaseDigest: "sha256:release", AuthorizationState: contracts.AuthorizationStateConnected,
 			UpdatedAt: now,
 		},
 		NextAttemptAt: now,

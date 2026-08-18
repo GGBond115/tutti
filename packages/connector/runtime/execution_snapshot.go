@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const preparedReceiptFilename = ".tutti-connector-receipt.json"
@@ -61,7 +61,7 @@ func (snapshotter *ExecutionSnapshotter) CleanupOrphans() error {
 	return errors.Join(cleanupErrors...)
 }
 
-func (snapshotter *ExecutionSnapshotter) Create(prepared market.PreparedArtifactReceipt, executableEntries ...string) (string, error) {
+func (snapshotter *ExecutionSnapshotter) Create(prepared contracts.PreparedArtifactReceipt, executableEntries ...string) (string, error) {
 	if snapshotter == nil || strings.TrimSpace(prepared.InventoryDigest) == "" {
 		return "", errors.New("prepared connector inventory digest is missing")
 	}

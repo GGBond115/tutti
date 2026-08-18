@@ -7,14 +7,14 @@ import (
 	"io"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 const maxCLIReadinessOutput = 64 << 10
 
-func (host *Host) checkCLIReadiness(ctx context.Context, route *connectorRoute, probe *market.CLIReadinessProbe) error {
+func (host *Host) checkCLIReadiness(ctx context.Context, route *connectorRoute, probe *contracts.CLIReadinessProbe) error {
 	if probe == nil {
 		return nil
 	}

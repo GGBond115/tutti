@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestAuthorizationClientFetchesAccountSnapshot(t *testing.T) {
@@ -36,7 +36,7 @@ func TestAuthorizationClientFetchesAccountSnapshot(t *testing.T) {
 		t.Fatalf("snapshot = %#v, error = %v", snapshot, err)
 	}
 	projection := snapshot.Connectors[0]
-	if projection.State != market.AuthorizationStateExpired || projection.ConnectionVersion != 4 || projection.ServerRevision != 12 || !projection.ServerSynchronized {
+	if projection.State != contracts.AuthorizationStateExpired || projection.ConnectionVersion != 4 || projection.ServerRevision != 12 || !projection.ServerSynchronized {
 		t.Fatalf("projection = %#v", projection)
 	}
 }
@@ -76,11 +76,11 @@ func TestAuthorizationClientStartsAccountScopedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.Begin(context.Background(), market.AuthorizationStartRequest{
+	result, err := client.Begin(context.Background(), contracts.AuthorizationStartRequest{
 		OperationID: "operation-1", ClientRequestID: "request-1",
-		Scope:     market.OperationScope{AccountID: "account-1"},
-		Connector: market.Connector{Key: "gmail"},
-		Release:   market.Release{Version: "1.0.0", Manifest: market.Manifest{AuthorizationKind: "oauth2"}},
+		Scope:     contracts.OperationScope{AccountID: "account-1"},
+		Connector: contracts.Connector{Key: "gmail"},
+		Release:   contracts.Release{Version: "1.0.0", Manifest: contracts.Manifest{AuthorizationKind: "oauth2"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,11 +88,11 @@ func TestAuthorizationClientStartsAccountScopedSession(t *testing.T) {
 	if result.SessionID != "auth-1" || result.ActionType != "redirect" || result.AuthorizationURL != "https://auth.example/connect" || result.OperationID != "operation-1" {
 		t.Fatalf("result = %#v", result)
 	}
-	observation, err := client.Observe(context.Background(), market.AuthorizationObserveRequest{Scope: market.OperationScope{AccountID: "account-1"}, Session: result})
+	observation, err := client.Observe(context.Background(), contracts.AuthorizationObserveRequest{Scope: contracts.OperationScope{AccountID: "account-1"}, Session: result})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.State != market.AuthorizationObservationConnected || observation.ConnectionID != "connection-oauth-1" {
+	if observation.State != contracts.AuthorizationObservationConnected || observation.ConnectionID != "connection-oauth-1" {
 		t.Fatalf("observation = %#v", observation)
 	}
 }
@@ -113,15 +113,15 @@ func TestAuthorizationClientAcceptsImmediateSuccessWithoutNextAction(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.Begin(context.Background(), market.AuthorizationStartRequest{
+	result, err := client.Begin(context.Background(), contracts.AuthorizationStartRequest{
 		OperationID: "operation-existing", ClientRequestID: "request-existing",
-		Scope: market.OperationScope{AccountID: "account-1"}, Connector: market.Connector{Key: "tencent-docs"},
-		Release: market.Release{Version: "0.2.0", Manifest: market.Manifest{AuthorizationKind: "oauth2"}},
+		Scope: contracts.OperationScope{AccountID: "account-1"}, Connector: contracts.Connector{Key: "tencent-docs"},
+		Release: contracts.Release{Version: "0.2.0", Manifest: contracts.Manifest{AuthorizationKind: "oauth2"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != market.AuthorizationStateConnected || result.ConnectionID != "connection-existing" ||
+	if result.State != contracts.AuthorizationStateConnected || result.ConnectionID != "connection-existing" ||
 		result.ActionType != "" || result.AuthorizationURL != "" {
 		t.Fatalf("immediate success = %#v", result)
 	}
@@ -158,17 +158,17 @@ func TestAuthorizationClientReplacesAndCancelsRemoteSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := client.Begin(context.Background(), market.AuthorizationStartRequest{
+	session, err := client.Begin(context.Background(), contracts.AuthorizationStartRequest{
 		OperationID: "operation-replacement", ClientRequestID: "request-replacement",
-		ReplacementPolicy: market.AuthorizationReplacementPolicyReplaceActive,
-		Scope:             market.OperationScope{AccountID: "account-1"}, Connector: market.Connector{Key: "notion"},
-		Release: market.Release{Version: "1.0.0", Manifest: market.Manifest{AuthorizationKind: "oauth2"}},
+		ReplacementPolicy: contracts.AuthorizationReplacementPolicyReplaceActive,
+		Scope:             contracts.OperationScope{AccountID: "account-1"}, Connector: contracts.Connector{Key: "notion"},
+		Release: contracts.Release{Version: "1.0.0", Manifest: contracts.Manifest{AuthorizationKind: "oauth2"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Cancel(context.Background(), market.AuthorizationCancelRequest{
-		OperationID: "operation-replacement", Scope: market.OperationScope{AccountID: "account-1"}, Session: session,
+	if err := client.Cancel(context.Background(), contracts.AuthorizationCancelRequest{
+		OperationID: "operation-replacement", Scope: contracts.OperationScope{AccountID: "account-1"}, Session: session,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -208,11 +208,11 @@ func TestAuthorizationClientSubmitsNativeSecretWithoutPersistingItInSession(t *t
 		t.Fatal(err)
 	}
 	secret := []byte(token)
-	result, err := client.Begin(context.Background(), market.AuthorizationStartRequest{
+	result, err := client.Begin(context.Background(), contracts.AuthorizationStartRequest{
 		OperationID: "operation-secret-1", ClientRequestID: "request-secret-1", Secret: secret,
-		Scope:     market.OperationScope{AccountID: "account-1"},
-		Connector: market.Connector{Key: "mail"},
-		Release:   market.Release{Version: "2.0.0", Manifest: market.Manifest{AuthorizationKind: "api_key"}},
+		Scope:     contracts.OperationScope{AccountID: "account-1"},
+		Connector: contracts.Connector{Key: "mail"},
+		Release:   contracts.Release{Version: "2.0.0", Manifest: contracts.Manifest{AuthorizationKind: "api_key"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -245,8 +245,8 @@ func TestAuthorizationClientDisconnectsByConnector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Disconnect(context.Background(), market.AuthorizationDisconnectRequest{
-		Scope: market.OperationScope{AccountID: "account-1"}, Connector: market.Connector{Key: "tencent-docs"},
+	if err := client.Disconnect(context.Background(), contracts.AuthorizationDisconnectRequest{
+		Scope: contracts.OperationScope{AccountID: "account-1"}, Connector: contracts.Connector{Key: "tencent-docs"},
 	}); err != nil {
 		t.Fatal(err)
 	}

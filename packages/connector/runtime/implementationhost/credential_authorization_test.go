@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
@@ -27,9 +27,9 @@ func TestAttachCredentialBrokerPreservesEmptyNativeCLIArguments(t *testing.T) {
 		arguments: []string{}, cwd: preparedPath,
 		executable: connectorruntime.ConnectorExecutable{Path: "/managed/lark-cli"},
 	}}
-	err := (&Host{}).attachCredentialBroker(route, &market.ManagedCredentialBroker{
+	err := (&Host{}).attachCredentialBroker(route, &contracts.ManagedCredentialBroker{
 		Entrypoint: "credential-broker.mjs", TimeoutMS: 300_000,
-	}, market.PreparedArtifactReceipt{PreparedPath: preparedPath}, connectorruntime.ConnectorExecutable{}, "", nil)
+	}, contracts.PreparedArtifactReceipt{PreparedPath: preparedPath}, connectorruntime.ConnectorExecutable{}, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,26 +47,26 @@ type credentialAuthorizationHostStub struct {
 	route       *connectorRoute
 	connections []connectorprocess.Connection
 	requests    []credentialBrokerRequest
-	observed    []market.AuthorizationState
+	observed    []contracts.AuthorizationState
 }
 
-func (stub *credentialAuthorizationHostStub) authorizationRoute(context.Context, market.OperationScope, market.Connector) (*connectorRoute, error) {
+func (stub *credentialAuthorizationHostStub) authorizationRoute(context.Context, contracts.OperationScope, contracts.Connector) (*connectorRoute, error) {
 	if stub.route == nil {
 		return nil, errors.New("route unavailable")
 	}
 	return stub.route, nil
 }
 
-func (stub *credentialAuthorizationHostStub) observeAuthorization(_ *connectorRoute, state market.AuthorizationState) {
+func (stub *credentialAuthorizationHostStub) observeAuthorization(_ *connectorRoute, state contracts.AuthorizationState) {
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
 	stub.observed = append(stub.observed, state)
 }
 
-func (stub *credentialAuthorizationHostStub) authorizationObservations() []market.AuthorizationState {
+func (stub *credentialAuthorizationHostStub) authorizationObservations() []contracts.AuthorizationState {
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
-	return append([]market.AuthorizationState(nil), stub.observed...)
+	return append([]contracts.AuthorizationState(nil), stub.observed...)
 }
 
 func (*credentialAuthorizationHostStub) releaseAuthorizationRoute(*connectorRoute) {}
@@ -120,9 +120,9 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
-	request := market.AuthorizationStartRequest{OperationID: "authorize-1", Connector: market.Connector{Key: "lark-cli"}}
+	request := contracts.AuthorizationStartRequest{OperationID: "authorize-1", Connector: contracts.Connector{Key: "lark-cli"}}
 
-	firstResult := make(chan market.AuthorizationSession, 1)
+	firstResult := make(chan contracts.AuthorizationSession, 1)
 	firstError := make(chan error, 1)
 	go func() {
 		session, err := provider.Begin(context.Background(), request)
@@ -134,27 +134,27 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 		t.Fatal(err)
 	}
 	first := <-firstResult
-	if first.State != market.AuthorizationStatePending || first.AuthorizationURL != "https://open.feishu.cn/page/cli?user_code=opaque" {
+	if first.State != contracts.AuthorizationStatePending || first.AuthorizationURL != "https://open.feishu.cn/page/cli?user_code=opaque" {
 		t.Fatalf("first session = %#v", first)
 	}
 
 	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.feishu.cn/device?user_code=user"}` + "\n")}
 	second := awaitAuthorizationSession(t, provider, request, "https://accounts.feishu.cn/device?user_code=user")
-	if second.State != market.AuthorizationStatePending {
+	if second.State != contracts.AuthorizationStatePending {
 		t.Fatalf("second session = %#v", second)
 	}
 
 	exitCode := 0
 	connection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"connected"}` + "\n"), ExitCode: &exitCode}
 	connected := awaitAuthorizationSession(t, provider, request, "")
-	if connected.State != market.AuthorizationStateConnected {
+	if connected.State != contracts.AuthorizationStateConnected {
 		t.Fatalf("connected session = %#v", connected)
 	}
-	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: market.CredentialBrokerProtocolV1, Operation: "begin"}}) {
+	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: contracts.CredentialBrokerProtocolV1, Operation: "begin"}}) {
 		t.Fatalf("broker requests = %#v", host.requests)
 	}
 	observed := awaitAuthorizationObservations(t, host, 3)
-	if !reflect.DeepEqual(observed, []market.AuthorizationState{market.AuthorizationStatePending, market.AuthorizationStatePending, market.AuthorizationStateConnected}) {
+	if !reflect.DeepEqual(observed, []contracts.AuthorizationState{contracts.AuthorizationStatePending, contracts.AuthorizationStatePending, contracts.AuthorizationStateConnected}) {
 		t.Fatalf("authorization observations = %#v", observed)
 	}
 }
@@ -168,11 +168,11 @@ func TestManagedCredentialAuthorizationReturnsDeviceCodeFromBroker(t *testing.T)
 		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
-	result := make(chan market.AuthorizationSession, 1)
+	result := make(chan contracts.AuthorizationSession, 1)
 	resultErr := make(chan error, 1)
 	go func() {
-		session, err := provider.Begin(context.Background(), market.AuthorizationStartRequest{
-			OperationID: "authorize-github", Connector: market.Connector{Key: "github-cli"},
+		session, err := provider.Begin(context.Background(), contracts.AuthorizationStartRequest{
+			OperationID: "authorize-github", Connector: contracts.Connector{Key: "github-cli"},
 		})
 		result <- session
 		resultErr <- err
@@ -197,15 +197,15 @@ func TestManagedCredentialAuthorizationDisconnectUsesBrokerProtocol(t *testing.T
 		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
-	err := provider.Disconnect(context.Background(), market.AuthorizationDisconnectRequest{Connector: market.Connector{Key: "lark-cli"}})
+	err := provider.Disconnect(context.Background(), contracts.AuthorizationDisconnectRequest{Connector: contracts.Connector{Key: "lark-cli"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: market.CredentialBrokerProtocolV1, Operation: "disconnect"}}) {
+	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: contracts.CredentialBrokerProtocolV1, Operation: "disconnect"}}) {
 		t.Fatalf("broker requests = %#v", host.requests)
 	}
 	observed := awaitAuthorizationObservations(t, host, 1)
-	if !reflect.DeepEqual(observed, []market.AuthorizationState{market.AuthorizationStateDisconnected}) {
+	if !reflect.DeepEqual(observed, []contracts.AuthorizationState{contracts.AuthorizationStateDisconnected}) {
 		t.Fatalf("authorization observations = %#v", observed)
 	}
 }
@@ -220,9 +220,9 @@ func TestManagedCredentialAuthorizationInspectReturnsFencedObservation(t *testin
 		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
-	connector := market.Connector{Key: "lark-cli", Release: market.Release{ReleaseDigest: strings.Repeat("a", 64)}}
-	observation, err := provider.Inspect(context.Background(), market.AuthorizationInspectRequest{
-		Scope: market.OperationScope{AccountID: "user-1"}, Connector: connector,
+	connector := contracts.Connector{Key: "lark-cli", Release: contracts.Release{ReleaseDigest: strings.Repeat("a", 64)}}
+	observation, err := provider.Inspect(context.Background(), contracts.AuthorizationInspectRequest{
+		Scope: contracts.OperationScope{AccountID: "user-1"}, Connector: connector,
 		AccountGeneration: 3, VMAssignmentID: "vm-1", AuthorizationSessionID: "auth-1",
 		AuthorizationGeneration: 4, DesktopBootEpoch: "desktop-1", GuestBootID: "guest-1",
 		RuntimeEpoch: "runtime-1", StateRevision: 9,
@@ -230,13 +230,13 @@ func TestManagedCredentialAuthorizationInspectReturnsFencedObservation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.State != market.AuthorizationObservationExpired || observation.FailureCode != "token_expired" ||
+	if observation.State != contracts.AuthorizationObservationExpired || observation.FailureCode != "token_expired" ||
 		observation.AccountID != "user-1" || observation.AccountGeneration != 3 || observation.VMAssignmentID != "vm-1" ||
 		observation.ConnectorKey != "lark-cli" || observation.ConnectionID != "account-1" ||
 		observation.ReleaseDigest != strings.Repeat("a", 64) || observation.StateRevision != 9 || observation.ObservedAt.IsZero() {
 		t.Fatalf("observation = %#v", observation)
 	}
-	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: market.CredentialBrokerProtocolV1, Operation: "inspect"}}) {
+	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: contracts.CredentialBrokerProtocolV1, Operation: "inspect"}}) {
 		t.Fatalf("broker requests = %#v", host.requests)
 	}
 }
@@ -244,45 +244,45 @@ func TestManagedCredentialAuthorizationInspectReturnsFencedObservation(t *testin
 func TestInstallationTargetsReleaseAcceptsOnlyActiveCurrentOrCandidate(t *testing.T) {
 	tests := []struct {
 		name          string
-		installation  market.Installation
+		installation  contracts.Installation
 		releaseDigest string
 		want          bool
 	}{
 		{
 			name: "installed current release",
-			installation: market.Installation{
-				State: market.InstallationStateInstalled, InstalledReleaseDigest: "current",
+			installation: contracts.Installation{
+				State: contracts.InstallationStateInstalled, InstalledReleaseDigest: "current",
 			},
 			releaseDigest: "current",
 			want:          true,
 		},
 		{
 			name: "installing candidate release",
-			installation: market.Installation{
-				State: market.InstallationStateInstalling, CandidateReleaseDigest: "candidate",
+			installation: contracts.Installation{
+				State: contracts.InstallationStateInstalling, CandidateReleaseDigest: "candidate",
 			},
 			releaseDigest: "candidate",
 			want:          true,
 		},
 		{
 			name: "updating candidate release",
-			installation: market.Installation{
-				State: market.InstallationStateUpdating, InstalledReleaseDigest: "current", CandidateReleaseDigest: "candidate",
+			installation: contracts.Installation{
+				State: contracts.InstallationStateUpdating, InstalledReleaseDigest: "current", CandidateReleaseDigest: "candidate",
 			},
 			releaseDigest: "candidate",
 			want:          true,
 		},
 		{
 			name: "updating superseded current release",
-			installation: market.Installation{
-				State: market.InstallationStateUpdating, InstalledReleaseDigest: "current", CandidateReleaseDigest: "candidate",
+			installation: contracts.Installation{
+				State: contracts.InstallationStateUpdating, InstalledReleaseDigest: "current", CandidateReleaseDigest: "candidate",
 			},
 			releaseDigest: "current",
 		},
 		{
 			name: "failed candidate release",
-			installation: market.Installation{
-				State: market.InstallationStateFailed, CandidateReleaseDigest: "candidate",
+			installation: contracts.Installation{
+				State: contracts.InstallationStateFailed, CandidateReleaseDigest: "candidate",
 			},
 			releaseDigest: "candidate",
 		},
@@ -297,7 +297,7 @@ func TestInstallationTargetsReleaseAcceptsOnlyActiveCurrentOrCandidate(t *testin
 	}
 }
 
-func awaitAuthorizationObservations(t *testing.T, host *credentialAuthorizationHostStub, count int) []market.AuthorizationState {
+func awaitAuthorizationObservations(t *testing.T, host *credentialAuthorizationHostStub, count int) []contracts.AuthorizationState {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for {
@@ -321,12 +321,12 @@ func TestManagedCredentialAuthorizationSharesOneBrokerAcrossConcurrentBegins(t *
 		connections: []connectorprocess.Connection{connection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
-	results := make(chan market.AuthorizationSession, 2)
+	results := make(chan contracts.AuthorizationSession, 2)
 	errors := make(chan error, 2)
 	for index := 0; index < 2; index++ {
 		go func() {
-			session, err := provider.Begin(context.Background(), market.AuthorizationStartRequest{
-				OperationID: "authorize", Connector: market.Connector{Key: "example"},
+			session, err := provider.Begin(context.Background(), contracts.AuthorizationStartRequest{
+				OperationID: "authorize", Connector: contracts.Connector{Key: "example"},
 			})
 			results <- session
 			errors <- err
@@ -356,8 +356,8 @@ func TestManagedCredentialAuthorizationRestartsFailedBrokerOnFirstRetry(t *testi
 		route: route, connections: []connectorprocess.Connection{failedConnection, retryConnection},
 	}
 	provider := newManagedCredentialAuthorizationProvider(host)
-	firstRequest := market.AuthorizationStartRequest{OperationID: "authorize-first", Connector: market.Connector{Key: "example"}}
-	firstResult := make(chan market.AuthorizationSession, 1)
+	firstRequest := contracts.AuthorizationStartRequest{OperationID: "authorize-first", Connector: contracts.Connector{Key: "example"}}
+	firstResult := make(chan contracts.AuthorizationSession, 1)
 	firstError := make(chan error, 1)
 	go func() {
 		session, err := provider.Begin(context.Background(), firstRequest)
@@ -376,8 +376,8 @@ func TestManagedCredentialAuthorizationRestartsFailedBrokerOnFirstRetry(t *testi
 	awaitCachedAuthorizationFailure(t, provider, firstRequest.OperationID)
 
 	retryConnection.frames <- connectorprocess.Frame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.example.com/retry"}` + "\n")}
-	retry, err := provider.Begin(context.Background(), market.AuthorizationStartRequest{
-		OperationID: "authorize-retry", Connector: market.Connector{Key: "example"},
+	retry, err := provider.Begin(context.Background(), contracts.AuthorizationStartRequest{
+		OperationID: "authorize-retry", Connector: contracts.Connector{Key: "example"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -397,7 +397,7 @@ func TestManagedCredentialAuthorizationCancelWaitsForBrokerExit(t *testing.T) {
 	}}
 	host := &credentialAuthorizationHostStub{route: route, connections: []connectorprocess.Connection{connection}}
 	provider := newManagedCredentialAuthorizationProvider(host)
-	request := market.AuthorizationStartRequest{OperationID: "authorize-a", Connector: market.Connector{Key: "dingtalk-cli"}}
+	request := contracts.AuthorizationStartRequest{OperationID: "authorize-a", Connector: contracts.Connector{Key: "dingtalk-cli"}}
 	beginDone := make(chan error, 1)
 	go func() {
 		_, err := provider.Begin(context.Background(), request)
@@ -419,7 +419,7 @@ func TestManagedCredentialAuthorizationCancelWaitsForBrokerExit(t *testing.T) {
 	provider.mu.Unlock()
 	cancelDone := make(chan error, 1)
 	go func() {
-		cancelDone <- provider.Cancel(context.Background(), market.AuthorizationCancelRequest{OperationID: request.OperationID})
+		cancelDone <- provider.Cancel(context.Background(), contracts.AuthorizationCancelRequest{OperationID: request.OperationID})
 	}()
 	<-cancelRequested
 	select {
@@ -469,8 +469,8 @@ func TestManagedCredentialAuthorizationRejectsUntrustedURL(t *testing.T) {
 	provider := newManagedCredentialAuthorizationProvider(host)
 	result := make(chan error, 1)
 	go func() {
-		_, err := provider.Begin(context.Background(), market.AuthorizationStartRequest{
-			OperationID: "authorize-unsafe", Connector: market.Connector{Key: "example"},
+		_, err := provider.Begin(context.Background(), contracts.AuthorizationStartRequest{
+			OperationID: "authorize-unsafe", Connector: contracts.Connector{Key: "example"},
 		})
 		result <- err
 	}()
@@ -483,9 +483,9 @@ func TestManagedCredentialAuthorizationRejectsUntrustedURL(t *testing.T) {
 func awaitAuthorizationSession(
 	t *testing.T,
 	provider *managedCredentialAuthorizationProvider,
-	request market.AuthorizationStartRequest,
+	request contracts.AuthorizationStartRequest,
 	wantedURL string,
-) market.AuthorizationSession {
+) contracts.AuthorizationSession {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for {
@@ -494,7 +494,7 @@ func awaitAuthorizationSession(
 			t.Fatal(err)
 		}
 		if session.AuthorizationURL == wantedURL &&
-			(wantedURL != "" || session.State == market.AuthorizationStateConnected) {
+			(wantedURL != "" || session.State == contracts.AuthorizationStateConnected) {
 			return session
 		}
 		if time.Now().After(deadline) {

@@ -3,11 +3,11 @@ package daemon
 import (
 	"context"
 	"errors"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"log/slog"
 	"sync"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
 type OperationExecutor interface {
@@ -22,7 +22,7 @@ type OperationScheduler struct {
 	wait     sync.WaitGroup
 }
 
-var _ market.OperationScheduler = (*OperationScheduler)(nil)
+var _ application.OperationScheduler = (*OperationScheduler)(nil)
 
 func NewOperationScheduler(ctx context.Context) *OperationScheduler {
 	return &OperationScheduler{ctx: ctx, active: make(map[string]struct{})}
@@ -54,7 +54,13 @@ func (scheduler *OperationScheduler) Bind(executor OperationExecutor) error {
 	return nil
 }
 
-func (scheduler *OperationScheduler) Schedule(_ context.Context, operationID string) error {
+func (scheduler *OperationScheduler) Schedule(ctx context.Context, operationID string) error {
+	if ctx == nil {
+		return errors.New("connector market operation schedule context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	scheduler.mu.Lock()
 	if scheduler.executor == nil {
 		scheduler.mu.Unlock()
@@ -63,6 +69,10 @@ func (scheduler *OperationScheduler) Schedule(_ context.Context, operationID str
 	if scheduler.ctx == nil {
 		scheduler.mu.Unlock()
 		return errors.New("connector market operation scheduler is not started")
+	}
+	if err := scheduler.ctx.Err(); err != nil {
+		scheduler.mu.Unlock()
+		return err
 	}
 	if _, running := scheduler.active[operationID]; running {
 		scheduler.mu.Unlock()
@@ -92,7 +102,7 @@ func (scheduler *OperationScheduler) Wait() {
 }
 
 type ChangedEventPublisher interface {
-	PublishConnectorMarketChanged(context.Context, market.ChangedEvent) error
+	PublishConnectorMarketChanged(context.Context, contracts.ChangedEvent) error
 }
 
 const (
@@ -110,7 +120,7 @@ type LifecycleCleanupPolicy struct {
 }
 
 type LifecycleCleanupWorker struct {
-	Store  market.LifecycleCleanupStore
+	Store  application.LifecycleCleanupStore
 	Now    func() time.Time
 	Policy LifecycleCleanupPolicy
 }
@@ -144,12 +154,12 @@ func (worker LifecycleCleanupWorker) Cleanup(ctx context.Context) error {
 	if worker.Now != nil {
 		now = worker.Now().UTC()
 	}
-	request := market.LifecycleCleanupRequest{
+	request := contracts.LifecycleCleanupRequest{
 		TerminalOperationsUpdatedThrough: now.Add(-policy.TerminalOperationRetention),
 		PublishedEventsPublishedThrough:  now.Add(-policy.PublishedEventRetention),
 		BatchSize:                        policy.BatchSize,
 	}
-	var total market.LifecycleCleanupResult
+	var total contracts.LifecycleCleanupResult
 	for {
 		result, err := worker.Store.CleanupLifecycle(ctx, request)
 		if err != nil {
@@ -192,7 +202,7 @@ func normalizedLifecycleCleanupPolicy(policy LifecycleCleanupPolicy) LifecycleCl
 }
 
 type OutboxDispatcher struct {
-	Outbox    market.ChangedEventOutbox
+	Outbox    application.ChangedEventOutbox
 	Publisher ChangedEventPublisher
 	Now       func() time.Time
 	Interval  time.Duration

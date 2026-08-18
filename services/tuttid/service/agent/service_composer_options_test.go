@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 )
@@ -408,13 +408,13 @@ func TestServiceGetComposerOptionsUsesLocalInstalledConnectorCatalog(t *testing.
 	service := newIsolatedAgentService(runtime)
 	service.CapabilityLister = lister
 	service.DesktopPreferencesReader = connectorCatalogPreferencesReader(true)
-	service.ConnectorMarketSnapshots = connectorMarketSnapshotStub{
-		snapshot: market.Snapshot{Connectors: []market.Connector{
+	service.ConnectorMarketPolicy = connectorMarketSnapshotStub{
+		snapshot: contracts.Snapshot{Connectors: []contracts.Connector{
 			localConnectorFixture(
 				"notion",
-				market.InstallationStateInstalled,
-				market.AuthorizationStateDisconnected,
-				market.CompatibilityStateSupported,
+				contracts.InstallationStateInstalled,
+				contracts.AuthorizationStateDisconnected,
+				contracts.CompatibilityStateSupported,
 			),
 		}},
 	}
@@ -439,26 +439,26 @@ func TestServiceGetComposerOptionsUsesCurrentAccountConnectorAuthorization(t *te
 	service := newIsolatedAgentService(runtime)
 	service.DesktopPreferencesReader = connectorCatalogPreferencesReader(true)
 	snapshots := &scopedConnectorMarketSnapshotStub{
-		snapshot: market.Snapshot{Connectors: []market.Connector{
+		snapshot: contracts.Snapshot{Connectors: []contracts.Connector{
 			localConnectorFixture(
 				"github",
-				market.InstallationStateInstalled,
-				market.AuthorizationStateDisconnected,
-				market.CompatibilityStateSupported,
+				contracts.InstallationStateInstalled,
+				contracts.AuthorizationStateDisconnected,
+				contracts.CompatibilityStateSupported,
 			),
 		}},
-		scopedSnapshot: market.Snapshot{Connectors: []market.Connector{
+		scopedSnapshot: contracts.Snapshot{Connectors: []contracts.Connector{
 			localConnectorFixture(
 				"github",
-				market.InstallationStateInstalled,
-				market.AuthorizationStateConnected,
-				market.CompatibilityStateSupported,
+				contracts.InstallationStateInstalled,
+				contracts.AuthorizationStateConnected,
+				contracts.CompatibilityStateSupported,
 			),
 		}},
 	}
-	service.ConnectorMarketSnapshots = snapshots
-	service.ConnectorMarketCurrentScope = func() market.OperationScope {
-		return market.OperationScope{AccountID: "account-1"}
+	service.ConnectorMarketPolicy = snapshots
+	service.ConnectorMarketCurrentScope = func() contracts.OperationScope {
+		return contracts.OperationScope{AccountID: "account-1"}
 	}
 
 	options, err := service.GetComposerOptions(context.Background(), ComposerOptionsInput{

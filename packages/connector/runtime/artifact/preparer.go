@@ -17,7 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const packagedManifestPath = "connector-manifest.json"
@@ -29,9 +30,9 @@ type Fetcher interface {
 
 type FetchRequest struct {
 	OperationID string
-	Scope       market.OperationScope
-	Generation  market.HostGeneration
-	Release     market.Release
+	Scope       contracts.OperationScope
+	Generation  contracts.HostGeneration
+	Release     contracts.Release
 }
 
 type FetchResponse struct {
@@ -71,9 +72,9 @@ type ImporterConfig struct {
 
 type ImportArchiveRequest struct {
 	OperationID string
-	Scope       market.OperationScope
-	Generation  market.HostGeneration
-	Release     market.Release
+	Scope       contracts.OperationScope
+	Generation  contracts.HostGeneration
+	Release     contracts.Release
 	ArchivePath string
 }
 
@@ -90,7 +91,7 @@ type Preparer struct {
 	limits  Limits
 }
 
-var _ market.ArtifactPreparer = (*Preparer)(nil)
+var _ application.ArtifactPreparer = (*Preparer)(nil)
 
 func NewImporter(config ImporterConfig) (*Importer, error) {
 	root, limits, err := validateArtifactRoot(config.RootDir, config.Limits)
@@ -103,51 +104,51 @@ func NewImporter(config ImporterConfig) (*Importer, error) {
 func (importer *Importer) Import(
 	ctx context.Context,
 	request ImportArchiveRequest,
-) (market.PreparedArtifactReceipt, error) {
-	prepareRequest := market.PrepareArtifactRequest{OperationID: request.OperationID, Scope: request.Scope,
+) (contracts.PreparedArtifactReceipt, error) {
+	prepareRequest := contracts.PrepareArtifactRequest{OperationID: request.OperationID, Scope: request.Scope,
 		Generation: request.Generation, Release: request.Release}
 	if err := validatePrepareRequest(prepareRequest); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	if !filepath.IsAbs(request.ArchivePath) {
-		return market.PreparedArtifactReceipt{}, errors.New("connector synchronized archive path must be absolute")
+		return contracts.PreparedArtifactReceipt{}, errors.New("connector synchronized archive path must be absolute")
 	}
 	if err := verifyArtifactFile(request.ArchivePath, request.Release.Artifact); err != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("verify synchronized connector artifact: %w", err)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("verify synchronized connector artifact: %w", err)
 	}
 	return importer.mechanics.importArchive(ctx, prepareRequest, request.ArchivePath)
 }
 
 func (importer *Importer) ResolvePrepared(
 	ctx context.Context,
-	release market.Release,
-) (market.PreparedArtifactReceipt, error) {
+	release contracts.Release,
+) (contracts.PreparedArtifactReceipt, error) {
 	if err := ctx.Err(); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
-	if err := market.ValidateRuntimeReleaseShape(release); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+	if err := contracts.ValidateRuntimeReleaseShape(release); err != nil {
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	target, err := importer.mechanics.preparedPath(release)
 	if err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
-	if receipt, ok := readExistingReceipt(target, market.PrepareArtifactRequest{Release: release}); ok {
+	if receipt, ok := readExistingReceipt(target, contracts.PrepareArtifactRequest{Release: release}); ok {
 		return receipt, nil
 	}
 	if _, statErr := os.Stat(target); errors.Is(statErr, os.ErrNotExist) {
-		return market.PreparedArtifactReceipt{}, market.ErrReleaseInstallationAbsent
+		return contracts.PreparedArtifactReceipt{}, contracts.ErrReleaseInstallationAbsent
 	} else if statErr != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("inspect prepared connector artifact: %w", statErr)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("inspect prepared connector artifact: %w", statErr)
 	}
-	return market.PreparedArtifactReceipt{}, market.ErrReleaseInstallationInvalid
+	return contracts.PreparedArtifactReceipt{}, contracts.ErrReleaseInstallationInvalid
 }
 
-func (importer *Importer) Remove(ctx context.Context, request market.RemoveArtifactRequest) error {
+func (importer *Importer) Remove(ctx context.Context, request contracts.RemoveArtifactRequest) error {
 	return importer.mechanics.removePrepared(ctx, request)
 }
 
-func (importer *Importer) RemoveConnector(ctx context.Context, request market.RemoveConnectorInstallationRequest) error {
+func (importer *Importer) RemoveConnector(ctx context.Context, request contracts.RemoveConnectorInstallationRequest) error {
 	return importer.mechanics.removePreparedConnector(ctx, request.ConnectorKey)
 }
 
@@ -155,27 +156,27 @@ func (importer *Importer) RemoveConnector(ctx context.Context, request market.Re
 // manifest, and full inventory before a durable connector runtime is restored.
 // An invalid prepared tree is rebuilt from the verified artifact blob; a
 // receipt is never treated as an authenticity root by itself.
-func (preparer *Preparer) ResolvePrepared(ctx context.Context, release market.Release) (market.PreparedArtifactReceipt, error) {
+func (preparer *Preparer) ResolvePrepared(ctx context.Context, release contracts.Release) (contracts.PreparedArtifactReceipt, error) {
 	if err := ctx.Err(); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
-	if err := market.ValidateRuntimeReleaseShape(release); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+	if err := contracts.ValidateRuntimeReleaseShape(release); err != nil {
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	target, err := preparer.preparedPath(release)
 	if err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
-	receipt, ok := readExistingReceipt(target, market.PrepareArtifactRequest{Release: release})
+	receipt, ok := readExistingReceipt(target, contracts.PrepareArtifactRequest{Release: release})
 	if ok {
 		return receipt, nil
 	}
 	if _, statErr := os.Stat(target); errors.Is(statErr, os.ErrNotExist) {
-		return market.PreparedArtifactReceipt{}, market.ErrReleaseInstallationAbsent
+		return contracts.PreparedArtifactReceipt{}, contracts.ErrReleaseInstallationAbsent
 	} else if statErr != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("inspect prepared connector artifact: %w", statErr)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("inspect prepared connector artifact: %w", statErr)
 	}
-	return market.PreparedArtifactReceipt{}, market.ErrReleaseInstallationInvalid
+	return contracts.PreparedArtifactReceipt{}, contracts.ErrReleaseInstallationInvalid
 }
 
 func NewPreparer(config Config) (*Preparer, error) {
@@ -196,61 +197,61 @@ func NewPreparer(config Config) (*Preparer, error) {
 
 func (preparer *Preparer) Prepare(
 	ctx context.Context,
-	request market.PrepareArtifactRequest,
-) (market.PreparedArtifactReceipt, error) {
+	request contracts.PrepareArtifactRequest,
+) (contracts.PreparedArtifactReceipt, error) {
 	if err := validatePrepareRequest(request); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	cached, err := preparer.cache.PrepareCandidate(ctx, request)
 	if err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	receipt, err := preparer.importArchive(ctx, request, cached.Path)
 	if err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	if _, err := preparer.cache.PromoteCandidate(ctx, cached, request.Release); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	return receipt, nil
 }
 
 func (preparer *Preparer) importArchive(
 	ctx context.Context,
-	request market.PrepareArtifactRequest,
+	request contracts.PrepareArtifactRequest,
 	archivePath string,
-) (market.PreparedArtifactReceipt, error) {
+) (contracts.PreparedArtifactReceipt, error) {
 	if err := ctx.Err(); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	target, err := preparer.preparedPath(request.Release)
 	if err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	staging := filepath.Join(preparer.rootDir, "staging", request.OperationID)
 	if err := ensureWithin(preparer.rootDir, staging); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	if err := os.RemoveAll(staging); err != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("reset connector artifact staging directory: %w", err)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("reset connector artifact staging directory: %w", err)
 	}
 	if err := os.MkdirAll(staging, 0o700); err != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("create connector artifact staging directory: %w", err)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("create connector artifact staging directory: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
 	extracted := filepath.Join(staging, "extracted")
 	if err := os.MkdirAll(extracted, 0o700); err != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("create connector artifact extraction directory: %w", err)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("create connector artifact extraction directory: %w", err)
 	}
 	if err := preparer.extract(archivePath, request.Release.Artifact.MediaType, extracted); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	if err := verifyPackagedManifest(extracted, request.Release.ManifestDigest); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	inventoryDigest, err := inventoryDigest(extracted)
 	if err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	// A local receipt is not an authenticity root. Reuse is allowed only after
 	// extracting the digest-verified artifact blob for this attempt and proving
@@ -260,7 +261,7 @@ func (preparer *Preparer) importArchive(
 		return existing, nil
 	}
 
-	receipt := market.PreparedArtifactReceipt{
+	receipt := contracts.PreparedArtifactReceipt{
 		OperationID:     request.OperationID,
 		ConnectorKey:    request.Release.ConnectorKey,
 		Version:         request.Release.Version,
@@ -270,35 +271,35 @@ func (preparer *Preparer) importArchive(
 		PreparedPath:    target,
 	}
 	if err := writeReceipt(extracted, receipt); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("create connector prepared parent directory: %w", err)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("create connector prepared parent directory: %w", err)
 	}
 	if err := os.RemoveAll(target); err != nil {
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("replace invalid connector prepared artifact: %w", err)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("replace invalid connector prepared artifact: %w", err)
 	}
 	if err := os.Rename(extracted, target); err != nil {
 		if existing, ok := readExistingReceipt(target, request); ok && existing.InventoryDigest == inventoryDigest {
 			existing.OperationID = request.OperationID
 			return existing, nil
 		}
-		return market.PreparedArtifactReceipt{}, fmt.Errorf("promote connector prepared artifact: %w", err)
+		return contracts.PreparedArtifactReceipt{}, fmt.Errorf("promote connector prepared artifact: %w", err)
 	}
 	if err := syncDirectory(filepath.Dir(target)); err != nil {
-		return market.PreparedArtifactReceipt{}, err
+		return contracts.PreparedArtifactReceipt{}, err
 	}
 	return receipt, nil
 }
 
-func (preparer *Preparer) Remove(ctx context.Context, request market.RemoveArtifactRequest) error {
+func (preparer *Preparer) Remove(ctx context.Context, request contracts.RemoveArtifactRequest) error {
 	if err := preparer.removePrepared(ctx, request); err != nil {
 		return err
 	}
 	return preparer.cache.RemoveConnector(ctx, request.ConnectorKey)
 }
 
-func (preparer *Preparer) RemoveConnector(ctx context.Context, request market.RemoveConnectorInstallationRequest) error {
+func (preparer *Preparer) RemoveConnector(ctx context.Context, request contracts.RemoveConnectorInstallationRequest) error {
 	if err := preparer.removePreparedConnector(ctx, request.ConnectorKey); err != nil {
 		return err
 	}
@@ -322,7 +323,7 @@ func (preparer *Preparer) removePreparedConnector(ctx context.Context, connector
 	return nil
 }
 
-func (preparer *Preparer) removePrepared(ctx context.Context, request market.RemoveArtifactRequest) error {
+func (preparer *Preparer) removePrepared(ctx context.Context, request contracts.RemoveArtifactRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -482,7 +483,7 @@ func (preparer *Preparer) checkExpandedSize(size int64, total *int64, compressed
 	return nil
 }
 
-func (preparer *Preparer) preparedPath(release market.Release) (string, error) {
+func (preparer *Preparer) preparedPath(release contracts.Release) (string, error) {
 	if !safeSegment(release.ConnectorKey) || !safeSegment(release.Version) || !isSHA256(release.ReleaseDigest) {
 		return "", errors.New("connector release identity is not safe for an artifact path")
 	}
@@ -493,11 +494,11 @@ func (preparer *Preparer) preparedPath(release market.Release) (string, error) {
 	return target, nil
 }
 
-func validatePrepareRequest(request market.PrepareArtifactRequest) error {
+func validatePrepareRequest(request contracts.PrepareArtifactRequest) error {
 	if strings.TrimSpace(request.OperationID) == "" || !safeSegment(request.OperationID) {
 		return errors.New("connector artifact operation id is invalid")
 	}
-	return market.ValidateReleaseShape(request.Release)
+	return contracts.ValidateReleaseShape(request.Release)
 }
 
 func validateLimits(limits Limits) error {
@@ -637,7 +638,7 @@ func verifyPackagedManifest(root, expectedDigest string) error {
 	return nil
 }
 
-func verifyArtifactFile(path string, artifact market.Artifact) error {
+func verifyArtifactFile(path string, artifact contracts.Artifact) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -660,7 +661,7 @@ func verifyArtifactFile(path string, artifact market.Artifact) error {
 	return nil
 }
 
-func writeReceipt(root string, receipt market.PreparedArtifactReceipt) error {
+func writeReceipt(root string, receipt contracts.PreparedArtifactReceipt) error {
 	data, err := json.Marshal(receipt)
 	if err != nil {
 		return err
@@ -686,15 +687,15 @@ func writeReceipt(root string, receipt market.PreparedArtifactReceipt) error {
 
 func readExistingReceipt(
 	target string,
-	request market.PrepareArtifactRequest,
-) (market.PreparedArtifactReceipt, bool) {
+	request contracts.PrepareArtifactRequest,
+) (contracts.PreparedArtifactReceipt, bool) {
 	data, err := os.ReadFile(filepath.Join(target, receiptFilename))
 	if err != nil {
-		return market.PreparedArtifactReceipt{}, false
+		return contracts.PreparedArtifactReceipt{}, false
 	}
-	var receipt market.PreparedArtifactReceipt
+	var receipt contracts.PreparedArtifactReceipt
 	if json.Unmarshal(data, &receipt) != nil {
-		return market.PreparedArtifactReceipt{}, false
+		return contracts.PreparedArtifactReceipt{}, false
 	}
 	valid := receipt.ConnectorKey == request.Release.ConnectorKey &&
 		receipt.Version == request.Release.Version &&
@@ -702,12 +703,12 @@ func readExistingReceipt(
 		receipt.ArtifactSHA256 == request.Release.Artifact.SHA256 &&
 		receipt.PreparedPath == target && receipt.InventoryDigest != ""
 	if !valid {
-		return market.PreparedArtifactReceipt{}, false
+		return contracts.PreparedArtifactReceipt{}, false
 	}
 	actualInventory, err := inventoryDigest(target)
 	if err != nil || actualInventory != receipt.InventoryDigest ||
 		verifyPackagedManifest(target, request.Release.ManifestDigest) != nil {
-		return market.PreparedArtifactReceipt{}, false
+		return contracts.PreparedArtifactReceipt{}, false
 	}
 	// The prepared artifact is content-addressed and may be reused by a retry
 	// with a new operation id. Return a receipt fenced to the current attempt.

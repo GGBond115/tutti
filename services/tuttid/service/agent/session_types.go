@@ -11,7 +11,8 @@ import (
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	automationrulebiz "github.com/tutti-os/tutti/services/tuttid/biz/automationrule"
 	modelplanbiz "github.com/tutti-os/tutti/services/tuttid/biz/modelplan"
@@ -73,8 +74,8 @@ type Service struct {
 	BrowserUseAvailable            func() bool
 	ComputerUseAvailable           func() bool
 	CapabilityLister               ComposerCapabilityLister
-	ConnectorMarketSnapshots       market.SnapshotReader
-	ConnectorMarketCurrentScope    func() market.OperationScope
+	ConnectorMarketPolicy          application.AgentConnectorPolicyQueries
+	ConnectorMarketCurrentScope    func() contracts.OperationScope
 	ExtensionComposerProfiles      ExtensionComposerProfileResolver
 	AgentComposerDefaultsReader    AgentComposerDefaultsReader
 	DesktopPreferencesReader       DesktopPreferencesReader

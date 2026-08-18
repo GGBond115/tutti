@@ -9,7 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
@@ -26,22 +27,22 @@ type ManagedRoutePlannerConfig struct {
 	StateRoot        string
 	UserHome         string
 	Runtimes         ConnectorRuntimeResolver
-	CLIInstallations market.CLIInstallationManager
+	CLIInstallations application.CLIInstallationManager
 }
 
 type ManagedRoutePlanner struct {
 	stateRoot        string
 	userHome         string
 	runtimes         ConnectorRuntimeResolver
-	cliInstallations market.CLIInstallationManager
+	cliInstallations application.CLIInstallationManager
 }
 
 type ManagedRoutePlan struct {
-	Managed       *market.ManagedStdioImplementation
-	Prepared      market.PreparedArtifactReceipt
+	Managed       *contracts.ManagedStdioImplementation
+	Prepared      contracts.PreparedArtifactReceipt
 	Resolved      ResolvedConnectorRuntime
 	Executable    ConnectorExecutable
-	InstalledCLI  *market.CLIInstallationReceipt
+	InstalledCLI  *contracts.CLIInstallationReceipt
 	StateDir      string
 	UserHome      string
 	ArtifactTrees []connectorprocess.ArtifactTreeIdentity
@@ -57,9 +58,9 @@ func NewManagedRoutePlanner(config ManagedRoutePlannerConfig) (*ManagedRoutePlan
 
 // Build verifies the portable managed-runtime contract before a host adapter
 // binds protocol-specific MCP/CLI capabilities.
-func (planner *ManagedRoutePlanner) Build(ctx context.Context, request market.RuntimeReconcileRequest, prepared market.PreparedArtifactReceipt) (ManagedRoutePlan, error) {
+func (planner *ManagedRoutePlanner) Build(ctx context.Context, request contracts.RuntimeReconcileRequest, prepared contracts.PreparedArtifactReceipt) (ManagedRoutePlan, error) {
 	implementation := request.Connector.Release.Manifest.Implementation
-	if implementation.Kind != market.ImplementationKindManagedStdio || implementation.ManagedStdio == nil {
+	if implementation.Kind != contracts.ImplementationKindManagedStdio || implementation.ManagedStdio == nil {
 		return ManagedRoutePlan{}, errors.New("only managed_stdio connector implementations are supported")
 	}
 	managed := implementation.ManagedStdio
@@ -79,7 +80,7 @@ func (planner *ManagedRoutePlanner) Build(ctx context.Context, request market.Ru
 		return ManagedRoutePlan{}, err
 	}
 	artifactTrees := []connectorprocess.ArtifactTreeIdentity{{Root: prepared.PreparedPath, SHA256: prepared.InventoryDigest}}
-	var installed *market.CLIInstallationReceipt
+	var installed *contracts.CLIInstallationReceipt
 	if managed.CLI != nil && managed.CLI.Install != nil {
 		if planner.cliInstallations == nil {
 			return ManagedRoutePlan{}, errors.New("connector CLI installation resolver is unavailable")

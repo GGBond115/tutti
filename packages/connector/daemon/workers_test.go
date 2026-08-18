@@ -2,11 +2,10 @@ package daemon
 
 import (
 	"context"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"sync"
 	"testing"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
 func TestOperationSchedulerDeduplicatesActiveOperation(t *testing.T) {
@@ -46,7 +45,7 @@ func (executor *blockingExecutor) ExecuteOperation(context.Context, string) erro
 }
 
 func TestOutboxDispatcherMarksOnlyPublishedEvents(t *testing.T) {
-	outbox := &memoryOutbox{entries: []market.ChangedEventRecord{{Sequence: 1, Event: market.ChangedEvent{Revision: 2}}}}
+	outbox := &memoryOutbox{entries: []contracts.ChangedEventRecord{{Sequence: 1, Event: contracts.ChangedEvent{Revision: 2}}}}
 	publisher := &memoryPublisher{}
 	dispatcher := OutboxDispatcher{Outbox: outbox, Publisher: publisher, Now: func() time.Time { return time.Unix(10, 0) }}
 	if err := dispatcher.Flush(context.Background()); err != nil {
@@ -110,7 +109,7 @@ func TestLifecycleCleanupWorkerRunsAtStartupAndPeriodically(t *testing.T) {
 }
 
 func TestLifecycleCleanupWorkerDrainsBacklogInBoundedTransactions(t *testing.T) {
-	store := &memoryLifecycleCleanupStore{results: []market.LifecycleCleanupResult{
+	store := &memoryLifecycleCleanupStore{results: []contracts.LifecycleCleanupResult{
 		{TerminalOperationsDeleted: 5, PublishedEventsDeleted: 5},
 		{TerminalOperationsDeleted: 5},
 		{TerminalOperationsDeleted: 1},
@@ -132,15 +131,15 @@ func TestLifecycleCleanupWorkerDrainsBacklogInBoundedTransactions(t *testing.T) 
 
 type memoryLifecycleCleanupStore struct {
 	mu       sync.Mutex
-	requests []market.LifecycleCleanupRequest
-	results  []market.LifecycleCleanupResult
+	requests []contracts.LifecycleCleanupRequest
+	results  []contracts.LifecycleCleanupResult
 	called   chan struct{}
 }
 
-func (store *memoryLifecycleCleanupStore) CleanupLifecycle(_ context.Context, request market.LifecycleCleanupRequest) (market.LifecycleCleanupResult, error) {
+func (store *memoryLifecycleCleanupStore) CleanupLifecycle(_ context.Context, request contracts.LifecycleCleanupRequest) (contracts.LifecycleCleanupResult, error) {
 	store.mu.Lock()
 	store.requests = append(store.requests, request)
-	var result market.LifecycleCleanupResult
+	var result contracts.LifecycleCleanupResult
 	if len(store.results) > 0 {
 		result = store.results[0]
 		store.results = store.results[1:]
@@ -152,19 +151,19 @@ func (store *memoryLifecycleCleanupStore) CleanupLifecycle(_ context.Context, re
 	return result, nil
 }
 
-func (store *memoryLifecycleCleanupStore) snapshot() []market.LifecycleCleanupRequest {
+func (store *memoryLifecycleCleanupStore) snapshot() []contracts.LifecycleCleanupRequest {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	return append([]market.LifecycleCleanupRequest(nil), store.requests...)
+	return append([]contracts.LifecycleCleanupRequest(nil), store.requests...)
 }
 
 type memoryOutbox struct {
-	entries []market.ChangedEventRecord
+	entries []contracts.ChangedEventRecord
 	marked  []int64
 }
 
-func (outbox *memoryOutbox) PendingChangedEvents(context.Context, int) ([]market.ChangedEventRecord, error) {
-	pending := make([]market.ChangedEventRecord, 0, len(outbox.entries))
+func (outbox *memoryOutbox) PendingChangedEvents(context.Context, int) ([]contracts.ChangedEventRecord, error) {
+	pending := make([]contracts.ChangedEventRecord, 0, len(outbox.entries))
 	for _, entry := range outbox.entries {
 		alreadyMarked := false
 		for _, sequence := range outbox.marked {
@@ -182,9 +181,9 @@ func (outbox *memoryOutbox) MarkChangedEventPublished(_ context.Context, sequenc
 	return nil
 }
 
-type memoryPublisher struct{ events []market.ChangedEvent }
+type memoryPublisher struct{ events []contracts.ChangedEvent }
 
-func (publisher *memoryPublisher) PublishConnectorMarketChanged(_ context.Context, event market.ChangedEvent) error {
+func (publisher *memoryPublisher) PublishConnectorMarketChanged(_ context.Context, event contracts.ChangedEvent) error {
 	publisher.events = append(publisher.events, event)
 	return nil
 }

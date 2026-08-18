@@ -2,12 +2,11 @@ package agent
 
 import (
 	"context"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
 type blockingComposerModelCatalog struct {
@@ -157,13 +156,13 @@ func TestServiceGetComposerOptionsConnectorsDoesNotStartProviderCatalogs(t *test
 	service.ModelCatalog = modelCatalog
 	service.CapabilityLister = capabilityLister
 	service.DesktopPreferencesReader = connectorCatalogPreferencesReader(true)
-	service.ConnectorMarketSnapshots = connectorMarketSnapshotStub{
-		snapshot: market.Snapshot{Connectors: []market.Connector{
+	service.ConnectorMarketPolicy = connectorMarketSnapshotStub{
+		snapshot: contracts.Snapshot{Connectors: []contracts.Connector{
 			localConnectorFixture(
 				"google-calendar",
-				market.InstallationStateInstalled,
-				market.AuthorizationStateConnected,
-				market.CompatibilityStateSupported,
+				contracts.InstallationStateInstalled,
+				contracts.AuthorizationStateConnected,
+				contracts.CompatibilityStateSupported,
 			),
 		}},
 	}

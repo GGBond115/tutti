@@ -325,12 +325,13 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 			connectorsVisible, connectorVisibleErr = s.connectorCatalogVisible(capabilityContext)
 			return nil
 		})
-		if s.ConnectorMarketSnapshots != nil {
+		if s.ConnectorMarketPolicy != nil {
 			capabilityGroup.Go(func() error {
 				localConnectors, localConnectorsErr = localConnectorCapabilityOptions(
 					capabilityContext,
-					s.ConnectorMarketSnapshots,
+					s.ConnectorMarketPolicy,
 					s.ConnectorMarketCurrentScope,
+					input.AgentTargetID,
 				)
 				return nil
 			})
@@ -341,7 +342,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		}
 		if !connectorsVisible {
 			capabilityCatalog = replaceComposerConnectorCapabilities(capabilityCatalog, nil)
-		} else if s.ConnectorMarketSnapshots != nil {
+		} else if s.ConnectorMarketPolicy != nil {
 			if localConnectorsErr != nil {
 				capabilityErrors = append(capabilityErrors, "load local connectors: "+localConnectorsErr.Error())
 			}

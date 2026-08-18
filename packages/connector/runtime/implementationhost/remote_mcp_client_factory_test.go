@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
 )
 
@@ -50,17 +50,17 @@ func TestBuildRemoteRouteUsesProductClientFactoryWithLifecycleIdentity(t *testin
 	client := &remoteMCPClientStub{}
 	factory := &remoteMCPFactoryRecorder{client: client}
 	host := &Host{remoteMCPClientFactory: factory}
-	implementation := market.RemoteStreamableHTTPImplementation{
+	implementation := contracts.RemoteStreamableHTTPImplementation{
 		ProtocolVersion: mcp.ModernProtocolVersion, BindingRef: "documents.primary", ContractVersion: 1,
 		BindingContractHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	}
-	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 7}
-	request := market.RuntimeReconcileRequest{
-		OperationID: "operation-1", ConnectionID: "connection-1", Scope: market.OperationScope{AccountID: "account-1"},
-		Connector: market.Connector{Key: "documents", Release: market.Release{
+	generation := contracts.HostGeneration{BootEpoch: "boot-1", Generation: 7}
+	request := contracts.RuntimeReconcileRequest{
+		OperationID: "operation-1", ConnectionID: "connection-1", Scope: contracts.OperationScope{AccountID: "account-1"},
+		Connector: contracts.Connector{Key: "documents", Release: contracts.Release{
 			Version: "1.2.3", ReleaseDigest: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-			Manifest: market.Manifest{Implementation: market.Implementation{
-				Kind: market.ImplementationKindRemoteStreamableHTTP, RemoteStreamableHTTP: &implementation,
+			Manifest: contracts.Manifest{Implementation: contracts.Implementation{
+				Kind: contracts.ImplementationKindRemoteStreamableHTTP, RemoteStreamableHTTP: &implementation,
 			}},
 		}},
 		Generation: generation,

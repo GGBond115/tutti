@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestInspectSkillsValidatesAndProjectsRecursiveTree(t *testing.T) {
@@ -84,19 +86,19 @@ func TestInspectSkillsBoundsSkillCount(t *testing.T) {
 }
 
 func TestValidateSkillSummariesBoundsFieldsAndTotalProjection(t *testing.T) {
-	valid := SkillSummary{Name: "calendar", Title: "Calendar", Description: "Manage calendar events"}
+	valid := contracts.ConnectorSkillSummary{Name: "calendar", Title: "Calendar", Description: "Manage calendar events"}
 	tests := []struct {
 		name      string
-		summaries []SkillSummary
+		summaries []contracts.ConnectorSkillSummary
 		want      string
 	}{
-		{name: "name", summaries: []SkillSummary{{Name: strings.Repeat("n", ConnectorSkillNameMaxBytes+1), Title: valid.Title, Description: valid.Description}}, want: "name exceeds"},
-		{name: "title", summaries: []SkillSummary{{Name: valid.Name, Title: strings.Repeat("t", ConnectorSkillTitleMaxBytes+1), Description: valid.Description}}, want: "title exceeds"},
-		{name: "description", summaries: []SkillSummary{{Name: valid.Name, Title: valid.Title, Description: strings.Repeat("d", ConnectorSkillDescriptionMaxBytes+1)}}, want: "description exceeds"},
-		{name: "total", summaries: func() []SkillSummary {
-			result := make([]SkillSummary, connectorSkillMaxCount)
+		{name: "name", summaries: []contracts.ConnectorSkillSummary{{Name: strings.Repeat("n", contracts.ConnectorSkillNameMaxBytes+1), Title: valid.Title, Description: valid.Description}}, want: "name exceeds"},
+		{name: "title", summaries: []contracts.ConnectorSkillSummary{{Name: valid.Name, Title: strings.Repeat("t", contracts.ConnectorSkillTitleMaxBytes+1), Description: valid.Description}}, want: "title exceeds"},
+		{name: "description", summaries: []contracts.ConnectorSkillSummary{{Name: valid.Name, Title: valid.Title, Description: strings.Repeat("d", contracts.ConnectorSkillDescriptionMaxBytes+1)}}, want: "description exceeds"},
+		{name: "total", summaries: func() []contracts.ConnectorSkillSummary {
+			result := make([]contracts.ConnectorSkillSummary, connectorSkillMaxCount)
 			for index := range result {
-				result[index] = SkillSummary{Name: fmt.Sprintf("skill-%03d", index), Title: strings.Repeat("t", ConnectorSkillTitleMaxBytes), Description: strings.Repeat("d", ConnectorSkillDescriptionMaxBytes)}
+				result[index] = contracts.ConnectorSkillSummary{Name: fmt.Sprintf("skill-%03d", index), Title: strings.Repeat("t", contracts.ConnectorSkillTitleMaxBytes), Description: strings.Repeat("d", contracts.ConnectorSkillDescriptionMaxBytes)}
 			}
 			return result
 		}(), want: "projection exceeds"},

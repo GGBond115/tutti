@@ -17,7 +17,8 @@ import (
 	"sync"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
 	"github.com/tutti-os/tutti/packages/connector/runtime/command"
@@ -26,11 +27,11 @@ import (
 )
 
 type PreparedArtifactResolver interface {
-	ResolvePrepared(context.Context, market.Release) (market.PreparedArtifactReceipt, error)
+	ResolvePrepared(context.Context, contracts.Release) (contracts.PreparedArtifactReceipt, error)
 }
 
 type ReconcileRequest struct {
-	Runtime market.RuntimeReconcileRequest
+	Runtime contracts.RuntimeReconcileRequest
 }
 
 // RemoteMCPClient is the protocol client required by one remote Connector
@@ -54,8 +55,8 @@ type RemoteMCPClientRequest struct {
 	AccountID      string
 	ReleaseDigest  string
 	Version        string
-	Generation     market.HostGeneration
-	Implementation market.RemoteStreamableHTTPImplementation
+	Generation     contracts.HostGeneration
+	Implementation contracts.RemoteStreamableHTTPImplementation
 }
 
 // RemoteMCPClientFactory is the product port for remote Connector MCP
@@ -68,7 +69,7 @@ type RemoteMCPClientFactory interface {
 
 type Config struct {
 	Artifacts              PreparedArtifactResolver
-	CLIInstallations       market.CLIInstallationManager
+	CLIInstallations       application.CLIInstallationManager
 	Runtimes               connectorruntime.ConnectorRuntimeResolver
 	Processes              connectorprocess.Transport
 	Authorization          AuthorizationObserver
@@ -109,7 +110,7 @@ type connectorRoute struct {
 	connectorKey           string
 	connectorVersion       string
 	releaseDigest          string
-	generation             market.HostGeneration
+	generation             contracts.HostGeneration
 	mcpTools               map[string]registeredMCPTool
 	closeMu                sync.Mutex
 	mcpClient              *mcp.StdioClient
@@ -120,7 +121,7 @@ type connectorRoute struct {
 	description            string
 	routingAliases         []string
 	skillRoot              string
-	skills                 []connectorartifact.SkillSummary
+	skills                 []contracts.ConnectorSkillSummary
 	processes              *connectorprocess.Group
 	snapshots              *connectorruntime.ExecutionSnapshotter
 	userHome               string
@@ -128,11 +129,11 @@ type connectorRoute struct {
 	cliCommand             string
 	cliInvocationCommand   string
 	cliContractHash        string
-	cliCommands            []market.CLICommand
+	cliCommands            []contracts.CLICommand
 	cliShimPath            string
 	cliShimContent         []byte
 	credentialBrokerLaunch *managedCredentialBrokerLaunch
-	readiness              market.RuntimeReadiness
+	readiness              contracts.RuntimeReadiness
 }
 
 func New(config Config) (*Host, error) {
@@ -190,11 +191,11 @@ func New(config Config) (*Host, error) {
 	return host, nil
 }
 
-func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (market.RuntimeReceipt, error) {
+func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (contracts.RuntimeReceipt, error) {
 	runtimeRequest := request.Runtime
 	if host == nil || !hostIdentityPattern.MatchString(runtimeRequest.ConnectionID) ||
 		!hostIdentityPattern.MatchString(runtimeRequest.Connector.Key) || runtimeRequest.Generation.BootEpoch == "" || runtimeRequest.Generation.Generation == 0 {
-		return market.RuntimeReceipt{}, errors.New("connector runtime reconcile identity is invalid")
+		return contracts.RuntimeReceipt{}, errors.New("connector runtime reconcile identity is invalid")
 	}
 	releaseLane := host.enterConnectorLane(runtimeRequest.Connector.Key)
 	defer releaseLane()
@@ -203,63 +204,63 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		// present. Disabled is connector-level desired state, so convergence must
 		// fence every route and authorization session for the connector instead
 		// of removing only the latest route key.
-		if err := host.deactivateConnector(market.RuntimeDeactivationRequest{
+		if err := host.deactivateConnector(contracts.RuntimeDeactivationRequest{
 			ConnectionID:   runtimeRequest.ConnectionID,
 			ConnectorKey:   runtimeRequest.Connector.Key,
 			AllConnections: true,
 			Generation:     runtimeRequest.Generation,
 			Deadline:       time.Now().Add(3 * time.Second),
 		}); err != nil {
-			return market.RuntimeReceipt{}, err
+			return contracts.RuntimeReceipt{}, err
 		}
-		return market.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
+		return contracts.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
 			ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: runtimeRequest.Connector.Release.ReleaseDigest,
 			Generation: runtimeRequest.Generation,
-			Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessBlocked,
-				ReasonCode: market.RuntimeReadinessReasonRuntimeDisabled}}, nil
+			Readiness: contracts.RuntimeReadiness{State: contracts.RuntimeReadinessBlocked,
+				ReasonCode: contracts.RuntimeReadinessReasonRuntimeDisabled}}, nil
 	}
-	if err := market.ValidateRuntimeReleaseShape(runtimeRequest.Connector.Release); err != nil {
-		return market.RuntimeReceipt{}, err
+	if err := contracts.ValidateRuntimeReleaseShape(runtimeRequest.Connector.Release); err != nil {
+		return contracts.RuntimeReceipt{}, err
 	}
 	key := connectorRouteKey(runtimeRequest.ConnectionID, runtimeRequest.Connector.Key)
 	if !installationTargetsRelease(runtimeRequest.Connector.Installation, runtimeRequest.Connector.Release.ReleaseDigest) {
-		return market.RuntimeReceipt{}, errors.New("connector installed release is not active")
+		return contracts.RuntimeReceipt{}, errors.New("connector installed release is not active")
 	}
 	if err := host.validateAuthorization(runtimeRequest); err != nil {
-		return market.RuntimeReceipt{}, err
+		return contracts.RuntimeReceipt{}, err
 	}
 	var route *connectorRoute
 	var err error
-	if runtimeRequest.Connector.Release.Manifest.Implementation.Kind == market.ImplementationKindRemoteStreamableHTTP {
+	if runtimeRequest.Connector.Release.Manifest.Implementation.Kind == contracts.ImplementationKindRemoteStreamableHTTP {
 		route, err = host.buildRemoteRoute(ctx, runtimeRequest)
 		if err == nil {
 			prepared, resolveErr := host.artifacts.ResolvePrepared(ctx, runtimeRequest.Connector.Release)
 			if resolveErr != nil {
 				_ = route.Close(time.Now().Add(3 * time.Second))
-				return market.RuntimeReceipt{}, fmt.Errorf("resolve remote connector artifact: %w", resolveErr)
+				return contracts.RuntimeReceipt{}, fmt.Errorf("resolve remote connector artifact: %w", resolveErr)
 			}
 			route.installedRoot = prepared.PreparedPath
 		}
 	} else {
 		prepared, resolveErr := host.artifacts.ResolvePrepared(ctx, runtimeRequest.Connector.Release)
 		if resolveErr != nil {
-			return market.RuntimeReceipt{}, fmt.Errorf("resolve prepared connector artifact: %w", resolveErr)
+			return contracts.RuntimeReceipt{}, fmt.Errorf("resolve prepared connector artifact: %w", resolveErr)
 		}
 		installedRoot := prepared.PreparedPath
 		executionRoot, snapshotErr := host.snapshots.Create(prepared, artifactNativeEntrypoints(runtimeRequest.Connector.Release)...)
 		if snapshotErr != nil {
-			return market.RuntimeReceipt{}, fmt.Errorf("create connector execution snapshot: %w", snapshotErr)
+			return contracts.RuntimeReceipt{}, fmt.Errorf("create connector execution snapshot: %w", snapshotErr)
 		}
 		prepared.PreparedPath = executionRoot
 		route, err = host.buildManagedRoute(ctx, runtimeRequest, prepared)
 		if err != nil {
 			_ = host.snapshots.Remove(executionRoot)
-			return market.RuntimeReceipt{}, err
+			return contracts.RuntimeReceipt{}, err
 		}
 		route.executionRoot, route.installedRoot = executionRoot, installedRoot
 	}
 	if err != nil {
-		return market.RuntimeReceipt{}, err
+		return contracts.RuntimeReceipt{}, err
 	}
 	route.displayName = runtimeRequest.Connector.Release.Manifest.DisplayName
 	route.description = runtimeRequest.Connector.Release.Manifest.Description
@@ -270,23 +271,23 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 	skillProjection, err := connectorartifact.InspectSkills(route.installedRoot)
 	if err != nil {
 		_ = route.Close(time.Now().Add(3 * time.Second))
-		return market.RuntimeReceipt{}, fmt.Errorf("inspect connector Skills: %w", err)
+		return contracts.RuntimeReceipt{}, fmt.Errorf("inspect connector Skills: %w", err)
 	}
 	route.skillRoot = skillProjection.Root
-	route.skills = append([]connectorartifact.SkillSummary(nil), skillProjection.Skills...)
+	route.skills = append([]contracts.ConnectorSkillSummary(nil), skillProjection.Skills...)
 	if route.readiness.State == "" {
 		route.readiness = readyRuntimeReadiness(route)
 	}
 	previous, _ := host.routes.Route(key).(*connectorRoute)
 	if err := route.activateCLIShim(); err != nil {
 		_ = route.Close(time.Now().Add(3 * time.Second))
-		return market.RuntimeReceipt{}, err
+		return contracts.RuntimeReceipt{}, err
 	}
 	host.routeObservationMu.Lock()
 	commitErr := host.routes.Commit(route)
 	committed := host.routes.IsCurrent(route)
 	if committed {
-		host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(route))
+		host.observations.publish(contracts.PhysicalRouteEventChanged, physicalRoute(route))
 	}
 	host.routeObservationMu.Unlock()
 	if commitErr != nil {
@@ -301,7 +302,7 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 			}
 			_ = route.Close(time.Now().Add(3 * time.Second))
 		}
-		return market.RuntimeReceipt{}, commitErr
+		return contracts.RuntimeReceipt{}, commitErr
 	}
 	host.releaseAuthorizationRouteByKey(key)
 	host.notifyRouteChanged()
@@ -309,39 +310,39 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 		go host.monitorMCPRoute(route, route.mcpClient)
 	}
 	summary := connectorSummaryFromDescriptor(routeDescriptor(route))
-	return market.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
+	return contracts.RuntimeReceipt{OperationID: runtimeRequest.OperationID, ConnectionID: runtimeRequest.ConnectionID,
 		ConnectorKey: runtimeRequest.Connector.Key, ReleaseDigest: route.releaseDigest,
 		Generation: runtimeRequest.Generation, Readiness: cloneRuntimeReadiness(route.readiness), Summary: &summary}, nil
 }
 
-func installationTargetsRelease(installation market.Installation, releaseDigest string) bool {
+func installationTargetsRelease(installation contracts.Installation, releaseDigest string) bool {
 	switch installation.State {
-	case market.InstallationStateInstalled:
+	case contracts.InstallationStateInstalled:
 		return installation.InstalledReleaseDigest == releaseDigest
-	case market.InstallationStateInstalling, market.InstallationStateUpdating:
+	case contracts.InstallationStateInstalling, contracts.InstallationStateUpdating:
 		return installation.CandidateReleaseDigest == releaseDigest
 	default:
 		return false
 	}
 }
 
-func (*Host) validateAuthorization(request market.RuntimeReconcileRequest) error {
+func (*Host) validateAuthorization(request contracts.RuntimeReconcileRequest) error {
 	authKind := request.Connector.Release.Manifest.AuthorizationKind
-	if request.Connector.Release.Manifest.Implementation.Kind == market.ImplementationKindRemoteStreamableHTTP {
+	if request.Connector.Release.Manifest.Implementation.Kind == contracts.ImplementationKindRemoteStreamableHTTP {
 		if authKind == "none" {
-			if request.Connector.Authorization.State != market.AuthorizationStateNotRequired {
+			if request.Connector.Authorization.State != contracts.AuthorizationStateNotRequired {
 				return errors.New("authorization-free connector has an invalid credential binding")
 			}
 			return nil
 		}
-		if request.Connector.Authorization.State != market.AuthorizationStateConnected {
+		if request.Connector.Authorization.State != contracts.AuthorizationStateConnected {
 			return errors.New("authorized remote connector is not connected")
 		}
 		return nil
 	}
 	managed := request.Connector.Release.Manifest.Implementation.ManagedStdio
 	if authKind == "none" {
-		if request.Connector.Authorization.State != market.AuthorizationStateNotRequired {
+		if request.Connector.Authorization.State != contracts.AuthorizationStateNotRequired {
 			return errors.New("authorization-free connector has an invalid credential binding")
 		}
 		return nil
@@ -349,13 +350,13 @@ func (*Host) validateAuthorization(request market.RuntimeReconcileRequest) error
 	if managed == nil || managed.CredentialBroker == nil {
 		return errors.New("authorized connector credential broker binding is unavailable")
 	}
-	if request.Connector.Authorization.State != market.AuthorizationStateConnected {
+	if request.Connector.Authorization.State != contracts.AuthorizationStateConnected {
 		return errors.New("authorized managed connector is not connected")
 	}
 	return nil
 }
 
-func newConnectorRoute(request market.RuntimeReconcileRequest) *connectorRoute {
+func newConnectorRoute(request contracts.RuntimeReconcileRequest) *connectorRoute {
 	return &connectorRoute{id: connectorRouteKey(request.ConnectionID, request.Connector.Key), connectionID: request.ConnectionID,
 		connectorKey: request.Connector.Key, connectorVersion: request.Connector.Release.Version,
 		releaseDigest: request.Connector.Release.ReleaseDigest,
@@ -365,37 +366,37 @@ func newConnectorRoute(request market.RuntimeReconcileRequest) *connectorRoute {
 
 // Snapshot returns bounded, level-triggered physical route truth. It is
 // independent from capability publication and excludes fenced retiring routes.
-func (host *Host) Snapshot(ctx context.Context) (market.PhysicalRouteSnapshot, error) {
+func (host *Host) Snapshot(ctx context.Context) (contracts.PhysicalRouteSnapshot, error) {
 	if host == nil || host.routes == nil || host.observations == nil {
-		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route observation is unavailable")
+		return contracts.PhysicalRouteSnapshot{}, errors.New("connector physical route observation is unavailable")
 	}
 	if ctx == nil {
-		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route snapshot context is required")
+		return contracts.PhysicalRouteSnapshot{}, errors.New("connector physical route snapshot context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return market.PhysicalRouteSnapshot{}, err
+		return contracts.PhysicalRouteSnapshot{}, err
 	}
 	host.routeObservationMu.RLock()
 	defer host.routeObservationMu.RUnlock()
 	active := host.routes.ActiveRoutes()
 	if len(active) > maxPhysicalRouteSnapshot {
-		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route snapshot exceeds limit")
+		return contracts.PhysicalRouteSnapshot{}, errors.New("connector physical route snapshot exceeds limit")
 	}
-	routes := make([]market.PhysicalRoute, 0, len(active))
+	routes := make([]contracts.PhysicalRoute, 0, len(active))
 	for _, route := range active {
 		candidate, ok := route.(*connectorRoute)
 		if !ok {
-			return market.PhysicalRouteSnapshot{}, errors.New("connector physical route has an unsupported implementation")
+			return contracts.PhysicalRouteSnapshot{}, errors.New("connector physical route has an unsupported implementation")
 		}
 		routes = append(routes, physicalRoute(candidate))
 	}
 	sortPhysicalRoutes(routes)
-	return market.PhysicalRouteSnapshot{Revision: host.observations.currentRevision(), Routes: routes}, nil
+	return contracts.PhysicalRouteSnapshot{Revision: host.observations.currentRevision(), Routes: routes}, nil
 }
 
-func (host *Host) Watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+func (host *Host) Watch(ctx context.Context) (contracts.PhysicalRouteWatch, error) {
 	if host == nil || host.observations == nil {
-		return market.PhysicalRouteWatch{}, errors.New("connector physical route observation is unavailable")
+		return contracts.PhysicalRouteWatch{}, errors.New("connector physical route observation is unavailable")
 	}
 	return host.observations.watch(ctx)
 }
@@ -419,7 +420,7 @@ func (host *Host) Close() error {
 	routeCloseErr := host.routes.Close(deadline)
 	for _, route := range physicalRoutes {
 		if candidate, ok := route.(*connectorRoute); ok {
-			host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(candidate))
+			host.observations.publish(contracts.PhysicalRouteEventChanged, physicalRoute(candidate))
 		}
 	}
 	host.observations.close()
@@ -451,7 +452,7 @@ func (host *Host) FenceAll(_ context.Context, deadline time.Time) error {
 	host.notifyRouteChanged()
 	for _, route := range routes {
 		if candidate, ok := route.(*connectorRoute); ok {
-			host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(candidate))
+			host.observations.publish(contracts.PhysicalRouteEventChanged, physicalRoute(candidate))
 		}
 	}
 	host.routeObservationMu.Unlock()
@@ -466,7 +467,7 @@ func (host *Host) FailClosed(ctx context.Context, deadline time.Time) error {
 	return host.FenceAll(ctx, deadline)
 }
 
-func (host *Host) DeactivateRuntime(ctx context.Context, request market.RuntimeDeactivationRequest) error {
+func (host *Host) DeactivateRuntime(ctx context.Context, request contracts.RuntimeDeactivationRequest) error {
 	if host == nil {
 		return errors.New("connector implementation host is unavailable")
 	}
@@ -487,7 +488,7 @@ func (host *Host) DeactivateRuntime(ctx context.Context, request market.RuntimeD
 	err := host.routes.Remove(key, request.Generation, request.ReleaseDigest, request.Deadline)
 	host.notifyRouteChanged()
 	if removed != nil && !host.routes.IsCurrent(removed) {
-		host.observations.publish(market.PhysicalRouteEventChanged, physicalRoute(removed))
+		host.observations.publish(contracts.PhysicalRouteEventChanged, physicalRoute(removed))
 	}
 	host.routeObservationMu.Unlock()
 	return err
@@ -512,8 +513,8 @@ func (host *Host) enterConnectorLane(connectorKey string) func() {
 	}
 }
 
-func (host *Host) buildManagedRoute(ctx context.Context, request market.RuntimeReconcileRequest,
-	prepared market.PreparedArtifactReceipt) (*connectorRoute, error) {
+func (host *Host) buildManagedRoute(ctx context.Context, request contracts.RuntimeReconcileRequest,
+	prepared contracts.PreparedArtifactReceipt) (*connectorRoute, error) {
 	plan, err := host.planner.Build(ctx, request, prepared)
 	if err != nil {
 		return nil, err
@@ -557,8 +558,8 @@ func (host *Host) buildManagedRoute(ctx context.Context, request market.RuntimeR
 var mcpLocalToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]*$`)
 var hostIdentityPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$`)
 
-func (*Host) attachCredentialBroker(route *connectorRoute, broker *market.ManagedCredentialBroker,
-	prepared market.PreparedArtifactReceipt, executable connectorruntime.ConnectorExecutable,
+func (*Host) attachCredentialBroker(route *connectorRoute, broker *contracts.ManagedCredentialBroker,
+	prepared contracts.PreparedArtifactReceipt, executable connectorruntime.ConnectorExecutable,
 	stateDir string, artifactTrees []connectorprocess.ArtifactTreeIdentity) error {
 	if route.cliLaunch == nil {
 		return errors.New("connector credential broker requires a managed CLI")
@@ -582,8 +583,8 @@ func (*Host) attachCredentialBroker(route *connectorRoute, broker *market.Manage
 	return nil
 }
 
-func (host *Host) attachMCP(ctx context.Context, route *connectorRoute, managed *market.ManagedStdioImplementation,
-	prepared market.PreparedArtifactReceipt, executable connectorruntime.ConnectorExecutable,
+func (host *Host) attachMCP(ctx context.Context, route *connectorRoute, managed *contracts.ManagedStdioImplementation,
+	prepared contracts.PreparedArtifactReceipt, executable connectorruntime.ConnectorExecutable,
 	stateDir, userHome string, artifactTrees []connectorprocess.ArtifactTreeIdentity) error {
 	entrypoint, err := connectorruntime.PreparedEntrypoint(prepared.PreparedPath, managed.MCP.Entrypoint)
 	if err != nil {
@@ -629,25 +630,25 @@ func (host *Host) attachMCP(ctx context.Context, route *connectorRoute, managed 
 	return nil
 }
 
-func readyRuntimeReadiness(route *connectorRoute) market.RuntimeReadiness {
-	interfaces := make([]market.InterfaceReadiness, 0, 2)
+func readyRuntimeReadiness(route *connectorRoute) contracts.RuntimeReadiness {
+	interfaces := make([]contracts.InterfaceReadiness, 0, 2)
 	if len(route.mcpTools) > 0 {
 		routeIDs := make([]string, 0, len(route.mcpTools))
 		for _, tool := range route.mcpTools {
 			routeIDs = append(routeIDs, tool.routeID)
 		}
 		sort.Strings(routeIDs)
-		interfaces = append(interfaces, market.InterfaceReadiness{Kind: "mcp", State: market.RuntimeReadinessReady, RouteIDs: routeIDs})
+		interfaces = append(interfaces, contracts.InterfaceReadiness{Kind: "mcp", State: contracts.RuntimeReadinessReady, RouteIDs: routeIDs})
 	}
 	if route.cliLaunch != nil {
-		interfaces = append(interfaces, market.InterfaceReadiness{Kind: "cli", State: market.RuntimeReadinessReady})
+		interfaces = append(interfaces, contracts.InterfaceReadiness{Kind: "cli", State: contracts.RuntimeReadinessReady})
 	}
-	return market.RuntimeReadiness{State: market.RuntimeReadinessReady, Interfaces: interfaces}
+	return contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady, Interfaces: interfaces}
 }
 
-func cloneRuntimeReadiness(readiness market.RuntimeReadiness) market.RuntimeReadiness {
+func cloneRuntimeReadiness(readiness contracts.RuntimeReadiness) contracts.RuntimeReadiness {
 	cloned := readiness
-	cloned.Interfaces = append([]market.InterfaceReadiness(nil), readiness.Interfaces...)
+	cloned.Interfaces = append([]contracts.InterfaceReadiness(nil), readiness.Interfaces...)
 	for index := range cloned.Interfaces {
 		cloned.Interfaces[index].RouteIDs = append([]string(nil), readiness.Interfaces[index].RouteIDs...)
 	}
@@ -666,14 +667,14 @@ func (host *Host) monitorMCPRoute(route *connectorRoute, client *mcp.StdioClient
 	<-client.Done()
 	host.routeObservationMu.Lock()
 	_ = host.routes.RetireExact(route, time.Now().Add(3*time.Second), func() {
-		host.observations.publish(market.PhysicalRouteEventUnexpectedExit, physicalRoute(route))
+		host.observations.publish(contracts.PhysicalRouteEventUnexpectedExit, physicalRoute(route))
 	})
 	host.routeObservationMu.Unlock()
 	host.notifyRouteChanged()
 }
 
-func (*Host) attachCLI(route *connectorRoute, managed *market.ManagedStdioImplementation,
-	prepared market.PreparedArtifactReceipt, installed *market.CLIInstallationReceipt,
+func (*Host) attachCLI(route *connectorRoute, managed *contracts.ManagedStdioImplementation,
+	prepared contracts.PreparedArtifactReceipt, installed *contracts.CLIInstallationReceipt,
 	executable connectorruntime.ConnectorExecutable, stateDir string, artifactTrees []connectorprocess.ArtifactTreeIdentity) error {
 	entrypointRoot, entrypointRelative := prepared.PreparedPath, managed.CLI.Entrypoint
 	if installed != nil {
@@ -683,13 +684,13 @@ func (*Host) attachCLI(route *connectorRoute, managed *market.ManagedStdioImplem
 	if err != nil {
 		return err
 	}
-	contractHash, err := market.ManagedCLIContractHash(*managed.CLI)
+	contractHash, err := contracts.ManagedCLIContractHash(*managed.CLI)
 	if err != nil {
 		return fmt.Errorf("hash connector CLI contract: %w", err)
 	}
 	launchArguments := []string{entrypoint}
 	launchExecutable := executable
-	if managed.CLI.Launch != nil && managed.CLI.Launch.Kind == market.CLIArtifactLaunchKindNative {
+	if managed.CLI.Launch != nil && managed.CLI.Launch.Kind == contracts.CLIArtifactLaunchKindNative {
 		launchArguments = nil
 		launchExecutable = connectorruntime.ConnectorExecutable{Path: entrypoint, SHA256: managed.CLI.Launch.SHA256,
 			SizeBytes: managed.CLI.Launch.SizeBytes}
@@ -703,15 +704,15 @@ func (*Host) attachCLI(route *connectorRoute, managed *market.ManagedStdioImplem
 		executable: launchExecutable, language: managed.Runtime.Language, stateDir: stateDir,
 		timeout: time.Duration(managed.CLI.TimeoutMS) * time.Millisecond}
 	route.cliContractHash = contractHash
-	route.cliInvocationCommand = market.ManagedCLICommandName(*managed.CLI)
+	route.cliInvocationCommand = contracts.ManagedCLICommandName(*managed.CLI)
 	route.cliCommands = cloneCLICommands(managed.CLI.Commands)
 	return nil
 }
 
-func artifactNativeEntrypoints(release market.Release) []string {
+func artifactNativeEntrypoints(release contracts.Release) []string {
 	managed := release.Manifest.Implementation.ManagedStdio
 	if managed == nil || managed.CLI == nil || managed.CLI.Launch == nil ||
-		managed.CLI.Launch.Kind != market.CLIArtifactLaunchKindNative {
+		managed.CLI.Launch.Kind != contracts.CLIArtifactLaunchKindNative {
 		return nil
 	}
 	return []string{managed.CLI.Entrypoint}
@@ -766,11 +767,11 @@ func (host *Host) routeCurrent(route *connectorRoute) bool {
 	return host.routes.IsCurrent(route) && !route.processes.IsFenced()
 }
 
-func (route *connectorRoute) RouteID() string                        { return route.id }
-func (route *connectorRoute) RouteGeneration() market.HostGeneration { return route.generation }
-func (route *connectorRoute) RouteReleaseDigest() string             { return route.releaseDigest }
-func (route *connectorRoute) Fence()                                 { route.processes.Fence() }
-func (route *connectorRoute) close(deadline time.Time) error         { return route.Close(deadline) }
+func (route *connectorRoute) RouteID() string                           { return route.id }
+func (route *connectorRoute) RouteGeneration() contracts.HostGeneration { return route.generation }
+func (route *connectorRoute) RouteReleaseDigest() string                { return route.releaseDigest }
+func (route *connectorRoute) Fence()                                    { route.processes.Fence() }
+func (route *connectorRoute) close(deadline time.Time) error            { return route.Close(deadline) }
 func (route *connectorRoute) releaseProcess(id uint64, connection connectorprocess.Connection) error {
 	if route != nil && route.processes != nil {
 		return route.processes.ReleaseWithError(id, connection)

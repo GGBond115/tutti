@@ -25,7 +25,8 @@ require (
 	github.com/tutti-os/tutti/packages/clients/device-authority-go v0.0.0
 	github.com/tutti-os/tutti/packages/commerce v0.0.0
 	github.com/tutti-os/tutti/packages/connector/daemon v0.0.0
-	github.com/tutti-os/tutti/packages/connector/host v0.0.0
+	github.com/tutti-os/tutti/packages/connector/application v0.0.0
+	github.com/tutti-os/tutti/packages/connector/contracts v0.0.0
 	github.com/tutti-os/tutti/packages/connector/runtime v0.0.0
 	github.com/tutti-os/tutti/packages/connector/store-sqlite v0.0.0
 	github.com/tutti-os/tutti/packages/desktop/update-admission v0.0.0
@@ -148,7 +149,9 @@ replace github.com/tutti-os/tutti/packages/commerce => ../../packages/commerce
 
 replace github.com/tutti-os/tutti/packages/connector/daemon => ../../packages/connector/daemon
 
-replace github.com/tutti-os/tutti/packages/connector/host => ../../packages/connector/host
+replace github.com/tutti-os/tutti/packages/connector/application => ../../packages/connector/application
+
+replace github.com/tutti-os/tutti/packages/connector/contracts => ../../packages/connector/contracts
 
 replace github.com/tutti-os/tutti/packages/connector/runtime => ../../packages/connector/runtime
 

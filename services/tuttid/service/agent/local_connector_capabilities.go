@@ -6,7 +6,8 @@ import (
 	"strings"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/composercatalog"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 )
 
@@ -34,19 +35,20 @@ func (s *Service) validatePromptConnectors(ctx context.Context, content []Prompt
 	if len(requested) == 0 {
 		return nil
 	}
-	if s == nil || s.ConnectorMarketSnapshots == nil {
+	if s == nil || s.ConnectorMarketPolicy == nil {
 		return fmt.Errorf("%w: local connector state is unavailable", ErrInvalidArgument)
 	}
-	snapshot, err := connectorMarketSnapshot(ctx, s.ConnectorMarketSnapshots, s.ConnectorMarketCurrentScope)
+	target := localConnectorAgentTarget("local:agent", s.ConnectorMarketCurrentScope)
+	snapshot, err := s.ConnectorMarketPolicy.Evaluate(ctx, target)
 	if err != nil {
 		return fmt.Errorf("read local connector state: %w", err)
 	}
-	for _, connector := range snapshot.Connectors {
-		key := strings.TrimSpace(connector.Key)
+	for _, policy := range snapshot.Connectors {
+		key := strings.TrimSpace(policy.Connector.Key)
 		if _, ok := requested[key]; !ok {
 			continue
 		}
-		if composercatalog.ConnectorStatus(connector) != composercatalog.CapabilityStatusAvailable {
+		if policy.State != contracts.ConnectorStateConnected {
 			return fmt.Errorf("%w: local connector %q is not ready", ErrInvalidArgument, key)
 		}
 		delete(requested, key)
@@ -59,25 +61,29 @@ func (s *Service) validatePromptConnectors(ctx context.Context, content []Prompt
 
 func localConnectorCapabilityOptions(
 	ctx context.Context,
-	source market.SnapshotReader,
-	currentScope func() market.OperationScope,
+	source application.AgentConnectorPolicyQueries,
+	currentScope func() contracts.OperationScope,
+	targetID string,
 ) ([]ComposerCapabilityOption, error) {
-	snapshot, err := connectorMarketSnapshot(ctx, source, currentScope)
+	snapshot, err := source.Evaluate(ctx, localConnectorAgentTarget(targetID, currentScope))
 	if err != nil {
 		return nil, err
 	}
 	return composercatalog.ProjectConnectorOptions(snapshot), nil
 }
 
-func connectorMarketSnapshot(
-	ctx context.Context,
-	source market.SnapshotReader,
-	currentScope func() market.OperationScope,
-) (market.Snapshot, error) {
-	if scoped, ok := source.(market.ScopedSnapshotReader); ok && currentScope != nil {
-		return scoped.SnapshotForScope(ctx, currentScope())
+func localConnectorAgentTarget(
+	targetID string,
+	currentScope func() contracts.OperationScope,
+) contracts.AgentTarget {
+	target := contracts.AgentTarget{TargetID: strings.TrimSpace(targetID), Ownership: contracts.AgentOwnershipLocal}
+	if target.TargetID == "" {
+		target.TargetID = "local:agent"
 	}
-	return source.Snapshot(ctx)
+	if currentScope != nil {
+		target.Scope = currentScope()
+	}
+	return target
 }
 
 func replaceComposerConnectorCapabilities(

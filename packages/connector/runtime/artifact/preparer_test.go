@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func TestPreparerVerifiesPromotesAndReusesLatestArtifact(t *testing.T) {
@@ -32,14 +32,14 @@ func TestPreparerVerifiesPromotesAndReusesLatestArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := preparer.Prepare(context.Background(), market.PrepareArtifactRequest{
+	first, err := preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{
 		OperationID: "operation-1",
 		Release:     release,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := preparer.Prepare(context.Background(), market.PrepareArtifactRequest{
+	second, err := preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{
 		OperationID: "operation-2",
 		Release:     release,
 	})
@@ -79,7 +79,7 @@ func TestResolvePreparedAllowsLegacyReleaseWithoutIcon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := preparer.Prepare(context.Background(), market.PrepareArtifactRequest{
+	prepared, err := preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{
 		OperationID: "operation-1",
 		Release:     release,
 	})
@@ -96,7 +96,7 @@ func TestResolvePreparedAllowsLegacyReleaseWithoutIcon(t *testing.T) {
 	if resolved.PreparedPath != prepared.PreparedPath {
 		t.Fatalf("resolved path = %q, want %q", resolved.PreparedPath, prepared.PreparedPath)
 	}
-	if _, err := preparer.Prepare(context.Background(), market.PrepareArtifactRequest{
+	if _, err := preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{
 		OperationID: "operation-2",
 		Release:     legacyRelease,
 	}); err == nil || !strings.Contains(err.Error(), "iconUrl") {
@@ -116,7 +116,7 @@ func TestResolvePreparedReportsInvalidInventoryWithoutRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := preparer.Prepare(context.Background(), market.PrepareArtifactRequest{
+	prepared, err := preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{
 		OperationID: "operation-1",
 		Release:     release,
 	})
@@ -128,7 +128,7 @@ func TestResolvePreparedReportsInvalidInventoryWithoutRepair(t *testing.T) {
 	}
 
 	_, err = preparer.ResolvePrepared(context.Background(), release)
-	if !errors.Is(err, market.ErrReleaseInstallationInvalid) {
+	if !errors.Is(err, contracts.ErrReleaseInstallationInvalid) {
 		t.Fatalf("ResolvePrepared() error = %v, want invalid installation", err)
 	}
 	if fetcher.calls != 1 {
@@ -151,7 +151,7 @@ func TestResolvePreparedReportsModifiedContentWithoutRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := preparer.Prepare(context.Background(), market.PrepareArtifactRequest{
+	prepared, err := preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{
 		OperationID: "operation-1",
 		Release:     release,
 	})
@@ -163,7 +163,7 @@ func TestResolvePreparedReportsModifiedContentWithoutRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := preparer.ResolvePrepared(context.Background(), release); !errors.Is(err, market.ErrReleaseInstallationInvalid) {
+	if _, err := preparer.ResolvePrepared(context.Background(), release); !errors.Is(err, contracts.ErrReleaseInstallationInvalid) {
 		t.Fatalf("ResolvePrepared() error = %v, want invalid installation", err)
 	}
 	content, err := os.ReadFile(connectorPath)
@@ -194,7 +194,7 @@ func TestPreparerRejectsArchivePathTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = preparer.Prepare(context.Background(), market.PrepareArtifactRequest{
+	_, err = preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{
 		OperationID: "operation-1",
 		Release:     release,
 	})
@@ -232,7 +232,7 @@ func TestPreparerRejectsCaseCollidingArchiveEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = preparer.Prepare(context.Background(), market.PrepareArtifactRequest{OperationID: "operation-1", Release: release})
+	_, err = preparer.Prepare(context.Background(), contracts.PrepareArtifactRequest{OperationID: "operation-1", Release: release})
 	if err == nil || !strings.Contains(err.Error(), "case-colliding") {
 		t.Fatalf("case-colliding archive error = %v", err)
 	}
@@ -267,7 +267,7 @@ func TestPreparerRemoveRejectsSymlinkParent(t *testing.T) {
 	if err := os.Symlink(victim, filepath.Join(connectorRoot, "1.0.0")); err != nil {
 		t.Fatal(err)
 	}
-	err = preparer.Remove(context.Background(), market.RemoveArtifactRequest{
+	err = preparer.Remove(context.Background(), contracts.RemoveArtifactRequest{
 		ConnectorKey: "github", Version: "1.0.0", ReleaseDigest: digest,
 	})
 	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
@@ -326,34 +326,34 @@ func testZIPEntries(t *testing.T, entries []testZIPEntry) []byte {
 	return buffer.Bytes()
 }
 
-func testRelease(archive, manifest []byte) market.Release {
+func testRelease(archive, manifest []byte) contracts.Release {
 	artifactDigest := sha256.Sum256(archive)
 	manifestDigest := sha256.Sum256(manifest)
-	return market.Release{
+	return contracts.Release{
 		SchemaVersion:  "1",
 		ReleaseID:      "github@1.0.0",
 		ConnectorKey:   "github",
 		Version:        "1.0.0",
 		ReleaseDigest:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ManifestDigest: hex.EncodeToString(manifestDigest[:]),
-		Manifest: market.Manifest{
+		Manifest: contracts.Manifest{
 			SchemaVersion: "1",
 			DisplayName:   "GitHub",
 			IconURL:       "data:image/png;base64,iVBORw0KGgo=",
-			Implementation: market.Implementation{
-				Kind: market.ImplementationKindManagedStdio,
-				ManagedStdio: &market.ManagedStdioImplementation{
-					Runtime: market.RuntimeRequirement{Language: "node", Profile: "connector-node-static", ABI: "node20-darwin-arm64"},
-					MCP:     &market.ManagedMCPInterface{Entrypoint: "bin/connector.js"},
+			Implementation: contracts.Implementation{
+				Kind: contracts.ImplementationKindManagedStdio,
+				ManagedStdio: &contracts.ManagedStdioImplementation{
+					Runtime: contracts.RuntimeRequirement{Language: "node", Profile: "connector-node-static", ABI: "node20-darwin-arm64"},
+					MCP:     &contracts.ManagedMCPInterface{Entrypoint: "bin/connector.js"},
 				},
 			},
 			AuthorizationKind: "none",
 		},
-		Artifact: market.Artifact{
+		Artifact: contracts.Artifact{
 			SHA256:    hex.EncodeToString(artifactDigest[:]),
 			SizeBytes: int64(len(archive)),
 			MediaType: "application/vnd.tutti.connector+zip",
 		},
-		PublishedAt: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC), Status: market.ReleaseStatusAvailable,
+		PublishedAt: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC), Status: contracts.ReleaseStatusAvailable,
 	}
 }

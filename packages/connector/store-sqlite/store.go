@@ -13,7 +13,8 @@ import (
 	"strings"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	_ "modernc.org/sqlite"
 )
 
@@ -23,11 +24,11 @@ type Store struct {
 	db *sql.DB
 }
 
-var _ market.Repository = (*Store)(nil)
-var _ market.ChangedEventOutbox = (*Store)(nil)
-var _ market.LifecycleCleanupStore = (*Store)(nil)
-var _ market.AuthorizationProjectionStore = (*Store)(nil)
-var _ market.AuthorizationSnapshotStore = (*Store)(nil)
+var _ application.Repository = (*Store)(nil)
+var _ application.ChangedEventOutbox = (*Store)(nil)
+var _ application.LifecycleCleanupStore = (*Store)(nil)
+var _ application.AuthorizationProjectionStore = (*Store)(nil)
+var _ application.AuthorizationSnapshotStore = (*Store)(nil)
 
 func Open(ctx context.Context, dbPath string) (*Store, error) {
 	dbPath = strings.TrimSpace(dbPath)
@@ -202,22 +203,22 @@ ON connector_market_outbox(published_at_unix_ms, sequence)`,
 	return store.migrateRuntimeConvergence(ctx)
 }
 
-func (store *Store) Snapshot(ctx context.Context) (market.Snapshot, error) {
+func (store *Store) Snapshot(ctx context.Context) (contracts.Snapshot, error) {
 	return store.snapshot(ctx, "")
 }
 
-func (store *Store) CatalogView(ctx context.Context) (market.CatalogView, error) {
+func (store *Store) CatalogView(ctx context.Context) (contracts.CatalogView, error) {
 	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	view, err := readCatalogView(ctx, tx)
 	if err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	return view, nil
 }
@@ -270,67 +271,46 @@ WHERE id = ? AND fetch_generation = ?`, now.UTC().UnixMilli(), strings.TrimSpace
 	return tx.Commit()
 }
 
-// SnapshotForScope reads market state and the account authorization overlay
-// from one SQLite snapshot, so its revision/event cursor describe exactly the
-// projection returned to the renderer.
-func (store *Store) SnapshotForScope(ctx context.Context, scope market.OperationScope) (market.Snapshot, error) {
+// SnapshotForScope scopes private operations but deliberately returns base
+// connector state. The application layer is the single owner of account
+// authorization and readiness projection.
+func (store *Store) SnapshotForScope(ctx context.Context, scope contracts.OperationScope) (contracts.Snapshot, error) {
 	return store.snapshot(ctx, strings.TrimSpace(scope.AccountID))
 }
 
-func (store *Store) snapshot(ctx context.Context, accountID string) (market.Snapshot, error) {
+func (store *Store) snapshot(ctx context.Context, accountID string) (contracts.Snapshot, error) {
 	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return market.Snapshot{}, err
+		return contracts.Snapshot{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var result market.Snapshot
+	var result contracts.Snapshot
 	if err := tx.QueryRowContext(ctx, `SELECT revision FROM connector_market_metadata WHERE id = ?`, metadataID).
 		Scan(&result.Revision); err != nil {
-		return market.Snapshot{}, fmt.Errorf("read connector market metadata: %w", err)
+		return contracts.Snapshot{}, fmt.Errorf("read connector market metadata: %w", err)
 	}
 	freshness, err := readCatalogFreshness(ctx, tx)
 	if err != nil {
-		return market.Snapshot{}, err
+		return contracts.Snapshot{}, err
 	}
 	result.CatalogFreshness = freshness
-	result.CatalogState = legacyCatalogState(freshness.State)
-	result.SourceRevision = freshness.SourceRevision
 	connectors, err := listConnectorsOn(ctx, tx)
 	if err != nil {
-		return market.Snapshot{}, err
-	}
-	if accountID != "" {
-		connectors, err = overlayAuthorizationProjectionsOn(ctx, tx, accountID, connectors)
-		if err != nil {
-			return market.Snapshot{}, err
-		}
+		return contracts.Snapshot{}, err
 	}
 	operations, err := listOperationsOn(ctx, tx, accountID)
 	if err != nil {
-		return market.Snapshot{}, err
+		return contracts.Snapshot{}, err
 	}
 	result.Connectors = connectors
 	result.Operations = operations
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) FROM connector_market_outbox`).Scan(&result.EventCursor); err != nil {
-		return market.Snapshot{}, fmt.Errorf("read connector market event cursor: %w", err)
+		return contracts.Snapshot{}, fmt.Errorf("read connector market event cursor: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return market.Snapshot{}, err
+		return contracts.Snapshot{}, err
 	}
 	return result, nil
-}
-
-func legacyCatalogState(state market.CatalogFreshnessState) market.CatalogState {
-	switch state {
-	case market.CatalogFreshnessFresh:
-		return market.CatalogStateReady
-	case market.CatalogFreshnessRefreshing:
-		return market.CatalogStateRefreshing
-	case market.CatalogFreshnessStale:
-		return market.CatalogStateStale
-	default:
-		return market.CatalogStateFailed
-	}
 }
 
 type catalogQueryer interface {
@@ -338,8 +318,8 @@ type catalogQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func readCatalogFreshness(ctx context.Context, queryer catalogQueryer) (market.CatalogFreshness, error) {
-	var freshness market.CatalogFreshness
+func readCatalogFreshness(ctx context.Context, queryer catalogQueryer) (contracts.CatalogFreshness, error) {
+	var freshness contracts.CatalogFreshness
 	var snapshotID sql.NullString
 	var sourceRevision sql.NullString
 	var acceptedAtMS sql.NullInt64
@@ -352,7 +332,7 @@ LEFT JOIN connector_market_catalog_snapshots snapshot ON snapshot.snapshot_id = 
 WHERE state.id = ?`, metadataID).Scan(
 		&freshness.State, &snapshotID, &sourceRevision, &acceptedAtMS, &staleSinceMS, &freshness.LastFailure,
 	); err != nil {
-		return market.CatalogFreshness{}, fmt.Errorf("read connector catalog freshness: %w", err)
+		return contracts.CatalogFreshness{}, fmt.Errorf("read connector catalog freshness: %w", err)
 	}
 	if snapshotID.Valid {
 		freshness.SnapshotID = snapshotID.String
@@ -371,17 +351,17 @@ WHERE state.id = ?`, metadataID).Scan(
 	return freshness, nil
 }
 
-func readCatalogView(ctx context.Context, tx *sql.Tx) (market.CatalogView, error) {
+func readCatalogView(ctx context.Context, tx *sql.Tx) (contracts.CatalogView, error) {
 	freshness, err := readCatalogFreshness(ctx, tx)
 	if err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
-	view := market.CatalogView{Freshness: freshness, ListingsBySection: make(map[string][]market.CatalogListing)}
+	view := contracts.CatalogView{Freshness: freshness, ListingsBySection: make(map[string][]contracts.CatalogListing)}
 	if err := tx.QueryRowContext(ctx, `SELECT revision FROM connector_market_metadata WHERE id = ?`, metadataID).Scan(&view.Revision); err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	if freshness.SnapshotID == "" {
-		view.Categories = []market.CatalogCategory{}
+		view.Categories = []contracts.CatalogCategory{}
 		return view, nil
 	}
 	categoryRows, err := tx.QueryContext(ctx, `
@@ -390,25 +370,25 @@ FROM connector_market_catalog_categories
 WHERE snapshot_id = ?
 ORDER BY sort_order, category_id`, freshness.SnapshotID)
 	if err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	for categoryRows.Next() {
-		var category market.CatalogCategory
+		var category contracts.CatalogCategory
 		if err := categoryRows.Scan(&category.CategoryID, &category.Kind, &category.SortOrder, &category.ItemCount,
 			&category.DisplayNameZH, &category.DisplayNameEN); err != nil {
 			_ = categoryRows.Close()
-			return market.CatalogView{}, err
+			return contracts.CatalogView{}, err
 		}
 		view.Categories = append(view.Categories, category)
 	}
 	if err := categoryRows.Close(); err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	if err := categoryRows.Err(); err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	if view.Categories == nil {
-		view.Categories = []market.CatalogCategory{}
+		view.Categories = []contracts.CatalogCategory{}
 	}
 	listingRows, err := tx.QueryContext(ctx, `
 SELECT placement.section_id, placement.category_id, placement.featured, release.release_json, connector.connector_json
@@ -419,34 +399,34 @@ LEFT JOIN connector_market_connectors connector ON connector.connector_key = pla
 WHERE placement.snapshot_id = ?
 ORDER BY placement.section_id, placement.placement_order`, freshness.SnapshotID)
 	if err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	for listingRows.Next() {
 		var sectionID string
-		var listing market.CatalogListing
+		var listing contracts.CatalogListing
 		var featured int
 		var releasePayload string
 		var connectorPayload sql.NullString
 		if err := listingRows.Scan(&sectionID, &listing.CategoryID, &featured, &releasePayload, &connectorPayload); err != nil {
 			_ = listingRows.Close()
-			return market.CatalogView{}, err
+			return contracts.CatalogView{}, err
 		}
 		if err := json.Unmarshal([]byte(releasePayload), &listing.Connector.Release); err != nil {
 			_ = listingRows.Close()
-			return market.CatalogView{}, err
+			return contracts.CatalogView{}, err
 		}
 		listing.Connector.Key = listing.Connector.Release.ConnectorKey
-		listing.Connector.Installation.State = market.InstallationStateNotInstalled
-		listing.Connector.Compatibility.State = market.CompatibilityStateSupported
-		listing.Connector.Authorization.State = market.AuthorizationStateDisconnected
+		listing.Connector.Installation.State = contracts.InstallationStateNotInstalled
+		listing.Connector.Compatibility.State = contracts.CompatibilityStateSupported
+		listing.Connector.Authorization.State = contracts.AuthorizationStateDisconnected
 		if listing.Connector.Release.Manifest.AuthorizationKind == "none" {
-			listing.Connector.Authorization.State = market.AuthorizationStateNotRequired
+			listing.Connector.Authorization.State = contracts.AuthorizationStateNotRequired
 		}
 		if connectorPayload.Valid {
-			var projection market.Connector
+			var projection contracts.Connector
 			if err := json.Unmarshal([]byte(connectorPayload.String), &projection); err != nil {
 				_ = listingRows.Close()
-				return market.CatalogView{}, err
+				return contracts.CatalogView{}, err
 			}
 			listing.Connector.Installation = projection.Installation
 			listing.Connector.Authorization = projection.Authorization
@@ -457,32 +437,32 @@ ORDER BY placement.section_id, placement.placement_order`, freshness.SnapshotID)
 		view.ListingsBySection[sectionID] = append(view.ListingsBySection[sectionID], listing)
 	}
 	if err := listingRows.Close(); err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	if err := listingRows.Err(); err != nil {
-		return market.CatalogView{}, err
+		return contracts.CatalogView{}, err
 	}
 	return view, nil
 }
 
-func (store *Store) Connector(ctx context.Context, connectorKey string) (market.Connector, error) {
+func (store *Store) Connector(ctx context.Context, connectorKey string) (contracts.Connector, error) {
 	var payload string
 	if err := store.db.QueryRowContext(ctx, `
 SELECT connector_json FROM connector_market_connectors WHERE connector_key = ?`, connectorKey).Scan(&payload); err != nil {
-		return market.Connector{}, mapNotFound(err)
+		return contracts.Connector{}, mapNotFound(err)
 	}
 	connector, err := decodeConnector(payload)
 	if err != nil {
-		return market.Connector{}, err
+		return contracts.Connector{}, err
 	}
 	return connector, nil
 }
 
-func (store *Store) Operation(ctx context.Context, operationID string) (market.Operation, error) {
+func (store *Store) Operation(ctx context.Context, operationID string) (contracts.Operation, error) {
 	var payload string
 	if err := store.db.QueryRowContext(ctx, `
 SELECT operation_json FROM connector_market_operations WHERE operation_id = ?`, operationID).Scan(&payload); err != nil {
-		return market.Operation{}, mapNotFound(err)
+		return contracts.Operation{}, mapNotFound(err)
 	}
 	return decodeOperation(payload)
 }
@@ -493,10 +473,10 @@ func (store *Store) ClaimOperation(
 	owner string,
 	now time.Time,
 	leaseExpiresAt time.Time,
-) (market.Operation, bool, error) {
+) (contracts.Operation, bool, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
-		return market.Operation{}, false, err
+		return contracts.Operation{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	result, err := tx.ExecContext(ctx, `
@@ -509,30 +489,30 @@ WHERE operation_id = ?
     lease_expires_at_unix_ms <= ?
   )`, owner, leaseExpiresAt.UTC().UnixMilli(), operationID, now.UTC().UnixMilli())
 	if err != nil {
-		return market.Operation{}, false, err
+		return contracts.Operation{}, false, err
 	}
 	changed, err := result.RowsAffected()
 	if err != nil {
-		return market.Operation{}, false, err
+		return contracts.Operation{}, false, err
 	}
 	operation, err := operationOn(ctx, tx, operationID)
 	if err != nil {
-		return market.Operation{}, false, err
+		return contracts.Operation{}, false, err
 	}
 	if changed == 0 {
 		return operation, false, tx.Commit()
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT lease_token FROM connector_market_operations WHERE operation_id = ?`, operationID).Scan(&operation.LeaseToken); err != nil {
-		return market.Operation{}, false, err
+		return contracts.Operation{}, false, err
 	}
 	expiresAt := leaseExpiresAt.UTC()
 	operation.LeaseOwner = owner
 	operation.LeaseExpiresAt = &expiresAt
 	if err := saveOperationOn(ctx, tx, operation); err != nil {
-		return market.Operation{}, false, err
+		return contracts.Operation{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return market.Operation{}, false, err
+		return contracts.Operation{}, false, err
 	}
 	return operation, true, nil
 }
@@ -555,7 +535,7 @@ func (store *Store) RenewOperationLease(ctx context.Context, operationID, owner 
 		return err
 	}
 	if currentOwner != owner || currentToken != token || !currentExpiry.Valid || currentExpiry.Int64 <= now.UTC().UnixMilli() {
-		return market.ErrOperationLeaseLost
+		return contracts.ErrOperationLeaseLost
 	}
 	expiresAt := leaseExpiresAt.UTC()
 	operation.LeaseOwner, operation.LeaseToken, operation.LeaseExpiresAt = owner, token, &expiresAt
@@ -570,7 +550,7 @@ func (store *Store) RenewOperationLease(ctx context.Context, operationID, owner 
 	}
 	changed, err := result.RowsAffected()
 	if err != nil || changed != 1 {
-		return market.ErrOperationLeaseLost
+		return contracts.ErrOperationLeaseLost
 	}
 	return tx.Commit()
 }
@@ -607,7 +587,7 @@ WHERE operation_id = ? AND lease_owner = ? AND lease_token = ?`, operationID, ow
 	return tx.Commit()
 }
 
-func (store *Store) InstalledRelease(ctx context.Context, connectorKey, releaseDigest string) (market.Release, error) {
+func (store *Store) InstalledRelease(ctx context.Context, connectorKey, releaseDigest string) (contracts.Release, error) {
 	var payload string
 	err := store.db.QueryRowContext(ctx, `
 SELECT release_json FROM connector_market_release_installations
@@ -618,16 +598,70 @@ SELECT release_json FROM connector_market_installed_releases
 WHERE connector_key = ? AND release_digest = ?`, connectorKey, releaseDigest).Scan(&payload)
 	}
 	if err != nil {
-		return market.Release{}, mapNotFound(err)
+		return contracts.Release{}, mapNotFound(err)
 	}
-	var release market.Release
+	var release contracts.Release
 	if err := json.Unmarshal([]byte(payload), &release); err != nil {
-		return market.Release{}, fmt.Errorf("decode installed connector release: %w", err)
+		return contracts.Release{}, fmt.Errorf("decode installed connector release: %w", err)
 	}
 	return release, nil
 }
 
-func (store *Store) RecoverableOperations(ctx context.Context) ([]market.Operation, error) {
+func (store *Store) InstalledReleases(
+	ctx context.Context,
+	refs []contracts.InstalledReleaseRef,
+) (map[contracts.InstalledReleaseRef]contracts.Release, error) {
+	result := make(map[contracts.InstalledReleaseRef]contracts.Release, len(refs))
+	if len(refs) == 0 {
+		return result, nil
+	}
+	values := make([]string, 0, len(refs))
+	arguments := make([]any, 0, len(refs)*2)
+	for _, ref := range refs {
+		ref.ConnectorKey = strings.TrimSpace(ref.ConnectorKey)
+		ref.ReleaseDigest = strings.TrimSpace(ref.ReleaseDigest)
+		if ref.ConnectorKey == "" || ref.ReleaseDigest == "" {
+			continue
+		}
+		values = append(values, "(?, ?)")
+		arguments = append(arguments, ref.ConnectorKey, ref.ReleaseDigest)
+	}
+	if len(values) == 0 {
+		return result, nil
+	}
+	query := `
+WITH requested(connector_key, release_digest) AS (VALUES ` + strings.Join(values, ",") + `),
+releases AS (
+  SELECT requested.connector_key, requested.release_digest, installation.release_json, 2 AS priority
+  FROM requested
+  JOIN connector_market_release_installations installation USING (connector_key, release_digest)
+  UNION ALL
+  SELECT requested.connector_key, requested.release_digest, installed.release_json, 1 AS priority
+  FROM requested
+  JOIN connector_market_installed_releases installed USING (connector_key, release_digest)
+)
+SELECT connector_key, release_digest, release_json FROM releases ORDER BY priority`
+	rows, err := store.db.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref contracts.InstalledReleaseRef
+		var payload string
+		if err := rows.Scan(&ref.ConnectorKey, &ref.ReleaseDigest, &payload); err != nil {
+			return nil, err
+		}
+		var release contracts.Release
+		if err := json.Unmarshal([]byte(payload), &release); err != nil {
+			return nil, fmt.Errorf("decode installed connector release: %w", err)
+		}
+		result[ref] = release
+	}
+	return result, rows.Err()
+}
+
+func (store *Store) RecoverableOperations(ctx context.Context) ([]contracts.Operation, error) {
 	rows, err := store.db.QueryContext(ctx, `
 SELECT operation_json FROM connector_market_operations
 WHERE state IN ('accepted', 'running')
@@ -636,7 +670,7 @@ ORDER BY operation_id`)
 		return nil, err
 	}
 	defer rows.Close()
-	operations := make([]market.Operation, 0)
+	operations := make([]contracts.Operation, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -653,8 +687,8 @@ ORDER BY operation_id`)
 
 func (store *Store) UnresolvedAuthorizationSessionOperations(
 	ctx context.Context,
-	scope market.OperationScope,
-) ([]market.Operation, error) {
+	scope contracts.OperationScope,
+) ([]contracts.Operation, error) {
 	rows, err := store.db.QueryContext(ctx, `
 SELECT operation_json FROM connector_market_operations
 WHERE kind = 'start_authorization' AND state = 'completed'
@@ -663,7 +697,7 @@ ORDER BY operation_id`)
 		return nil, err
 	}
 	defer rows.Close()
-	operations := make([]market.Operation, 0)
+	operations := make([]contracts.Operation, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -685,7 +719,7 @@ ORDER BY operation_id`)
 func (store *Store) ResolveAuthorizationSession(
 	ctx context.Context,
 	operationID string,
-	resolution market.AuthorizationSessionResolution,
+	resolution contracts.AuthorizationSessionResolution,
 ) error {
 	if !validAuthorizationSessionResolutionTransition(resolution) {
 		return errors.New("valid authorization session resolution is required")
@@ -710,20 +744,20 @@ func (store *Store) ResolveAuthorizationSession(
 	return tx.Commit()
 }
 
-func validAuthorizationSessionResolutionTransition(resolution market.AuthorizationSessionResolution) bool {
+func validAuthorizationSessionResolutionTransition(resolution contracts.AuthorizationSessionResolution) bool {
 	switch resolution {
-	case market.AuthorizationSessionResolutionCanceling,
-		market.AuthorizationSessionResolutionProviderConnected,
-		market.AuthorizationSessionResolutionProviderFailed,
-		market.AuthorizationSessionResolutionAccountStateConverged,
-		market.AuthorizationSessionResolutionSuperseded:
+	case contracts.AuthorizationSessionResolutionCanceling,
+		contracts.AuthorizationSessionResolutionProviderConnected,
+		contracts.AuthorizationSessionResolutionProviderFailed,
+		contracts.AuthorizationSessionResolutionAccountStateConverged,
+		contracts.AuthorizationSessionResolutionSuperseded:
 		return true
 	default:
 		return false
 	}
 }
 
-func (store *Store) Transaction(ctx context.Context, fn func(market.Transaction) error) error {
+func (store *Store) Transaction(ctx context.Context, fn func(application.Transaction) error) error {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -752,7 +786,7 @@ UPDATE connector_market_metadata SET revision = ? WHERE id = ? AND revision = ?`
 	return tx.Commit()
 }
 
-func (store *Store) PendingChangedEvents(ctx context.Context, limit int) ([]market.ChangedEventRecord, error) {
+func (store *Store) PendingChangedEvents(ctx context.Context, limit int) ([]contracts.ChangedEventRecord, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -763,9 +797,9 @@ WHERE published_at_unix_ms IS NULL ORDER BY sequence LIMIT ?`, limit)
 		return nil, err
 	}
 	defer rows.Close()
-	entries := make([]market.ChangedEventRecord, 0)
+	entries := make([]contracts.ChangedEventRecord, 0)
 	for rows.Next() {
-		var entry market.ChangedEventRecord
+		var entry contracts.ChangedEventRecord
 		var payload string
 		if err := rows.Scan(&entry.Sequence, &payload); err != nil {
 			return nil, err
@@ -799,14 +833,14 @@ func (transaction *transaction) AdvanceRevision() uint64 {
 	return transaction.revision
 }
 
-func (transaction *transaction) Connectors() ([]market.Connector, error) {
+func (transaction *transaction) Connectors() ([]contracts.Connector, error) {
 	rows, err := transaction.tx.QueryContext(transaction.ctx, `
 SELECT connector_json FROM connector_market_connectors ORDER BY connector_key`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	connectors := make([]market.Connector, 0)
+	connectors := make([]contracts.Connector, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -821,20 +855,20 @@ SELECT connector_json FROM connector_market_connectors ORDER BY connector_key`)
 	return connectors, rows.Err()
 }
 
-func (transaction *transaction) Connector(connectorKey string) (market.Connector, error) {
+func (transaction *transaction) Connector(connectorKey string) (contracts.Connector, error) {
 	var payload string
 	if err := transaction.tx.QueryRowContext(transaction.ctx, `
 SELECT connector_json FROM connector_market_connectors WHERE connector_key = ?`, connectorKey).Scan(&payload); err != nil {
-		return market.Connector{}, mapNotFound(err)
+		return contracts.Connector{}, mapNotFound(err)
 	}
 	return decodeConnector(payload)
 }
 
-func (transaction *transaction) Operation(operationID string) (market.Operation, error) {
+func (transaction *transaction) Operation(operationID string) (contracts.Operation, error) {
 	return operationOn(transaction.ctx, transaction.tx, operationID)
 }
 
-func (transaction *transaction) OperationByClientRequestID(ownerAccountID, clientRequestID string) (*market.Operation, error) {
+func (transaction *transaction) OperationByClientRequestID(ownerAccountID, clientRequestID string) (*contracts.Operation, error) {
 	var payload string
 	if err := transaction.tx.QueryRowContext(transaction.ctx, `
 SELECT operation_json FROM connector_market_operations
@@ -849,7 +883,7 @@ WHERE owner_account_id = ? AND client_request_id = ?`,
 	return &operation, err
 }
 
-func (transaction *transaction) ActiveOperation(connectorKey string) (*market.Operation, error) {
+func (transaction *transaction) ActiveOperation(connectorKey string) (*contracts.Operation, error) {
 	var payload string
 	query := `
 SELECT operation_json FROM connector_market_operations
@@ -869,13 +903,13 @@ WHERE connector_key IN ('', ?) AND state IN ('accepted', 'running') LIMIT 1`
 	return &operation, err
 }
 
-func (transaction *transaction) CatalogFreshness() (market.CatalogFreshness, error) {
+func (transaction *transaction) CatalogFreshness() (contracts.CatalogFreshness, error) {
 	return readCatalogFreshness(transaction.ctx, transaction.tx)
 }
 
 func (transaction *transaction) ReplaceCatalogSnapshot(
 	generation uint64,
-	snapshot market.CatalogSnapshot,
+	snapshot contracts.CatalogSnapshot,
 	acceptedAt time.Time,
 ) (bool, error) {
 	var currentGeneration uint64
@@ -905,7 +939,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`, snapshotID, category.CategoryID, category.Kind, c
 			return false, err
 		}
 	}
-	releases := make(map[string]market.Release, len(snapshot.Entries))
+	releases := make(map[string]contracts.Release, len(snapshot.Entries))
 	for _, entry := range snapshot.Entries {
 		releases[entry.Release.ConnectorKey] = entry.Release
 	}
@@ -960,7 +994,7 @@ func boolInt(value bool) int {
 	return 0
 }
 
-func (transaction *transaction) SaveConnector(connector market.Connector) error {
+func (transaction *transaction) SaveConnector(connector contracts.Connector) error {
 	payload, err := json.Marshal(connector)
 	if err != nil {
 		return err
@@ -979,40 +1013,40 @@ DELETE FROM connector_market_connectors WHERE connector_key = ?`, connectorKey)
 	return err
 }
 
-func (transaction *transaction) SaveOperation(operation market.Operation) error {
+func (transaction *transaction) SaveOperation(operation contracts.Operation) error {
 	return saveOperationOn(transaction.ctx, transaction.tx, operation)
 }
 
 func (transaction *transaction) RuntimeConvergence(
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	connectorKey string,
-) (market.RuntimeConvergence, error) {
+) (contracts.RuntimeConvergence, error) {
 	return runtimeConvergenceOn(transaction.ctx, transaction.tx, scope, connectorKey)
 }
 
-func (transaction *transaction) SaveRuntimeConvergence(convergence market.RuntimeConvergence) error {
+func (transaction *transaction) SaveRuntimeConvergence(convergence contracts.RuntimeConvergence) error {
 	return saveRuntimeConvergenceOn(transaction.ctx, transaction.tx, convergence)
 }
 
-func (transaction *transaction) DeleteRuntimeConvergence(scope market.OperationScope, connectorKey string) error {
+func (transaction *transaction) DeleteRuntimeConvergence(scope contracts.OperationScope, connectorKey string) error {
 	_, err := transaction.tx.ExecContext(transaction.ctx, `
 DELETE FROM connector_market_runtime_convergence
 WHERE account_id = ? AND connector_key = ?`, strings.TrimSpace(scope.AccountID), strings.TrimSpace(connectorKey))
 	return err
 }
 
-func (transaction *transaction) EnqueueConnectorMarketChanged(event market.ChangedEvent) error {
+func (transaction *transaction) EnqueueConnectorMarketChanged(event contracts.ChangedEvent) error {
 	if strings.TrimSpace(event.OperationID) != "" {
 		operation, err := transaction.Operation(event.OperationID)
-		if err != nil && !errors.Is(err, market.ErrNotFound) {
+		if err != nil && !errors.Is(err, contracts.ErrNotFound) {
 			return err
 		}
 		if err == nil {
-			operation = market.NormalizeOperationOwnership(operation)
-			if operation.Visibility == market.OperationVisibilityAccount {
+			operation = contracts.NormalizeOperationOwnership(operation)
+			if operation.Visibility == contracts.OperationVisibilityAccount {
 				accountEvent := event
 				accountEvent.OwnerAccountID = operation.OwnerAccountID
-				accountEvent.Visibility = market.OperationVisibilityAccount
+				accountEvent.Visibility = contracts.OperationVisibilityAccount
 				if err := transaction.appendChangedEvent(accountEvent); err != nil {
 					return err
 				}
@@ -1021,11 +1055,11 @@ func (transaction *transaction) EnqueueConnectorMarketChanged(event market.Chang
 	}
 	event.OperationID = ""
 	event.OwnerAccountID = ""
-	event.Visibility = market.OperationVisibilitySystemPrivate
+	event.Visibility = contracts.OperationVisibilitySystemPrivate
 	return transaction.appendChangedEvent(event)
 }
 
-func (transaction *transaction) appendChangedEvent(event market.ChangedEvent) error {
+func (transaction *transaction) appendChangedEvent(event contracts.ChangedEvent) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -1041,13 +1075,13 @@ type queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func listConnectorsOn(ctx context.Context, database queryer) ([]market.Connector, error) {
+func listConnectorsOn(ctx context.Context, database queryer) ([]contracts.Connector, error) {
 	rows, err := database.QueryContext(ctx, `
 SELECT connector_json FROM connector_market_connectors ORDER BY connector_key`)
 	if err != nil {
 		return nil, err
 	}
-	connectors := make([]market.Connector, 0)
+	connectors := make([]contracts.Connector, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -1069,20 +1103,20 @@ SELECT connector_json FROM connector_market_connectors ORDER BY connector_key`)
 	return connectors, nil
 }
 
-func listOperationsOn(ctx context.Context, database queryer, accountID string) ([]market.Operation, error) {
+func listOperationsOn(ctx context.Context, database queryer, accountID string) ([]contracts.Operation, error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
-		return []market.Operation{}, nil
+		return []contracts.Operation{}, nil
 	}
 	rows, err := database.QueryContext(ctx, `
 SELECT operation_json FROM connector_market_operations
 WHERE owner_account_id = ? AND visibility = ? ORDER BY operation_id`,
-		accountID, market.OperationVisibilityAccount)
+		accountID, contracts.OperationVisibilityAccount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	operations := make([]market.Operation, 0)
+	operations := make([]contracts.Operation, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -1097,17 +1131,17 @@ WHERE owner_account_id = ? AND visibility = ? ORDER BY operation_id`,
 	return operations, rows.Err()
 }
 
-func operationOn(ctx context.Context, tx *sql.Tx, operationID string) (market.Operation, error) {
+func operationOn(ctx context.Context, tx *sql.Tx, operationID string) (contracts.Operation, error) {
 	var payload string
 	if err := tx.QueryRowContext(ctx, `
 SELECT operation_json FROM connector_market_operations WHERE operation_id = ?`, operationID).Scan(&payload); err != nil {
-		return market.Operation{}, mapNotFound(err)
+		return contracts.Operation{}, mapNotFound(err)
 	}
 	return decodeOperation(payload)
 }
 
-func saveOperationOn(ctx context.Context, tx *sql.Tx, operation market.Operation) error {
-	operation = market.NormalizeOperationOwnership(operation)
+func saveOperationOn(ctx context.Context, tx *sql.Tx, operation contracts.Operation) error {
+	operation = contracts.NormalizeOperationOwnership(operation)
 	payload, err := json.Marshal(operation)
 	if err != nil {
 		return err
@@ -1145,29 +1179,29 @@ WHERE excluded.lease_token = 0 OR (
 		return err
 	}
 	if operation.LeaseToken > 0 && changed != 1 {
-		return market.ErrOperationLeaseLost
+		return contracts.ErrOperationLeaseLost
 	}
 	return saveInstalledReleaseEvidenceOn(ctx, tx, operation)
 }
 
-func decodeConnector(payload string) (market.Connector, error) {
-	var connector market.Connector
+func decodeConnector(payload string) (contracts.Connector, error) {
+	var connector contracts.Connector
 	if err := json.Unmarshal([]byte(payload), &connector); err != nil {
-		return market.Connector{}, fmt.Errorf("decode connector market connector: %w", err)
+		return contracts.Connector{}, fmt.Errorf("decode connector market connector: %w", err)
 	}
 	return connector, nil
 }
 
-func decodeOperation(payload string) (market.Operation, error) {
-	var operation market.Operation
+func decodeOperation(payload string) (contracts.Operation, error) {
+	var operation contracts.Operation
 	if err := json.Unmarshal([]byte(payload), &operation); err != nil {
-		return market.Operation{}, fmt.Errorf("decode connector market operation: %w", err)
+		return contracts.Operation{}, fmt.Errorf("decode connector market operation: %w", err)
 	}
 	return operation, nil
 }
 
-func publicOperation(operation market.Operation) market.Operation {
-	operation.Execution = market.OperationExecution{}
+func publicOperation(operation contracts.Operation) contracts.Operation {
+	operation.Execution = contracts.OperationExecution{}
 	operation.LeaseOwner = ""
 	operation.LeaseToken = 0
 	operation.LeaseExpiresAt = nil
@@ -1181,7 +1215,7 @@ func publicOperation(operation market.Operation) market.Operation {
 
 func mapNotFound(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
-		return market.ErrNotFound
+		return contracts.ErrNotFound
 	}
 	return err
 }

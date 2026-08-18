@@ -4,22 +4,21 @@ import (
 	"slices"
 	"testing"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
-	connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
 func TestRouteRegistryProjectsDetachedConnectorMetadata(t *testing.T) {
 	route := &connectorRoute{
 		id: "account-1\x00calendar", connectionID: "account-1", connectorVersion: "1.2.3", releaseDigest: "digest",
-		generation:   market.HostGeneration{BootEpoch: "boot-1", Generation: 1},
+		generation:   contracts.HostGeneration{BootEpoch: "boot-1", Generation: 1},
 		connectorKey: "calendar", displayName: "Calendar", description: "Manage meetings",
 		routingAliases: []string{"日历"}, skillRoot: "/verified/skills",
-		skills:   []connectorartifact.SkillSummary{{Name: "standup", Title: "Standup", Description: "Prepare a standup"}},
+		skills:   []contracts.ConnectorSkillSummary{{Name: "standup", Title: "Standup", Description: "Prepare a standup"}},
 		mcpTools: map[string]registeredMCPTool{"calendar_list": {}}, cliCommand: "tutti-connector-calendar", cliInvocationCommand: "calendar-cli",
 		cliContractHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		cliCommands: []market.CLICommand{{Name: "events", Arguments: []string{"events"},
+		cliCommands: []contracts.CLICommand{{Name: "events", Arguments: []string{"events"},
 			InputSchema: map[string]any{"type": "object"}, TimeoutMS: 10_000}},
 		processes: connectorprocess.NewGroup(),
 	}
@@ -61,12 +60,12 @@ func TestRouteRegistryProjectsDetachedConnectorMetadata(t *testing.T) {
 func TestCommittedRouteSummaryDoesNotDependOnCapabilityPublication(t *testing.T) {
 	route := &connectorRoute{
 		id: "account-1\x00calendar", releaseDigest: "digest",
-		generation:   market.HostGeneration{BootEpoch: "boot-1", Generation: 1},
+		generation:   contracts.HostGeneration{BootEpoch: "boot-1", Generation: 1},
 		connectorKey: "calendar", displayName: "Calendar", description: "Manage meetings",
-		skills:   []connectorartifact.SkillSummary{{Name: "standup", Title: "Standup", Description: "Prepare a standup"}},
+		skills:   []contracts.ConnectorSkillSummary{{Name: "standup", Title: "Standup", Description: "Prepare a standup"}},
 		mcpTools: map[string]registeredMCPTool{"calendar_list": {}}, processes: connectorprocess.NewGroup(),
-		readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady,
-			Interfaces: []market.InterfaceReadiness{{Kind: "mcp", State: market.RuntimeReadinessReady}}},
+		readiness: contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady,
+			Interfaces: []contracts.InterfaceReadiness{{Kind: "mcp", State: contracts.RuntimeReadinessReady}}},
 	}
 	table := connectorruntime.NewRouteTable()
 	if err := table.Commit(route); err != nil {

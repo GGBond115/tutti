@@ -6,7 +6,8 @@ import (
 	"context"
 	"strings"
 
-	connectorhost "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const (
@@ -40,24 +41,24 @@ type Option struct {
 	Invocation  string
 }
 
-// ConnectorOptions reads one authoritative Connector Market snapshot and
-// projects every catalog connector into the shared Agent composer contract.
-func ConnectorOptions(ctx context.Context, source connectorhost.SnapshotReader) ([]Option, error) {
+// ConnectorOptions reads the application-owned Agent policy and only maps it
+// into the host-neutral composer contract.
+func ConnectorOptions(ctx context.Context, source application.AgentConnectorPolicyQueries, target contracts.AgentTarget) ([]Option, error) {
 	if source == nil {
 		return nil, nil
 	}
-	snapshot, err := source.Snapshot(ctx)
+	snapshot, err := source.Evaluate(ctx, target)
 	if err != nil {
 		return nil, err
 	}
 	return ProjectConnectorOptions(snapshot), nil
 }
 
-// ProjectConnectorOptions is the pure form of ConnectorOptions for hosts that
-// already own an authoritative snapshot read.
-func ProjectConnectorOptions(snapshot connectorhost.Snapshot) []Option {
+// ProjectConnectorOptions performs no business-state derivation.
+func ProjectConnectorOptions(snapshot contracts.AgentConnectorPolicySnapshot) []Option {
 	options := make([]Option, 0, len(snapshot.Connectors))
-	for _, connector := range snapshot.Connectors {
+	for _, policy := range snapshot.Connectors {
+		connector := policy.Connector
 		key := strings.TrimSpace(connector.Key)
 		if key == "" {
 			continue
@@ -73,7 +74,7 @@ func ProjectConnectorOptions(snapshot connectorhost.Snapshot) []Option {
 			Label:       label,
 			IconURL:     strings.TrimSpace(connector.Release.Manifest.IconURL),
 			Description: strings.TrimSpace(connector.Release.Manifest.Description),
-			Status:      ConnectorStatus(connector),
+			Status:      composerStatus(policy.State),
 			Source:      CapabilitySourceLocalDB,
 			Trigger:     "/" + key,
 			Invocation:  CapabilityInvocationTextTrigger,
@@ -82,20 +83,17 @@ func ProjectConnectorOptions(snapshot connectorhost.Snapshot) []Option {
 	return options
 }
 
-// ConnectorStatus maps Connector Market lifecycle state to the closed Agent
-// composer readiness vocabulary.
-func ConnectorStatus(connector connectorhost.Connector) string {
-	if connector.Compatibility.State != "" &&
-		connector.Compatibility.State != connectorhost.CompatibilityStateSupported {
-		return CapabilityStatusUnsupported
-	}
-	if connector.Installation.State != connectorhost.InstallationStateInstalled {
-		return CapabilityStatusSetupRequired
-	}
-	switch connector.Authorization.State {
-	case connectorhost.AuthorizationStateNotRequired, connectorhost.AuthorizationStateConnected:
+// ConnectorStatus maps the already-evaluated application state to the closed
+// Agent composer vocabulary.
+func composerStatus(state contracts.ConnectorState) string {
+	switch state {
+	case contracts.ConnectorStateConnected:
 		return CapabilityStatusAvailable
-	default:
+	case contracts.ConnectorStateAuthorizationRequired:
 		return CapabilityStatusAuthRequired
+	case contracts.ConnectorStateSetupRequired:
+		return CapabilityStatusSetupRequired
+	default:
+		return CapabilityStatusUnsupported
 	}
 }

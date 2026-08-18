@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"log/slog"
 	"math"
 	"strings"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
 const (
@@ -64,7 +63,7 @@ func (host *Host) runPhysicalRouteWatchWorker(ctx context.Context) {
 				if !ok {
 					watchFailed = true
 				} else if expectedRevision == math.MaxUint64 || event.Revision != expectedRevision+1 ||
-					(event.Kind != market.PhysicalRouteEventChanged && event.Kind != market.PhysicalRouteEventUnexpectedExit) {
+					(event.Kind != contracts.PhysicalRouteEventChanged && event.Kind != contracts.PhysicalRouteEventUnexpectedExit) {
 					watchFailed = true
 				} else {
 					expectedRevision = event.Revision
@@ -115,7 +114,7 @@ func (host *Host) reconcilePhysicalRouteSnapshot(ctx context.Context) error {
 }
 
 func (host *Host) reconcilePhysicalRouteSnapshotWithPolicy(ctx context.Context, resetHealthyBudget bool) error {
-	if host == nil || host.Application == nil || host.physicalRoutes == nil {
+	if host == nil || host.runtimeMaintenance == nil || host.physicalRoutes == nil {
 		return errors.New("connector physical route convergence is unavailable")
 	}
 	host.bootstrapMu.Lock()
@@ -130,7 +129,7 @@ func (host *Host) reconcilePhysicalRouteSnapshotWithPolicy(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	convergences, err := host.Application.RuntimeConvergenceSnapshot(ctx, scope)
+	convergences, err := host.runtimeMaintenance.RuntimeConvergenceSnapshot(ctx, scope)
 	if err != nil {
 		return err
 	}
@@ -138,27 +137,27 @@ func (host *Host) reconcilePhysicalRouteSnapshotWithPolicy(ctx context.Context, 
 	for _, convergence := range convergences {
 		owners[physicalRouteOwnerKey(convergence.Desired.ConnectorKey, convergence.Desired.ConnectionID)] = struct{}{}
 	}
-	physicalByConnector := make(map[string][]market.PhysicalRoute)
+	physicalByConnector := make(map[string][]contracts.PhysicalRoute)
 	var result error
 	for _, route := range physical.Routes {
 		if _, owned := owners[physicalRouteOwnerKey(route.ConnectorKey, route.ConnectionID)]; owned {
 			physicalByConnector[route.ConnectorKey] = append(physicalByConnector[route.ConnectorKey], route)
 			continue
 		}
-		if orphanErr := host.removeOwnedPhysicalOrphan(ctx, scope, host.Application.RuntimeBootEpoch(), route); orphanErr != nil {
+		if orphanErr := host.removeOwnedPhysicalOrphan(ctx, scope, host.runtimeMaintenance.RuntimeBootEpoch(), route); orphanErr != nil {
 			result = errors.Join(result, orphanErr)
 		}
 	}
 	for _, convergence := range convergences {
 		connectorKey := convergence.Desired.ConnectorKey
-		if !runtimeObservationMatchesDesired(convergence, host.Application.RuntimeBootEpoch()) {
+		if !runtimeObservationMatchesDesired(convergence, host.runtimeMaintenance.RuntimeBootEpoch()) {
 			// Already level-triggered work; do not advance generations on every
 			// anti-entropy scan while a prior repair is pending or backing off.
 			continue
 		}
-		if physicalRuntimeMatchesDesired(convergence.Desired, host.Application.RuntimeBootEpoch(), physicalByConnector[connectorKey]) {
+		if physicalRuntimeMatchesDesired(convergence.Desired, host.runtimeMaintenance.RuntimeBootEpoch(), physicalByConnector[connectorKey]) {
 			if resetHealthyBudget && convergence.Attempt > 0 {
-				if resetErr := host.Application.ResetRuntimeFailureBudget(
+				if resetErr := host.runtimeMaintenance.ResetRuntimeFailureBudget(
 					ctx, scope, connectorKey, convergence.Desired.Generation,
 				); resetErr != nil {
 					result = errors.Join(result, fmt.Errorf("%s: %w", connectorKey, resetErr))
@@ -166,7 +165,7 @@ func (host *Host) reconcilePhysicalRouteSnapshotWithPolicy(ctx context.Context, 
 			}
 			continue
 		}
-		if invalidateErr := host.Application.InvalidateRuntimeObservation(
+		if invalidateErr := host.runtimeMaintenance.InvalidateRuntimeObservation(
 			ctx, scope, connectorKey, convergence.Desired.Generation,
 		); invalidateErr != nil {
 			result = errors.Join(result, fmt.Errorf("%s: %w", connectorKey, invalidateErr))
@@ -181,9 +180,9 @@ func physicalRouteOwnerKey(connectorKey, connectionID string) string {
 
 func (host *Host) removeOwnedPhysicalOrphan(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	bootEpoch string,
-	route market.PhysicalRoute,
+	route contracts.PhysicalRoute,
 ) error {
 	// A different boot may still be completing its own fence. This daemon has
 	// no authority to guess that route's ownership.
@@ -192,13 +191,13 @@ func (host *Host) removeOwnedPhysicalOrphan(
 	}
 	if strings.TrimSpace(route.ConnectorKey) == "" || strings.TrimSpace(route.ConnectionID) == "" ||
 		strings.TrimSpace(route.ReleaseDigest) == "" || route.Generation.Generation == 0 ||
-		(route.State != market.PhysicalRouteStateReady && route.State != market.PhysicalRouteStateDegraded) {
+		(route.State != contracts.PhysicalRouteStateReady && route.State != contracts.PhysicalRouteStateDegraded) {
 		return errors.New("connector physical orphan has an unsupported identity")
 	}
 	removeContext, cancelRemove := context.WithTimeout(ctx, physicalOrphanRemoveTimeout)
 	defer cancelRemove()
 	deadline := time.Now().Add(physicalOrphanRemoveTimeout)
-	if err := host.implementationHost.DeactivateRuntime(removeContext, market.RuntimeDeactivationRequest{
+	if err := host.implementationCommands.DeactivateRuntime(removeContext, contracts.RuntimeDeactivationRequest{
 		Scope: scope, ConnectionID: route.ConnectionID, ConnectorKey: route.ConnectorKey,
 		ReleaseDigest: route.ReleaseDigest, Generation: route.Generation, Deadline: deadline,
 	}); err != nil {
@@ -207,7 +206,7 @@ func (host *Host) removeOwnedPhysicalOrphan(
 	return nil
 }
 
-func runtimeObservationMatchesDesired(convergence market.RuntimeConvergence, bootEpoch string) bool {
+func runtimeObservationMatchesDesired(convergence contracts.RuntimeConvergence, bootEpoch string) bool {
 	return convergence.Desired.Generation != 0 &&
 		convergence.Observed.DesiredGeneration == convergence.Desired.Generation &&
 		convergence.Observed.BootEpoch == bootEpoch &&
@@ -216,7 +215,7 @@ func runtimeObservationMatchesDesired(convergence market.RuntimeConvergence, boo
 		convergence.Observed.ReleaseDigest == convergence.Desired.ReleaseDigest
 }
 
-func physicalRuntimeMatchesDesired(desired market.RuntimeDesired, bootEpoch string, routes []market.PhysicalRoute) bool {
+func physicalRuntimeMatchesDesired(desired contracts.RuntimeDesired, bootEpoch string, routes []contracts.PhysicalRoute) bool {
 	if !desired.Enabled {
 		return len(routes) == 0
 	}
@@ -226,5 +225,5 @@ func physicalRuntimeMatchesDesired(desired market.RuntimeDesired, bootEpoch stri
 	route := routes[0]
 	return route.ConnectionID == desired.ConnectionID && route.ReleaseDigest == desired.ReleaseDigest &&
 		route.Generation.BootEpoch == bootEpoch && route.Generation.Generation == desired.Generation &&
-		route.State == market.PhysicalRouteStateReady
+		route.State == contracts.PhysicalRouteStateReady
 }

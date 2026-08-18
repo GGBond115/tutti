@@ -4,32 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 )
+
+func (api DaemonAPI) connectorMarketAvailable() bool {
+	return api.ConnectorStateQueries != nil &&
+		api.ConnectorCatalogQueries != nil &&
+		api.ConnectorCatalogCommands != nil &&
+		api.ConnectorInstallationCommands != nil &&
+		api.ConnectorAuthorizationCommands != nil &&
+		api.ConnectorOperationQueries != nil
+}
 
 func (api DaemonAPI) GetConnectorMarket(
 	ctx context.Context,
 	_ tuttigenerated.GetConnectorMarketRequestObject,
 ) (tuttigenerated.GetConnectorMarketResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.GetConnectorMarket503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
-	var snapshot market.Snapshot
-	var err error
-	if scoped, ok := api.ConnectorMarketService.(market.ScopedSnapshotReader); ok {
-		snapshot, err = scoped.SnapshotForScope(ctx, market.OperationScope{AccountID: api.connectorMarketAccountID()})
-	} else {
-		snapshot, err = api.ConnectorMarketService.Snapshot(ctx)
-	}
+	snapshot, err := api.ConnectorStateQueries.SnapshotForScope(
+		ctx,
+		contracts.OperationScope{AccountID: api.connectorMarketAccountID()},
+	)
 	if err != nil {
 		return connectorMarketGetSnapshotError(err), nil
-	}
-	if _, scoped := api.ConnectorMarketService.(market.ScopedSnapshotReader); !scoped {
-		if err := api.overlayConnectorAuthorizationProjections(ctx, snapshot.Connectors); err != nil {
-			return connectorMarketGetSnapshotError(err), nil
-		}
 	}
 	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketSnapshot](snapshot)
 	if err != nil {
@@ -42,16 +42,16 @@ func (api DaemonAPI) ListConnectorMarketCategories(
 	ctx context.Context,
 	_ tuttigenerated.ListConnectorMarketCategoriesRequestObject,
 ) (tuttigenerated.ListConnectorMarketCategoriesResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.ListConnectorMarketCategories503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
-	categories, err := api.ConnectorMarketService.ListCatalogCategories(ctx)
+	categories, err := api.ConnectorCatalogQueries.ListCatalogCategories(ctx)
 	if err != nil {
 		payload, _ := connectorMarketError(err)
 		return tuttigenerated.ListConnectorMarketCategories503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: unavailableConnectorMarketResponse(payload)}, nil
 	}
 	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketCategoriesResponse](struct {
-		Categories []market.CatalogCategory `json:"categories"`
+		Categories []contracts.CatalogCategory `json:"categories"`
 	}{Categories: categories})
 	if err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (api DaemonAPI) ListConnectorMarketCatalog(
 	ctx context.Context,
 	request tuttigenerated.ListConnectorMarketCatalogRequestObject,
 ) (tuttigenerated.ListConnectorMarketCatalogResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.ListConnectorMarketCatalog503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
 	pageSize := 20
@@ -74,30 +74,20 @@ func (api DaemonAPI) ListConnectorMarketCatalog(
 	if request.Params.PageToken != nil {
 		pageToken = *request.Params.PageToken
 	}
-	installationFilter := market.CatalogInstallationFilter("")
+	installationFilter := contracts.CatalogInstallationFilter("")
 	if request.Params.Installation != nil {
-		installationFilter = market.CatalogInstallationFilter(*request.Params.Installation)
+		installationFilter = contracts.CatalogInstallationFilter(*request.Params.Installation)
 	}
-	page, err := api.ConnectorMarketService.ListCatalogPage(ctx, market.CatalogPageQuery{
-		SectionID: request.Params.SectionId, PageSize: pageSize, PageToken: pageToken, InstallationFilter: installationFilter,
-	})
+	page, err := api.ConnectorCatalogQueries.ListCatalogPageForScope(ctx,
+		contracts.OperationScope{AccountID: api.connectorMarketAccountID()}, contracts.CatalogPageQuery{
+			SectionID: request.Params.SectionId, PageSize: pageSize, PageToken: pageToken, InstallationFilter: installationFilter,
+		})
 	if err != nil {
 		payload, status := connectorMarketError(err)
 		if status == 400 {
 			return tuttigenerated.ListConnectorMarketCatalog400JSONResponse{ConnectorMarketInvalidRequestErrorJSONResponse: invalidConnectorMarketResponse(payload)}, nil
 		}
 		return tuttigenerated.ListConnectorMarketCatalog503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: unavailableConnectorMarketResponse(payload)}, nil
-	}
-	pageConnectors := make([]market.Connector, len(page.Items))
-	for index := range page.Items {
-		pageConnectors[index] = page.Items[index].Connector
-	}
-	if err := api.overlayConnectorAuthorizationProjections(ctx, pageConnectors); err != nil {
-		payload, _ := connectorMarketError(err)
-		return tuttigenerated.ListConnectorMarketCatalog503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: unavailableConnectorMarketResponse(payload)}, nil
-	}
-	for index := range page.Items {
-		page.Items[index].Connector = pageConnectors[index]
 	}
 	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketCatalogPage](page)
 	if err != nil {
@@ -110,10 +100,11 @@ func (api DaemonAPI) GetConnectorMarketConnector(
 	ctx context.Context,
 	request tuttigenerated.GetConnectorMarketConnectorRequestObject,
 ) (tuttigenerated.GetConnectorMarketConnectorResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.GetConnectorMarketConnector503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
-	connector, err := api.ConnectorMarketService.GetConnector(ctx, request.ConnectorKey)
+	connector, err := api.ConnectorCatalogQueries.GetConnectorForScope(ctx,
+		contracts.OperationScope{AccountID: api.connectorMarketAccountID()}, request.ConnectorKey)
 	if err != nil {
 		payload, status := connectorMarketError(err)
 		switch status {
@@ -125,12 +116,6 @@ func (api DaemonAPI) GetConnectorMarketConnector(
 			return tuttigenerated.GetConnectorMarketConnector503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: unavailableConnectorMarketResponse(payload)}, nil
 		}
 	}
-	projectedConnectors := []market.Connector{connector}
-	if err := api.overlayConnectorAuthorizationProjections(ctx, projectedConnectors); err != nil {
-		payload, _ := connectorMarketError(err)
-		return tuttigenerated.GetConnectorMarketConnector503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: unavailableConnectorMarketResponse(payload)}, nil
-	}
-	connector = projectedConnectors[0]
 	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketConnector](connector)
 	if err != nil {
 		return nil, err
@@ -142,15 +127,15 @@ func (api DaemonAPI) RefreshConnectorMarket(
 	ctx context.Context,
 	request tuttigenerated.RefreshConnectorMarketRequestObject,
 ) (tuttigenerated.RefreshConnectorMarketResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.RefreshConnectorMarket503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
 	mutation, err := connectorMarketMutation(request.Body)
 	if err != nil {
 		return tuttigenerated.RefreshConnectorMarket400JSONResponse{ConnectorMarketInvalidRequestErrorJSONResponse: invalidConnectorMarketResponse(connectorMarketErrorPayload(err))}, nil
 	}
-	mutation.Scope = market.OperationScope{AccountID: api.connectorMarketAccountID()}
-	result, err := api.ConnectorMarketService.RefreshCatalog(ctx, mutation)
+	mutation.Scope = contracts.OperationScope{AccountID: api.connectorMarketAccountID()}
+	result, err := api.ConnectorCatalogCommands.RefreshCatalog(ctx, mutation)
 	if err != nil {
 		payload, status := connectorMarketError(err)
 		if status == 409 {
@@ -172,7 +157,7 @@ func (api DaemonAPI) InstallConnectorMarketConnector(
 	ctx context.Context,
 	request tuttigenerated.InstallConnectorMarketConnectorRequestObject,
 ) (tuttigenerated.InstallConnectorMarketConnectorResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.InstallConnectorMarketConnector503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
 	mutation, err := connectorMarketConnectorMutation(request.ConnectorKey, request.Body)
@@ -180,7 +165,7 @@ func (api DaemonAPI) InstallConnectorMarketConnector(
 		return tuttigenerated.InstallConnectorMarketConnector400JSONResponse{ConnectorMarketInvalidRequestErrorJSONResponse: invalidConnectorMarketResponse(connectorMarketErrorPayload(err))}, nil
 	}
 	mutation.AccountID = api.connectorMarketAccountID()
-	result, err := api.ConnectorMarketService.Install(ctx, mutation)
+	result, err := api.ConnectorInstallationCommands.Install(ctx, mutation)
 	if err != nil {
 		payload, status := connectorMarketError(err)
 		switch status {
@@ -207,7 +192,7 @@ func (api DaemonAPI) UninstallConnectorMarketConnector(
 	ctx context.Context,
 	request tuttigenerated.UninstallConnectorMarketConnectorRequestObject,
 ) (tuttigenerated.UninstallConnectorMarketConnectorResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.UninstallConnectorMarketConnector503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
 	mutation, err := connectorMarketConnectorMutation(request.ConnectorKey, request.Body)
@@ -215,7 +200,7 @@ func (api DaemonAPI) UninstallConnectorMarketConnector(
 		return tuttigenerated.UninstallConnectorMarketConnector400JSONResponse{ConnectorMarketInvalidRequestErrorJSONResponse: invalidConnectorMarketResponse(connectorMarketErrorPayload(err))}, nil
 	}
 	mutation.AccountID = api.connectorMarketAccountID()
-	result, err := api.ConnectorMarketService.Uninstall(ctx, mutation)
+	result, err := api.ConnectorInstallationCommands.Uninstall(ctx, mutation)
 	if err != nil {
 		payload, status := connectorMarketError(err)
 		switch status {
@@ -240,7 +225,7 @@ func (api DaemonAPI) StartConnectorMarketAuthorization(
 	ctx context.Context,
 	request tuttigenerated.StartConnectorMarketAuthorizationRequestObject,
 ) (tuttigenerated.StartConnectorMarketAuthorizationResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.StartConnectorMarketAuthorization503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
 	mutation, secret, err := connectorMarketAuthorizationMutation(request.ConnectorKey, request.Body)
@@ -249,7 +234,7 @@ func (api DaemonAPI) StartConnectorMarketAuthorization(
 	}
 	mutation.AccountID = api.connectorMarketAccountID()
 	defer clear(secret)
-	result, err := api.ConnectorMarketService.BeginAuthorization(ctx, mutation, secret)
+	result, err := api.ConnectorAuthorizationCommands.BeginAuthorization(ctx, mutation, secret)
 	if err != nil {
 		payload, status := connectorMarketError(err)
 		switch status {
@@ -274,10 +259,10 @@ func (api DaemonAPI) CancelConnectorMarketAuthorization(
 	ctx context.Context,
 	request tuttigenerated.CancelConnectorMarketAuthorizationRequestObject,
 ) (tuttigenerated.CancelConnectorMarketAuthorizationResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.CancelConnectorMarketAuthorization503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
-	err := api.ConnectorMarketService.CancelAuthorization(ctx, market.OperationScope{
+	err := api.ConnectorAuthorizationCommands.CancelAuthorization(ctx, contracts.OperationScope{
 		AccountID: api.connectorMarketAccountID(),
 	}, string(request.ConnectorKey))
 	if err != nil {
@@ -294,7 +279,7 @@ func (api DaemonAPI) DisconnectConnectorMarketAuthorization(
 	ctx context.Context,
 	request tuttigenerated.DisconnectConnectorMarketAuthorizationRequestObject,
 ) (tuttigenerated.DisconnectConnectorMarketAuthorizationResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.DisconnectConnectorMarketAuthorization503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
 	mutation, err := connectorMarketConnectorMutation(request.ConnectorKey, request.Body)
@@ -302,7 +287,7 @@ func (api DaemonAPI) DisconnectConnectorMarketAuthorization(
 		return tuttigenerated.DisconnectConnectorMarketAuthorization400JSONResponse{ConnectorMarketInvalidRequestErrorJSONResponse: invalidConnectorMarketResponse(connectorMarketErrorPayload(err))}, nil
 	}
 	mutation.AccountID = api.connectorMarketAccountID()
-	result, err := api.ConnectorMarketService.DisconnectAuthorization(ctx, mutation)
+	result, err := api.ConnectorAuthorizationCommands.DisconnectAuthorization(ctx, mutation)
 	if err != nil {
 		payload, status := connectorMarketError(err)
 		switch status {
@@ -327,12 +312,12 @@ func (api DaemonAPI) GetConnectorMarketOperation(
 	ctx context.Context,
 	request tuttigenerated.GetConnectorMarketOperationRequestObject,
 ) (tuttigenerated.GetConnectorMarketOperationResponseObject, error) {
-	if api.ConnectorMarketService == nil {
+	if !api.connectorMarketAvailable() {
 		return tuttigenerated.GetConnectorMarketOperation503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
 	}
-	operation, err := api.ConnectorMarketService.GetOperationForScope(
+	operation, err := api.ConnectorOperationQueries.GetOperationForScope(
 		ctx,
-		market.OperationScope{AccountID: api.connectorMarketAccountID()},
+		contracts.OperationScope{AccountID: api.connectorMarketAccountID()},
 		request.OperationID,
 	)
 	if err != nil {
@@ -353,25 +338,25 @@ func (api DaemonAPI) GetConnectorMarketOperation(
 	return tuttigenerated.GetConnectorMarketOperation200JSONResponse(projected), nil
 }
 
-func connectorMarketMutation(body *tuttigenerated.ConnectorMarketMutationRequest) (market.Mutation, error) {
+func connectorMarketMutation(body *tuttigenerated.ConnectorMarketMutationRequest) (contracts.Mutation, error) {
 	if body == nil || body.ExpectedRevision < 0 {
-		return market.Mutation{}, invalidConnectorMarketRequest()
+		return contracts.Mutation{}, invalidConnectorMarketRequest()
 	}
-	return market.Mutation{ClientRequestID: body.ClientRequestId, ExpectedRevision: uint64(body.ExpectedRevision)}, nil
+	return contracts.Mutation{ClientRequestID: body.ClientRequestId, ExpectedRevision: uint64(body.ExpectedRevision)}, nil
 }
 
 func connectorMarketConnectorMutation(
 	connectorKey string,
 	body *tuttigenerated.ConnectorMarketMutationRequest,
-) (market.ConnectorMutation, error) {
+) (contracts.ConnectorMutation, error) {
 	mutation, err := connectorMarketMutation(body)
 	if err != nil {
-		return market.ConnectorMutation{}, err
+		return contracts.ConnectorMutation{}, err
 	}
 	if body.ExpectedConnectorRevision != nil && *body.ExpectedConnectorRevision < 0 {
-		return market.ConnectorMutation{}, invalidConnectorMarketRequest()
+		return contracts.ConnectorMutation{}, invalidConnectorMarketRequest()
 	}
-	result := market.ConnectorMutation{Mutation: mutation, ConnectorKey: connectorKey}
+	result := contracts.ConnectorMutation{Mutation: mutation, ConnectorKey: connectorKey}
 	if body.ExpectedConnectorRevision != nil {
 		revision := uint64(*body.ExpectedConnectorRevision)
 		result.ExpectedConnectorRevision = &revision
@@ -382,25 +367,25 @@ func connectorMarketConnectorMutation(
 func connectorMarketAuthorizationMutation(
 	connectorKey string,
 	body *tuttigenerated.ConnectorMarketAuthorizationRequest,
-) (market.ConnectorMutation, []byte, error) {
+) (contracts.ConnectorMutation, []byte, error) {
 	if body == nil || body.ExpectedRevision < 0 ||
 		(body.ExpectedConnectorRevision != nil && *body.ExpectedConnectorRevision < 0) {
-		return market.ConnectorMutation{}, nil, invalidConnectorMarketRequest()
+		return contracts.ConnectorMutation{}, nil, invalidConnectorMarketRequest()
 	}
 	var secret []byte
 	if body.Secret != nil {
 		secret = []byte(*body.Secret)
 		if len(secret) == 0 || len(secret) > 16384 {
 			clear(secret)
-			return market.ConnectorMutation{}, nil, invalidConnectorMarketRequest()
+			return contracts.ConnectorMutation{}, nil, invalidConnectorMarketRequest()
 		}
 	}
-	result := market.ConnectorMutation{
-		Mutation:     market.Mutation{ClientRequestID: body.ClientRequestId, ExpectedRevision: uint64(body.ExpectedRevision)},
+	result := contracts.ConnectorMutation{
+		Mutation:     contracts.Mutation{ClientRequestID: body.ClientRequestId, ExpectedRevision: uint64(body.ExpectedRevision)},
 		ConnectorKey: connectorKey,
 	}
 	if body.ReplacementPolicy != nil {
-		result.ReplacementPolicy = market.AuthorizationReplacementPolicy(*body.ReplacementPolicy)
+		result.ReplacementPolicy = contracts.AuthorizationReplacementPolicy(*body.ReplacementPolicy)
 	}
 	if body.ExpectedConnectorRevision != nil {
 		revision := uint64(*body.ExpectedConnectorRevision)
@@ -410,7 +395,7 @@ func connectorMarketAuthorizationMutation(
 }
 
 func invalidConnectorMarketRequest() error {
-	return market.NewDomainError(market.ErrorCodeInvalidRequest, "connector market request is invalid", false, nil)
+	return contracts.NewDomainError(contracts.ErrorCodeInvalidRequest, "connector market request is invalid", false, nil)
 }
 
 func (api DaemonAPI) connectorMarketAccountID() string {
@@ -418,35 +403,6 @@ func (api DaemonAPI) connectorMarketAccountID() string {
 		return ""
 	}
 	return api.ConnectorMarketScope().AccountID
-}
-
-func (api DaemonAPI) overlayConnectorAuthorizationProjections(ctx context.Context, connectors []market.Connector) error {
-	accountID := api.connectorMarketAccountID()
-	if accountID == "" || api.ConnectorMarketService == nil {
-		return nil
-	}
-	for index := range connectors {
-		connector := &connectors[index]
-		if connector.Release.Manifest.AuthorizationKind == "none" {
-			connector.Authorization = market.Authorization{State: market.AuthorizationStateNotRequired}
-			continue
-		}
-		projection, err := api.ConnectorMarketService.GetAuthorizationProjection(ctx, accountID, connector.Key)
-		if errors.Is(err, market.ErrNotFound) {
-			connector.Authorization = market.Authorization{State: market.AuthorizationStateDisconnected}
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if connector.Release.Manifest.Implementation.RemoteStreamableHTTP != nil &&
-			(!projection.ServerSynchronized || api.ConnectorAuthorizationReady != nil && !api.ConnectorAuthorizationReady(accountID)) {
-			connector.Authorization = market.Authorization{State: market.AuthorizationStateDisconnected}
-			continue
-		}
-		connector.Authorization = market.Authorization{State: projection.State, FailureCode: projection.FailureCode}
-	}
-	return nil
 }
 
 func projectConnectorMarket[T any](value any) (T, error) {
@@ -464,27 +420,34 @@ func projectConnectorMarket[T any](value any) (T, error) {
 
 func exposeConnectorMarketAuthorizationInteractionMode(value any) any {
 	switch typed := value.(type) {
-	case market.Snapshot:
-		typed.Connectors = append([]market.Connector{}, typed.Connectors...)
+	case contracts.Snapshot:
+		typed.Connectors = append([]contracts.Connector{}, typed.Connectors...)
 		for index := range typed.Connectors {
 			typed.Connectors[index] = exposeConnectorAuthorizationInteractionMode(typed.Connectors[index])
 		}
-		return typed
-	case market.CatalogPage:
-		typed.Items = append([]market.CatalogListing{}, typed.Items...)
+		return struct {
+			contracts.Snapshot
+			CatalogState   string `json:"catalogState"`
+			SourceRevision string `json:"sourceRevision,omitempty"`
+		}{
+			Snapshot: typed, CatalogState: legacyConnectorCatalogState(typed.CatalogFreshness.State),
+			SourceRevision: typed.CatalogFreshness.SourceRevision,
+		}
+	case contracts.CatalogPage:
+		typed.Items = append([]contracts.CatalogListing{}, typed.Items...)
 		for index := range typed.Items {
 			typed.Items[index].Connector = exposeConnectorAuthorizationInteractionMode(typed.Items[index].Connector)
 		}
 		return typed
-	case market.Connector:
+	case contracts.Connector:
 		return exposeConnectorAuthorizationInteractionMode(typed)
-	case market.MutationResult:
+	case contracts.MutationResult:
 		if typed.Connector != nil {
 			connector := exposeConnectorAuthorizationInteractionMode(*typed.Connector)
 			typed.Connector = &connector
 		}
 		return typed
-	case market.AuthorizationResult:
+	case contracts.AuthorizationResult:
 		typed.Connector = exposeConnectorAuthorizationInteractionMode(typed.Connector)
 		return typed
 	default:
@@ -492,10 +455,23 @@ func exposeConnectorMarketAuthorizationInteractionMode(value any) any {
 	}
 }
 
-func exposeConnectorAuthorizationInteractionMode(connector market.Connector) market.Connector {
+func legacyConnectorCatalogState(state contracts.CatalogFreshnessState) string {
+	switch state {
+	case contracts.CatalogFreshnessFresh:
+		return "ready"
+	case contracts.CatalogFreshnessRefreshing:
+		return "refreshing"
+	case contracts.CatalogFreshnessStale:
+		return "stale"
+	default:
+		return "failed"
+	}
+}
+
+func exposeConnectorAuthorizationInteractionMode(connector contracts.Connector) contracts.Connector {
 	managed := connector.Release.Manifest.Implementation.ManagedStdio
 	if managed != nil && managed.CredentialBroker != nil {
-		connector.Release.Manifest.AuthorizationInteractionMode = market.AuthorizationInteractionModeManaged
+		connector.Release.Manifest.AuthorizationInteractionMode = contracts.AuthorizationInteractionModeManaged
 	}
 	return connector
 }
@@ -510,23 +486,23 @@ func connectorMarketGetSnapshotError(err error) tuttigenerated.GetConnectorMarke
 
 func connectorMarketError(err error) (tuttigenerated.ConnectorMarketError, int) {
 	payload := connectorMarketErrorPayload(err)
-	if errors.Is(err, market.ErrNotFound) {
+	if errors.Is(err, contracts.ErrNotFound) {
 		payload.Code = tuttigenerated.ConnectorNotFound
 		payload.Message = "connector market resource was not found"
 		return payload, 404
 	}
-	var domainError *market.DomainError
+	var domainError *contracts.DomainError
 	if !errors.As(err, &domainError) {
 		return payload, 503
 	}
 	switch domainError.Code {
-	case market.ErrorCodeInvalidRequest:
+	case contracts.ErrorCodeInvalidRequest:
 		return payload, 400
-	case market.ErrorCodeNotFound:
+	case contracts.ErrorCodeNotFound:
 		return payload, 404
-	case market.ErrorCodeRevisionConflict, market.ErrorCodeOperationInProgress:
+	case contracts.ErrorCodeRevisionConflict, contracts.ErrorCodeOperationInProgress:
 		return payload, 409
-	case market.ErrorCodeIncompatible, market.ErrorCodeInvalidManifest, market.ErrorCodeUnsupportedImplementation:
+	case contracts.ErrorCodeIncompatible, contracts.ErrorCodeInvalidManifest, contracts.ErrorCodeUnsupportedImplementation:
 		return payload, 422
 	default:
 		return payload, 503
@@ -539,7 +515,7 @@ func connectorMarketErrorPayload(err error) tuttigenerated.ConnectorMarketError 
 		Message:   "connector market is temporarily unavailable",
 		Retryable: true,
 	}
-	var domainError *market.DomainError
+	var domainError *contracts.DomainError
 	if errors.As(err, &domainError) {
 		result.Code = tuttigenerated.ConnectorMarketErrorCode(domainError.Code)
 		result.Message = domainError.Message

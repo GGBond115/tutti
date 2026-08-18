@@ -2,12 +2,12 @@ package daemon
 
 import (
 	"context"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
+	marketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
 	"path/filepath"
 	"testing"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
-	marketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
 )
 
 func TestRuntimeConvergenceWorkerAppliesDurableDesiredState(t *testing.T) {
@@ -18,35 +18,35 @@ func TestRuntimeConvergenceWorkerAppliesDurableDesiredState(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	release := hostTestRelease()
-	connector := market.Connector{
+	connector := contracts.Connector{
 		Key: release.ConnectorKey, Release: release,
-		Installation: market.Installation{
-			State: market.InstallationStateInstalled, InstalledVersion: release.Version,
+		Installation: contracts.Installation{
+			State: contracts.InstallationStateInstalled, InstalledVersion: release.Version,
 			InstalledReleaseID: release.ReleaseID, InstalledReleaseDigest: release.ReleaseDigest,
 		},
-		Authorization: market.Authorization{State: market.AuthorizationStateNotRequired},
-		Compatibility: market.Compatibility{State: market.CompatibilityStateSupported},
+		Authorization: contracts.Authorization{State: contracts.AuthorizationStateNotRequired},
+		Compatibility: contracts.Compatibility{State: contracts.CompatibilityStateSupported},
 	}
 	now := time.Date(2026, 8, 15, 4, 0, 0, 0, time.UTC)
-	install := market.Operation{
+	install := contracts.Operation{
 		OperationID: "install-1", ClientRequestID: "install-request-1", ConnectorKey: connector.Key,
-		Kind: market.OperationKindInstall, State: market.OperationStateCompleted, Stage: market.OperationStageCompleted,
-		Target: &market.OperationTarget{
+		Kind: contracts.OperationKindInstall, State: contracts.OperationStateCompleted, Stage: contracts.OperationStageCompleted,
+		Target: &contracts.OperationTarget{
 			ConnectorKey: connector.Key, Version: release.Version, ReleaseID: release.ReleaseID,
 			ReleaseDigest: release.ReleaseDigest, Release: &release,
 		},
 		CreatedAt: now, UpdatedAt: now,
 	}
-	desired := market.RuntimeConvergence{
-		Desired: market.RuntimeDesired{
+	desired := contracts.RuntimeConvergence{
+		Desired: contracts.RuntimeDesired{
 			ConnectorKey: connector.Key, Generation: 1, Enabled: true,
 			ConnectionID: "device-github", ReleaseDigest: release.ReleaseDigest,
-			AuthorizationState: market.AuthorizationStateNotRequired, UpdatedAt: now,
+			AuthorizationState: contracts.AuthorizationStateNotRequired, UpdatedAt: now,
 		},
 		NextAttemptAt: now,
 		UpdatedAt:     now,
 	}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		connector.Revision = tx.AdvanceRevision()
 		if err := tx.SaveConnector(connector); err != nil {
 			return err
@@ -61,18 +61,18 @@ func TestRuntimeConvergenceWorkerAppliesDurableDesiredState(t *testing.T) {
 
 	runtime := &activationGateDelegate{}
 	gate := newActivationGateHost(runtime)
-	gate.setOpen(market.OperationScope{}, true)
+	gate.setOpen(contracts.OperationScope{}, true)
 	scheduler := NewOperationScheduler(ctx)
-	application, err := market.NewApplication(market.ApplicationConfig{
+	composition, err := application.New(application.Config{
 		Repository: store, CatalogSource: &countingCatalogSource{release: release},
-		ReleaseInstallations: runtime, Host: gate, Authorization: unavailableAuthorization{},
-		RuntimeBindings: runtimeBindingResolverFunc(func(context.Context, market.RuntimeBindingRequest) (market.RuntimeBinding, error) {
-			return market.RuntimeBinding{
-				ConnectionID: "device-github", Enabled: true, AuthorizationState: market.AuthorizationStateNotRequired,
+		ReleaseInstallations: runtime, ImplementationCommands: gate, Authorization: unavailableAuthorization{},
+		RuntimeBindings: runtimeBindingResolverFunc(func(context.Context, contracts.RuntimeBindingRequest) (contracts.RuntimeBinding, error) {
+			return contracts.RuntimeBinding{
+				ConnectionID: "device-github", Enabled: true, AuthorizationState: contracts.AuthorizationStateNotRequired,
 			}, nil
 		}),
 		Compatibility: rejectingCompatibility{}, Scheduler: scheduler,
-		ImplementationRegistry: market.NewImplementationRegistry(nil),
+		ImplementationRegistry: application.NewImplementationRegistry(nil),
 		Now:                    func() time.Time { return now },
 		BootEpoch:              "boot-1",
 		WorkerID:               "worker-1",
@@ -80,19 +80,19 @@ func TestRuntimeConvergenceWorkerAppliesDurableDesiredState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := scheduler.Bind(application); err != nil {
+	if err := scheduler.Bind(composition.Daemon.Recovery); err != nil {
 		t.Fatal(err)
 	}
-	host := &Host{Application: application, bootstrapped: true}
+	host := &Host{runtimeMaintenance: composition.Daemon.Runtime, bootstrapped: true}
 	if err := host.convergeDueRuntimes(ctx); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := store.RuntimeConvergence(ctx, market.OperationScope{}, connector.Key)
+	stored, err := store.RuntimeConvergence(ctx, contracts.OperationScope{}, connector.Key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runtime.reconciles != 1 || stored.Observed.DesiredGeneration != 1 ||
-		stored.Observed.BootEpoch != "boot-1" || stored.Observed.Readiness.State != market.RuntimeReadinessReady {
+		stored.Observed.BootEpoch != "boot-1" || stored.Observed.Readiness.State != contracts.RuntimeReadinessReady {
 		t.Fatalf("runtime reconciles = %d, convergence = %#v", runtime.reconciles, stored)
 	}
 }

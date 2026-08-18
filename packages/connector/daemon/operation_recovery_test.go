@@ -2,13 +2,13 @@ package daemon
 
 import (
 	"context"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
+	marketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
-	marketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
 )
 
 func TestOperationRecoveryReschedulesDurableRunningWorkAfterWakeLoss(t *testing.T) {
@@ -18,12 +18,12 @@ func TestOperationRecoveryReschedulesDurableRunningWorkAfterWakeLoss(t *testing.
 		t.Fatal(err)
 	}
 	defer store.Close()
-	operation := market.Operation{
+	operation := contracts.Operation{
 		OperationID: "install-1", ClientRequestID: "request-1", ConnectorKey: "github",
-		Kind: market.OperationKindInstall, State: market.OperationStateRunning, Stage: market.OperationStageInstalling,
+		Kind: contracts.OperationKindInstall, State: contracts.OperationStateRunning, Stage: contracts.OperationStageInstalling,
 		CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(2, 0).UTC(),
 	}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		return tx.SaveOperation(operation)
 	}); err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestOperationRecoveryReschedulesDurableRunningWorkAfterWakeLoss(t *testing.
 	if err := scheduler.Bind(executor); err != nil {
 		t.Fatal(err)
 	}
-	host := &Host{repository: store, scheduler: scheduler}
+	host := &Host{operationRecovery: store, scheduler: scheduler}
 	if err := host.scheduleRecoverableOperations(ctx); err != nil {
 		t.Fatal(err)
 	}

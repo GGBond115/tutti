@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
-func (host *Host) buildRemoteRoute(ctx context.Context, request market.RuntimeReconcileRequest) (*connectorRoute, error) {
+func (host *Host) buildRemoteRoute(ctx context.Context, request contracts.RuntimeReconcileRequest) (*connectorRoute, error) {
 	remote := request.Connector.Release.Manifest.Implementation.RemoteStreamableHTTP
 	if remote == nil {
 		return nil, errors.New("remote_streamable_http connector config is unavailable")

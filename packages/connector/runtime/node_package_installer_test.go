@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 )
 
@@ -94,11 +94,11 @@ func TestNodePackageInstallerUsesOneManagedNodeAndSharedContentStore(t *testing.
 	}
 	first := testNodePackageRelease("lark", strings.Repeat("1", 64))
 	second := testNodePackageRelease("lark-enterprise", strings.Repeat("2", 64))
-	firstReceipt, err := installer.InstallCLI(context.Background(), market.InstallCLIRequest{OperationID: "install-1", Release: first})
+	firstReceipt, err := installer.InstallCLI(context.Background(), contracts.InstallCLIRequest{OperationID: "install-1", Release: first})
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondReceipt, err := installer.InstallCLI(context.Background(), market.InstallCLIRequest{OperationID: "install-2", Release: second})
+	secondReceipt, err := installer.InstallCLI(context.Background(), contracts.InstallCLIRequest{OperationID: "install-2", Release: second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestNodePackageInstallerUsesOneManagedNodeAndSharedContentStore(t *testing.
 	if packageInstalls != 2 || lifecycleRuns != 2 {
 		t.Fatalf("package installs = %d, lifecycle runs = %d", packageInstalls, lifecycleRuns)
 	}
-	if err := installer.RemoveCLI(context.Background(), market.RemoveCLIRequest{OperationID: "remove-1",
+	if err := installer.RemoveCLI(context.Background(), contracts.RemoveCLIRequest{OperationID: "remove-1",
 		ConnectorKey: first.ConnectorKey, ReleaseDigest: first.ReleaseDigest}); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestNodePackageInstallerRemoveCLIRejectsSymlinkParent(t *testing.T) {
 	if err := os.Symlink(victim, filepath.Join(root, "packages", "lark")); err != nil {
 		t.Fatal(err)
 	}
-	err = installer.RemoveCLI(context.Background(), market.RemoveCLIRequest{
+	err = installer.RemoveCLI(context.Background(), contracts.RemoveCLIRequest{
 		ConnectorKey: "lark", ReleaseDigest: digest,
 	})
 	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
@@ -206,26 +206,26 @@ func TestNodeVersionSatisfiesComparatorRange(t *testing.T) {
 	}
 }
 
-func testNodePackageRelease(connectorKey, digest string) market.Release {
-	return market.Release{
+func testNodePackageRelease(connectorKey, digest string) contracts.Release {
+	return contracts.Release{
 		SchemaVersion: "1", ReleaseID: connectorKey + "@1.0.0", ConnectorKey: connectorKey,
 		Version: "1.0.0", ReleaseDigest: digest, ManifestDigest: strings.Repeat("3", 64),
-		Artifact:    market.Artifact{SHA256: strings.Repeat("4", 64), SizeBytes: 1, MediaType: "application/zip"},
-		PublishedAt: time.Unix(1, 0).UTC(), Status: market.ReleaseStatusAvailable,
-		Manifest: market.Manifest{
+		Artifact:    contracts.Artifact{SHA256: strings.Repeat("4", 64), SizeBytes: 1, MediaType: "application/zip"},
+		PublishedAt: time.Unix(1, 0).UTC(), Status: contracts.ReleaseStatusAvailable,
+		Manifest: contracts.Manifest{
 			SchemaVersion: "1", DisplayName: "Lark", IconURL: "data:image/png;base64,iVBORw0KGgo=", AuthorizationKind: "none",
-			Implementation: market.Implementation{
-				Kind: market.ImplementationKindManagedStdio,
-				ManagedStdio: &market.ManagedStdioImplementation{
-					Runtime: market.RuntimeRequirement{Language: "node", Profile: ConnectorNodeProfile,
+			Implementation: contracts.Implementation{
+				Kind: contracts.ImplementationKindManagedStdio,
+				ManagedStdio: &contracts.ManagedStdioImplementation{
+					Runtime: contracts.RuntimeRequirement{Language: "node", Profile: ConnectorNodeProfile,
 						ABI: "node22-" + runtime.GOOS + "-" + runtime.GOARCH, VersionRange: ">=22.0.0 <23.0.0"},
-					CLI: &market.ManagedCLIInterface{
+					CLI: &contracts.ManagedCLIInterface{
 						Entrypoint: "lark-cli", TimeoutMS: 120_000,
-						Install: &market.CLIInstallation{Kind: "node_package", NodePackage: &market.NodePackageInstallation{
+						Install: &contracts.CLIInstallation{Kind: "node_package", NodePackage: &contracts.NodePackageInstallation{
 							Package: "@larksuite/cli", Version: "1.0.83", Integrity: larkTestIntegrity,
-							Launch: market.NodePackageLaunch{Kind: "native", Entrypoint: "bin/lark-cli",
+							Launch: contracts.NodePackageLaunch{Kind: "native", Entrypoint: "bin/lark-cli",
 								SHA256: "c4319606cba410b6e1128bebe27915a7c212a4f8b58faaa38a2f99d31856e046"},
-							Lifecycle: []market.NodeLifecycleCommand{{Event: "postinstall", Entrypoint: "scripts/install.js"}},
+							Lifecycle: []contracts.NodeLifecycleCommand{{Event: "postinstall", Entrypoint: "scripts/install.js"}},
 						}},
 					},
 				},

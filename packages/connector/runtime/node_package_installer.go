@@ -14,7 +14,8 @@ import (
 	"sync"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
 
 	"golang.org/x/mod/semver"
@@ -52,7 +53,7 @@ type NodePackageInstaller struct {
 	installSlots   chan struct{}
 }
 
-var _ market.CLIInstallationManager = (*NodePackageInstaller)(nil)
+var _ application.CLIInstallationManager = (*NodePackageInstaller)(nil)
 
 func NewNodePackageInstaller(config NodePackageInstallerConfig) (*NodePackageInstaller, error) {
 	root := strings.TrimSpace(config.RootDir)
@@ -82,19 +83,19 @@ func NewNodePackageInstaller(config NodePackageInstallerConfig) (*NodePackageIns
 		connectorLanes: make(map[string]*sync.Mutex), installSlots: make(chan struct{}, 4)}, nil
 }
 
-func (installer *NodePackageInstaller) InstallCLI(ctx context.Context, request market.InstallCLIRequest) (market.CLIInstallationReceipt, error) {
+func (installer *NodePackageInstaller) InstallCLI(ctx context.Context, request contracts.InstallCLIRequest) (contracts.CLIInstallationReceipt, error) {
 	if installer == nil {
-		return market.CLIInstallationReceipt{}, errors.New("connector node package installer is unavailable")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector node package installer is unavailable")
 	}
-	if err := market.ValidateReleaseShape(request.Release); err != nil {
-		return market.CLIInstallationReceipt{}, err
+	if err := contracts.ValidateReleaseShape(request.Release); err != nil {
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	managed, cli, nodePackage, err := nodePackageIntent(request.Release)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	if strings.TrimSpace(request.OperationID) == "" {
-		return market.CLIInstallationReceipt{}, errors.New("connector CLI installation operation id is required")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector CLI installation operation id is required")
 	}
 	releaseLane := installer.lockConnector(request.Release.ConnectorKey)
 	defer releaseLane()
@@ -102,12 +103,12 @@ func (installer *NodePackageInstaller) InstallCLI(ctx context.Context, request m
 	case installer.installSlots <- struct{}{}:
 		defer func() { <-installer.installSlots }()
 	case <-ctx.Done():
-		return market.CLIInstallationReceipt{}, ctx.Err()
+		return contracts.CLIInstallationReceipt{}, ctx.Err()
 	}
 
 	resolved, node, err := installer.resolveNode(ctx, managed.Runtime)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	target := installer.installRoot(request.Release.ConnectorKey, request.Release.ReleaseDigest)
 	if receipt, err := installer.readAndVerifyReceipt(request.Release, cli.Entrypoint, resolved, node, target); err == nil {
@@ -115,97 +116,97 @@ func (installer *NodePackageInstaller) InstallCLI(ctx context.Context, request m
 		return receipt, nil
 	}
 	if err := os.RemoveAll(target); err != nil {
-		return market.CLIInstallationReceipt{}, fmt.Errorf("remove invalid connector CLI installation: %w", err)
+		return contracts.CLIInstallationReceipt{}, fmt.Errorf("remove invalid connector CLI installation: %w", err)
 	}
 	staging := filepath.Join(installer.rootDir, "staging", request.OperationID)
 	if !pathWithin(installer.rootDir, staging) {
-		return market.CLIInstallationReceipt{}, errors.New("connector CLI staging path escapes package root")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector CLI staging path escapes package root")
 	}
 	if err := os.RemoveAll(staging); err != nil {
-		return market.CLIInstallationReceipt{}, fmt.Errorf("reset connector CLI staging: %w", err)
+		return contracts.CLIInstallationReceipt{}, fmt.Errorf("reset connector CLI staging: %w", err)
 	}
 	defer os.RemoveAll(staging)
 	shared := installer.sharedPaths()
 	for _, directory := range []string{staging, shared.store, shared.corepack, shared.npmCache, shared.pnpmHome} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return market.CLIInstallationReceipt{}, fmt.Errorf("create connector CLI package directory: %w", err)
+			return contracts.CLIInstallationReceipt{}, fmt.Errorf("create connector CLI package directory: %w", err)
 		}
 	}
 	privateHome := filepath.Join(staging, ".home")
 	if err := os.MkdirAll(privateHome, 0o700); err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	if err := writeConnectorPackageJSON(staging, *nodePackage, installer.pnpmVersion); err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	corepackEntrypoint := filepath.Join(resolved.Root, "node", "lib", "node_modules", "corepack", "dist", "corepack.js")
 	if !ordinaryFile(corepackEntrypoint) {
-		return market.CLIInstallationReceipt{}, errors.New("managed Node runtime Corepack entrypoint is unavailable")
+		return contracts.CLIInstallationReceipt{}, errors.New("managed Node runtime Corepack entrypoint is unavailable")
 	}
 	installArgs := []string{corepackEntrypoint, "pnpm@" + installer.pnpmVersion, "install", "--dir", staging,
 		"--ignore-workspace", "--ignore-scripts", "--store-dir", shared.store, "--package-import-method", "hardlink"}
 	if err := installer.runManagedNode(ctx, resolved, node, staging, privateHome, shared, installArgs); err != nil {
-		return market.CLIInstallationReceipt{}, fmt.Errorf("install connector node package: %w", err)
+		return contracts.CLIInstallationReceipt{}, fmt.Errorf("install connector node package: %w", err)
 	}
 	packageRoot, err := installedNodePackageRoot(staging, nodePackage.Package)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	for _, lifecycle := range nodePackage.Lifecycle {
 		entrypoint, err := safeInstalledFile(packageRoot, lifecycle.Entrypoint)
 		if err != nil {
-			return market.CLIInstallationReceipt{}, fmt.Errorf("resolve connector node package lifecycle: %w", err)
+			return contracts.CLIInstallationReceipt{}, fmt.Errorf("resolve connector node package lifecycle: %w", err)
 		}
 		args := append([]string{entrypoint}, lifecycle.Arguments...)
 		if err := installer.runManagedNode(ctx, resolved, node, packageRoot, privateHome, shared, args); err != nil {
-			return market.CLIInstallationReceipt{}, fmt.Errorf("run connector node package %s: %w", lifecycle.Event, err)
+			return contracts.CLIInstallationReceipt{}, fmt.Errorf("run connector node package %s: %w", lifecycle.Event, err)
 		}
 	}
 	receipt, err := installer.buildReceipt(request, cli.Entrypoint, resolved, node, staging, shared.store)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	receipt.InstallRoot = target
 	if err := writeCLIInstallationReceipt(staging, receipt); err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	if err := os.Rename(staging, target); err != nil {
-		return market.CLIInstallationReceipt{}, fmt.Errorf("activate connector CLI installation: %w", err)
+		return contracts.CLIInstallationReceipt{}, fmt.Errorf("activate connector CLI installation: %w", err)
 	}
 	return receipt, nil
 }
 
-func (installer *NodePackageInstaller) ResolveCLI(ctx context.Context, release market.Release) (market.CLIInstallationReceipt, error) {
+func (installer *NodePackageInstaller) ResolveCLI(ctx context.Context, release contracts.Release) (contracts.CLIInstallationReceipt, error) {
 	if installer == nil {
-		return market.CLIInstallationReceipt{}, errors.New("connector node package installer is unavailable")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector node package installer is unavailable")
 	}
 	managed, cli, _, err := nodePackageIntent(release)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	releaseLane := installer.lockConnector(release.ConnectorKey)
 	defer releaseLane()
 	resolved, node, err := installer.resolveNode(ctx, managed.Runtime)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	root := installer.installRoot(release.ConnectorKey, release.ReleaseDigest)
 	if _, statErr := os.Stat(root); errors.Is(statErr, os.ErrNotExist) {
-		return market.CLIInstallationReceipt{}, market.ErrReleaseInstallationAbsent
+		return contracts.CLIInstallationReceipt{}, contracts.ErrReleaseInstallationAbsent
 	} else if statErr != nil {
-		return market.CLIInstallationReceipt{}, fmt.Errorf("inspect connector CLI installation: %w", statErr)
+		return contracts.CLIInstallationReceipt{}, fmt.Errorf("inspect connector CLI installation: %w", statErr)
 	}
 	receipt, err := installer.readAndVerifyReceipt(release, cli.Entrypoint, resolved, node, root)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, fmt.Errorf("%w: %v", market.ErrReleaseInstallationInvalid, err)
+		return contracts.CLIInstallationReceipt{}, fmt.Errorf("%w: %v", contracts.ErrReleaseInstallationInvalid, err)
 	}
 	return receipt, nil
 }
 
-func (installer *NodePackageInstaller) RemoveCLI(ctx context.Context, request market.RemoveCLIRequest) error {
+func (installer *NodePackageInstaller) RemoveCLI(ctx context.Context, request contracts.RemoveCLIRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -226,7 +227,7 @@ func (installer *NodePackageInstaller) RemoveCLI(ctx context.Context, request ma
 
 func (installer *NodePackageInstaller) RemoveConnector(
 	ctx context.Context,
-	request market.RemoveConnectorInstallationRequest,
+	request contracts.RemoveConnectorInstallationRequest,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -270,7 +271,7 @@ func (installer *NodePackageInstaller) installRoot(connectorKey, releaseDigest s
 	return filepath.Join(installer.rootDir, "packages", connectorKey, releaseDigest)
 }
 
-func (installer *NodePackageInstaller) resolveNode(ctx context.Context, requirement market.RuntimeRequirement) (ResolvedConnectorRuntime, ConnectorExecutable, error) {
+func (installer *NodePackageInstaller) resolveNode(ctx context.Context, requirement contracts.RuntimeRequirement) (ResolvedConnectorRuntime, ConnectorExecutable, error) {
 	resolved, err := installer.runtimes.ResolveProfile(ctx, requirement.Profile)
 	if err != nil {
 		return ResolvedConnectorRuntime{}, ConnectorExecutable{}, err
@@ -396,7 +397,7 @@ func environmentValue(environment []string, key string) string {
 	return ""
 }
 
-func nodePackageIntent(release market.Release) (*market.ManagedStdioImplementation, *market.ManagedCLIInterface, *market.NodePackageInstallation, error) {
+func nodePackageIntent(release contracts.Release) (*contracts.ManagedStdioImplementation, *contracts.ManagedCLIInterface, *contracts.NodePackageInstallation, error) {
 	managed := release.Manifest.Implementation.ManagedStdio
 	if managed == nil || managed.CLI == nil || managed.CLI.Install == nil || managed.CLI.Install.Kind != "node_package" || managed.CLI.Install.NodePackage == nil {
 		return nil, nil, nil, errors.New("connector release does not declare a node package CLI installation")
@@ -404,7 +405,7 @@ func nodePackageIntent(release market.Release) (*market.ManagedStdioImplementati
 	return managed, managed.CLI, managed.CLI.Install.NodePackage, nil
 }
 
-func writeConnectorPackageJSON(root string, install market.NodePackageInstallation, pnpmVersion string) error {
+func writeConnectorPackageJSON(root string, install contracts.NodePackageInstallation, pnpmVersion string) error {
 	payload := struct {
 		Private        bool              `json:"private"`
 		PackageManager string            `json:"packageManager"`
@@ -417,21 +418,21 @@ func writeConnectorPackageJSON(root string, install market.NodePackageInstallati
 	return os.WriteFile(filepath.Join(root, "package.json"), data, 0o600)
 }
 
-func (*NodePackageInstaller) buildReceipt(request market.InstallCLIRequest, executable string,
-	resolved ResolvedConnectorRuntime, node ConnectorExecutable, root, storeRoot string) (market.CLIInstallationReceipt, error) {
+func (*NodePackageInstaller) buildReceipt(request contracts.InstallCLIRequest, executable string,
+	resolved ResolvedConnectorRuntime, node ConnectorExecutable, root, storeRoot string) (contracts.CLIInstallationReceipt, error) {
 	_, _, install, _ := nodePackageIntent(request.Release)
 	verified, err := verifyInstalledNodePackage(root, *install, executable)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	entrypointDigest, err := cliFileSHA256(verified.entrypoint)
 	if err != nil {
-		return market.CLIInstallationReceipt{}, err
+		return contracts.CLIInstallationReceipt{}, err
 	}
 	if install.Launch.Kind == "native" && entrypointDigest != install.Launch.SHA256 {
-		return market.CLIInstallationReceipt{}, errors.New("installed connector native CLI digest does not match manifest")
+		return contracts.CLIInstallationReceipt{}, errors.New("installed connector native CLI digest does not match manifest")
 	}
-	return market.CLIInstallationReceipt{SchemaVersion: cliInstallationReceiptSchema, OperationID: request.OperationID,
+	return contracts.CLIInstallationReceipt{SchemaVersion: cliInstallationReceiptSchema, OperationID: request.OperationID,
 		ConnectorKey: request.Release.ConnectorKey, ReleaseDigest: request.Release.ReleaseDigest,
 		RuntimeProfile: request.Release.Manifest.Implementation.ManagedStdio.Runtime.Profile,
 		RuntimeABI:     resolved.ABI, NodeVersion: resolved.Components["node"], NodeSHA256: node.SHA256,
@@ -440,15 +441,15 @@ func (*NodePackageInstaller) buildReceipt(request market.InstallCLIRequest, exec
 		EntrypointSHA256: entrypointDigest, EntrypointSize: verified.entrypointSize, LockSHA256: verified.lockDigest}, nil
 }
 
-func (installer *NodePackageInstaller) readAndVerifyReceipt(release market.Release, executable string,
-	resolved ResolvedConnectorRuntime, node ConnectorExecutable, root string) (market.CLIInstallationReceipt, error) {
+func (installer *NodePackageInstaller) readAndVerifyReceipt(release contracts.Release, executable string,
+	resolved ResolvedConnectorRuntime, node ConnectorExecutable, root string) (contracts.CLIInstallationReceipt, error) {
 	data, err := os.ReadFile(filepath.Join(root, cliInstallationReceiptFile))
 	if err != nil || len(data) > 1<<20 {
-		return market.CLIInstallationReceipt{}, errors.New("connector CLI installation receipt is unavailable")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector CLI installation receipt is unavailable")
 	}
-	var receipt market.CLIInstallationReceipt
+	var receipt contracts.CLIInstallationReceipt
 	if json.Unmarshal(data, &receipt) != nil {
-		return market.CLIInstallationReceipt{}, errors.New("connector CLI installation receipt is invalid")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector CLI installation receipt is invalid")
 	}
 	_, _, install, _ := nodePackageIntent(release)
 	shared := installer.sharedPaths()
@@ -458,21 +459,21 @@ func (installer *NodePackageInstaller) readAndVerifyReceipt(release market.Relea
 		receipt.Package != install.Package || receipt.PackageVersion != install.Version || receipt.PackageIntegrity != install.Integrity ||
 		receipt.LaunchKind != install.Launch.Kind || receipt.EntrypointSize <= 0 ||
 		filepath.Clean(receipt.InstallRoot) != filepath.Clean(root) || filepath.Clean(receipt.StoreRoot) != filepath.Clean(shared.store) {
-		return market.CLIInstallationReceipt{}, errors.New("connector CLI installation receipt identity is invalid")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector CLI installation receipt identity is invalid")
 	}
 	verified, err := verifyInstalledNodePackage(root, *install, executable)
 	if err != nil || verified.relativeEntrypoint != receipt.Entrypoint || verified.lockDigest != receipt.LockSHA256 ||
 		verified.entrypointSize != receipt.EntrypointSize {
-		return market.CLIInstallationReceipt{}, errors.New("connector CLI installation changed after activation")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector CLI installation changed after activation")
 	}
 	digest, err := cliFileSHA256(verified.entrypoint)
 	if err != nil || digest != receipt.EntrypointSHA256 || (install.Launch.Kind == "native" && digest != install.Launch.SHA256) {
-		return market.CLIInstallationReceipt{}, errors.New("connector CLI entrypoint changed after activation")
+		return contracts.CLIInstallationReceipt{}, errors.New("connector CLI entrypoint changed after activation")
 	}
 	return receipt, nil
 }
 
-func writeCLIInstallationReceipt(root string, receipt market.CLIInstallationReceipt) error {
+func writeCLIInstallationReceipt(root string, receipt contracts.CLIInstallationReceipt) error {
 	data, err := json.Marshal(receipt)
 	if err != nil {
 		return err
@@ -493,7 +494,7 @@ type verifiedInstalledNodePackage struct {
 	entrypointSize     int64
 }
 
-func verifyInstalledNodePackage(root string, install market.NodePackageInstallation, executable string) (verifiedInstalledNodePackage, error) {
+func verifyInstalledNodePackage(root string, install contracts.NodePackageInstallation, executable string) (verifiedInstalledNodePackage, error) {
 	packageRoot, err := installedNodePackageRoot(root, install.Package)
 	if err != nil {
 		return verifiedInstalledNodePackage{}, err

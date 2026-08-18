@@ -3,16 +3,15 @@ package agent
 import (
 	"context"
 	"errors"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"testing"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
 func TestValidatePromptConnectorsRequiresInstalledAuthorizedConnector(t *testing.T) {
-	service := &Service{ConnectorMarketSnapshots: connectorMarketSnapshotStub{
-		snapshot: market.Snapshot{Connectors: []market.Connector{
-			localConnectorFixture("lark-cli", market.InstallationStateInstalled, market.AuthorizationStateConnected, market.CompatibilityStateSupported),
-			localConnectorFixture("notion", market.InstallationStateInstalled, market.AuthorizationStateDisconnected, market.CompatibilityStateSupported),
+	service := &Service{ConnectorMarketPolicy: connectorMarketSnapshotStub{
+		snapshot: contracts.Snapshot{Connectors: []contracts.Connector{
+			localConnectorFixture("lark-cli", contracts.InstallationStateInstalled, contracts.AuthorizationStateConnected, contracts.CompatibilityStateSupported),
+			localConnectorFixture("notion", contracts.InstallationStateInstalled, contracts.AuthorizationStateDisconnected, contracts.CompatibilityStateSupported),
 		}},
 	}}
 	if err := service.validatePromptConnectors(context.Background(), []PromptContentBlock{{
@@ -34,17 +33,17 @@ func TestValidatePromptConnectorsRequiresInstalledAuthorizedConnector(t *testing
 
 func TestValidatePromptConnectorsUsesCurrentAccountAuthorization(t *testing.T) {
 	snapshots := &scopedConnectorMarketSnapshotStub{
-		snapshot: market.Snapshot{Connectors: []market.Connector{
-			localConnectorFixture("github", market.InstallationStateInstalled, market.AuthorizationStateDisconnected, market.CompatibilityStateSupported),
+		snapshot: contracts.Snapshot{Connectors: []contracts.Connector{
+			localConnectorFixture("github", contracts.InstallationStateInstalled, contracts.AuthorizationStateDisconnected, contracts.CompatibilityStateSupported),
 		}},
-		scopedSnapshot: market.Snapshot{Connectors: []market.Connector{
-			localConnectorFixture("github", market.InstallationStateInstalled, market.AuthorizationStateConnected, market.CompatibilityStateSupported),
+		scopedSnapshot: contracts.Snapshot{Connectors: []contracts.Connector{
+			localConnectorFixture("github", contracts.InstallationStateInstalled, contracts.AuthorizationStateConnected, contracts.CompatibilityStateSupported),
 		}},
 	}
 	service := &Service{
-		ConnectorMarketSnapshots: snapshots,
-		ConnectorMarketCurrentScope: func() market.OperationScope {
-			return market.OperationScope{AccountID: "account-1"}
+		ConnectorMarketPolicy: snapshots,
+		ConnectorMarketCurrentScope: func() contracts.OperationScope {
+			return contracts.OperationScope{AccountID: "account-1"}
 		},
 	}
 
@@ -60,38 +59,66 @@ func TestValidatePromptConnectorsUsesCurrentAccountAuthorization(t *testing.T) {
 }
 
 type connectorMarketSnapshotStub struct {
-	snapshot market.Snapshot
+	snapshot contracts.Snapshot
 }
 
-func (stub connectorMarketSnapshotStub) Snapshot(context.Context) (market.Snapshot, error) {
+func (stub connectorMarketSnapshotStub) Snapshot(context.Context) (contracts.Snapshot, error) {
 	return stub.snapshot, nil
+}
+
+func (stub connectorMarketSnapshotStub) Evaluate(_ context.Context, target contracts.AgentTarget) (contracts.AgentConnectorPolicySnapshot, error) {
+	return connectorPolicyTestSnapshot(target, stub.snapshot), nil
 }
 
 type scopedConnectorMarketSnapshotStub struct {
-	snapshot       market.Snapshot
-	scopedSnapshot market.Snapshot
-	requestedScope market.OperationScope
+	snapshot       contracts.Snapshot
+	scopedSnapshot contracts.Snapshot
+	requestedScope contracts.OperationScope
 }
 
-func (stub *scopedConnectorMarketSnapshotStub) Snapshot(context.Context) (market.Snapshot, error) {
+func (stub *scopedConnectorMarketSnapshotStub) Snapshot(context.Context) (contracts.Snapshot, error) {
 	return stub.snapshot, nil
 }
 
-func (stub *scopedConnectorMarketSnapshotStub) SnapshotForScope(_ context.Context, scope market.OperationScope) (market.Snapshot, error) {
+func (stub *scopedConnectorMarketSnapshotStub) SnapshotForScope(_ context.Context, scope contracts.OperationScope) (contracts.Snapshot, error) {
 	stub.requestedScope = scope
 	return stub.scopedSnapshot, nil
 }
 
+func (stub *scopedConnectorMarketSnapshotStub) Evaluate(_ context.Context, target contracts.AgentTarget) (contracts.AgentConnectorPolicySnapshot, error) {
+	stub.requestedScope = target.Scope
+	return connectorPolicyTestSnapshot(target, stub.scopedSnapshot), nil
+}
+
+func connectorPolicyTestSnapshot(target contracts.AgentTarget, snapshot contracts.Snapshot) contracts.AgentConnectorPolicySnapshot {
+	result := contracts.AgentConnectorPolicySnapshot{Target: target, CatalogFreshness: snapshot.CatalogFreshness, Revision: snapshot.Revision}
+	for _, connector := range snapshot.Connectors {
+		state := contracts.ConnectorStateAuthorizationRequired
+		switch {
+		case connector.Compatibility.State != contracts.CompatibilityStateSupported:
+			state = contracts.ConnectorStateUnsupported
+		case connector.Installation.State != contracts.InstallationStateInstalled:
+			state = contracts.ConnectorStateSetupRequired
+		case connector.Authorization.State == contracts.AuthorizationStateConnected || connector.Authorization.State == contracts.AuthorizationStateNotRequired:
+			state = contracts.ConnectorStateConnected
+		}
+		result.Connectors = append(result.Connectors, contracts.AgentConnectorPolicy{
+			Connector: connector, State: state, Supported: true, Granted: true, Selectable: state == contracts.ConnectorStateConnected,
+		})
+	}
+	return result
+}
+
 func TestLocalConnectorCapabilityOptionsProjectsCatalogWithSetupState(t *testing.T) {
 	options, err := localConnectorCapabilityOptions(context.Background(), connectorMarketSnapshotStub{
-		snapshot: market.Snapshot{Connectors: []market.Connector{
-			localConnectorFixture("github", market.InstallationStateInstalled, market.AuthorizationStateConnected, market.CompatibilityStateSupported),
-			localConnectorFixture("notion", market.InstallationStateInstalled, market.AuthorizationStateDisconnected, market.CompatibilityStateSupported),
-			localConnectorFixture("legacy", market.InstallationStateInstalled, market.AuthorizationStateConnected, market.CompatibilityStateUnsupportedVersion),
-			localConnectorFixture("slack", market.InstallationStateNotInstalled, market.AuthorizationStateConnected, market.CompatibilityStateSupported),
-			localConnectorFixture("lark-cli", market.InstallationStateFailed, market.AuthorizationStateDisconnected, market.CompatibilityStateSupported),
+		snapshot: contracts.Snapshot{Connectors: []contracts.Connector{
+			localConnectorFixture("github", contracts.InstallationStateInstalled, contracts.AuthorizationStateConnected, contracts.CompatibilityStateSupported),
+			localConnectorFixture("notion", contracts.InstallationStateInstalled, contracts.AuthorizationStateDisconnected, contracts.CompatibilityStateSupported),
+			localConnectorFixture("legacy", contracts.InstallationStateInstalled, contracts.AuthorizationStateConnected, contracts.CompatibilityStateUnsupportedVersion),
+			localConnectorFixture("slack", contracts.InstallationStateNotInstalled, contracts.AuthorizationStateConnected, contracts.CompatibilityStateSupported),
+			localConnectorFixture("lark-cli", contracts.InstallationStateFailed, contracts.AuthorizationStateDisconnected, contracts.CompatibilityStateSupported),
 		}},
-	}, nil)
+	}, nil, "local:codex")
 	if err != nil {
 		t.Fatalf("localConnectorCapabilityOptions() error = %v", err)
 	}
@@ -130,23 +157,23 @@ func TestReplaceComposerConnectorCapabilitiesDropsProviderConnectors(t *testing.
 
 func localConnectorFixture(
 	key string,
-	installation market.InstallationState,
-	authorization market.AuthorizationState,
-	compatibility market.CompatibilityState,
-) market.Connector {
+	installation contracts.InstallationState,
+	authorization contracts.AuthorizationState,
+	compatibility contracts.CompatibilityState,
+) contracts.Connector {
 	label := key
 	if key == "github" {
 		label = "GitHub"
 	}
-	return market.Connector{
+	return contracts.Connector{
 		Key: key,
-		Release: market.Release{Manifest: market.Manifest{
+		Release: contracts.Release{Manifest: contracts.Manifest{
 			DisplayName: label,
 			IconURL:     "data:image/png;base64,aWNvbg==",
 			Description: key + " connector",
 		}},
-		Installation:  market.Installation{State: installation},
-		Authorization: market.Authorization{State: authorization},
-		Compatibility: market.Compatibility{State: compatibility},
+		Installation:  contracts.Installation{State: installation},
+		Authorization: contracts.Authorization{State: authorization},
+		Compatibility: contracts.Compatibility{State: compatibility},
 	}
 }

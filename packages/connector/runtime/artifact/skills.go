@@ -8,30 +8,22 @@ import (
 	"sort"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	connectorSkillEntryName           = "SKILL.md"
-	connectorSkillMaxDepth            = 8
-	connectorSkillMaxCount            = market.ConnectorSkillMaxCount
-	connectorSkillMaxEntrySize        = 512 * 1024
-	ConnectorSkillNameMaxBytes        = market.ConnectorSkillNameMaxBytes
-	ConnectorSkillTitleMaxBytes       = market.ConnectorSkillTitleMaxBytes
-	ConnectorSkillDescriptionMaxBytes = market.ConnectorSkillDescriptionMaxBytes
-	ConnectorSkillProjectionMaxBytes  = market.ConnectorSkillProjectionMaxBytes
+	connectorSkillEntryName    = "SKILL.md"
+	connectorSkillMaxDepth     = 8
+	connectorSkillMaxCount     = contracts.ConnectorSkillMaxCount
+	connectorSkillMaxEntrySize = 512 * 1024
 )
-
-// SkillSummary is the immutable, non-secret metadata projected from one
-// verified Connector Skill.
-type SkillSummary = market.ConnectorSkillSummary
 
 // SkillProjection is produced once while a Connector route is activated.
 // Root is empty when the release has no optional skills directory.
 type SkillProjection struct {
 	Root   string
-	Skills []SkillSummary
+	Skills []contracts.ConnectorSkillSummary
 }
 
 // InspectSkills validates the complete optional skills tree under an installed
@@ -45,7 +37,7 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 	skillRoot := filepath.Join(filepath.Clean(root), "skills")
 	info, err := os.Lstat(skillRoot)
 	if os.IsNotExist(err) {
-		return SkillProjection{Skills: []SkillSummary{}}, nil
+		return SkillProjection{Skills: []contracts.ConnectorSkillSummary{}}, nil
 	}
 	if err != nil {
 		return SkillProjection{}, err
@@ -54,7 +46,7 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 		return SkillProjection{}, errors.New("connector skills root must be a directory, not a symlink")
 	}
 
-	skills := make([]SkillSummary, 0)
+	skills := make([]contracts.ConnectorSkillSummary, 0)
 	seen := make(map[string]struct{})
 	skillCount := 0
 	projectionBytes := 0
@@ -105,8 +97,8 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 			return fmt.Errorf("%s: %w", filepath.ToSlash(relative), err)
 		}
 		projectionBytes += skillSummaryBytes(metadata)
-		if projectionBytes > ConnectorSkillProjectionMaxBytes {
-			return fmt.Errorf("connector Skill summary projection exceeds %d bytes", ConnectorSkillProjectionMaxBytes)
+		if projectionBytes > contracts.ConnectorSkillProjectionMaxBytes {
+			return fmt.Errorf("connector Skill summary projection exceeds %d bytes", contracts.ConnectorSkillProjectionMaxBytes)
 		}
 		if _, duplicate := seen[metadata.Name]; duplicate {
 			return fmt.Errorf("duplicate Connector Skill %q", metadata.Name)
@@ -125,26 +117,26 @@ func InspectSkills(installedRoot string) (SkillProjection, error) {
 // ValidateSkillSummaries applies the public projection bounds to metadata
 // received across a process boundary. Artifact inspection calls the same
 // validation before a route can be committed.
-func ValidateSkillSummaries(summaries []SkillSummary) error {
-	return market.ValidateConnectorSkillSummaries(summaries)
+func ValidateSkillSummaries(summaries []contracts.ConnectorSkillSummary) error {
+	return contracts.ValidateConnectorSkillSummaries(summaries)
 }
 
-func ValidateSkillSummary(summary SkillSummary) error {
-	return market.ValidateConnectorSkillSummary(summary)
+func ValidateSkillSummary(summary contracts.ConnectorSkillSummary) error {
+	return contracts.ValidateConnectorSkillSummary(summary)
 }
 
-func skillSummaryBytes(summary SkillSummary) int {
+func skillSummaryBytes(summary contracts.ConnectorSkillSummary) int {
 	return len(summary.Name) + len(summary.Title) + len(summary.Description)
 }
 
-func parseSkill(content string) (SkillSummary, error) {
+func parseSkill(content string) (contracts.ConnectorSkillSummary, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	if !strings.HasPrefix(content, "---\n") {
-		return SkillSummary{}, errors.New("SKILL.md frontmatter is required")
+		return contracts.ConnectorSkillSummary{}, errors.New("SKILL.md frontmatter is required")
 	}
 	end := strings.Index(content[4:], "\n---")
 	if end < 0 {
-		return SkillSummary{}, errors.New("SKILL.md frontmatter is malformed")
+		return contracts.ConnectorSkillSummary{}, errors.New("SKILL.md frontmatter is malformed")
 	}
 	frontmatter := content[4 : 4+end]
 	body := content[4+end+4:]
@@ -153,9 +145,9 @@ func parseSkill(content string) (SkillSummary, error) {
 		Description string `yaml:"description"`
 	}
 	if err := yaml.Unmarshal([]byte(frontmatter), &header); err != nil {
-		return SkillSummary{}, errors.New("SKILL.md frontmatter is malformed")
+		return contracts.ConnectorSkillSummary{}, errors.New("SKILL.md frontmatter is malformed")
 	}
-	metadata := SkillSummary{Name: strings.TrimSpace(header.Name), Description: strings.TrimSpace(header.Description)}
+	metadata := contracts.ConnectorSkillSummary{Name: strings.TrimSpace(header.Name), Description: strings.TrimSpace(header.Description)}
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "# ") {
 			metadata.Title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
@@ -163,7 +155,7 @@ func parseSkill(content string) (SkillSummary, error) {
 		}
 	}
 	if metadata.Name == "" || metadata.Description == "" {
-		return SkillSummary{}, errors.New("SKILL.md name and description are required")
+		return contracts.ConnectorSkillSummary{}, errors.New("SKILL.md name and description are required")
 	}
 	if metadata.Title == "" {
 		metadata.Title = metadata.Name

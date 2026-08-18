@@ -28,7 +28,7 @@ func (host *Host) runOperationRecoveryWorker(ctx context.Context) {
 }
 
 func (host *Host) scheduleRecoverableOperations(ctx context.Context) error {
-	operations, err := host.repository.RecoverableOperations(ctx)
+	operations, err := host.operationRecovery.RecoverableOperations(ctx)
 	if err != nil {
 		return err
 	}

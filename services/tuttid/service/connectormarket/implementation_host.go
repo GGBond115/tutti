@@ -3,14 +3,14 @@ package connectormarket
 import (
 	"context"
 	"errors"
-	"os"
-	"runtime"
-	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	implementationhost "github.com/tutti-os/tutti/packages/connector/runtime/implementationhost"
 	connectorprocess "github.com/tutti-os/tutti/packages/connector/runtime/process"
+	"os"
+	"runtime"
+	"time"
 )
 
 type PreparedArtifactResolver = implementationhost.PreparedArtifactResolver
@@ -23,7 +23,7 @@ type ConnectorRuntimeRegistry struct {
 
 type ImplementationHostConfig struct {
 	Artifacts              PreparedArtifactResolver
-	CLIInstallations       market.CLIInstallationManager
+	CLIInstallations       application.CLIInstallationManager
 	Runtimes               ConnectorRuntimeResolver
 	Processes              connectorprocess.Transport
 	Registry               *ConnectorRuntimeRegistry
@@ -40,8 +40,8 @@ type ImplementationHost struct {
 	artifacts PreparedArtifactResolver
 }
 
-var _ market.ImplementationCommands = (*ImplementationHost)(nil)
-var _ market.RouteObservation = (*ImplementationHost)(nil)
+var _ application.ImplementationCommands = (*ImplementationHost)(nil)
+var _ application.RouteObservation = (*ImplementationHost)(nil)
 
 func NewConnectorRuntimeRegistry() *ConnectorRuntimeRegistry {
 	return &ConnectorRuntimeRegistry{runtime: implementationhost.NewRouteRegistry(), mcp: implementationhost.NewMCPRegistry()}
@@ -84,56 +84,56 @@ func NewImplementationHost(config ImplementationHostConfig) (*ImplementationHost
 	return &ImplementationHost{runtime: host, artifacts: config.Artifacts}, nil
 }
 
-func (host *ImplementationHost) Reconcile(ctx context.Context, request market.RuntimeReconcileRequest) (market.RuntimeReceipt, error) {
+func (host *ImplementationHost) Reconcile(ctx context.Context, request contracts.RuntimeReconcileRequest) (contracts.RuntimeReceipt, error) {
 	if host == nil || host.runtime == nil {
-		return market.RuntimeReceipt{}, errors.New("connector implementation host is unavailable")
+		return contracts.RuntimeReceipt{}, errors.New("connector implementation host is unavailable")
 	}
 	return host.runtime.Reconcile(ctx, implementationhost.ReconcileRequest{Runtime: request})
 }
 
-func (host *ImplementationHost) Snapshot(ctx context.Context) (market.PhysicalRouteSnapshot, error) {
+func (host *ImplementationHost) Snapshot(ctx context.Context) (contracts.PhysicalRouteSnapshot, error) {
 	if host == nil || host.runtime == nil {
-		return market.PhysicalRouteSnapshot{}, errors.New("connector physical route observation is unavailable")
+		return contracts.PhysicalRouteSnapshot{}, errors.New("connector physical route observation is unavailable")
 	}
 	return host.runtime.Snapshot(ctx)
 }
 
-func (host *ImplementationHost) Watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+func (host *ImplementationHost) Watch(ctx context.Context) (contracts.PhysicalRouteWatch, error) {
 	if host == nil || host.runtime == nil {
-		return market.PhysicalRouteWatch{}, errors.New("connector physical route observation is unavailable")
+		return contracts.PhysicalRouteWatch{}, errors.New("connector physical route observation is unavailable")
 	}
 	return host.runtime.Watch(ctx)
 }
 
-func (host *ImplementationHost) Begin(ctx context.Context, request market.AuthorizationStartRequest) (market.AuthorizationSession, error) {
+func (host *ImplementationHost) Begin(ctx context.Context, request contracts.AuthorizationStartRequest) (contracts.AuthorizationSession, error) {
 	if host == nil || host.runtime == nil {
-		return market.AuthorizationSession{}, errors.New("connector authorization provider is unavailable")
+		return contracts.AuthorizationSession{}, errors.New("connector authorization provider is unavailable")
 	}
 	return host.runtime.BeginAuthorization(ctx, request)
 }
 
-func (host *ImplementationHost) Disconnect(ctx context.Context, request market.AuthorizationDisconnectRequest) error {
+func (host *ImplementationHost) Disconnect(ctx context.Context, request contracts.AuthorizationDisconnectRequest) error {
 	if host == nil || host.runtime == nil {
 		return errors.New("connector authorization provider is unavailable")
 	}
 	return host.runtime.DisconnectAuthorization(ctx, request)
 }
 
-func (host *ImplementationHost) Cancel(ctx context.Context, request market.AuthorizationCancelRequest) error {
+func (host *ImplementationHost) Cancel(ctx context.Context, request contracts.AuthorizationCancelRequest) error {
 	if host == nil || host.runtime == nil {
 		return errors.New("connector authorization provider is unavailable")
 	}
 	return host.runtime.CancelAuthorization(ctx, request)
 }
 
-func (host *ImplementationHost) InspectAuthorization(ctx context.Context, request market.AuthorizationInspectRequest) (market.AuthorizationObservation, error) {
+func (host *ImplementationHost) InspectAuthorization(ctx context.Context, request contracts.AuthorizationInspectRequest) (contracts.AuthorizationObservation, error) {
 	if host == nil || host.runtime == nil {
-		return market.AuthorizationObservation{}, errors.New("connector authorization inspector is unavailable")
+		return contracts.AuthorizationObservation{}, errors.New("connector authorization inspector is unavailable")
 	}
 	return host.runtime.InspectAuthorization(ctx, request)
 }
 
-func (host *ImplementationHost) DeactivateRuntime(ctx context.Context, request market.RuntimeDeactivationRequest) error {
+func (host *ImplementationHost) DeactivateRuntime(ctx context.Context, request contracts.RuntimeDeactivationRequest) error {
 	if host == nil || host.runtime == nil {
 		return errors.New("connector implementation host is unavailable")
 	}
@@ -167,33 +167,33 @@ func (host *ImplementationHost) Close() error {
 	return host.runtime.Close()
 }
 
-func ProductionPorts(host *ImplementationHost, external market.AuthorizationProvider) (market.ImplementationHost, market.AuthorizationProvider, market.CompatibilityEvaluator, market.ImplementationRegistry) {
-	return host, market.NewImplementationAuthorizationRouter(host, external), productionCompatibility{}, market.NewImplementationRegistry(map[string]market.ImplementationValidator{
-		market.ImplementationKindManagedStdio:         nil,
-		market.ImplementationKindRemoteStreamableHTTP: nil,
+func ProductionPorts(host *ImplementationHost, external application.AuthorizationProvider) (application.ImplementationCommands, application.AuthorizationProvider, application.CompatibilityEvaluator, application.ImplementationRegistry) {
+	return host, application.NewImplementationAuthorizationRouter(host, external), productionCompatibility{}, application.NewImplementationRegistry(map[string]application.ImplementationValidator{
+		contracts.ImplementationKindManagedStdio:         nil,
+		contracts.ImplementationKindRemoteStreamableHTTP: nil,
 	})
 }
 
 type productionCompatibility struct{}
 
-func (productionCompatibility) Evaluate(manifest market.Manifest) market.Compatibility {
+func (productionCompatibility) Evaluate(manifest contracts.Manifest) contracts.Compatibility {
 	switch manifest.Implementation.Kind {
-	case market.ImplementationKindRemoteStreamableHTTP:
-		return market.Compatibility{State: market.CompatibilityStateSupported}
-	case market.ImplementationKindManagedStdio:
+	case contracts.ImplementationKindRemoteStreamableHTTP:
+		return contracts.Compatibility{State: contracts.CompatibilityStateSupported}
+	case contracts.ImplementationKindManagedStdio:
 	default:
-		return market.Compatibility{State: market.CompatibilityStateUnsupportedImplementation, Reason: "implementation is unavailable"}
+		return contracts.Compatibility{State: contracts.CompatibilityStateUnsupportedImplementation, Reason: "implementation is unavailable"}
 	}
 	if manifest.AuthorizationKind != "none" && (manifest.Implementation.ManagedStdio == nil || manifest.Implementation.ManagedStdio.CredentialBroker == nil) {
-		return market.Compatibility{State: market.CompatibilityStateUnsupportedImplementation, Reason: "authorization broker is unavailable"}
+		return contracts.Compatibility{State: contracts.CompatibilityStateUnsupportedImplementation, Reason: "authorization broker is unavailable"}
 	}
 	for _, platform := range manifest.Compatibility.Platforms {
 		if platform == runtime.GOOS+"-"+runtime.GOARCH {
-			return market.Compatibility{State: market.CompatibilityStateSupported}
+			return contracts.Compatibility{State: contracts.CompatibilityStateSupported}
 		}
 	}
 	if len(manifest.Compatibility.Platforms) != 0 {
-		return market.Compatibility{State: market.CompatibilityStateUnsupportedPlatform, Reason: "platform is not supported"}
+		return contracts.Compatibility{State: contracts.CompatibilityStateUnsupportedPlatform, Reason: "platform is not supported"}
 	}
-	return market.Compatibility{State: market.CompatibilityStateSupported}
+	return contracts.Compatibility{State: contracts.CompatibilityStateSupported}
 }

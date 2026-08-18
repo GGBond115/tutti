@@ -5,7 +5,8 @@ go 1.24.3
 toolchain go1.24.5
 
 require (
-	github.com/tutti-os/tutti/packages/connector/host v0.0.0
+	github.com/tutti-os/tutti/packages/connector/application v0.0.0
+	github.com/tutti-os/tutti/packages/connector/contracts v0.0.0
 	modernc.org/sqlite v1.45.0
 )
 
@@ -23,4 +24,6 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/tutti-os/tutti/packages/connector/host => ../host
+replace github.com/tutti-os/tutti/packages/connector/application => ../application
+
+replace github.com/tutti-os/tutti/packages/connector/contracts => ../contracts

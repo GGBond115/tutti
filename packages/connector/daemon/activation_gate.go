@@ -3,37 +3,37 @@ package daemon
 import (
 	"context"
 	"errors"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"sync"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
 // activationGateHost is the global runtime publication boundary. It rejects
 // operations issued for an inactive account and serializes every delegate
 // mutation with FailClosed so no route can commit after an account fence.
 type activationGateHost struct {
-	delegate   market.ImplementationHost
+	delegate   application.ImplementationCommands
 	mu         sync.Mutex
 	admission  sync.RWMutex
 	open       bool
 	failClosed bool
-	scope      market.OperationScope
-	staged     map[string]market.RuntimeReconcileRequest
+	scope      contracts.OperationScope
+	staged     map[string]contracts.RuntimeReconcileRequest
 }
 
-func newActivationGateHost(delegate market.ImplementationHost) *activationGateHost {
-	return &activationGateHost{delegate: delegate, staged: make(map[string]market.RuntimeReconcileRequest)}
+func newActivationGateHost(delegate application.ImplementationCommands) *activationGateHost {
+	return &activationGateHost{delegate: delegate, staged: make(map[string]contracts.RuntimeReconcileRequest)}
 }
 
-func (gate *activationGateHost) Reconcile(ctx context.Context, request market.RuntimeReconcileRequest) (market.RuntimeReceipt, error) {
+func (gate *activationGateHost) Reconcile(ctx context.Context, request contracts.RuntimeReconcileRequest) (contracts.RuntimeReceipt, error) {
 	key := request.ConnectionID + "\x00" + request.Connector.Key
 	gate.admission.RLock()
 	defer gate.admission.RUnlock()
 	gate.mu.Lock()
 	if request.Scope != gate.scope {
 		gate.mu.Unlock()
-		return market.RuntimeReceipt{}, errors.New("connector runtime request belongs to an inactive account scope")
+		return contracts.RuntimeReceipt{}, errors.New("connector runtime request belongs to an inactive account scope")
 	}
 	if !request.Enabled {
 		delete(gate.staged, key)
@@ -49,12 +49,12 @@ func (gate *activationGateHost) Reconcile(ctx context.Context, request market.Ru
 		gate.staged[key] = request
 	}
 	gate.mu.Unlock()
-	return market.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
+	return contracts.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
-		Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessBlocked, ReasonCode: "publication_gate_closed"}}, nil
+		Readiness: contracts.RuntimeReadiness{State: contracts.RuntimeReadinessBlocked, ReasonCode: "publication_gate_closed"}}, nil
 }
 
-func (gate *activationGateHost) DeactivateRuntime(ctx context.Context, request market.RuntimeDeactivationRequest) error {
+func (gate *activationGateHost) DeactivateRuntime(ctx context.Context, request contracts.RuntimeDeactivationRequest) error {
 	gate.admission.RLock()
 	defer gate.admission.RUnlock()
 	gate.mu.Lock()
@@ -73,7 +73,7 @@ func (gate *activationGateHost) FailClosed(ctx context.Context, deadline time.Ti
 	gate.mu.Lock()
 	gate.failClosed = true
 	gate.open = false
-	gate.staged = make(map[string]market.RuntimeReconcileRequest)
+	gate.staged = make(map[string]contracts.RuntimeReconcileRequest)
 	gate.mu.Unlock()
 	return gate.delegate.FailClosed(ctx, deadline)
 }
@@ -90,15 +90,15 @@ func (gate *activationGateHost) markRecovered() {
 	gate.mu.Unlock()
 }
 
-func (gate *activationGateHost) setOpen(scope market.OperationScope, open bool) {
+func (gate *activationGateHost) setOpen(scope contracts.OperationScope, open bool) {
 	gate.mu.Lock()
 	if gate.scope != scope {
-		gate.staged = make(map[string]market.RuntimeReconcileRequest)
+		gate.staged = make(map[string]contracts.RuntimeReconcileRequest)
 	}
 	gate.scope = scope
 	gate.open = open
 	if !open {
-		gate.staged = make(map[string]market.RuntimeReconcileRequest)
+		gate.staged = make(map[string]contracts.RuntimeReconcileRequest)
 	}
 	gate.mu.Unlock()
 }

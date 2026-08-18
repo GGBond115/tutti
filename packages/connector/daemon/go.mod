@@ -7,7 +7,8 @@ toolchain go1.24.5
 require (
 	github.com/google/uuid v1.6.0
 	github.com/tutti-os/tutti/packages/clients/market-go v0.0.0
-	github.com/tutti-os/tutti/packages/connector/host v0.0.0
+	github.com/tutti-os/tutti/packages/connector/application v0.0.0
+	github.com/tutti-os/tutti/packages/connector/contracts v0.0.0
 	github.com/tutti-os/tutti/packages/connector/store-sqlite v0.0.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -35,7 +36,9 @@ require (
 	modernc.org/sqlite v1.45.0 // indirect
 )
 
-replace github.com/tutti-os/tutti/packages/connector/host => ../host
+replace github.com/tutti-os/tutti/packages/connector/application => ../application
+
+replace github.com/tutti-os/tutti/packages/connector/contracts => ../contracts
 
 replace github.com/tutti-os/tutti/packages/connector/store-sqlite => ../store-sqlite
 

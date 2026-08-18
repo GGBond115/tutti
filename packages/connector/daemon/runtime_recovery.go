@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	"log/slog"
 	"sort"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
 )
 
-func (host *Host) reconcilePendingRuntimesLocked(ctx context.Context, scope market.OperationScope) error {
+func (host *Host) reconcilePendingRuntimesLocked(ctx context.Context, scope contracts.OperationScope) error {
 	connectorKeys := make([]string, 0, len(host.runtimeRecoveryPending))
 	for connectorKey := range host.runtimeRecoveryPending {
 		connectorKeys = append(connectorKeys, connectorKey)

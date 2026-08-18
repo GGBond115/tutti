@@ -2,10 +2,8 @@ package api
 
 import (
 	"context"
-	"net/http"
-	"strings"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	admissiondaemon "github.com/tutti-os/tutti/packages/desktop/update-admission/daemon"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	preferencesapi "github.com/tutti-os/tutti/services/tuttid/api/preferences"
@@ -18,6 +16,8 @@ import (
 	managedcredentialsservice "github.com/tutti-os/tutti/services/tuttid/service/managedcredentials"
 	reporterservice "github.com/tutti-os/tutti/services/tuttid/service/reporter"
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
+	"net/http"
+	"strings"
 )
 
 type EventStreamService interface {
@@ -37,45 +37,49 @@ type DesktopUpdateAdmissionService interface {
 }
 
 type DaemonAPI struct {
-	UserProjectService            UserProjectService
-	AgentQuickPromptService       AgentQuickPromptService
-	AgentTargetService            AgentTargetService
-	AgentTargetSetupService       AgentTargetSetupService
-	PreferencesService            preferencesapi.Service
-	AgentMaintenanceService       AgentMaintenanceService
-	ManagedCredentialsService     *managedcredentialsservice.Service
-	ModelPlanService              ModelPlanService
-	WorkspaceAgentService         WorkspaceAgentService
-	AgentModelBindingService      AgentModelBindingService
-	ModelPolicyService            ModelPolicyService
-	CollaborationRunService       CollaborationRunService
-	AutomationRuleService         AutomationRuleService
-	AccountService                AccountService
-	MobileRemoteService           MobileRemoteService
-	EventStreamService            EventStreamService
-	WorkspaceService              workspaceapi.CatalogService
-	WorkbenchService              workspaceapi.WorkbenchService
-	AppCenterService              workspaceapi.AppCenterService
-	AppFactoryService             AppFactoryService
-	FileService                   workspaceapi.FileService
-	AgentSessionService           AgentSessionService
-	AgentSessionRecordingService  AgentSessionRecordingService
-	AgentSessionReplayVerifier    AgentSessionReplayVerifier
-	AgentStatusService            AgentProviderStatusService
-	TuttiAgentReadiness           TuttiAgentReadiness
-	TerminalService               workspaceapi.TerminalService
-	IssueService                  workspaceapi.IssueManagerService
-	IssueExecutionService         workspaceapi.IssueExecutionService
-	TuttiModePlanService          TuttiModePlanService
-	TuttiModeExecutionService     TuttiModeExecutionService
-	TuttiModeActivationService    TuttiModeActivationService
-	TuttiModeGoalReviewService    TuttiModeGoalReviewService
-	CLIRegistry                   *cliservice.Registry
-	AnalyticsReporter             reporterservice.Reporter
-	DesktopUpdateAdmissionService DesktopUpdateAdmissionService
-	ConnectorMarketService        market.Service
-	ConnectorMarketScope          func() market.OperationScope
-	ConnectorAuthorizationReady   func(string) bool
+	UserProjectService             UserProjectService
+	AgentQuickPromptService        AgentQuickPromptService
+	AgentTargetService             AgentTargetService
+	AgentTargetSetupService        AgentTargetSetupService
+	PreferencesService             preferencesapi.Service
+	AgentMaintenanceService        AgentMaintenanceService
+	ManagedCredentialsService      *managedcredentialsservice.Service
+	ModelPlanService               ModelPlanService
+	WorkspaceAgentService          WorkspaceAgentService
+	AgentModelBindingService       AgentModelBindingService
+	ModelPolicyService             ModelPolicyService
+	CollaborationRunService        CollaborationRunService
+	AutomationRuleService          AutomationRuleService
+	AccountService                 AccountService
+	MobileRemoteService            MobileRemoteService
+	EventStreamService             EventStreamService
+	WorkspaceService               workspaceapi.CatalogService
+	WorkbenchService               workspaceapi.WorkbenchService
+	AppCenterService               workspaceapi.AppCenterService
+	AppFactoryService              AppFactoryService
+	FileService                    workspaceapi.FileService
+	AgentSessionService            AgentSessionService
+	AgentSessionRecordingService   AgentSessionRecordingService
+	AgentSessionReplayVerifier     AgentSessionReplayVerifier
+	AgentStatusService             AgentProviderStatusService
+	TuttiAgentReadiness            TuttiAgentReadiness
+	TerminalService                workspaceapi.TerminalService
+	IssueService                   workspaceapi.IssueManagerService
+	IssueExecutionService          workspaceapi.IssueExecutionService
+	TuttiModePlanService           TuttiModePlanService
+	TuttiModeExecutionService      TuttiModeExecutionService
+	TuttiModeActivationService     TuttiModeActivationService
+	TuttiModeGoalReviewService     TuttiModeGoalReviewService
+	CLIRegistry                    *cliservice.Registry
+	AnalyticsReporter              reporterservice.Reporter
+	DesktopUpdateAdmissionService  DesktopUpdateAdmissionService
+	ConnectorStateQueries          application.StateQueries
+	ConnectorCatalogQueries        application.CatalogQueries
+	ConnectorCatalogCommands       application.CatalogCommands
+	ConnectorInstallationCommands  application.InstallationCommands
+	ConnectorAuthorizationCommands application.AuthorizationCommands
+	ConnectorOperationQueries      application.OperationQueries
+	ConnectorMarketScope           func() contracts.OperationScope
 	// OnListenerReady starts daemon work that may wake an Agent whose next
 	// action calls back into tuttid. Wiring invokes it only after publishing
 	// listener information.

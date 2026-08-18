@@ -7,25 +7,25 @@ import (
 	"fmt"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 func (store *Store) OperationForScope(
 	ctx context.Context,
-	scope market.OperationScope,
+	scope contracts.OperationScope,
 	operationID string,
-) (market.Operation, error) {
+) (contracts.Operation, error) {
 	var payload string
 	if err := store.db.QueryRowContext(ctx, `
 SELECT operation_json FROM connector_market_operations
 WHERE operation_id = ? AND owner_account_id = ? AND visibility = ?`,
-		strings.TrimSpace(operationID), strings.TrimSpace(scope.AccountID), market.OperationVisibilityAccount,
+		strings.TrimSpace(operationID), strings.TrimSpace(scope.AccountID), contracts.OperationVisibilityAccount,
 	).Scan(&payload); err != nil {
-		return market.Operation{}, mapNotFound(err)
+		return contracts.Operation{}, mapNotFound(err)
 	}
 	operation, err := decodeOperation(payload)
 	if err != nil {
-		return market.Operation{}, err
+		return contracts.Operation{}, err
 	}
 	return publicOperation(operation), nil
 }
@@ -86,7 +86,7 @@ func (store *Store) rebuildOperationsWithOwnership(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var operations []market.Operation
+	var operations []contracts.Operation
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -98,7 +98,7 @@ func (store *Store) rebuildOperationsWithOwnership(ctx context.Context) error {
 			_ = rows.Close()
 			return err
 		}
-		operations = append(operations, market.NormalizeOperationOwnership(operation))
+		operations = append(operations, contracts.NormalizeOperationOwnership(operation))
 	}
 	if err := rows.Close(); err != nil {
 		return err

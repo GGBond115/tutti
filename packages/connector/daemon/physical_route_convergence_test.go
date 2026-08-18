@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	application "github.com/tutti-os/tutti/packages/connector/application"
+	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
+	marketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	market "github.com/tutti-os/tutti/packages/connector/host"
-	marketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
 )
 
 type convergencePhysicalRuntime struct {
@@ -18,51 +18,51 @@ type convergencePhysicalRuntime struct {
 
 	mu             sync.Mutex
 	revision       uint64
-	route          *market.PhysicalRoute
+	route          *contracts.PhysicalRoute
 	nextWatcherID  uint64
-	watchers       map[uint64]chan market.PhysicalRouteEvent
+	watchers       map[uint64]chan contracts.PhysicalRouteEvent
 	reconciles     int
 	reconciled     chan int
 	suppressEvents bool
 	snapshotCalls  int
-	deactivations  []market.RuntimeDeactivationRequest
+	deactivations  []contracts.RuntimeDeactivationRequest
 }
 
 func newConvergencePhysicalRuntime() *convergencePhysicalRuntime {
-	return &convergencePhysicalRuntime{watchers: make(map[uint64]chan market.PhysicalRouteEvent), reconciled: make(chan int, 16)}
+	return &convergencePhysicalRuntime{watchers: make(map[uint64]chan contracts.PhysicalRouteEvent), reconciled: make(chan int, 16)}
 }
 
 func (runtime *convergencePhysicalRuntime) Reconcile(
 	_ context.Context,
-	request market.RuntimeReconcileRequest,
-) (market.RuntimeReceipt, error) {
+	request contracts.RuntimeReconcileRequest,
+) (contracts.RuntimeReceipt, error) {
 	runtime.mu.Lock()
 	runtime.reconciles++
 	count := runtime.reconciles
 	runtime.revision++
-	route := market.PhysicalRoute{ConnectorKey: request.Connector.Key, ConnectionID: request.ConnectionID,
+	route := contracts.PhysicalRoute{ConnectorKey: request.Connector.Key, ConnectionID: request.ConnectionID,
 		ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation,
-		State: market.PhysicalRouteStateReady}
+		State: contracts.PhysicalRouteStateReady}
 	if request.Enabled {
 		runtime.route = &route
 	} else {
 		runtime.route = nil
 	}
-	runtime.publishLocked(market.PhysicalRouteEvent{Revision: runtime.revision, Kind: market.PhysicalRouteEventChanged, Route: route})
+	runtime.publishLocked(contracts.PhysicalRouteEvent{Revision: runtime.revision, Kind: contracts.PhysicalRouteEventChanged, Route: route})
 	runtime.mu.Unlock()
 	runtime.reconciled <- count
-	return market.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
+	return contracts.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest,
-		Generation: request.Generation, Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady,
-			Interfaces: []market.InterfaceReadiness{{Kind: "mcp", State: market.RuntimeReadinessReady}}},
-		Summary: &market.ConnectorSummary{Key: request.Connector.Key, Name: request.Connector.Key,
-			Interfaces: []market.ConnectorInterfaceSummary{{Kind: "mcp", ServerName: "connector",
-				Status: string(market.RuntimeReadinessReady)}}}}, nil
+		Generation: request.Generation, Readiness: contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady,
+			Interfaces: []contracts.InterfaceReadiness{{Kind: "mcp", State: contracts.RuntimeReadinessReady}}},
+		Summary: &contracts.ConnectorSummary{Key: request.Connector.Key, Name: request.Connector.Key,
+			Interfaces: []contracts.ConnectorInterfaceSummary{{Kind: "mcp", ServerName: "connector",
+				Status: string(contracts.RuntimeReadinessReady)}}}}, nil
 }
 
 func (runtime *convergencePhysicalRuntime) DeactivateRuntime(
 	_ context.Context,
-	request market.RuntimeDeactivationRequest,
+	request contracts.RuntimeDeactivationRequest,
 ) error {
 	runtime.mu.Lock()
 	runtime.deactivations = append(runtime.deactivations, request)
@@ -79,14 +79,14 @@ func (runtime *convergencePhysicalRuntime) FailClosed(context.Context, time.Time
 func (runtime *convergencePhysicalRuntime) clearRoute(dropEvent bool) {
 	runtime.mu.Lock()
 	runtime.revision++
-	previous := market.PhysicalRoute{}
+	previous := contracts.PhysicalRoute{}
 	if runtime.route != nil {
 		previous = *runtime.route
 	}
 	runtime.route = nil
 	if !dropEvent {
-		runtime.publishLocked(market.PhysicalRouteEvent{Revision: runtime.revision,
-			Kind: market.PhysicalRouteEventChanged, Route: previous})
+		runtime.publishLocked(contracts.PhysicalRouteEvent{Revision: runtime.revision,
+			Kind: contracts.PhysicalRouteEventChanged, Route: previous})
 	}
 	runtime.mu.Unlock()
 }
@@ -94,28 +94,28 @@ func (runtime *convergencePhysicalRuntime) clearRoute(dropEvent bool) {
 func (runtime *convergencePhysicalRuntime) unexpectedExit(dropEvent bool) {
 	runtime.mu.Lock()
 	runtime.revision++
-	previous := market.PhysicalRoute{}
+	previous := contracts.PhysicalRoute{}
 	if runtime.route != nil {
 		previous = *runtime.route
 	}
 	runtime.route = nil
 	if !dropEvent {
-		runtime.publishLocked(market.PhysicalRouteEvent{Revision: runtime.revision,
-			Kind: market.PhysicalRouteEventUnexpectedExit, Route: previous})
+		runtime.publishLocked(contracts.PhysicalRouteEvent{Revision: runtime.revision,
+			Kind: contracts.PhysicalRouteEventUnexpectedExit, Route: previous})
 	}
 	runtime.mu.Unlock()
 }
 
-func (runtime *convergencePhysicalRuntime) Snapshot(ctx context.Context) (market.PhysicalRouteSnapshot, error) {
+func (runtime *convergencePhysicalRuntime) Snapshot(ctx context.Context) (contracts.PhysicalRouteSnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return market.PhysicalRouteSnapshot{}, err
+		return contracts.PhysicalRouteSnapshot{}, err
 	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	runtime.snapshotCalls++
-	snapshot := market.PhysicalRouteSnapshot{Revision: runtime.revision}
+	snapshot := contracts.PhysicalRouteSnapshot{Revision: runtime.revision}
 	if runtime.route != nil {
-		snapshot.Routes = []market.PhysicalRoute{*runtime.route}
+		snapshot.Routes = []contracts.PhysicalRoute{*runtime.route}
 	}
 	return snapshot, nil
 }
@@ -126,11 +126,11 @@ func (runtime *convergencePhysicalRuntime) snapshotCount() int {
 	return runtime.snapshotCalls
 }
 
-func (runtime *convergencePhysicalRuntime) Watch(ctx context.Context) (market.PhysicalRouteWatch, error) {
+func (runtime *convergencePhysicalRuntime) Watch(ctx context.Context) (contracts.PhysicalRouteWatch, error) {
 	runtime.mu.Lock()
 	runtime.nextWatcherID++
 	watcherID := runtime.nextWatcherID
-	events := make(chan market.PhysicalRouteEvent, 8)
+	events := make(chan contracts.PhysicalRouteEvent, 8)
 	runtime.watchers[watcherID] = events
 	revision := runtime.revision
 	runtime.mu.Unlock()
@@ -143,10 +143,10 @@ func (runtime *convergencePhysicalRuntime) Watch(ctx context.Context) (market.Ph
 		}
 		runtime.mu.Unlock()
 	}()
-	return market.PhysicalRouteWatch{Revision: revision, Events: events}, nil
+	return contracts.PhysicalRouteWatch{Revision: revision, Events: events}, nil
 }
 
-func (runtime *convergencePhysicalRuntime) publishLocked(event market.PhysicalRouteEvent) {
+func (runtime *convergencePhysicalRuntime) publishLocked(event contracts.PhysicalRouteEvent) {
 	if runtime.suppressEvents {
 		return
 	}
@@ -173,7 +173,8 @@ func TestRepeatedEarlyExitStopsAutomaticStartsAtFailureBudget(t *testing.T) {
 	defer cancel()
 	runtime := newConvergencePhysicalRuntime()
 	host, store, connector, _ := newPhysicalRouteRecoveryHost(t, runtime)
-	if err := host.Start(ctx); err != nil {
+	host.physicalAntiEntropyInterval = 50 * time.Millisecond
+	if err := host.Start(ctx, contracts.OperationScope{}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -181,53 +182,53 @@ func TestRepeatedEarlyExitStopsAutomaticStartsAtFailureBudget(t *testing.T) {
 		defer closeCancel()
 		_ = host.Close(closeContext)
 	})
-	if err := host.Bootstrap(ctx); err != nil {
+	if err := host.ActivateScope(ctx, contracts.OperationScope{}); err != nil {
 		t.Fatal(err)
 	}
 	reconcileCount := waitForRuntimeReconcile(t, ctx, runtime.reconciled, 1)
 	observed := waitForObservedRuntimeConvergence(t, ctx, store, connector.Key, 0)
-	for failure := uint32(1); failure <= market.RuntimeFailureBudget; failure++ {
+	for failure := uint32(1); failure <= contracts.RuntimeFailureBudget; failure++ {
 		runtime.unexpectedExit(false)
-		if failure < market.RuntimeFailureBudget {
+		if failure < contracts.RuntimeFailureBudget {
 			reconcileCount = waitForRuntimeReconcile(t, ctx, runtime.reconciled, reconcileCount+1)
 			observed = waitForObservedRuntimeConvergence(t, ctx, store, connector.Key, observed.Desired.Generation)
-			if failure == market.RuntimeFailureDegradedThreshold &&
-				(observed.Observed.Readiness.State != market.RuntimeReadinessDegraded ||
-					observed.Observed.Readiness.ReasonCode != market.RuntimeReadinessReasonFailureBudgetDegraded) {
+			if failure == contracts.RuntimeFailureDegradedThreshold &&
+				(observed.Observed.Readiness.State != contracts.RuntimeReadinessDegraded ||
+					observed.Observed.Readiness.ReasonCode != contracts.RuntimeReadinessReasonFailureBudgetDegraded) {
 				t.Fatalf("successful restart erased degraded failure budget = %#v", observed)
 			}
 		}
 	}
 	time.Sleep(2*runtimeConvergenceScanInterval + 100*time.Millisecond)
-	convergence, err := store.RuntimeConvergence(ctx, market.OperationScope{}, connector.Key)
+	convergence, err := store.RuntimeConvergence(ctx, contracts.OperationScope{}, connector.Key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if convergence.Attempt != market.RuntimeFailureBudget ||
-		convergence.Observed.Readiness.State != market.RuntimeReadinessFailed ||
-		convergence.Observed.Readiness.ReasonCode != market.RuntimeReadinessReasonFailureBudgetExhausted {
+	if convergence.Attempt != contracts.RuntimeFailureBudget ||
+		convergence.Observed.Readiness.State != contracts.RuntimeReadinessFailed ||
+		convergence.Observed.Readiness.ReasonCode != contracts.RuntimeReadinessReasonFailureBudgetExhausted {
 		t.Fatalf("early-exit failure budget = %#v", convergence)
 	}
 	runtime.mu.Lock()
 	runtimeStarts := runtime.reconciles
 	runtime.mu.Unlock()
-	if runtimeStarts != int(market.RuntimeFailureBudget) {
+	if runtimeStarts != int(contracts.RuntimeFailureBudget) {
 		// One initial start plus five automatic restarts; the sixth exit is
 		// suppressed for this desired generation.
-		t.Fatalf("runtime starts = %d, want %d", runtimeStarts, market.RuntimeFailureBudget)
+		t.Fatalf("runtime starts = %d, want %d", runtimeStarts, contracts.RuntimeFailureBudget)
 	}
 }
 
 type scriptedRouteObservation struct {
-	watch    market.PhysicalRouteWatch
+	watch    contracts.PhysicalRouteWatch
 	watchErr error
 }
 
-func (observation scriptedRouteObservation) Snapshot(context.Context) (market.PhysicalRouteSnapshot, error) {
-	return market.PhysicalRouteSnapshot{}, nil
+func (observation scriptedRouteObservation) Snapshot(context.Context) (contracts.PhysicalRouteSnapshot, error) {
+	return contracts.PhysicalRouteSnapshot{}, nil
 }
 
-func (observation scriptedRouteObservation) Watch(context.Context) (market.PhysicalRouteWatch, error) {
+func (observation scriptedRouteObservation) Watch(context.Context) (contracts.PhysicalRouteWatch, error) {
 	return observation.watch, observation.watchErr
 }
 
@@ -239,14 +240,14 @@ func TestPhysicalRouteWatchGapAndFailureScheduleFreshSnapshot(t *testing.T) {
 		{name: "watch creation failure", observation: scriptedRouteObservation{watchErr: errors.New("watch unavailable")}},
 		{name: "nil stream", observation: scriptedRouteObservation{}},
 		{name: "closed stream", observation: func() scriptedRouteObservation {
-			events := make(chan market.PhysicalRouteEvent)
+			events := make(chan contracts.PhysicalRouteEvent)
 			close(events)
-			return scriptedRouteObservation{watch: market.PhysicalRouteWatch{Revision: 4, Events: events}}
+			return scriptedRouteObservation{watch: contracts.PhysicalRouteWatch{Revision: 4, Events: events}}
 		}()},
 		{name: "revision gap", observation: func() scriptedRouteObservation {
-			events := make(chan market.PhysicalRouteEvent, 1)
-			events <- market.PhysicalRouteEvent{Revision: 6, Kind: market.PhysicalRouteEventChanged}
-			return scriptedRouteObservation{watch: market.PhysicalRouteWatch{Revision: 4, Events: events}}
+			events := make(chan contracts.PhysicalRouteEvent, 1)
+			events <- contracts.PhysicalRouteEvent{Revision: 6, Kind: contracts.PhysicalRouteEventChanged}
+			return scriptedRouteObservation{watch: contracts.PhysicalRouteWatch{Revision: 4, Events: events}}
 		}()},
 	}
 	for _, test := range tests {
@@ -276,21 +277,21 @@ func TestPhysicalRouteWatchGapAndFailureScheduleFreshSnapshot(t *testing.T) {
 }
 
 func TestPhysicalRuntimeMatchRequiresOneExactReadyRoute(t *testing.T) {
-	desired := market.RuntimeDesired{Enabled: true, ConnectionID: "device-1", ReleaseDigest: "release-1", Generation: 7}
-	exact := market.PhysicalRoute{ConnectorKey: "github", ConnectionID: "device-1", ReleaseDigest: "release-1",
-		Generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 7}, State: market.PhysicalRouteStateReady}
-	if !physicalRuntimeMatchesDesired(desired, "boot-1", []market.PhysicalRoute{exact}) {
+	desired := contracts.RuntimeDesired{Enabled: true, ConnectionID: "device-1", ReleaseDigest: "release-1", Generation: 7}
+	exact := contracts.PhysicalRoute{ConnectorKey: "github", ConnectionID: "device-1", ReleaseDigest: "release-1",
+		Generation: contracts.HostGeneration{BootEpoch: "boot-1", Generation: 7}, State: contracts.PhysicalRouteStateReady}
+	if !physicalRuntimeMatchesDesired(desired, "boot-1", []contracts.PhysicalRoute{exact}) {
 		t.Fatal("exact physical route did not satisfy desired")
 	}
-	for name, routes := range map[string][]market.PhysicalRoute{
+	for name, routes := range map[string][]contracts.PhysicalRoute{
 		"missing":   nil,
 		"duplicate": {exact, exact},
-		"degraded": {func() market.PhysicalRoute {
+		"degraded": {func() contracts.PhysicalRoute {
 			route := exact
-			route.State = market.PhysicalRouteStateDegraded
+			route.State = contracts.PhysicalRouteStateDegraded
 			return route
 		}()},
-		"wrong boot": {func() market.PhysicalRoute {
+		"wrong boot": {func() contracts.PhysicalRoute {
 			route := exact
 			route.Generation.BootEpoch = "old-boot"
 			return route
@@ -302,7 +303,7 @@ func TestPhysicalRuntimeMatchRequiresOneExactReadyRoute(t *testing.T) {
 	}
 	desired.Enabled = false
 	if !physicalRuntimeMatchesDesired(desired, "boot-1", nil) ||
-		physicalRuntimeMatchesDesired(desired, "boot-1", []market.PhysicalRoute{exact}) {
+		physicalRuntimeMatchesDesired(desired, "boot-1", []contracts.PhysicalRoute{exact}) {
 		t.Fatal("disabled desired did not require an empty physical snapshot")
 	}
 }
@@ -317,7 +318,7 @@ func testPhysicalRouteRecovery(t *testing.T, dropExitEvent bool) {
 	if dropExitEvent {
 		host.physicalAntiEntropyInterval = 50 * time.Millisecond
 	}
-	if err := host.Start(ctx); err != nil {
+	if err := host.Start(ctx, contracts.OperationScope{}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -327,7 +328,7 @@ func testPhysicalRouteRecovery(t *testing.T, dropExitEvent bool) {
 			t.Errorf("close connector host: %v", err)
 		}
 	})
-	if err := host.Bootstrap(ctx); err != nil {
+	if err := host.ActivateScope(ctx, contracts.OperationScope{}); err != nil {
 		t.Fatal(err)
 	}
 	firstCount := waitForRuntimeReconcile(t, ctx, runtime.reconciled, 1)
@@ -359,12 +360,12 @@ func waitForObservedRuntimeConvergence(
 	store *marketdata.Store,
 	connectorKey string,
 	minimumGeneration uint64,
-) market.RuntimeConvergence {
+) contracts.RuntimeConvergence {
 	t.Helper()
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {
-		convergence, err := store.RuntimeConvergence(ctx, market.OperationScope{}, connectorKey)
+		convergence, err := store.RuntimeConvergence(ctx, contracts.OperationScope{}, connectorKey)
 		if err == nil && convergence.Desired.Generation > minimumGeneration &&
 			convergence.Observed.DesiredGeneration == convergence.Desired.Generation && convergence.LeaseOwner == "" {
 			return convergence
@@ -455,13 +456,13 @@ func TestPhysicalAntiEntropyUsesIndependentConfiguredInterval(t *testing.T) {
 func TestPhysicalOrphanRemovalIsLimitedToKnownIdentityFromCurrentBoot(t *testing.T) {
 	tests := []struct {
 		name       string
-		mutate     func(*market.PhysicalRoute)
+		mutate     func(*contracts.PhysicalRoute)
 		wantRemove bool
 		wantError  bool
 	}{
 		{name: "current boot", wantRemove: true},
-		{name: "other boot", mutate: func(route *market.PhysicalRoute) { route.Generation.BootEpoch = "other-boot" }, wantError: true},
-		{name: "unknown identity", mutate: func(route *market.PhysicalRoute) { route.ConnectionID = "" }, wantError: true},
+		{name: "other boot", mutate: func(route *contracts.PhysicalRoute) { route.Generation.BootEpoch = "other-boot" }, wantError: true},
+		{name: "unknown identity", mutate: func(route *contracts.PhysicalRoute) { route.ConnectionID = "" }, wantError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -470,9 +471,9 @@ func TestPhysicalOrphanRemovalIsLimitedToKnownIdentityFromCurrentBoot(t *testing
 			host.bootstrapMu.Lock()
 			host.bootstrapped = true
 			host.bootstrapMu.Unlock()
-			route := market.PhysicalRoute{ConnectorKey: "orphan", ConnectionID: "device-orphan",
-				ReleaseDigest: "orphan-release", Generation: market.HostGeneration{
-					BootEpoch: host.Application.RuntimeBootEpoch(), Generation: 7}, State: market.PhysicalRouteStateReady}
+			route := contracts.PhysicalRoute{ConnectorKey: "orphan", ConnectionID: "device-orphan",
+				ReleaseDigest: "orphan-release", Generation: contracts.HostGeneration{
+					BootEpoch: host.runtimeMaintenance.RuntimeBootEpoch(), Generation: 7}, State: contracts.PhysicalRouteStateReady}
 			if test.mutate != nil {
 				test.mutate(&route)
 			}
@@ -485,7 +486,7 @@ func TestPhysicalOrphanRemovalIsLimitedToKnownIdentityFromCurrentBoot(t *testing
 				t.Fatalf("orphan scan error = %v, want error=%t", err, test.wantError)
 			}
 			runtime.mu.Lock()
-			deactivations := append([]market.RuntimeDeactivationRequest(nil), runtime.deactivations...)
+			deactivations := append([]contracts.RuntimeDeactivationRequest(nil), runtime.deactivations...)
 			remaining := runtime.route != nil
 			runtime.mu.Unlock()
 			if (len(deactivations) == 1) != test.wantRemove || remaining == test.wantRemove {
@@ -502,23 +503,23 @@ func TestHealthyPeriodicObservationResetsPersistedFailureBudget(t *testing.T) {
 	host.bootstrapped = true
 	host.bootstrapMu.Unlock()
 	now := time.Now().UTC()
-	bootEpoch := host.Application.RuntimeBootEpoch()
-	route := market.PhysicalRoute{ConnectorKey: connector.Key, ConnectionID: "device-healthy",
-		ReleaseDigest: connector.Release.ReleaseDigest, Generation: market.HostGeneration{BootEpoch: bootEpoch, Generation: 7},
-		State: market.PhysicalRouteStateReady}
+	bootEpoch := host.runtimeMaintenance.RuntimeBootEpoch()
+	route := contracts.PhysicalRoute{ConnectorKey: connector.Key, ConnectionID: "device-healthy",
+		ReleaseDigest: connector.Release.ReleaseDigest, Generation: contracts.HostGeneration{BootEpoch: bootEpoch, Generation: 7},
+		State: contracts.PhysicalRouteStateReady}
 	runtime.mu.Lock()
 	runtime.route = &route
 	runtime.revision++
 	runtime.mu.Unlock()
-	convergence := market.RuntimeConvergence{
-		Desired: market.RuntimeDesired{ConnectorKey: connector.Key, Generation: 7, Enabled: true,
+	convergence := contracts.RuntimeConvergence{
+		Desired: contracts.RuntimeDesired{ConnectorKey: connector.Key, Generation: 7, Enabled: true,
 			ConnectionID: route.ConnectionID, ReleaseDigest: route.ReleaseDigest, UpdatedAt: now},
-		Observed: market.RuntimeObserved{DesiredGeneration: 7, BootEpoch: bootEpoch, Enabled: true,
+		Observed: contracts.RuntimeObserved{DesiredGeneration: 7, BootEpoch: bootEpoch, Enabled: true,
 			ConnectionID: route.ConnectionID, ReleaseDigest: route.ReleaseDigest,
-			Readiness: market.RuntimeReadiness{State: market.RuntimeReadinessReady}, ObservedAt: now},
+			Readiness: contracts.RuntimeReadiness{State: contracts.RuntimeReadinessReady}, ObservedAt: now},
 		Attempt: 3, NextAttemptAt: now.Add(time.Minute), LastErrorCode: "unavailable", LastError: "early exit", UpdatedAt: now,
 	}
-	if err := store.Transaction(context.Background(), func(tx market.Transaction) error {
+	if err := store.Transaction(context.Background(), func(tx application.Transaction) error {
 		return tx.SaveRuntimeConvergence(convergence)
 	}); err != nil {
 		t.Fatal(err)
@@ -526,7 +527,7 @@ func TestHealthyPeriodicObservationResetsPersistedFailureBudget(t *testing.T) {
 	if err := host.reconcilePhysicalRouteSnapshotWithPolicy(context.Background(), true); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := store.RuntimeConvergence(context.Background(), market.OperationScope{}, connector.Key)
+	stored, err := store.RuntimeConvergence(context.Background(), contracts.OperationScope{}, connector.Key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,15 +537,15 @@ func TestHealthyPeriodicObservationResetsPersistedFailureBudget(t *testing.T) {
 }
 
 type countingRuntimeRepository struct {
-	market.Repository
+	application.Repository
 	mu         sync.Mutex
 	batchReads int
 	pointReads int
 }
 
 func (repository *countingRuntimeRepository) RuntimeConvergence(
-	ctx context.Context, scope market.OperationScope, connectorKey string,
-) (market.RuntimeConvergence, error) {
+	ctx context.Context, scope contracts.OperationScope, connectorKey string,
+) (contracts.RuntimeConvergence, error) {
 	repository.mu.Lock()
 	repository.pointReads++
 	repository.mu.Unlock()
@@ -552,8 +553,8 @@ func (repository *countingRuntimeRepository) RuntimeConvergence(
 }
 
 func (repository *countingRuntimeRepository) RuntimeConvergences(
-	ctx context.Context, scope market.OperationScope, limit int,
-) ([]market.RuntimeConvergence, error) {
+	ctx context.Context, scope contracts.OperationScope, limit int,
+) ([]contracts.RuntimeConvergence, error) {
 	repository.mu.Lock()
 	repository.batchReads++
 	repository.mu.Unlock()
@@ -579,16 +580,16 @@ func TestPhysicalRouteScanUsesOneRepositoryReadForManyConnectors(t *testing.T) {
 	host, store, _, repository := newPhysicalRouteRecoveryHost(t, runtime)
 	host.bootstrapMu.Lock()
 	host.bootstrapped = true
-	host.bootstrapScope = market.OperationScope{}
+	host.bootstrapScope = contracts.OperationScope{}
 	host.bootstrapMu.Unlock()
 	now := time.Now().UTC()
-	bootEpoch := host.Application.RuntimeBootEpoch()
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	bootEpoch := host.runtimeMaintenance.RuntimeBootEpoch()
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		for index := 0; index < 100; index++ {
 			connectorKey := fmt.Sprintf("batch-%03d", index)
-			convergence := market.RuntimeConvergence{
-				Desired:       market.RuntimeDesired{ConnectorKey: connectorKey, Generation: 1, Enabled: false, UpdatedAt: now},
-				Observed:      market.RuntimeObserved{DesiredGeneration: 1, BootEpoch: bootEpoch, Enabled: false, ObservedAt: now},
+			convergence := contracts.RuntimeConvergence{
+				Desired:       contracts.RuntimeDesired{ConnectorKey: connectorKey, Generation: 1, Enabled: false, UpdatedAt: now},
+				Observed:      contracts.RuntimeObserved{DesiredGeneration: 1, BootEpoch: bootEpoch, Enabled: false, ObservedAt: now},
 				NextAttemptAt: now, UpdatedAt: now,
 			}
 			if err := tx.SaveRuntimeConvergence(convergence); err != nil {
@@ -625,7 +626,7 @@ func waitForRuntimeReconcile(t *testing.T, ctx context.Context, reconciled <-cha
 func newPhysicalRouteRecoveryHost(
 	t *testing.T,
 	runtime *convergencePhysicalRuntime,
-) (*Host, *marketdata.Store, market.Connector, *countingRuntimeRepository) {
+) (*Host, *marketdata.Store, contracts.Connector, *countingRuntimeRepository) {
 	t.Helper()
 	ctx := context.Background()
 	store, err := marketdata.Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
@@ -634,20 +635,20 @@ func newPhysicalRouteRecoveryHost(
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	release := hostTestRelease()
-	connector := market.Connector{Key: release.ConnectorKey, Release: release,
-		Installation: market.Installation{State: market.InstallationStateInstalled,
+	connector := contracts.Connector{Key: release.ConnectorKey, Release: release,
+		Installation: contracts.Installation{State: contracts.InstallationStateInstalled,
 			InstalledVersion: release.Version, InstalledReleaseID: release.ReleaseID,
 			InstalledReleaseDigest: release.ReleaseDigest},
-		Authorization: market.Authorization{State: market.AuthorizationStateNotRequired},
-		Compatibility: market.Compatibility{State: market.CompatibilityStateSupported}}
+		Authorization: contracts.Authorization{State: contracts.AuthorizationStateNotRequired},
+		Compatibility: contracts.Compatibility{State: contracts.CompatibilityStateSupported}}
 	installedRelease := release
-	operation := market.Operation{OperationID: "install-physical-route", ClientRequestID: "install-physical-route",
-		ConnectorKey: connector.Key, Kind: market.OperationKindInstall, State: market.OperationStateCompleted,
-		Stage: market.OperationStageCompleted, Target: &market.OperationTarget{ConnectorKey: connector.Key,
+	operation := contracts.Operation{OperationID: "install-physical-route", ClientRequestID: "install-physical-route",
+		ConnectorKey: connector.Key, Kind: contracts.OperationKindInstall, State: contracts.OperationStateCompleted,
+		Stage: contracts.OperationStageCompleted, Target: &contracts.OperationTarget{ConnectorKey: connector.Key,
 			Version: release.Version, ReleaseID: release.ReleaseID, ReleaseDigest: release.ReleaseDigest,
 			ArtifactSHA256: release.Artifact.SHA256, Release: &installedRelease},
 		CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC()}
-	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+	if err := store.Transaction(ctx, func(tx application.Transaction) error {
 		connector.Revision = tx.AdvanceRevision()
 		if err := tx.SaveConnector(connector); err != nil {
 			return err
@@ -658,14 +659,14 @@ func newPhysicalRouteRecoveryHost(
 	}
 	repository := &countingRuntimeRepository{Repository: store}
 	host, err := NewHost(HostConfig{Repository: repository, CatalogSource: &countingCatalogSource{release: release},
-		ReleaseInstallations: runtime, ImplementationHost: runtime, PhysicalRoutes: runtime,
+		ReleaseInstallations: runtime, ImplementationCommands: runtime, PhysicalRoutes: runtime,
 		PhysicalAntiEntropyInterval: time.Hour,
-		RuntimeBindings: runtimeBindingResolverFunc(func(context.Context, market.RuntimeBindingRequest) (market.RuntimeBinding, error) {
-			return market.RuntimeBinding{ConnectionID: "device-physical-route", Enabled: true,
-				AuthorizationState: market.AuthorizationStateNotRequired}, nil
+		RuntimeBindings: runtimeBindingResolverFunc(func(context.Context, contracts.RuntimeBindingRequest) (contracts.RuntimeBinding, error) {
+			return contracts.RuntimeBinding{ConnectionID: "device-physical-route", Enabled: true,
+				AuthorizationState: contracts.AuthorizationStateNotRequired}, nil
 		}),
 		Authorization: unavailableAuthorization{}, Compatibility: rejectingCompatibility{},
-		ImplementationRegistry: market.NewImplementationRegistry(nil), Outbox: store, Lifecycle: store,
+		ImplementationRegistry: application.NewImplementationRegistry(nil), Outbox: store, Lifecycle: store,
 		Publisher: discardChangedEventPublisher{}})
 	if err != nil {
 		t.Fatal(err)
@@ -675,6 +676,6 @@ func newPhysicalRouteRecoveryHost(
 	return host, store, connector, repository
 }
 
-var _ market.RouteObservation = (*convergencePhysicalRuntime)(nil)
-var _ market.ImplementationCommands = (*convergencePhysicalRuntime)(nil)
-var _ market.ReleaseInstallationManager = (*convergencePhysicalRuntime)(nil)
+var _ application.RouteObservation = (*convergencePhysicalRuntime)(nil)
+var _ application.ImplementationCommands = (*convergencePhysicalRuntime)(nil)
+var _ application.ReleaseInstallationManager = (*convergencePhysicalRuntime)(nil)

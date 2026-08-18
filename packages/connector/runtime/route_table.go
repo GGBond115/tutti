@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 // ManagedRoute is the host-neutral lifecycle contract owned by RouteTable.
@@ -14,7 +14,7 @@ import (
 // implementation while the runtime owns generation fencing and replacement.
 type ManagedRoute interface {
 	RouteID() string
-	RouteGeneration() market.HostGeneration
+	RouteGeneration() contracts.HostGeneration
 	RouteReleaseDigest() string
 	Fence()
 	Close(time.Time) error
@@ -26,14 +26,14 @@ type RouteTable struct {
 	mu          sync.RWMutex
 	routes      map[string]ManagedRoute
 	retiring    map[string]ManagedRoute
-	fences      map[string]market.HostGeneration
+	fences      map[string]contracts.HostGeneration
 	transitions map[string]*sync.Mutex
 	published   bool
 	closed      bool
 }
 
 func NewRouteTable() *RouteTable {
-	return &RouteTable{routes: make(map[string]ManagedRoute), retiring: make(map[string]ManagedRoute), fences: make(map[string]market.HostGeneration),
+	return &RouteTable{routes: make(map[string]ManagedRoute), retiring: make(map[string]ManagedRoute), fences: make(map[string]contracts.HostGeneration),
 		transitions: make(map[string]*sync.Mutex), published: true}
 }
 
@@ -160,7 +160,7 @@ func (table *RouteTable) Commit(next ManagedRoute) error {
 	return nil
 }
 
-func (table *RouteTable) Remove(key string, generation market.HostGeneration, releaseDigest string, deadline time.Time) error {
+func (table *RouteTable) Remove(key string, generation contracts.HostGeneration, releaseDigest string, deadline time.Time) error {
 	if table == nil {
 		return nil
 	}
@@ -211,7 +211,7 @@ func (table *RouteTable) Remove(key string, generation market.HostGeneration, re
 // lifecycle mutations around this method.
 func (table *RouteTable) RemoveMatching(
 	match func(ManagedRoute) bool,
-	generation market.HostGeneration,
+	generation contracts.HostGeneration,
 	deadline time.Time,
 ) error {
 	if table == nil || match == nil {
@@ -339,13 +339,13 @@ func (table *RouteTable) transition(key string) *sync.Mutex {
 	return transition
 }
 
-func (table *RouteTable) advanceFenceLocked(key string, generation market.HostGeneration) {
+func (table *RouteTable) advanceFenceLocked(key string, generation contracts.HostGeneration) {
 	current, exists := table.fences[key]
 	if !exists || current.BootEpoch != generation.BootEpoch || generation.Generation > current.Generation {
 		table.fences[key] = generation
 	}
 }
 
-func newerOrEqualGeneration(candidate, current market.HostGeneration) bool {
+func newerOrEqualGeneration(candidate, current contracts.HostGeneration) bool {
 	return candidate.BootEpoch == current.BootEpoch && candidate.Generation >= current.Generation
 }

@@ -12,7 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	"github.com/tutti-os/tutti/packages/connector/application"
+	"github.com/tutti-os/tutti/packages/connector/contracts"
 )
 
 const connectorAuthorizationResponseLimit = 4 << 20
@@ -58,10 +59,10 @@ func NewAuthorizationClient(config AuthorizationClientConfig) (*AuthorizationCli
 	}, nil
 }
 
-func (client *AuthorizationClient) AuthorizationSnapshot(ctx context.Context, accountID string) (market.AuthorizationSnapshot, error) {
+func (client *AuthorizationClient) AuthorizationSnapshot(ctx context.Context, accountID string) (contracts.AuthorizationSnapshot, error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" || client.authorizeAccountRequest == nil {
-		return market.AuthorizationSnapshot{}, errors.New("connector authorization snapshot requires an account-bound authorizer")
+		return contracts.AuthorizationSnapshot{}, errors.New("connector authorization snapshot requires an account-bound authorizer")
 	}
 	var response struct {
 		Revision   jsonUint64 `json:"revision"`
@@ -76,33 +77,33 @@ func (client *AuthorizationClient) AuthorizationSnapshot(ctx context.Context, ac
 	if err := client.doJSONWithAuthorizer(ctx, http.MethodGet, "/connector-authorizations/snapshot", nil, nil, &response, func(request *http.Request) error {
 		return client.authorizeAccountRequest(request, accountID)
 	}); err != nil {
-		return market.AuthorizationSnapshot{}, err
+		return contracts.AuthorizationSnapshot{}, err
 	}
-	snapshot := market.AuthorizationSnapshot{Revision: uint64(response.Revision), Connectors: make([]market.AuthorizationProjection, 0, len(response.Connectors))}
+	snapshot := contracts.AuthorizationSnapshot{Revision: uint64(response.Revision), Connectors: make([]contracts.AuthorizationProjection, 0, len(response.Connectors))}
 	for _, item := range response.Connectors {
-		projection := market.AuthorizationProjection{
+		projection := contracts.AuthorizationProjection{
 			AccountID: accountID, ConnectorKey: strings.TrimSpace(item.ConnectorID), ConnectorVersion: strings.TrimSpace(item.ConnectorVersion),
 			ConnectionID: strings.TrimSpace(item.ConnectionID), ConnectionVersion: uint64(item.ConnectionVersion), ServerRevision: uint64(response.Revision), ServerSynchronized: true,
 		}
 		switch strings.ToLower(strings.TrimSpace(item.State)) {
 		case "connected":
-			projection.State = market.AuthorizationStateConnected
+			projection.State = contracts.AuthorizationStateConnected
 		case "reauth_required":
-			projection.State = market.AuthorizationStateExpired
+			projection.State = contracts.AuthorizationStateExpired
 		case "disconnected":
-			projection.State = market.AuthorizationStateDisconnected
+			projection.State = contracts.AuthorizationStateDisconnected
 		default:
-			return market.AuthorizationSnapshot{}, errors.New("connector authorization snapshot returned an invalid state")
+			return contracts.AuthorizationSnapshot{}, errors.New("connector authorization snapshot returned an invalid state")
 		}
-		if projection.ConnectorKey == "" || projection.State == market.AuthorizationStateConnected && projection.ConnectionID == "" {
-			return market.AuthorizationSnapshot{}, errors.New("connector authorization snapshot returned an invalid connector")
+		if projection.ConnectorKey == "" || projection.State == contracts.AuthorizationStateConnected && projection.ConnectionID == "" {
+			return contracts.AuthorizationSnapshot{}, errors.New("connector authorization snapshot returned an invalid connector")
 		}
 		snapshot.Connectors = append(snapshot.Connectors, projection)
 	}
 	return snapshot, nil
 }
 
-func (client *AuthorizationClient) Begin(ctx context.Context, request market.AuthorizationStartRequest) (market.AuthorizationSession, error) {
+func (client *AuthorizationClient) Begin(ctx context.Context, request contracts.AuthorizationStartRequest) (contracts.AuthorizationSession, error) {
 	defer clear(request.Secret)
 	connectorID := strings.TrimSpace(request.Connector.Key)
 	connectorVersion := strings.TrimSpace(request.Release.Version)
@@ -112,80 +113,80 @@ func (client *AuthorizationClient) Begin(ctx context.Context, request market.Aut
 	}
 	switch request.ReplacementPolicy {
 	case "":
-	case market.AuthorizationReplacementPolicyReplaceActive:
+	case contracts.AuthorizationReplacementPolicyReplaceActive:
 		body["replacementPolicy"] = "CONNECTOR_AUTHORIZATION_REPLACEMENT_POLICY_REPLACE_ACTIVE"
 	default:
-		return market.AuthorizationSession{}, errors.New("connector authorization replacement policy is invalid")
+		return contracts.AuthorizationSession{}, errors.New("connector authorization replacement policy is invalid")
 	}
 	var response connectorAuthorizationSessionReply
 	err := client.doJSONForAccount(ctx, request.Scope.AccountID, http.MethodPost, "/connectors/"+url.PathEscape(connectorID)+"/authorization-sessions", nil, body, &response)
 	if err != nil {
-		return market.AuthorizationSession{}, err
+		return contracts.AuthorizationSession{}, err
 	}
 	client.notifyChanged()
 	if strings.TrimSpace(response.Session.SessionID) == "" || strings.TrimSpace(response.Session.ConnectorRevision) != connectorVersion {
-		return market.AuthorizationSession{}, errors.New("connector authorization start returned an invalid session")
+		return contracts.AuthorizationSession{}, errors.New("connector authorization start returned an invalid session")
 	}
 	if authorizationSessionSucceeded(response.Session.Status) {
 		connectionID := strings.TrimSpace(response.Session.ResultConnectionID)
 		if connectionID == "" {
-			return market.AuthorizationSession{}, errors.New("connector authorization start completed without a connection id")
+			return contracts.AuthorizationSession{}, errors.New("connector authorization start completed without a connection id")
 		}
-		return market.AuthorizationSession{
+		return contracts.AuthorizationSession{
 			OperationID: request.OperationID, ConnectorKey: connectorID,
 			SessionID: response.Session.SessionID, ConnectionID: connectionID,
-			State: market.AuthorizationStateConnected,
+			State: contracts.AuthorizationStateConnected,
 		}, nil
 	}
 	actionType := strings.TrimSpace(response.Session.NextAction.Type)
 	if actionType == "" && request.Release.Manifest.AuthorizationKind == "api_key" {
 		actionType = "submit_secret"
 	}
-	session := market.AuthorizationSession{
+	session := contracts.AuthorizationSession{
 		OperationID: request.OperationID, ConnectorKey: connectorID,
 		SessionID: response.Session.SessionID, ActionType: actionType,
 	}
 	switch actionType {
 	case "redirect":
-		session.State = market.AuthorizationStatePending
+		session.State = contracts.AuthorizationStatePending
 		authorizationURL, parseErr := url.Parse(strings.TrimSpace(response.Session.NextAction.URL))
 		if parseErr != nil || authorizationURL.Scheme != "https" || authorizationURL.Host == "" || authorizationURL.User != nil {
-			return market.AuthorizationSession{}, errors.New("connector authorization start returned an unsafe redirect URL")
+			return contracts.AuthorizationSession{}, errors.New("connector authorization start returned an unsafe redirect URL")
 		}
 		session.AuthorizationURL = response.Session.NextAction.URL
 	case "submit_secret":
 		if authorizationSessionSucceeded(response.Session.Status) {
 			session.ConnectionID = strings.TrimSpace(response.Session.ResultConnectionID)
 			if session.ConnectionID == "" {
-				return market.AuthorizationSession{}, errors.New("connector secret authorization completed without a connection id")
+				return contracts.AuthorizationSession{}, errors.New("connector secret authorization completed without a connection id")
 			}
-			session.State = market.AuthorizationStateConnected
+			session.State = contracts.AuthorizationStateConnected
 			return session, nil
 		}
 		if len(request.Secret) == 0 || len(request.Secret) > 16384 {
-			return market.AuthorizationSession{}, errors.New("connector authorization requires a valid secret")
+			return contracts.AuthorizationSession{}, errors.New("connector authorization requires a valid secret")
 		}
 		path := "/connector-authorization-sessions/" + url.PathEscape(response.Session.SessionID) + "/complete"
 		var completed connectorAuthorizationSessionReply
 		if err := client.doJSONForAccount(ctx, request.Scope.AccountID, http.MethodPost, path, nil, map[string]any{"secret": map[string]string{"secret": string(request.Secret)}}, &completed); err != nil {
-			return market.AuthorizationSession{}, err
+			return contracts.AuthorizationSession{}, err
 		}
 		client.notifyChanged()
 		if completed.Session.SessionID != response.Session.SessionID || strings.TrimSpace(completed.Session.ConnectorRevision) != connectorVersion || !authorizationSessionSucceeded(completed.Session.Status) {
-			return market.AuthorizationSession{}, errors.New("connector secret authorization did not complete")
+			return contracts.AuthorizationSession{}, errors.New("connector secret authorization did not complete")
 		}
 		session.ConnectionID = strings.TrimSpace(completed.Session.ResultConnectionID)
 		if session.ConnectionID == "" {
-			return market.AuthorizationSession{}, errors.New("connector secret authorization completed without a connection id")
+			return contracts.AuthorizationSession{}, errors.New("connector secret authorization completed without a connection id")
 		}
-		session.State = market.AuthorizationStateConnected
+		session.State = contracts.AuthorizationStateConnected
 	default:
-		return market.AuthorizationSession{}, errors.New("connector authorization start returned an unsupported action")
+		return contracts.AuthorizationSession{}, errors.New("connector authorization start returned an unsupported action")
 	}
 	return session, nil
 }
 
-func (client *AuthorizationClient) Cancel(ctx context.Context, request market.AuthorizationCancelRequest) error {
+func (client *AuthorizationClient) Cancel(ctx context.Context, request contracts.AuthorizationCancelRequest) error {
 	sessionID := strings.TrimSpace(request.Session.SessionID)
 	if sessionID == "" {
 		return errors.New("connector authorization cancellation requires a session id")
@@ -203,7 +204,7 @@ func (client *AuthorizationClient) Cancel(ctx context.Context, request market.Au
 	return nil
 }
 
-func (client *AuthorizationClient) Disconnect(ctx context.Context, request market.AuthorizationDisconnectRequest) error {
+func (client *AuthorizationClient) Disconnect(ctx context.Context, request contracts.AuthorizationDisconnectRequest) error {
 	connectorID := strings.TrimSpace(request.Connector.Key)
 	if err := client.doJSONForAccount(ctx, request.Scope.AccountID, http.MethodDelete,
 		"/connectors/"+url.PathEscape(connectorID)+"/authorization", nil, nil, nil); err != nil {
@@ -219,7 +220,7 @@ func (client *AuthorizationClient) notifyChanged() {
 	}
 }
 
-func (client *AuthorizationClient) Observe(ctx context.Context, request market.AuthorizationObserveRequest) (market.AuthorizationObservation, error) {
+func (client *AuthorizationClient) Observe(ctx context.Context, request contracts.AuthorizationObserveRequest) (contracts.AuthorizationObservation, error) {
 	var response struct {
 		Session struct {
 			Status             string `json:"status"`
@@ -229,25 +230,25 @@ func (client *AuthorizationClient) Observe(ctx context.Context, request market.A
 	}
 	path := "/connector-authorization-sessions/" + url.PathEscape(strings.TrimSpace(request.Session.SessionID))
 	if err := client.doJSONForAccount(ctx, request.Scope.AccountID, http.MethodGet, path, nil, nil, &response); err != nil {
-		return market.AuthorizationObservation{}, err
+		return contracts.AuthorizationObservation{}, err
 	}
 	status := strings.ToUpper(strings.TrimSpace(response.Session.Status))
 	switch {
 	case strings.HasSuffix(status, "_SUCCEEDED") || status == "SUCCEEDED":
 		connectionID := strings.TrimSpace(response.Session.ResultConnectionID)
 		if connectionID == "" {
-			return market.AuthorizationObservation{}, errors.New("connector authorization observation completed without a connection id")
+			return contracts.AuthorizationObservation{}, errors.New("connector authorization observation completed without a connection id")
 		}
-		return market.AuthorizationObservation{State: market.AuthorizationObservationConnected, ConnectionID: connectionID}, nil
+		return contracts.AuthorizationObservation{State: contracts.AuthorizationObservationConnected, ConnectionID: connectionID}, nil
 	case strings.HasSuffix(status, "_FAILED") || status == "FAILED":
-		return market.AuthorizationObservation{State: market.AuthorizationObservationFailed, FailureCode: strings.TrimSpace(response.Session.ErrorCode)}, nil
+		return contracts.AuthorizationObservation{State: contracts.AuthorizationObservationFailed, FailureCode: strings.TrimSpace(response.Session.ErrorCode)}, nil
 	case strings.HasSuffix(status, "_CANCELED") || status == "CANCELED":
-		return market.AuthorizationObservation{State: market.AuthorizationObservationFailed, FailureCode: "authorization_canceled"}, nil
+		return contracts.AuthorizationObservation{State: contracts.AuthorizationObservationFailed, FailureCode: "authorization_canceled"}, nil
 	case strings.HasSuffix(status, "_CREATED"), strings.HasSuffix(status, "_AWAITING_USER"), strings.HasSuffix(status, "_PROCESSING"),
 		status == "CREATED", status == "AWAITING_USER", status == "PROCESSING":
-		return market.AuthorizationObservation{State: market.AuthorizationObservationPending}, nil
+		return contracts.AuthorizationObservation{State: contracts.AuthorizationObservationPending}, nil
 	default:
-		return market.AuthorizationObservation{}, errors.New("connector authorization session returned an invalid status")
+		return contracts.AuthorizationObservation{}, errors.New("connector authorization session returned an invalid status")
 	}
 }
 
@@ -366,7 +367,7 @@ func isLoopbackConnectorAuthorizationHost(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
-var _ market.AuthorizationProvider = (*AuthorizationClient)(nil)
-var _ market.AuthorizationAttemptCanceler = (*AuthorizationClient)(nil)
-var _ market.AuthorizationObserver = (*AuthorizationClient)(nil)
-var _ market.AuthorizationSnapshotSource = (*AuthorizationClient)(nil)
+var _ application.AuthorizationProvider = (*AuthorizationClient)(nil)
+var _ application.AuthorizationAttemptCanceler = (*AuthorizationClient)(nil)
+var _ application.AuthorizationObserver = (*AuthorizationClient)(nil)
+var _ application.AuthorizationSnapshotSource = (*AuthorizationClient)(nil)
