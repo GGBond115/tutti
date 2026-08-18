@@ -14,7 +14,10 @@ import (
 // tutti-agent provider. Account-token bootstrap remains a host responsibility
 // and can be injected through BeforePrepare.
 type TuttiAgentPreparer struct {
-	BeforePrepare               func(context.Context, PrepareInput)
+	BeforePrepare func(context.Context, PrepareInput)
+	// ProviderAuthFingerprint is evaluated after BeforePrepare so an initial
+	// account bootstrap cannot create durable state under an empty authority.
+	ProviderAuthFingerprint     func(context.Context, PrepareInput) string
 	ResolveAuthSource           func(context.Context, PrepareInput) (string, error)
 	StableSkillBundleRoot       string
 	StableSystemSkillBundleRoot string
@@ -25,12 +28,40 @@ func (TuttiAgentPreparer) Provider() string {
 	return "tutti-agent"
 }
 
-func (p TuttiAgentPreparer) Prepare(ctx context.Context, input ProviderPrepareInput) (result ProviderPrepareResult, err error) {
-	home := filepath.Join(input.RuntimeRoot, "tutti-agent-home")
-	logRuntimePrepareTrace("runtime_prepare.tutti_agent.entered", input.PrepareInput, nil)
-	if p.BeforePrepare != nil {
-		p.BeforePrepare(ctx, input.PrepareInput)
+// PrepareProviderState reconciles account bootstrap before DefaultPreparer
+// derives the canonical provider-state identity. The private marker preserves
+// direct provider-preparer callers without invoking the hook twice.
+func (p TuttiAgentPreparer) PrepareProviderState(ctx context.Context, input *PrepareInput) error {
+	if input == nil || input.providerStatePreparationDone {
+		return nil
 	}
+	if p.BeforePrepare != nil {
+		p.BeforePrepare(ctx, *input)
+	}
+	if p.ProviderAuthFingerprint != nil {
+		input.ProviderAuthFingerprint = strings.TrimSpace(p.ProviderAuthFingerprint(ctx, *input))
+	}
+	input.providerStatePreparationDone = true
+	return nil
+}
+
+func (p TuttiAgentPreparer) Prepare(ctx context.Context, input ProviderPrepareInput) (result ProviderPrepareResult, err error) {
+	if !input.providerStatePreparationDone {
+		if err := p.PrepareProviderState(ctx, &input.PrepareInput); err != nil {
+			return ProviderPrepareResult{}, err
+		}
+	}
+	home := filepath.Join(input.RuntimeRoot, "tutti-agent-home")
+	if stateRoot := strings.TrimSpace(input.ProviderStateRoot); stateRoot != "" {
+		home = filepath.Join(stateRoot, tuttiAgentHomeDirectory)
+		if err := ensureDirectoryTreeWithoutSymlinks(stateRoot, home); err != nil {
+			return ProviderPrepareResult{}, fmt.Errorf("prepare durable tutti-agent provider state: %w", err)
+		}
+		if !input.appServerProcessProfile {
+			return ProviderPrepareResult{Cwd: input.Cwd, Env: []string{"TUTTI_AGENT_HOME=" + home}}, nil
+		}
+	}
+	logRuntimePrepareTrace("runtime_prepare.tutti_agent.entered", input.PrepareInput, nil)
 	authSource := ""
 	authSourceConfigured := p.ResolveAuthSource != nil
 	if authSourceConfigured {

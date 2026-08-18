@@ -130,6 +130,9 @@ func (h *Host) reprepareRuntimeSession(
 	if err != nil {
 		return ProviderRuntimeSession{}, h.cleanupFailedReprepare(ctx, ref, canonicalSession.Provider, err)
 	}
+	if err := h.persistCanonicalProviderStateID(ctx, ref, canonicalSession, prepared.AppServer); err != nil {
+		return ProviderRuntimeSession{}, h.cleanupFailedReprepare(ctx, ref, canonicalSession.Provider, err)
+	}
 	return result, nil
 }
 

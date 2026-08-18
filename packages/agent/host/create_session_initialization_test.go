@@ -67,7 +67,8 @@ func (s *initializationBarrierTestStore) InitializeRuntimeSession(
 		ID: input.Session.ID, WorkspaceID: input.Session.WorkspaceID,
 		Provider: input.Session.Provider, ProviderSessionID: input.Session.ProviderSessionID,
 		RailSectionKind: railKind, RailProjectPath: railProjectPath, RailSectionKey: railKey,
-		Metadata: storesqlite.SessionMetadata{Visible: true},
+		InternalRuntimeContext: cloneMap(input.Session.RuntimeContext),
+		Metadata:               storesqlite.SessionMetadata{Visible: true},
 	}, nil
 }
 
@@ -105,6 +106,7 @@ func (r *initializationBarrierTestRuntime) Start(
 		AgentTargetID: input.AgentTargetID, Provider: input.Provider,
 		ProviderSessionID: "provider-" + input.AgentSessionID,
 		Cwd:               input.Cwd, Status: "ready", Visible: true,
+		RuntimeContext:  cloneMap(input.RuntimeContext),
 		CreatedAtUnixMS: 1, UpdatedAtUnixMS: 1,
 	}
 	return RuntimeStartResult{Session: r.session, Created: !r.reuseExisting}, nil
@@ -221,6 +223,7 @@ func TestCreateSessionPassesPreparedAppServerDTOToRuntime(t *testing.T) {
 	store := &initializationBarrierTestStore{}
 	runtime := &initializationBarrierTestRuntime{}
 	preparation := &initializationBarrierTestPreparation{prepared: &AppServerRuntimePreparation{
+		ProviderStateID: "provider-state-account-a",
 		ExecutionHostID: "device-1", RuntimeGeneration: "runtime-1", TransportScopeID: "transport-1",
 		ProcessProfileDigest: "profile-1", ProcessCwd: "/profile",
 		ProcessEnv: []string{"CODEX_HOME=/profile/codex-home"},
@@ -232,7 +235,7 @@ func TestCreateSessionPassesPreparedAppServerDTOToRuntime(t *testing.T) {
 	host := New(Config{CanonicalStore: store, Runtime: runtime, RuntimePreparation: preparation})
 	cwd := "/workspace"
 
-	_, err := host.CreateSession(t.Context(), "workspace-1", CreateSessionInput{
+	result, err := host.CreateSession(t.Context(), "workspace-1", CreateSessionInput{
 		AgentSessionID: "session-1", AgentTargetID: "target-1", Provider: "codex", Cwd: &cwd,
 		RailPlacement: &RailPlacement{Version: 1, Kind: RailPlacementKindProject, ProjectPath: "/workspace"},
 	})
@@ -240,12 +243,18 @@ func TestCreateSessionPassesPreparedAppServerDTOToRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := runtime.startInput.AppServer
-	if got == nil || got.ExecutionHostID != "device-1" || got.RuntimeGeneration != "runtime-1" ||
+	if got == nil || got.ProviderStateID != "provider-state-account-a" || got.ExecutionHostID != "device-1" || got.RuntimeGeneration != "runtime-1" ||
 		got.TransportScopeID != "transport-1" || got.ProcessProfileDigest != "profile-1" ||
 		len(got.ProcessEnv) != 1 || len(got.ThreadEnv) != 1 ||
 		len(got.ModelProviderCredentials) != 1 ||
 		got.ModelProviderCredentials[0].BearerToken != "session-token" {
 		t.Fatalf("runtime AppServer DTO = %#v", got)
+	}
+	if runtime.startInput.RuntimeContext[providerStateIDRuntimeContextKey] != "provider-state-account-a" {
+		t.Fatalf("runtime context provider state ID = %#v", runtime.startInput.RuntimeContext)
+	}
+	if result.Canonical.InternalRuntimeContext[providerStateIDRuntimeContextKey] != "provider-state-account-a" {
+		t.Fatalf("canonical runtime context provider state ID = %#v", result.Canonical.InternalRuntimeContext)
 	}
 }
 

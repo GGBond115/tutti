@@ -46,6 +46,52 @@ in the Thread overlay. A product launch adapter must implement
 daemon app-server adapter. Thread cleanup removes only the Session run root;
 process cleanup reclaims the profile root after its final acquisition.
 
+The provider-native home is a separate durable owner on the shared app-server
+path. Codex-compatible preparation derives `ProviderStateID` from the stable
+provider, target, and account/authority binding; model, cwd, Session ID,
+generation, workspace, and transport scope are excluded. The resulting home is
+`<stateDir>/agent/provider-state/<ProviderStateID>/codex-home`. Thread cleanup
+and final process cleanup never remove this directory; they remove only their
+Session run root and synthetic process-profile root respectively. The same
+split applies to `tutti-agent-home`.
+
+The Store supplied to a shared app-server preparation must implement
+`ProviderStateStore`; a Session-only `RuntimeStore` is rejected rather than
+creating the provider-state directory with an unbounded `MkdirAll` fallback.
+This keeps provider-state containment owned by the Store adapter.
+
+The auth component of a new ProviderStateID is the opaque fingerprint supplied
+by the existing provider-auth owner; raw credentials are never included in the
+runtimeprep identity input. Tutti Agent runs account bootstrap before this
+fingerprint is sampled, so its first bootstrap and first durable state identity
+describe the same authority. A resumed Session first restores its persisted ID,
+and Host idempotently writes the prepared canonical ID when an older Session
+has no such context. Saver-mode role/config files are written below the
+synthetic process-profile root, never into the shared provider-state Home; the
+Thread developer overlay carries the saver routing policy.
+
+When an existing Session has a persisted legacy home authority, migration first
+uses that exact path. If it is absent, runtimeprep checks only the managed
+Session run home, known `agent.codexHome` aliases, and bounded old
+`appserver-profile-*` roots. It validates `session_meta.payload.id` or
+`session_id`, requires one unique rollout, and atomically installs only that
+JSONL file. An ordinary runtime with a missing exact rollout fails preparation;
+imported Sessions retain Host's explicit recreate policy.
+Every existing source ancestor is checked with `Lstat`; a symlinked legacy
+ancestor is rejected, and multiple matching legacy sources fail closed.
+
+Provider-state retention is deliberate: Host's permanent tombstone purge does
+not provide a provider-state reference count, and several canonical Sessions
+may share one provider state. Therefore Session cleanup and tombstone purge do
+not delete a provider-state root or individual rollout. This is the explicit
+retention policy: the current lifecycle never deletes provider state because it
+has no authoritative reference owner that can prove the root is unused.
+
+Rollout replacement is owned by the platform-specific runtime file replacer:
+POSIX uses rename and Windows uses `MoveFileEx` with replacement and
+write-through flags. The Windows agent-adapter lane executes the replacement
+test in addition to the Host/runtimeprep focused contract.
+
 The scope fields are compatibility evidence, not labels. Use a durable device
 or VM identity for `ExecutionHostID`, rotate `RuntimeGeneration` whenever the
 owning runtime is rebuilt, and assign `TransportScopeID` to the concrete

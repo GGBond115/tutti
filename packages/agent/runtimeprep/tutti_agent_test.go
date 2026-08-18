@@ -87,6 +87,46 @@ func TestTuttiAgentPreparerUsesExplicitAuthSourceAndInstallsSkills(t *testing.T)
 	}
 }
 
+func TestTuttiAgentBootstrapRefreshesProviderStateAuthorityBeforeIdentity(t *testing.T) {
+	stateDir := t.TempDir()
+	setTestHome(t, t.TempDir())
+	bootstrapped := false
+	preparer := NewDefaultPreparer(stateDir)
+	preparer.CommandCatalog = staticCommandCatalog(testCommandCapabilities())
+	preparer.AppServerScope = AppServerProfileScope{
+		ExecutionHostID: "host-1", RuntimeGeneration: "generation-1", TransportScopeID: "transport-1",
+	}
+	preparer.RegisterProvider(TuttiAgentPreparer{
+		BeforePrepare: func(context.Context, PrepareInput) { bootstrapped = true },
+		ProviderAuthFingerprint: func(context.Context, PrepareInput) string {
+			if !bootstrapped {
+				t.Fatal("auth fingerprint was read before bootstrap")
+			}
+			return "fingerprint-after-bootstrap"
+		},
+	})
+	input := PrepareInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-bootstrap", AgentTargetID: "target-1",
+		Provider: "tutti-agent", ProviderAuthFingerprint: "fingerprint-before-bootstrap",
+		ProviderTargetRef: map[string]any{"accountAuthority": "account-a"}, Cwd: t.TempDir(), CLICommand: "tutti",
+	}
+	prepared, err := preparer.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if !bootstrapped || prepared.AppServer == nil {
+		t.Fatalf("bootstrap=%v appServer=%#v", bootstrapped, prepared.AppServer)
+	}
+	input.ProviderAuthFingerprint = "fingerprint-after-bootstrap"
+	wantID, err := StableProviderStateID(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.AppServer.ProviderStateID != wantID {
+		t.Fatalf("provider state ID=%q, want post-bootstrap authority %q", prepared.AppServer.ProviderStateID, wantID)
+	}
+}
+
 func TestTuttiAgentPreparerReconcilesNativeSkillsAcrossRepeatedPrepare(t *testing.T) {
 	userHome := t.TempDir()
 	setTestHome(t, userHome)

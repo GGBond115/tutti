@@ -95,8 +95,11 @@ func payloadBoolPointer(payload map[string]any, key string) *bool {
 func createSessionInputFromPersisted(session PersistedSession) CreateSessionInput {
 	input := CreateSessionInput{
 		AgentSessionID: strings.TrimSpace(session.ID),
-		Provider:       strings.TrimSpace(session.Provider),
+		Provider:       strings.TrimSpace(session.Provider), ProviderSessionID: strings.TrimSpace(session.ProviderSessionID),
+		SessionOrigin:  strings.TrimSpace(session.Origin),
+		RuntimeContext: clonePayload(session.InternalRuntimeContext),
 	}
+	input.LegacyCodexHomePath = legacyCodexHomePathFromRuntimeContext(session.InternalRuntimeContext)
 	if title := strings.TrimSpace(session.Title); title != "" {
 		input.Title = &title
 	}
@@ -142,4 +145,13 @@ func createSessionInputFromPersisted(session PersistedSession) CreateSessionInpu
 		input.ExternalRolloutSourcePath = strings.TrimSpace(sourcePath)
 	}
 	return input
+}
+
+func legacyCodexHomePathFromRuntimeContext(runtimeContext map[string]any) string {
+	for _, key := range []string{"agent.codexHome", "codexHome", "legacyCodexHomePath"} {
+		if value, ok := runtimeContext[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

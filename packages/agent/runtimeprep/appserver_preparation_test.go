@@ -14,7 +14,11 @@ type passthroughCodexPreparer struct{}
 func (passthroughCodexPreparer) Provider() string { return "codex" }
 
 func (passthroughCodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (ProviderPrepareResult, error) {
-	return ProviderPrepareResult{Cwd: input.Cwd, Env: []string{"CODEX_HOME=" + input.RuntimeRoot}}, nil
+	home := filepath.Join(input.RuntimeRoot, codexHomeDirectory)
+	if input.ProviderStateRoot != "" {
+		home = filepath.Join(input.ProviderStateRoot, codexHomeDirectory)
+	}
+	return ProviderPrepareResult{Cwd: input.Cwd, Env: []string{"CODEX_HOME=" + home}}, nil
 }
 
 type latePolicyFailureCodexPreparer struct{}
@@ -28,13 +32,26 @@ func (latePolicyFailureCodexPreparer) Prepare(_ context.Context, input ProviderP
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		}
 	}
-	return ProviderPrepareResult{Cwd: input.Cwd, Env: []string{"CODEX_HOME=" + input.RuntimeRoot}}, nil
+	home := filepath.Join(input.RuntimeRoot, codexHomeDirectory)
+	if input.ProviderStateRoot != "" {
+		home = filepath.Join(input.ProviderStateRoot, codexHomeDirectory)
+	}
+	return ProviderPrepareResult{Cwd: input.Cwd, Env: []string{"CODEX_HOME=" + home}}, nil
 }
 
 type failOnceProfileCleanupStore struct {
 	RuntimeStore
-	remainingFailures int
-	profileAttempts   int
+	providerStateStore ProviderStateStore
+	remainingFailures  int
+	profileAttempts    int
+}
+
+func (s *failOnceProfileCleanupStore) ProviderStateRoot(id string) (string, error) {
+	return s.providerStateStore.ProviderStateRoot(id)
+}
+
+func (s *failOnceProfileCleanupStore) EnsureProviderStateRoot(root string) error {
+	return s.providerStateStore.EnsureProviderStateRoot(root)
 }
 
 func (s *failOnceProfileCleanupStore) CleanupRuntime(input StoreCleanupInput) error {
@@ -96,6 +113,12 @@ func TestAppServerPreparationSharesProcessProfileAndIsolatesThreadOverlay(t *tes
 		processEnv := strings.Join(prepared.AppServer.ProcessEnv, "\n")
 		if strings.Contains(processEnv, "credential-") || strings.Contains(processEnv, "TUTTI_AGENT_SESSION_ID") || strings.Contains(processEnv, "TUTTI_AGENT_CWD") {
 			t.Fatalf("Session value leaked into process env: %s", processEnv)
+		}
+		if appServerEnvironmentValue(prepared.AppServer.ProcessEnv, "PATH") == "" {
+			t.Fatalf("shared process profile lost PATH: %#v", prepared.AppServer.ProcessEnv)
+		}
+		if appServerEnvironmentValue(prepared.AppServer.ThreadEnv, "PATH") != "" {
+			t.Fatalf("machine-specific PATH leaked into thread overlay: %#v", prepared.AppServer.ThreadEnv)
 		}
 	}
 	if len(first.AppServer.ModelProviderCredentials) != 1 ||
@@ -170,8 +193,15 @@ func TestAppServerPreparationSharesProcessProfileAndIsolatesThreadOverlay(t *tes
 	if err := firstLease.ProcessCleanup(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(firstHome); !os.IsNotExist(err) {
-		t.Fatalf("last process cleanup left profile root, err=%v", err)
+	if _, err := os.Stat(firstHome); err != nil {
+		t.Fatalf("last process cleanup removed durable provider state, err=%v", err)
+	}
+	profileRoots, err := filepath.Glob(filepath.Join(stateDir, "agent", "runs", appServerProfileSessionPrefix+"*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profileRoots) != 0 {
+		t.Fatalf("last process cleanup left process profile roots: %#v", profileRoots)
 	}
 	if err := firstLease.ProcessCleanup(t.Context()); err != nil {
 		t.Fatalf("repeat process cleanup: %v", err)
@@ -251,8 +281,8 @@ func TestAppServerPreparationSupportsTuttiAgentProvider(t *testing.T) {
 	if err := firstLease.ProcessCleanup(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(processHome); !os.IsNotExist(err) {
-		t.Fatalf("process cleanup left Tutti Agent home, err=%v", err)
+	if _, err := os.Stat(processHome); err != nil {
+		t.Fatalf("process cleanup removed durable Tutti Agent home, err=%v", err)
 	}
 }
 
@@ -260,7 +290,7 @@ func TestAppServerProcessCleanupRetriesAfterStoreFailure(t *testing.T) {
 	stateDir := t.TempDir()
 	setTestHome(t, t.TempDir())
 	store := &failOnceProfileCleanupStore{
-		RuntimeStore: LocalStore{StateDir: stateDir}, remainingFailures: 1,
+		RuntimeStore: LocalStore{StateDir: stateDir}, providerStateStore: LocalStore{StateDir: stateDir}, remainingFailures: 1,
 	}
 	preparer := newTestPreparer(stateDir)
 	preparer.Store = store
@@ -329,7 +359,7 @@ func TestAppServerPrepareRecoversProfileCleanupFailureBeforeSessionLeaseExists(t
 	stateDir := t.TempDir()
 	setTestHome(t, t.TempDir())
 	store := &failOnceProfileCleanupStore{
-		RuntimeStore: LocalStore{StateDir: stateDir}, remainingFailures: 1,
+		RuntimeStore: LocalStore{StateDir: stateDir}, providerStateStore: LocalStore{StateDir: stateDir}, remainingFailures: 1,
 	}
 	preparer := newTestPreparer(stateDir)
 	preparer.Store = store

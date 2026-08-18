@@ -19,6 +19,7 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/daemon/httpx"
 	"github.com/tutti-os/tutti/packages/agent/daemon/tuttiagentauth"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
+	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
 
@@ -49,6 +50,9 @@ func NewPreparer(stateDir string) runtimeprep.TuttiAgentPreparer {
 	)
 	return runtimeprep.TuttiAgentPreparer{
 		BeforePrepare: bootstrapTuttiAgentUserAuthForPrepare,
+		ProviderAuthFingerprint: func(_ context.Context, _ runtimeprep.PrepareInput) string {
+			return agentservice.ProviderAuthFingerprint("tutti-agent")
+		},
 		AuthProjector: runtimeprep.MutagenAuthFileProjector{StateDir: stateDir},
 		StableSkillBundleRoot: filepath.Join(
 			stableRoot,

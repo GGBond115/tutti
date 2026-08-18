@@ -10,6 +10,7 @@ func hostAppServerPreparation(input *agentruntime.AppServerRuntimePreparation) *
 		return nil
 	}
 	return &host.AppServerRuntimePreparation{
+		ProviderStateID: input.ProviderStateID,
 		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
 		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
 		ProcessCwd: input.ProcessCWD, ProcessEnv: append([]string(nil), input.ProcessEnv...),
@@ -35,6 +36,7 @@ func runtimeAppServerPreparation(input *host.AppServerRuntimePreparation) *agent
 		return nil
 	}
 	return &agentruntime.AppServerRuntimePreparation{
+		ProviderStateID: input.ProviderStateID,
 		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
 		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
 		ProcessCWD: input.ProcessCwd, ProcessEnv: append([]string(nil), input.ProcessEnv...),

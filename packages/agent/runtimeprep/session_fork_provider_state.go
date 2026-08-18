@@ -68,6 +68,8 @@ func (p *DefaultPreparer) BindSessionForkProviderState(
 	input.TargetAgentSessionID = strings.TrimSpace(input.TargetAgentSessionID)
 	input.SourceProviderSessionID = strings.TrimSpace(input.SourceProviderSessionID)
 	input.TargetProviderSessionID = strings.TrimSpace(input.TargetProviderSessionID)
+	input.SourceProviderStateID = strings.TrimSpace(input.SourceProviderStateID)
+	input.TargetProviderStateID = strings.TrimSpace(input.TargetProviderStateID)
 	if input.WorkspaceID == "" ||
 		input.SourceAgentSessionID == "" ||
 		input.TargetAgentSessionID == "" ||
@@ -79,16 +81,42 @@ func (p *DefaultPreparer) BindSessionForkProviderState(
 	}
 
 	store := p.runtimeStore()
-	sourceRoot, err := store.RuntimeRoot(input.WorkspaceID, input.SourceAgentSessionID)
-	if err != nil {
-		return fmt.Errorf("resolve source runtime root: %w", err)
+	stateStore, hasStateStore := store.(ProviderStateStore)
+	var sourceRoot, targetRoot string
+	var err error
+	if input.SourceProviderStateID != "" {
+		if !hasStateStore {
+			return errors.New("source provider state binding requires provider-state store")
+		}
+		sourceRoot, err = stateStore.ProviderStateRoot(input.SourceProviderStateID)
+		if err != nil {
+			return fmt.Errorf("resolve source provider state root: %w", err)
+		}
+	} else {
+		sourceRoot, err = store.RuntimeRoot(input.WorkspaceID, input.SourceAgentSessionID)
+		if err != nil {
+			return fmt.Errorf("resolve source runtime root: %w", err)
+		}
 	}
-	targetRoot, err := store.RuntimeRoot(input.WorkspaceID, input.TargetAgentSessionID)
-	if err != nil {
-		return fmt.Errorf("resolve target runtime root: %w", err)
-	}
-	if err := store.EnsureRuntimeRoot(targetRoot); err != nil {
-		return fmt.Errorf("ensure target runtime root: %w", err)
+	if input.TargetProviderStateID != "" {
+		if !hasStateStore {
+			return errors.New("target provider state binding requires provider-state store")
+		}
+		targetRoot, err = stateStore.ProviderStateRoot(input.TargetProviderStateID)
+		if err != nil {
+			return fmt.Errorf("resolve target provider state root: %w", err)
+		}
+		if err := stateStore.EnsureProviderStateRoot(targetRoot); err != nil {
+			return fmt.Errorf("ensure target provider state root: %w", err)
+		}
+	} else {
+		targetRoot, err = store.RuntimeRoot(input.WorkspaceID, input.TargetAgentSessionID)
+		if err != nil {
+			return fmt.Errorf("resolve target runtime root: %w", err)
+		}
+		if err := store.EnsureRuntimeRoot(targetRoot); err != nil {
+			return fmt.Errorf("ensure target runtime root: %w", err)
+		}
 	}
 	if err := syncDirectory(filepath.Dir(targetRoot)); err != nil {
 		return fmt.Errorf("sync target runtime parent directory: %w", err)
@@ -257,7 +285,10 @@ func findCodexRollout(
 			if entry.IsDir() {
 				return nil
 			}
-			if entry.Type()&os.ModeSymlink != 0 || !strings.Contains(entry.Name(), targetProviderSessionID) {
+			// The filename is only a hint and is not the provider identity. Scan
+			// the bounded Codex rollout roots and require the first session_meta
+			// record to name the exact provider session below.
+			if entry.Type()&os.ModeSymlink != 0 {
 				return nil
 			}
 			matches, fingerprint, err := inspectCodexRollout(
@@ -267,6 +298,12 @@ func findCodexRollout(
 			inspectionErr := err
 			if err != nil {
 				var contentErr *codexRolloutContentError
+				if errors.As(err, &contentErr) && !strings.Contains(entry.Name(), targetProviderSessionID) {
+					// Damaged files whose names do not carry the target ID cannot
+					// be the uniquely identified source; ignore them while the
+					// bounded scan continues.
+					return nil
+				}
 				if tolerateInvalidContent && errors.As(err, &contentErr) {
 					if !matches {
 						return fmt.Errorf(
@@ -585,7 +622,7 @@ func copyRegularFileAtomically(
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tempPath, targetPath); err != nil {
+	if err := replaceRuntimeFile(tempPath, targetPath); err != nil {
 		return err
 	}
 	return syncDirectory(targetDirectory)

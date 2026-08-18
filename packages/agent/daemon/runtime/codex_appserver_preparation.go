@@ -37,6 +37,7 @@ func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
 		RootAgentSessionID: session.RootAgentSessionID,
 		RoomID:             session.RoomID,
 		CWD:                a.sessionCWD(session),
+		ProtocolCWD:        a.sessionCWD(session),
 		Command:            command,
 		Env:                spawnEnv,
 	}

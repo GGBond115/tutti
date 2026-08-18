@@ -16,6 +16,14 @@ type CanonicalSessionStore interface {
 	ListChildSessions(context.Context, string, string) ([]storesqlite.Session, error)
 }
 
+// CanonicalSessionRuntimeContextUpdater is the optional canonical mutation
+// used when a legacy Session first resolves its durable provider state. It is
+// separate from CanonicalSessionStore so external stores remain source
+// compatible while the SQLite owner provides an atomic, idempotent patch.
+type CanonicalSessionRuntimeContextUpdater interface {
+	UpdateSessionRuntimeContext(context.Context, string, string, map[string]any) (storesqlite.Session, bool, error)
+}
+
 // RuntimeSessionRailPlacementResolver is the optional create-time capability
 // that resolves a prepared runtime's final canonical rail placement before a
 // provider process starts. Keeping it separate preserves source compatibility

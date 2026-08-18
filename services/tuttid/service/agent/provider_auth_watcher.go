@@ -250,6 +250,13 @@ func providerAuthFingerprint(provider string) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+// ProviderAuthFingerprint exposes the auth owner's opaque identity to the
+// runtime-preparation adapter. Raw provider credentials never cross this
+// boundary; the value only separates durable provider state by authority.
+func ProviderAuthFingerprint(provider string) string {
+	return providerAuthFingerprint(provider)
+}
+
 // jsonSubsetFingerprint hashes the raw values of the given top-level keys of a
 // JSON object. Returns false when the payload is not a JSON object.
 func jsonSubsetFingerprint(data []byte, keys []string) (string, bool) {

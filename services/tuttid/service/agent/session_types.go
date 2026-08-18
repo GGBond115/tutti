@@ -709,7 +709,12 @@ type RuntimeStreamEvent struct {
 
 type CreateSessionInput struct {
 	AgentSessionID string
-	AgentTargetID  string
+	// ProviderSessionID and SessionOrigin are populated only when a persisted
+	// session is being prepared for resume. New sessions leave them empty.
+	ProviderSessionID   string
+	SessionOrigin       string
+	LegacyCodexHomePath string
+	AgentTargetID       string
 	// WorkspaceAgentRevision and HarnessAgentTargetID identify the immutable
 	// user-facing Agent definition and underlying Harness selected for launch.
 	// Legacy system targets leave the revision zero and use AgentTargetID as the

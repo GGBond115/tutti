@@ -39,6 +39,86 @@ func (s LocalStore) RuntimeRoot(_ string, agentSessionID string) (string, error)
 	return runtimeRoot, nil
 }
 
+func (s LocalStore) ProviderStateRoot(providerStateID string) (string, error) {
+	stateDir := filepath.Clean(strings.TrimSpace(s.StateDir))
+	if stateDir == "." || stateDir == string(filepath.Separator) {
+		return "", errors.New("agent sidecar state directory is not configured")
+	}
+	if strings.TrimSpace(providerStateID) == "" {
+		return "", errors.New("provider state root requires provider state ID")
+	}
+	root := filepath.Join(stateDir, "agent", "provider-state", safePathSegment(providerStateID))
+	if err := s.validateProviderStateRoot(root); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func (s LocalStore) EnsureProviderStateRoot(providerStateRoot string) error {
+	providerStateRoot = filepath.Clean(strings.TrimSpace(providerStateRoot))
+	if providerStateRoot == "." {
+		return errors.New("agent provider state root is not configured")
+	}
+	if err := s.validateProviderStateRoot(providerStateRoot); err != nil {
+		return err
+	}
+	stateDir := filepath.Clean(strings.TrimSpace(s.StateDir))
+	base := filepath.Join(stateDir, "agent", "provider-state")
+	if err := ensureProviderStateDirectoryTree(base, providerStateRoot); err != nil {
+		return fmt.Errorf("create agent provider state root: %w", err)
+	}
+	return nil
+}
+
+// ensureProviderStateDirectoryTree creates the managed chain one component at
+// a time. MkdirAll follows a symlinked parent, so it cannot establish that a
+// provider-state root remains below the configured state directory.
+func ensureProviderStateDirectoryTree(base, target string) error {
+	base = filepath.Clean(base)
+	target = filepath.Clean(target)
+	if err := ensurePathWithin(base, filepath.Join(target, "_")); err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(base, target)
+	if err != nil {
+		return err
+	}
+	current := filepath.Dir(filepath.Dir(base)) // configured StateDir
+	stateInfo, stateErr := os.Lstat(current)
+	if stateErr == nil {
+		if stateInfo.Mode()&os.ModeSymlink != 0 || !stateInfo.IsDir() {
+			return fmt.Errorf("configured agent state path is not a regular directory: %s", current)
+		}
+	} else if os.IsNotExist(stateErr) {
+		if err := os.Mkdir(current, 0o700); err != nil && !os.IsExist(err) {
+			return err
+		}
+	} else {
+		return stateErr
+	}
+	parts := []string{"agent", "provider-state"}
+	if relative != "." {
+		parts = append(parts, strings.Split(relative, string(filepath.Separator))...)
+	}
+	for _, part := range parts {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+				return fmt.Errorf("managed provider state path is not a regular directory: %s", current)
+			}
+			continue
+		}
+		if !os.IsNotExist(statErr) {
+			return statErr
+		}
+		if err := os.Mkdir(current, 0o700); err != nil && !os.IsExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s LocalStore) EnsureRuntimeRoot(runtimeRoot string) error {
 	runtimeRoot = filepath.Clean(strings.TrimSpace(runtimeRoot))
 	if runtimeRoot == "." {
@@ -179,6 +259,22 @@ func (s LocalStore) validateRuntimeRoot(runtimeRoot string) error {
 	}
 	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
 		return fmt.Errorf("agent sidecar runtime root is outside managed runs directory")
+	}
+	return nil
+}
+
+func (s LocalStore) validateProviderStateRoot(providerStateRoot string) error {
+	stateDir := filepath.Clean(strings.TrimSpace(s.StateDir))
+	if stateDir == "." || stateDir == string(filepath.Separator) {
+		return errors.New("agent sidecar state directory is not configured")
+	}
+	providerStateBase := filepath.Join(stateDir, "agent", "provider-state")
+	rel, err := filepath.Rel(providerStateBase, providerStateRoot)
+	if err != nil {
+		return fmt.Errorf("validate agent provider state root: %w", err)
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return fmt.Errorf("agent provider state root is outside managed provider-state directory")
 	}
 	return nil
 }

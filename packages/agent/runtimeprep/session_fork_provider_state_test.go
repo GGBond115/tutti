@@ -868,6 +868,83 @@ func TestDefaultPreparerRejectsSourceCodexHomeSymlink(t *testing.T) {
 	}
 }
 
+func TestBindSessionForkProviderStateUsesDurableTargetProviderState(t *testing.T) {
+	stateDir := t.TempDir()
+	preparer := NewDefaultPreparer(stateDir)
+	store := LocalStore{StateDir: stateDir}
+	sourceRoot, err := store.RuntimeRoot("workspace-1", "source-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRollout := filepath.Join(sourceRoot, codexHomeDirectory, "sessions", "2026", "08", "rollout-target-thread.jsonl")
+	writeTestCodexRollout(t, sourceRollout, "target-thread")
+	targetStateID := "provider-state-test-fork"
+	targetStateRoot, err := store.ProviderStateRoot(targetStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := preparer.BindSessionForkProviderState(t.Context(), SessionForkProviderStateBindingInput{
+		WorkspaceID: "workspace-1", Provider: "codex", SourceAgentSessionID: "source-session",
+		TargetAgentSessionID: "target-session", SourceProviderSessionID: "source-thread",
+		TargetProviderSessionID: "target-thread", TargetProviderStateID: targetStateID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(targetStateRoot, codexHomeDirectory, "sessions", "2026", "08", "rollout-target-thread.jsonl")); err != nil {
+		t.Fatalf("durable fork rollout missing: %v", err)
+	}
+	targetRuntime, err := store.RuntimeRoot("workspace-1", "target-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(targetRuntime); !os.IsNotExist(err) {
+		t.Fatalf("fork created session runtime root instead of durable target state, err=%v", err)
+	}
+}
+
+func TestBindSessionForkProviderStateCopiesBetweenDurableProviderStates(t *testing.T) {
+	stateDir := t.TempDir()
+	preparer := NewDefaultPreparer(stateDir)
+	store := LocalStore{StateDir: stateDir}
+	sourceStateID := "provider-state-source-fork"
+	targetStateID := "provider-state-target-fork"
+	sourceRoot, err := store.ProviderStateRoot(sourceStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetRoot, err := store.ProviderStateRoot(targetStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRollout := filepath.Join(sourceRoot, codexHomeDirectory, "sessions", "2026", "08", "durable-source.jsonl")
+	writeTestCodexRollout(t, sourceRollout, "target-thread")
+	sourceBytes, err := os.ReadFile(sourceRollout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := preparer.BindSessionForkProviderState(t.Context(), SessionForkProviderStateBindingInput{
+		WorkspaceID: "workspace-1", Provider: "codex",
+		SourceAgentSessionID: "source-session", TargetAgentSessionID: "target-session",
+		SourceProviderSessionID: "source-thread", TargetProviderSessionID: "target-thread",
+		SourceProviderStateID: sourceStateID, TargetProviderStateID: targetStateID,
+	}); err != nil {
+		t.Fatalf("BindSessionForkProviderState() error = %v", err)
+	}
+	targetRollout := filepath.Join(targetRoot, codexHomeDirectory, "sessions", "2026", "08", "durable-source.jsonl")
+	if content, err := os.ReadFile(targetRollout); err != nil {
+		t.Fatalf("durable target rollout: %v", err)
+	} else if string(content) != string(sourceBytes) {
+		t.Fatalf("durable target bytes differ from source: got %d bytes want %d", len(content), len(sourceBytes))
+	}
+	targetRuntime, err := store.RuntimeRoot("workspace-1", "target-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(targetRuntime); !os.IsNotExist(err) {
+		t.Fatalf("durable fork used legacy target runtime root, err=%v", err)
+	}
+}
+
 func writeTestCodexRollout(t *testing.T, path, providerSessionID string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

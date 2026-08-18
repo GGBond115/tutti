@@ -20,6 +20,10 @@ type committedSessionForkReader interface {
 	GetSessionForkOperation(context.Context, string, string) (storesqlite.SessionForkOperation, bool, error)
 }
 
+type committedSessionForkSourceReader interface {
+	GetSessionForkSource(context.Context, string, string) (storesqlite.Session, bool, error)
+}
+
 type serviceHostRuntimePreparationSupport interface {
 	clampPersistedSessionReasoningEffortForResume(context.Context, PersistedSession) PersistedSession
 	prepareRuntimeForResume(context.Context, PersistedSession) (preparedRuntime, error)
@@ -186,7 +190,7 @@ func (a serviceHostPreparation) Prepare(ctx context.Context, input agenthost.Run
 			input.AgentSessionID,
 		))
 	}
-	if err := a.bindCommittedSessionForkProviderState(ctx, input); err != nil {
+	if err := a.bindCommittedSessionForkProviderState(ctx, input, prepared.AppServer); err != nil {
 		return agenthost.PreparedRuntime{}, cleanupPreparationFailure(err)
 	}
 	var targetRef map[string]any
@@ -211,6 +215,7 @@ func hostAppServerPreparation(input *runtimeprep.AppServerPreparedRuntime) *agen
 		return nil
 	}
 	return &agenthost.AppServerRuntimePreparation{
+		ProviderStateID: input.ProviderStateID,
 		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
 		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
 		ProcessCwd: input.ProcessCwd, ProcessEnv: append([]string(nil), input.ProcessEnv...),
@@ -252,6 +257,7 @@ func hostMCPServerBindings(input []runtimeprep.MCPServerBinding) []agenthost.MCP
 func (a serviceHostPreparation) bindCommittedSessionForkProviderState(
 	ctx context.Context,
 	input agenthost.RuntimePreparationInput,
+	preparedValues ...*runtimeprep.AppServerPreparedRuntime,
 ) error {
 	if a.runtimePreparer == nil || a.sessionForks == nil {
 		return nil
@@ -282,6 +288,28 @@ func (a serviceHostPreparation) bindCommittedSessionForkProviderState(
 		operation.TargetProviderSessionID != input.ProviderSessionID {
 		return errors.New("committed Codex session fork identity could not be verified")
 	}
+	providerStateID := ""
+	if len(preparedValues) > 0 && preparedValues[0] != nil {
+		providerStateID = strings.TrimSpace(preparedValues[0].ProviderStateID)
+	}
+	sourceProviderStateID := ""
+	if sourceReader, ok := a.sessionForks.(committedSessionForkSourceReader); ok {
+		source, sourceFound, sourceErr := sourceReader.GetSessionForkSource(
+			ctx, operation.WorkspaceID, operation.SourceAgentSessionID,
+		)
+		if sourceErr != nil {
+			return sourceErr
+		}
+		if !sourceFound {
+			return errors.New("committed Codex session fork source could not be read")
+		}
+		if value, ok := source.InternalRuntimeContext["providerStateID"].(string); ok {
+			sourceProviderStateID = strings.TrimSpace(value)
+		}
+	}
+	if providerStateID == "" {
+		providerStateID = sourceProviderStateID
+	}
 	return binder.BindSessionForkProviderState(
 		ctx,
 		runtimeprep.SessionForkProviderStateBindingInput{
@@ -291,6 +319,8 @@ func (a serviceHostPreparation) bindCommittedSessionForkProviderState(
 			TargetAgentSessionID:    operation.TargetAgentSessionID,
 			SourceProviderSessionID: operation.SourceProviderSessionID,
 			TargetProviderSessionID: operation.TargetProviderSessionID,
+			SourceProviderStateID:   sourceProviderStateID,
+			TargetProviderStateID:   providerStateID,
 		},
 	)
 }

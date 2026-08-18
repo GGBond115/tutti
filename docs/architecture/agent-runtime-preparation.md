@@ -84,6 +84,23 @@ Host only transports the preparation DTO. The product adapter transfers the
 two cleanup callbacks to the daemon app-server boundary; Host gains no new
 Session lifecycle semantics.
 
+The shared provider-native home is durable state, not the process profile root:
+Codex and Tutti Agent use `agent/provider-state/<ProviderStateID>/*`, while
+Thread and synthetic profile cleanup remove only their `agent/runs` roots.
+`ProviderStateID` excludes generation, model, cwd, transport, workspace, and
+Session identity and is persisted in canonical Host runtime context. Host's
+tombstone purge has no provider-state reference authority, so permanent cleanup
+intentionally retains shared provider state; the current lifecycle never
+deletes a provider-state root or rollout.
+
+The identity also includes the existing provider-auth owner's irreversible
+authority fingerprint. Runtime preparation never receives raw credentials for
+this purpose. Resume restores a persisted ProviderStateID into preparation and
+the SQLite Host store idempotently writes it back after a successful first
+resume of an older Session. Saver-mode role/config material is process-profile
+owned; only the saver policy is carried in the Thread developer overlay, so a
+saver and non-saver profile cannot mutate the shared durable Home.
+
 In isolated mode, Tutti Agent keeps auth, configuration, transcripts, and other
 mutable state in its session-scoped `TUTTI_AGENT_HOME`. In shared app-server
 mode those process-owned files live in the compatible Process Profile, while

@@ -36,6 +36,7 @@ func hostRuntimeAppServerPreparation(input *agentruntime.AppServerRuntimePrepara
 		return nil
 	}
 	result := &agenthost.AppServerRuntimePreparation{
+		ProviderStateID: input.ProviderStateID,
 		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
 		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
 		ProcessCwd: input.ProcessCWD, ProcessEnv: append([]string(nil), input.ProcessEnv...),

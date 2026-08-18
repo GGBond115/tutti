@@ -101,6 +101,7 @@ func runtimeAppServerPreparation(input *runtimeprep.AppServerPreparedRuntime) *a
 		return nil
 	}
 	result := &agentruntime.AppServerRuntimePreparation{
+		ProviderStateID: input.ProviderStateID,
 		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
 		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
 		ProcessCWD: input.ProcessCwd, ProcessEnv: append([]string(nil), input.ProcessEnv...),
@@ -120,6 +121,7 @@ func runtimeHostAppServerPreparation(input *agenthost.AppServerRuntimePreparatio
 		return nil
 	}
 	result := &agentruntime.AppServerRuntimePreparation{
+		ProviderStateID: input.ProviderStateID,
 		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
 		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
 		ProcessCWD: input.ProcessCwd, ProcessEnv: append([]string(nil), input.ProcessEnv...),

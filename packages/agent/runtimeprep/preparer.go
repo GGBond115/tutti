@@ -113,6 +113,18 @@ func (p *DefaultPreparer) Prepare(ctx context.Context, input PrepareInput) (Prep
 	input.commandCapabilities = resolver
 
 	store := p.runtimeStore()
+	if sharedAppServer {
+		if provider := p.provider(input); provider != nil {
+			if hook, ok := provider.(ProviderStatePreparationHook); ok {
+				if err := hook.PrepareProviderState(ctx, &input); err != nil {
+					return PreparedRuntime{}, err
+				}
+			}
+		}
+		if err := prepareProviderState(store, &input); err != nil {
+			return PreparedRuntime{}, err
+		}
+	}
 	runtimeRoot, err := store.RuntimeRoot(workspaceID, agentSessionID)
 	if err != nil {
 		return PreparedRuntime{}, err
@@ -204,6 +216,9 @@ func (p *DefaultPreparer) Prepare(ctx context.Context, input PrepareInput) (Prep
 		if agentInstructions := strings.TrimSpace(input.AgentInstructions); agentInstructions != "" {
 			instructions = strings.TrimSpace(instructions) + "\n\n# Agent Instructions\n\n" + agentInstructions
 		}
+		if input.CodexSaverMode {
+			instructions = strings.TrimSpace(instructions) + "\n\n" + codexSaverModePolicy
+		}
 		threadEnv := appServerThreadEnvironment(result.Env)
 		p.rememberAppServerSession(&appServerPreparedSession{
 			workspaceID: workspaceID, agentSessionID: agentSessionID, provider: providerID,
@@ -211,6 +226,7 @@ func (p *DefaultPreparer) Prepare(ctx context.Context, input PrepareInput) (Prep
 		})
 		prepared.Env = threadEnv
 		prepared.AppServer = &AppServerPreparedRuntime{
+			ProviderStateID:      input.ProviderStateID,
 			ExecutionHostID:      strings.TrimSpace(p.AppServerScope.ExecutionHostID),
 			RuntimeGeneration:    strings.TrimSpace(p.AppServerScope.RuntimeGeneration),
 			TransportScopeID:     strings.TrimSpace(p.AppServerScope.TransportScopeID),

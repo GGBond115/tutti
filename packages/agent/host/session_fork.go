@@ -379,6 +379,7 @@ func (h *Host) processSessionForkOperationWithSource(
 				return ForkSessionResult{Operation: operation},
 					errors.New("provider child state binding is unavailable")
 			}
+			providerStateID := stringValue(sourceSession.InternalRuntimeContext[providerStateIDRuntimeContextKey])
 			if err := h.sessionForkState.BindSessionForkProviderState(
 				ctx,
 				SessionForkProviderStateBinding{
@@ -388,6 +389,8 @@ func (h *Host) processSessionForkOperationWithSource(
 					TargetAgentSessionID:    operation.TargetAgentSessionID,
 					SourceProviderSessionID: operation.SourceProviderSessionID,
 					TargetProviderSessionID: operation.TargetProviderSessionID,
+					SourceProviderStateID:   providerStateID,
+					TargetProviderStateID:   providerStateID,
 				},
 			); err != nil {
 				return ForkSessionResult{Operation: operation}, fmt.Errorf(
@@ -739,6 +742,7 @@ func (h *Host) sessionForkRuntimeSource(
 		ProviderSessionID: session.ProviderSessionID, Resumable: true,
 		Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...), MCPServers: cloneHostMCPServerBindings(prepared.MCPServers),
 		ProviderTargetRef: cloneMap(prepared.ProviderTargetRef), Settings: &settings,
+		AppServer: cloneHostAppServerPreparation(prepared.AppServer),
 		RuntimeContext: cloneMap(firstMap(
 			prepared.RuntimeContext,
 			session.InternalRuntimeContext,

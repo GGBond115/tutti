@@ -203,6 +203,11 @@ func TestForkSessionTransportFailureBecomesUnknownAndNeverRedispatches(t *testin
 
 func TestForkSessionBindsAcceptedProviderStateBeforeCanonicalCommit(t *testing.T) {
 	store := newFakeSessionForkStore()
+	store.source = storesqlite.Session{
+		ID: "source", WorkspaceID: "ws", Kind: storesqlite.SessionKindRoot,
+		Provider: "codex", ProviderSessionID: "provider-source",
+		InternalRuntimeContext: map[string]any{providerStateIDRuntimeContextKey: "provider-state-frozen"},
+	}
 	runtime := &fakeSessionForkRuntime{
 		providerSessionID: "provider-child",
 		stateBindingMode:  SessionForkStateBindingHostCopy,
@@ -229,6 +234,8 @@ func TestForkSessionBindsAcceptedProviderStateBeforeCanonicalCommit(t *testing.T
 		TargetAgentSessionID:    "target",
 		SourceProviderSessionID: "provider-source",
 		TargetProviderSessionID: "provider-child",
+		SourceProviderStateID:   "provider-state-frozen",
+		TargetProviderStateID:   "provider-state-frozen",
 	}
 	if !reflect.DeepEqual(binder.inputs[0], want) {
 		t.Fatalf("provider state binding=%#v, want %#v", binder.inputs[0], want)

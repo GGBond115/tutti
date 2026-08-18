@@ -2,12 +2,15 @@ package tuttiagent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -16,7 +19,76 @@ import (
 
 	"github.com/gofrs/flock"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
+	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 )
+
+type compositionCommandCatalog struct{}
+
+func (compositionCommandCatalog) Capabilities(context.Context, runtimeprep.CommandContext) []runtimeprep.CommandCapability {
+	return nil
+}
+
+func TestNewPreparerInjectsBootstrapAndAuthFingerprintBeforeStateIdentity(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	stateDir := t.TempDir()
+	t.Setenv("TUTTI_STATE_DIR", stateDir)
+	if err := os.MkdirAll(filepath.Join(stateDir, "account"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "account", "auth.json"), []byte(`{"cookie":"session_id=composition-test"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	account := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != tuttiAgentLLMTokenIssueRoute {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(validTuttiAgentTokenPayload(t, []string{"llm:models", "llm:chat"})))
+	}))
+	defer account.Close()
+	t.Setenv("TUTTI_ACCOUNT_BASE_URL", account.URL)
+	capturePath := filepath.Join(t.TempDir(), "login.json")
+	t.Setenv("TUTTI_AGENT_LOGIN_CAPTURE", capturePath)
+	installFakeTuttiAgentBinary(t)
+
+	preparer := runtimeprep.NewDefaultPreparer(stateDir)
+	preparer.CommandCatalog = compositionCommandCatalog{}
+	preparer.AppServerScope = runtimeprep.AppServerProfileScope{
+		ExecutionHostID: "host-composition", RuntimeGeneration: "generation-1", TransportScopeID: "transport-1",
+	}
+	preparer.RegisterProvider(NewPreparer(stateDir))
+	input := runtimeprep.PrepareInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-composition", AgentTargetID: "target-1",
+		Provider: "tutti-agent", Cwd: t.TempDir(), CLICommand: "tutti",
+		ProviderTargetRef: map[string]any{"accountAuthority": "account-composition"},
+	}
+	prepared, err := preparer.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("real composition Prepare() error = %v", err)
+	}
+	if prepared.AppServer == nil {
+		t.Fatal("real composition AppServer = nil")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".tutti-agent", "auth.json")); err != nil {
+		t.Fatalf("BeforePrepare bootstrap did not materialize auth: %v", err)
+	}
+	fingerprint := agentservice.ProviderAuthFingerprint("tutti-agent")
+	if strings.TrimSpace(fingerprint) == "" {
+		t.Fatal("real provider auth owner returned empty fingerprint after bootstrap")
+	}
+	input.ProviderAuthFingerprint = fingerprint
+	wantID, err := runtimeprep.StableProviderStateID(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.AppServer.ProviderStateID != wantID {
+		t.Fatalf("composed ProviderStateID = %q, want post-bootstrap auth identity %q", prepared.AppServer.ProviderStateID, wantID)
+	}
+}
 
 func TestIssueTuttiAgentLLMTokenUsesLegacyDefaultAppID(t *testing.T) {
 	legacyAccountAppID := "nex" + "top"
@@ -646,7 +718,44 @@ func environmentValueCount(env []string, key string) int {
 func installFakeTuttiAgentBinary(t *testing.T) {
 	t.Helper()
 	binDir := t.TempDir()
-	binaryPath := filepath.Join(binDir, "tutti-agent")
+	binaryName := "tutti-agent"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(binDir, binaryName)
+	if runtime.GOOS == "windows" {
+		sourcePath := filepath.Join(t.TempDir(), "main.go")
+		source := `package main
+
+import (
+  "io"
+  "os"
+  "path/filepath"
+)
+
+func main() {
+  if len(os.Args) < 3 || os.Args[1] != "login" || os.Args[2] != "--with-tutti-llm-tokens" {
+    os.Exit(2)
+  }
+  input, _ := io.ReadAll(os.Stdin)
+  if capture := os.Getenv("TUTTI_AGENT_LOGIN_CAPTURE"); capture != "" {
+    _ = os.WriteFile(capture, input, 0600)
+  }
+  home := os.Getenv("HOME")
+  authDir := filepath.Join(home, ".tutti-agent")
+  _ = os.MkdirAll(authDir, 0700)
+  _ = os.WriteFile(filepath.Join(authDir, "auth.json"), []byte("{\"tutti_llm\":{\"access_token\":\"lat_new\",\"access_token_expires_at\":4102444800,\"refresh_token\":\"lrt_new\"}}"), 0600)
+}`
+		if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		build := exec.Command("go", "build", "-o", binaryPath, sourcePath)
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build Windows fake tutti-agent: %v: %s", err, output)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		return
+	}
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" != \"login\" ] || [ \"$2\" != \"--with-tutti-llm-tokens\" ]; then\n" +
 		"  echo unexpected arguments: \"$@\" >&2\n" +

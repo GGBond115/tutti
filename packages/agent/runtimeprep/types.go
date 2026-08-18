@@ -23,6 +23,11 @@ type SessionForkProviderStateBindingInput struct {
 	TargetAgentSessionID    string
 	SourceProviderSessionID string
 	TargetProviderSessionID string
+	// SourceProviderStateID and TargetProviderStateID identify the durable
+	// provider-owned state roots. Empty source IDs retain the legacy session
+	// runtime lookup while the target is being migrated.
+	SourceProviderStateID string
+	TargetProviderStateID string
 }
 
 type SkillBundleRenderer interface {
@@ -97,11 +102,12 @@ type PrepareInput struct {
 	// endpoint when the agent target is bound to one. Nil keeps the
 	// provider's native credential source. Credentials must never reach
 	// logs, manifests, or generated instructions.
-	ModelEndpoint           *ModelEndpointConfig
-	resolved                *resolvedCapabilities
-	hostFacts               HostFacts
-	commandCapabilities     *CommandResolver
-	appServerProcessProfile bool
+	ModelEndpoint                *ModelEndpointConfig
+	resolved                     *resolvedCapabilities
+	hostFacts                    HostFacts
+	commandCapabilities          *CommandResolver
+	appServerProcessProfile      bool
+	providerStatePreparationDone bool
 	// ExternalRolloutSourcePath is the absolute path to the original provider
 	// CLI rollout/transcript file this session was imported from (Codex CLI's
 	// own on-disk conversation transcript under the user's real
@@ -111,6 +117,24 @@ type PrepareInput struct {
 	// conversation. Empty for non-imported sessions or when the source path
 	// wasn't captured at import time.
 	ExternalRolloutSourcePath string
+	// ProviderSessionID is the provider-native identity used to validate an
+	// ordinary resume and to migrate exactly one legacy Codex rollout.
+	ProviderSessionID string
+	// ProviderAuthFingerprint is an opaque, irreversible fingerprint of the
+	// provider's active auth authority. Callers must compute it at the auth
+	// owner; raw credentials never cross this boundary.
+	ProviderAuthFingerprint string
+	// LegacyCodexHomePath is an exact persisted legacy home authority. When it
+	// is present migration never broadens to another home if that path exists.
+	LegacyCodexHomePath string
+	// ImportedSession retains the explicit imported-session recreate policy.
+	ImportedSession bool
+	// ProviderStateID/Root are assigned by the shared app-server preparer and
+	// are deliberately independent of process generation and Session identity.
+	// A non-empty value is the canonical ID restored from persisted Session
+	// context and therefore wins over recomputation during resume.
+	ProviderStateID   string
+	ProviderStateRoot string
 }
 
 type ConnectorRoutingHint struct {
@@ -149,6 +173,7 @@ type AppServerLaunchLeaseProvider interface {
 }
 
 type AppServerPreparedRuntime struct {
+	ProviderStateID          string
 	ExecutionHostID          string
 	RuntimeGeneration        string
 	TransportScopeID         string
@@ -246,6 +271,22 @@ type RuntimeStore interface {
 	WriteManagedBlock(path string, content string) (ManagedBlockWriteResult, error)
 	SaveManifest(runtimeRoot string, manifest *Manifest) error
 	CleanupRuntime(input StoreCleanupInput) error
+}
+
+// ProviderStateStore owns state that must outlive a process profile and its
+// leases. It remains optional on RuntimeStore for isolated providers, but is
+// required whenever shared Codex-compatible app-server state is prepared.
+type ProviderStateStore interface {
+	ProviderStateRoot(providerStateID string) (string, error)
+	EnsureProviderStateRoot(providerStateRoot string) error
+}
+
+// ProviderStatePreparationHook lets a provider reconcile account authority
+// before the shared durable state identity is derived. It is intentionally a
+// narrow hook: lifecycle and filesystem ownership remain in DefaultPreparer
+// and RuntimeStore respectively.
+type ProviderStatePreparationHook interface {
+	PrepareProviderState(context.Context, *PrepareInput) error
 }
 
 type ProviderPreparer interface {

@@ -2,18 +2,42 @@ package agenthost
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	_ "modernc.org/sqlite"
 )
 
 type liveResumeCanonicalStore struct {
 	CanonicalStore
 	session  storesqlite.Session
 	evidence storesqlite.ProviderSessionResumeEvidence
+	updates  int
+}
+
+func (s *liveResumeCanonicalStore) UpdateSessionRuntimeContext(
+	_ context.Context,
+	_ string,
+	_ string,
+	patch map[string]any,
+) (storesqlite.Session, bool, error) {
+	if value, ok := patch[providerStateIDRuntimeContextKey].(string); ok {
+		if s.session.InternalRuntimeContext == nil {
+			s.session.InternalRuntimeContext = map[string]any{}
+		}
+		if stringValue(s.session.InternalRuntimeContext[providerStateIDRuntimeContextKey]) == value {
+			return s.session, false, nil
+		}
+		s.session.InternalRuntimeContext[providerStateIDRuntimeContextKey] = value
+		s.updates++
+		return s.session, true, nil
+	}
+	return s.session, false, nil
 }
 
 func (s liveResumeCanonicalStore) GetSession(context.Context, string, string) (storesqlite.Session, bool, error) {
@@ -186,6 +210,108 @@ func TestEnsureRuntimeSessionCleansPreparedResourcesWhenResumeFails(t *testing.T
 		preparation.cleanupInput.AgentSessionID != "session-1" ||
 		preparation.cleanupInput.Provider != "codex" {
 		t.Fatalf("cleanup input = %#v", preparation.cleanupInput)
+	}
+}
+
+func TestEnsureRuntimeSessionPersistsPreparedProviderStateIDOnce(t *testing.T) {
+	store := &liveResumeCanonicalStore{
+		session: storesqlite.Session{
+			ID: "session-1", WorkspaceID: "workspace-1", Kind: storesqlite.SessionKindRoot,
+			Provider: "codex", ProviderSessionID: "provider-session-1", Cwd: "/workspace",
+		},
+		evidence: storesqlite.ProviderSessionResumeEvidence{Established: true},
+	}
+	runtime := &disconnectedReprepareRuntime{}
+	preparation := &trackingResumePreparation{prepared: PreparedRuntime{
+		Cwd:        "/workspace",
+		MCPServers: []MCPServerBinding{{Name: "provider"}},
+		AppServer:  &AppServerRuntimePreparation{ProviderStateID: "provider-state-canonical"},
+	}}
+	host := New(Config{CanonicalStore: store, Runtime: runtime, RuntimePreparation: preparation})
+	ref := SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"}
+	if _, err := host.EnsureRuntimeSession(t.Context(), ref); err != nil {
+		t.Fatalf("first EnsureRuntimeSession() error = %v", err)
+	}
+	if store.updates != 1 || stringValue(store.session.InternalRuntimeContext[providerStateIDRuntimeContextKey]) != "provider-state-canonical" {
+		t.Fatalf("canonical provider state after first resume: updates=%d context=%#v", store.updates, store.session.InternalRuntimeContext)
+	}
+	if _, err := host.EnsureRuntimeSession(t.Context(), ref); err != nil {
+		t.Fatalf("second EnsureRuntimeSession() error = %v", err)
+	}
+	if store.updates != 1 {
+		t.Fatalf("idempotent resume wrote provider state %d times, want once", store.updates)
+	}
+}
+
+func TestEnsureRuntimeSessionRoundTripsProviderStateIDThroughFreshSQLiteHost(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "provider-state-roundtrip.db"))
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	canonical := storesqlite.New(db, storesqlite.Options{})
+	if err := canonical.Migrate(t.Context()); err != nil {
+		t.Fatalf("migrate SQLite: %v", err)
+	}
+	if _, err := canonical.ReportSessionState(t.Context(), storesqlite.SessionStateReport{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", AgentTargetID: "target-1",
+		Provider: "codex", ProviderSessionID: "provider-session-1", Cwd: "/workspace",
+		OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatalf("seed canonical session: %v", err)
+	}
+	if _, err := db.ExecContext(t.Context(), `
+INSERT INTO workspace_agent_turns (
+  workspace_id, agent_session_id, turn_id, phase, outcome,
+  started_at_unix_ms, settled_at_unix_ms, created_at_unix_ms, updated_at_unix_ms,
+  root_provider_turn_id, root_provider_turn_phase, root_provider_turn_outcome,
+  root_provider_turn_updated_at_unix_ms, turn_origin
+) VALUES ('workspace-1', 'session-1', 'turn-1', 'settled', 'completed', 1, 2, 1, 2,
+          'provider-turn-1', 'completed', 'completed', 2, 'user_prompt')`); err != nil {
+		t.Fatalf("seed provider turn: %v", err)
+	}
+	newStore := func(store *storesqlite.Store) *SQLiteWorkspaceStore {
+		return &SQLiteWorkspaceStore{StoreForWorkspace: func(string) *storesqlite.Store { return store }}
+	}
+	prepared := PreparedRuntime{
+		Cwd: "/workspace", MCPServers: []MCPServerBinding{{Name: "provider"}},
+		AppServer: &AppServerRuntimePreparation{ProviderStateID: "provider-state-roundtrip"},
+	}
+	firstRuntime := &disconnectedReprepareRuntime{}
+	firstHost := New(Config{
+		CanonicalStore: newStore(canonical), Runtime: firstRuntime,
+		RuntimePreparation: &trackingResumePreparation{prepared: prepared},
+	})
+	ref := SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"}
+	if _, err := firstHost.EnsureRuntimeSession(t.Context(), ref); err != nil {
+		t.Fatalf("first EnsureRuntimeSession() error = %v", err)
+	}
+	persisted, found, err := canonical.GetSession(t.Context(), ref.WorkspaceID, ref.AgentSessionID)
+	if err != nil || !found {
+		t.Fatalf("read persisted session found=%v error=%v", found, err)
+	}
+	if stringValue(persisted.InternalRuntimeContext[providerStateIDRuntimeContextKey]) != "provider-state-roundtrip" {
+		t.Fatalf("persisted provider state context = %#v", persisted.InternalRuntimeContext)
+	}
+
+	// Reopen the store adapter and Host around the same SQLite database. Resume
+	// must use the canonical ID, not recompute from process/session inputs.
+	freshCanonical := storesqlite.New(db, storesqlite.Options{})
+	freshRuntime := &disconnectedReprepareRuntime{}
+	freshPreparation := &trackingResumePreparation{prepared: prepared}
+	freshHost := New(Config{
+		CanonicalStore: newStore(freshCanonical), Runtime: freshRuntime,
+		RuntimePreparation: freshPreparation,
+	})
+	if _, err := freshHost.EnsureRuntimeSession(t.Context(), ref); err != nil {
+		t.Fatalf("fresh EnsureRuntimeSession() error = %v", err)
+	}
+	if stringValue(freshPreparation.prepareInput.RuntimeContext[providerStateIDRuntimeContextKey]) != "provider-state-roundtrip" {
+		t.Fatalf("fresh preparation provider state context = %#v", freshPreparation.prepareInput.RuntimeContext)
+	}
+	if stringValue(freshRuntime.resumeInput.RuntimeContext[providerStateIDRuntimeContextKey]) != "provider-state-roundtrip" {
+		t.Fatalf("fresh resume provider state context = %#v", freshRuntime.resumeInput.RuntimeContext)
 	}
 }
 

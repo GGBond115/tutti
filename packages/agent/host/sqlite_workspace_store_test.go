@@ -318,6 +318,49 @@ func TestSQLiteWorkspaceStoreRejectsUnknownWorkspace(t *testing.T) {
 	}
 }
 
+func TestSQLiteWorkspaceStoreUpdatesProviderStateIDIdempotently(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "provider-state-context.db"))
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	canonical := storesqlite.New(db, storesqlite.Options{})
+	if err := canonical.Migrate(t.Context()); err != nil {
+		t.Fatalf("migrate SQLite: %v", err)
+	}
+	if _, err := canonical.ReportSessionState(t.Context(), storesqlite.SessionStateReport{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", Kind: storesqlite.SessionKindRoot,
+		Origin: "runtime", Provider: "codex", ProviderSessionID: "provider-1", OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	store := &agenthost.SQLiteWorkspaceStore{
+		StoreForWorkspace: func(string) *storesqlite.Store { return canonical },
+	}
+	updated, changed, err := store.UpdateSessionRuntimeContext(t.Context(), "workspace-1", "session-1", map[string]any{
+		"providerStateID": "provider-state-a",
+	})
+	if err != nil || !changed {
+		t.Fatalf("first provider state patch: changed=%v err=%v", changed, err)
+	}
+	if updated.InternalRuntimeContext["providerStateID"] != "provider-state-a" {
+		t.Fatalf("updated context=%#v", updated.InternalRuntimeContext)
+	}
+	updated, changed, err = store.UpdateSessionRuntimeContext(t.Context(), "workspace-1", "session-1", map[string]any{
+		"providerStateID": "provider-state-a",
+	})
+	if err != nil {
+		t.Fatalf("idempotent provider state patch: %v", err)
+	}
+	if changed {
+		t.Fatal("idempotent provider state patch reported a canonical change")
+	}
+	if updated.InternalRuntimeContext["providerStateID"] != "provider-state-a" {
+		t.Fatalf("idempotent context=%#v", updated.InternalRuntimeContext)
+	}
+}
+
 func TestSQLiteWorkspaceStoreReadsSessionAndTurnFromOneSnapshot(t *testing.T) {
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "agent-host-snapshot-store.db"))
 	if err != nil {

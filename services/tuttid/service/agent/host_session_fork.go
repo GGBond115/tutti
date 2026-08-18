@@ -61,6 +61,8 @@ func (b serviceHostSessionForkProviderStateBinder) BindSessionForkProviderState(
 			TargetAgentSessionID:    input.TargetAgentSessionID,
 			SourceProviderSessionID: input.SourceProviderSessionID,
 			TargetProviderSessionID: input.TargetProviderSessionID,
+			SourceProviderStateID:   input.SourceProviderStateID,
+			TargetProviderStateID:   input.TargetProviderStateID,
 		},
 	)
 }

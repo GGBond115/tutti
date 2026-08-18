@@ -26,9 +26,37 @@ func (CodexPreparer) Provider() string {
 
 func (p CodexPreparer) Prepare(ctx context.Context, input ProviderPrepareInput) (result ProviderPrepareResult, err error) {
 	codexHome := filepath.Join(input.RuntimeRoot, "codex-home")
+	if stateRoot := strings.TrimSpace(input.ProviderStateRoot); stateRoot != "" {
+		codexHome = filepath.Join(stateRoot, codexHomeDirectory)
+		if err := ensureDirectoryTreeWithoutSymlinks(stateRoot, codexHome); err != nil {
+			return ProviderPrepareResult{}, fmt.Errorf("prepare durable Codex provider state: %w", err)
+		}
+		if !input.ImportedSession && strings.TrimSpace(input.ProviderSessionID) != "" {
+			if err := migrateLegacyCodexRollout(ctx, input, codexHome); err != nil {
+				return ProviderPrepareResult{}, err
+			}
+		}
+		if !input.appServerProcessProfile {
+			if !input.ImportedSession && strings.TrimSpace(input.ProviderSessionID) != "" {
+				if _, _, _, rolloutErr := findCodexRollout(ctx, codexHome, input.ProviderSessionID, false); rolloutErr != nil {
+					return ProviderPrepareResult{}, fmt.Errorf("ordinary Codex runtime cannot resume provider session %q: %w", input.ProviderSessionID, rolloutErr)
+				}
+			}
+			return ProviderPrepareResult{
+				Cwd: input.Cwd,
+				Env: append([]string{"CODEX_HOME=" + codexHome}, codexModelPlanEnv(input)...),
+			}, nil
+		}
+	}
 	logRuntimePrepareTrace("runtime_prepare.codex.entered", input.PrepareInput, nil)
 	if err := prepareCodexHome(codexHome, input.PrepareInput); err != nil {
 		return ProviderPrepareResult{}, err
+	}
+	if (input.ProviderStateRoot == "" || input.appServerProcessProfile) &&
+		!input.ImportedSession && strings.TrimSpace(input.ProviderSessionID) != "" {
+		if _, _, _, rolloutErr := findCodexRollout(ctx, codexHome, input.ProviderSessionID, false); rolloutErr != nil {
+			return ProviderPrepareResult{}, fmt.Errorf("ordinary Codex runtime cannot resume provider session %q: %w", input.ProviderSessionID, rolloutErr)
+		}
 	}
 	cleanup, err := projectCodexAuth(ctx, codexHome, p.AuthProjector)
 	if err != nil {
@@ -40,11 +68,21 @@ func (p CodexPreparer) Prepare(ctx context.Context, input ProviderPrepareInput) 
 		}
 	}()
 	if input.CodexSaverMode {
-		rolePath, err := installCodexLunaWorkerRole(codexHome)
+		saverMaterialRoot := codexHome
+		if input.appServerProcessProfile {
+			// Saver role/config are profile material. Never put them in the
+			// provider-state Home shared by other process profiles; the Thread
+			// overlay carries the behavior for the shared process.
+			saverMaterialRoot = filepath.Join(input.RuntimeRoot, "codex-saver-profile")
+			if err := os.MkdirAll(saverMaterialRoot, 0o700); err != nil {
+				return ProviderPrepareResult{}, fmt.Errorf("create Codex saver profile root: %w", err)
+			}
+		}
+		rolePath, err := installCodexLunaWorkerRole(saverMaterialRoot)
 		if err != nil {
 			return ProviderPrepareResult{}, err
 		}
-		if err := ensureCodexSaverDefaultRole(filepath.Join(codexHome, "config.toml")); err != nil {
+		if err := ensureCodexSaverDefaultRole(filepath.Join(saverMaterialRoot, "config.toml")); err != nil {
 			return ProviderPrepareResult{}, err
 		}
 		if input.Manifest != nil {
@@ -52,13 +90,16 @@ func (p CodexPreparer) Prepare(ctx context.Context, input ProviderPrepareInput) 
 		}
 	}
 	logRuntimePrepareTrace("runtime_prepare.codex.home_prepared", input.PrepareInput, nil)
+	// A Session preparation may share the durable home with the process
+	// profile. Its thread overlay must never rewrite the process instructions;
+	// only the process-profile preparation owns that file.
 	instructionsPath := filepath.Join(codexHome, "AGENTS.md")
 	logRuntimePrepareTrace("runtime_prepare.codex.instructions_write_requested", input.PrepareInput, nil)
 	policy, err := tuttiCLIPolicy(input.PrepareInput)
 	if err != nil {
 		return ProviderPrepareResult{}, err
 	}
-	if input.CodexSaverMode {
+	if input.CodexSaverMode && !input.appServerProcessProfile {
 		policy = strings.TrimSpace(policy) + "\n\n" + codexSaverModePolicy
 	}
 	writeResult, err := input.Store.WriteManagedBlock(instructionsPath, policy)
@@ -84,6 +125,13 @@ func (p CodexPreparer) Prepare(ctx context.Context, input ProviderPrepareInput) 
 		Env:     env,
 		Cleanup: cleanup,
 	}, nil
+}
+
+func codexModelPlanEnv(input ProviderPrepareInput) []string {
+	if input.ModelEndpoint.supportsCodex() {
+		return []string{codexModelPlanAPIKeyEnv + "=" + input.ModelEndpoint.APIKey}
+	}
+	return nil
 }
 
 func projectCodexAuth(ctx context.Context, codexHome string, projector AuthFileProjector) (func(context.Context) error, error) {

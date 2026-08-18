@@ -275,12 +275,12 @@ const (
 // that must become independently discoverable from the target Tutti session's
 // runtime namespace before the canonical child can be committed.
 type SessionForkProviderStateBinding struct {
-	WorkspaceID             string
-	Provider                string
-	SourceAgentSessionID    string
-	TargetAgentSessionID    string
-	SourceProviderSessionID string
-	TargetProviderSessionID string
+	WorkspaceID                                      string
+	Provider                                         string
+	SourceAgentSessionID                             string
+	TargetAgentSessionID                             string
+	SourceProviderSessionID, TargetProviderSessionID string
+	SourceProviderStateID, TargetProviderStateID     string
 }
 
 type RuntimeStartInput struct {

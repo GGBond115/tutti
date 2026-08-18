@@ -749,6 +749,11 @@ func (s *Service) buildRuntimePrepareInput(
 	return runtimeprep.PrepareInput{
 		WorkspaceID:               workspaceID,
 		AgentSessionID:            strings.TrimSpace(input.AgentSessionID),
+		ProviderSessionID:         strings.TrimSpace(input.ProviderSessionID),
+		ProviderStateID:           providerStateIDFromRuntimeContext(input.RuntimeContext),
+		ProviderAuthFingerprint:   providerAuthFingerprint(provider),
+		ImportedSession:           strings.TrimSpace(input.SessionOrigin) == agenthost.WorkspaceAgentSessionOriginImported,
+		LegacyCodexHomePath:       strings.TrimSpace(input.LegacyCodexHomePath),
 		AgentTargetID:             strings.TrimSpace(input.AgentTargetID),
 		Provider:                  provider,
 		Cwd:                       cwd,
@@ -778,6 +783,17 @@ func (s *Service) buildRuntimePrepareInput(
 		),
 		ExternalRolloutSourcePath: input.ExternalRolloutSourcePath,
 	}
+}
+
+func providerStateIDFromRuntimeContext(runtimeContext map[string]any) string {
+	if len(runtimeContext) == 0 {
+		return ""
+	}
+	value, ok := runtimeContext["providerStateID"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func cloneRuntimeAppServerPreparation(input *runtimeprep.AppServerPreparedRuntime) *runtimeprep.AppServerPreparedRuntime {

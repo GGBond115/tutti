@@ -256,6 +256,32 @@ home unsuitable as a shared process root.
 currently returns one command, environment, cwd, and cleanup callback. It does
 not distinguish process-lifetime material from Thread-lifetime material.
 
+The implemented provider-state owner now separates those lifetimes. Shared
+Codex/Tutti Agent process profiles point at
+`agent/provider-state/<ProviderStateID>/{codex-home,tutti-agent-home}` while
+synthetic profile roots and Session Thread overlays remain under
+`agent/runs/` and are lease-cleaned. `ProviderStateID` is derived only from
+provider, target, and stable account/authority data; runtime generation, model,
+cwd, workspace, transport, and Session identity are excluded. Host persists the
+ID in canonical `InternalRuntimeContext` and restores it on resume.
+
+Legacy Codex migration is exact and bounded: a persisted legacy home authority
+takes precedence, followed by the current managed Session run home, explicit
+`agent.codexHome` aliases, and known old `appserver-profile-*` roots. Only a
+unique rollout whose first `session_meta` record names the canonical
+`provider_session_id` is copied, atomically, into the durable home. No other
+Home files are copied. Ordinary missing rollout state is a preparation error;
+imported sessions keep the Host-owned recreate mode.
+
+Host tombstone purge currently has no provider-state reference authority. Since
+multiple Sessions may share a provider state, permanent Session cleanup retains
+the provider-state root and its rollouts rather than risking deletion. This is
+the explicit retention policy: the current lifecycle never deletes a
+provider-state root or rollout because it has no authoritative reference owner
+that can prove the root is unused. Rollout replacement
+is delegated to POSIX rename or Windows native `MoveFileEx(REPLACE_EXISTING |
+WRITE_THROUGH)`, and the native Windows lane runs the owner test.
+
 ### 5.4 Baseline: force cancellation closed the process
 
 [`codex_appserver_cancel.go`](../../packages/agent/daemon/runtime/codex_appserver_cancel.go)

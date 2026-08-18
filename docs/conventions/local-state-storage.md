@@ -243,10 +243,14 @@ cwd or workspace. Agent-target identity and the non-secret auth fingerprint do
 remain part of the identity. `agent/sessions` stores daemon-created working directories for agent sessions
 that do not receive an explicit cwd. `agent/runs` stores per-session provider
 sidecar state that can be recreated or cleaned up when the owning agent session
-is deleted. Provider-specific homes, generated skills, and cleanup manifests
-live under the matching run directory. Codex sessions use `codex-home` and
-receive it through `CODEX_HOME`; Tutti Agent sessions use `tutti-agent-home`
-and receive it through `TUTTI_AGENT_HOME`. `agent/skill-bundles/v1/<digest>`
+is deleted. Provider-specific Thread overlays, generated skills, and cleanup
+manifests live under the matching run directory. Shared app-server provider
+homes live under `agent/provider-state/<ProviderStateID>/`; Codex sessions use
+its `codex-home` child and receive it through `CODEX_HOME`, while Tutti Agent
+sessions use `tutti-agent-home` and receive it through `TUTTI_AGENT_HOME`.
+Provider-state roots are retained by Session cleanup and tombstone purge because
+the current Host purge contract has no shared-state reference count.
+`agent/skill-bundles/v1/<digest>`
 stores immutable, rebuildable Tutti-managed Skill bundles shared by equal
 content across Tutti Agent sessions; session cleanup never removes these
 entries. `agent/system-skill-bundles/v1/<digest>/.system` stores immutable,

@@ -52,6 +52,7 @@ type appServerProfileFingerprint struct {
 	Scope                 AppServerProfileScope
 	Provider              string
 	AgentTargetID         string
+	ProviderStateID       string
 	CLICommand            string
 	CodexSaverMode        bool
 	ProviderTargetRef     map[string]any
@@ -161,7 +162,8 @@ func (p *DefaultPreparer) acquireAppServerProfile(
 func (p *DefaultPreparer) appServerProfileKey(input PrepareInput) (string, error) {
 	fingerprint := appServerProfileFingerprint{
 		Scope: p.AppServerScope, Provider: strings.TrimSpace(input.Provider),
-		AgentTargetID: strings.TrimSpace(input.AgentTargetID), CLICommand: strings.TrimSpace(input.CLICommand),
+		AgentTargetID:   strings.TrimSpace(input.AgentTargetID),
+		ProviderStateID: strings.TrimSpace(input.ProviderStateID), CLICommand: strings.TrimSpace(input.CLICommand),
 		CodexSaverMode: input.CodexSaverMode, ProviderTargetRef: input.ProviderTargetRef,
 		AgentSkills: input.AgentSkills, AgentTools: input.AgentTools,
 		ExtraSkills: input.ExtraSkills, ConnectorRoutingHints: input.ConnectorRoutingHints,
@@ -236,7 +238,11 @@ func appServerStableProcessEnvironment(env []string, provider string) []string {
 }
 
 func appServerThreadEnvironment(env []string) []string {
-	return removeEnvironmentKeys(env, "CODEX_HOME", "TUTTI_AGENT_HOME", ModelPlanAPIKeyEnv)
+	// PATH belongs to the shared app-server process profile. Repeating the
+	// machine/runtime-specific path in thread/start's shell overlay makes the
+	// protocol payload non-portable and is redundant because shell children
+	// inherit the process profile environment.
+	return removeEnvironmentKeys(env, "CODEX_HOME", "TUTTI_AGENT_HOME", ModelPlanAPIKeyEnv, "PATH")
 }
 
 func appServerModelProviderCredentials(endpoint *ModelEndpointConfig) []AppServerModelProviderCredential {

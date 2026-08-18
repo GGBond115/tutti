@@ -204,6 +204,27 @@ func TestAppServerProcessProfileDigestUsesPlatformEffectiveEnvironment(t *testin
 	}
 }
 
+func TestAppServerPreparationKeepsProcessAndProtocolCWDSeparate(t *testing.T) {
+	processCWD := "/runtime/process"
+	protocolCWD := "/workspace/project"
+	adapter := NewCodexAppServerAdapter(
+		trackingKeyTransport{},
+	)
+	session := testAppServerSession()
+	session.CWD = protocolCWD
+	session.AppServer = testAppServerRuntimePreparation(processCWD)
+	launch, err := adapter.prepareInitializedClientLaunch(context.Background(), session)
+	if err != nil {
+		t.Fatalf("prepareInitializedClientLaunch: %v", err)
+	}
+	if launch.spec.CWD != processCWD {
+		t.Fatalf("process cwd = %q, want %q", launch.spec.CWD, processCWD)
+	}
+	if launch.spec.ProtocolCWD != protocolCWD {
+		t.Fatalf("protocol cwd = %q, want %q", launch.spec.ProtocolCWD, protocolCWD)
+	}
+}
+
 func TestAppServerProcessProfileFailsClosedWithoutCompatibilityIdentity(t *testing.T) {
 	base := AppServerProcessProfile{
 		ExecutionHostID: "host-a", RuntimeGeneration: "runtime-a", TransportScopeID: "scope-a",

@@ -121,6 +121,7 @@ func (h *Host) createSession(ctx context.Context, workspaceID string, input Crea
 			return createSessionFailureResult(input, err)
 		}
 	}
+	input.RuntimeContext = runtimeContextWithProviderStateID(input.RuntimeContext, prepared.AppServer)
 	sessionLockHeld := false
 	cleanup := func(cause error, started bool, canonicalCreated bool) error {
 		return h.cleanupFailedCreate(ctx, ref, input.Provider, cause, failedCreateCleanupState{
@@ -451,6 +452,9 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 	if prepared.Env, err = runtimeEnvironmentForCanonicalSession(prepared.Env, prepared.Cwd, canonicalSession); err != nil {
 		return ProviderRuntimeSession{}, err
 	}
+	runtimeContext := runtimeContextWithProviderStateID(
+		firstMap(prepared.RuntimeContext, canonicalSession.InternalRuntimeContext), prepared.AppServer,
+	)
 	release, err := h.acquireStartup(ctx, canonicalSession.Provider)
 	if err != nil {
 		return ProviderRuntimeSession{}, h.cleanupRejectedPreparedRuntime(ctx, ref, canonicalSession.Provider, err)
@@ -468,13 +472,16 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 		AppServer: cloneHostAppServerPreparation(prepared.AppServer),
 		Status:    persistedRuntimeStatus(canonicalSession.ActiveTurnID), Settings: settings,
 		CreatedAtUnixMS: canonicalSession.CreatedAtUnixMS, UpdatedAtUnixMS: canonicalSession.UpdatedAtUnixMS,
-		Visible: boolPointer(canonicalSession.Metadata.Visible), RuntimeContext: cloneMap(firstMap(prepared.RuntimeContext, canonicalSession.InternalRuntimeContext)),
+		Visible: boolPointer(canonicalSession.Metadata.Visible), RuntimeContext: runtimeContext,
 		ProviderTargetRef: cloneMap(prepared.ProviderTargetRef), Metadata: canonicalSession.Metadata,
 		InternalRuntimeContext: cloneMap(canonicalSession.InternalRuntimeContext),
 		GoalGenerationFences:   append([]RuntimeGoalGenerationFenceInput(nil), goalGenerationFences...),
 		RecreateIfMissing:      policy.Mode == ResumeModeRecreate,
 	})
 	if err != nil {
+		return ProviderRuntimeSession{}, h.cleanupRejectedPreparedRuntime(ctx, ref, canonicalSession.Provider, err)
+	}
+	if err := h.persistCanonicalProviderStateID(ctx, ref, canonicalSession, prepared.AppServer); err != nil {
 		return ProviderRuntimeSession{}, h.cleanupRejectedPreparedRuntime(ctx, ref, canonicalSession.Provider, err)
 	}
 	if err := h.restoreGoalGenerationFences(ctx, ref); err != nil {

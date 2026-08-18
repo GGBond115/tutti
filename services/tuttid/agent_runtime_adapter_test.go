@@ -332,6 +332,7 @@ func TestAgentRuntimeAdapterMapsAppServerPreparationAcrossStartAndResume(t *test
 	controller := agentruntime.NewController([]agentruntime.Adapter{provider}, nil)
 	adapter := newAgentRuntimeAdapter(controller)
 	preparation := &agenthost.AppServerRuntimePreparation{
+		ProviderStateID: "provider-state-account-a",
 		ExecutionHostID: "host-1", RuntimeGeneration: "runtime-1", TransportScopeID: "transport-1",
 		ProcessProfileDigest: "profile-1", ProcessCwd: "/prepared", ProcessEnv: []string{"CODEX_HOME=/profile"},
 		ThreadEnv: []string{"TUTTI_AGENT_SESSION_ID=session-1"},
@@ -347,10 +348,10 @@ func TestAgentRuntimeAdapterMapsAppServerPreparationAcrossStartAndResume(t *test
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if provider.startSession.AppServer == nil || provider.startSession.AppServer.ProcessProfileDigest != "profile-1" {
+	if provider.startSession.AppServer == nil || provider.startSession.AppServer.ProviderStateID != "provider-state-account-a" || provider.startSession.AppServer.ProcessProfileDigest != "profile-1" {
 		t.Fatalf("runtime Start AppServer = %#v, want explicit profile", provider.startSession.AppServer)
 	}
-	if start.Session.AppServer == nil || start.Session.AppServer.ProcessCwd != "/prepared" ||
+	if start.Session.AppServer == nil || start.Session.AppServer.ProviderStateID != "provider-state-account-a" || start.Session.AppServer.ProcessCwd != "/prepared" ||
 		len(start.Session.AppServer.ModelProviderCredentials) != 1 ||
 		start.Session.AppServer.ModelProviderCredentials[0].BearerToken != "secret" {
 		t.Fatalf("Start() returned AppServer = %#v, want round-tripped preparation", start.Session.AppServer)
@@ -365,10 +366,10 @@ func TestAgentRuntimeAdapterMapsAppServerPreparationAcrossStartAndResume(t *test
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
-	if provider.resumeSession.AppServer == nil || provider.resumeSession.AppServer.ProcessProfileDigest != "profile-1" {
+	if provider.resumeSession.AppServer == nil || provider.resumeSession.AppServer.ProviderStateID != "provider-state-account-a" || provider.resumeSession.AppServer.ProcessProfileDigest != "profile-1" {
 		t.Fatalf("runtime Resume AppServer = %#v, want explicit profile", provider.resumeSession.AppServer)
 	}
-	if resumed.AppServer == nil || resumed.AppServer.ProcessProfileDigest != "profile-1" {
+	if resumed.AppServer == nil || resumed.AppServer.ProviderStateID != "provider-state-account-a" || resumed.AppServer.ProcessProfileDigest != "profile-1" {
 		t.Fatalf("Resume() returned AppServer = %#v, want round-tripped preparation", resumed.AppServer)
 	}
 }

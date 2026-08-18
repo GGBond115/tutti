@@ -332,7 +332,9 @@ func TestHostPreparationRepairsCommittedCodexForkProviderStateBeforeResume(t *te
 	if got := preparer.inputs[0]; got.SourceAgentSessionID != "source-1" ||
 		got.TargetAgentSessionID != "target-1" ||
 		got.SourceProviderSessionID != "thread-source" ||
-		got.TargetProviderSessionID != "thread-target" {
+		got.TargetProviderSessionID != "thread-target" ||
+		got.SourceProviderStateID != "provider-state-source" ||
+		got.TargetProviderStateID != "provider-state-source" {
 		t.Fatalf("provider state repair input=%#v", got)
 	}
 }
@@ -708,7 +710,8 @@ func (*serviceSessionForkOperationStore) GetSessionForkSource(
 	return storesqlite.Session{
 		ID: sourceSessionID, WorkspaceID: workspaceID,
 		Kind: storesqlite.SessionKindRoot, Provider: "codex",
-		ProviderSessionID: "provider-source",
+		ProviderSessionID:      "provider-source",
+		InternalRuntimeContext: map[string]any{"providerStateID": "provider-state-source"},
 	}, true, nil
 }
 

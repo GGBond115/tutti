@@ -83,6 +83,7 @@ type AppServerModelProviderCredential struct {
 }
 
 type AppServerRuntimePreparation struct {
+	ProviderStateID          string
 	ExecutionHostID          string
 	RuntimeGeneration        string
 	TransportScopeID         string

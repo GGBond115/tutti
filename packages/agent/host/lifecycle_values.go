@@ -1,10 +1,55 @@
 package agenthost
 
 import (
+	"context"
 	"strings"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
+
+const providerStateIDRuntimeContextKey = "providerStateID"
+
+func (h *Host) persistCanonicalProviderStateID(
+	ctx context.Context,
+	ref SessionRef,
+	canonical storesqlite.Session,
+	prepared *AppServerRuntimePreparation,
+) error {
+	if prepared == nil {
+		return nil
+	}
+	providerStateID := strings.TrimSpace(prepared.ProviderStateID)
+	if providerStateID == "" || providerStateID == stringValue(canonical.InternalRuntimeContext[providerStateIDRuntimeContextKey]) {
+		return nil
+	}
+	updater, ok := h.store.(CanonicalSessionRuntimeContextUpdater)
+	if !ok {
+		// Keep external CanonicalStore implementations source-compatible. The
+		// SQLite workspace owner supplies this mutation in production.
+		return nil
+	}
+	_, _, err := updater.UpdateSessionRuntimeContext(ctx, ref.WorkspaceID, ref.AgentSessionID, map[string]any{
+		providerStateIDRuntimeContextKey: providerStateID,
+	})
+	return err
+}
+
+func stringValue(value any) string {
+	result, _ := value.(string)
+	return strings.TrimSpace(result)
+}
+
+func runtimeContextWithProviderStateID(runtimeContext map[string]any, appServer *AppServerRuntimePreparation) map[string]any {
+	result := cloneMap(runtimeContext)
+	if appServer == nil || strings.TrimSpace(appServer.ProviderStateID) == "" {
+		return result
+	}
+	if result == nil {
+		result = make(map[string]any)
+	}
+	result[providerStateIDRuntimeContextKey] = strings.TrimSpace(appServer.ProviderStateID)
+	return result
+}
 
 func normalizeOptionalPromptContent(content []PromptContentBlock) ([]PromptContentBlock, string, error) {
 	if len(content) == 0 {

@@ -917,14 +917,15 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   `config.toml` is copied, but relative catalog and instruction files must also
   be present there.
 - Root cause:
-  Tutti prepares a run-scoped `CODEX_HOME` and copies only `config.toml` (plus
+  Tutti prepares a provider-state `CODEX_HOME` for shared app-server sessions
+  (and a run-scoped `CODEX_HOME` for isolated sessions) and copies only `config.toml` (plus
   auth/plugin/skill exposure). Relative `model_catalog_json` and
   `model_instructions_file` paths resolve against that sandbox home, so the
   dependency is missing unless Tutti mirrors it.
 - Fix:
   After copying `config.toml`, resolve top-level `model_catalog_json` and
   `model_instructions_file`. For relative paths under `~/.codex`, symlink (or
-  copy) the file into the run-scoped `CODEX_HOME` at the same relative path.
+  copy) the file into the active `CODEX_HOME` at the same relative path.
   Absolute paths need no mirror but must be validated in place. Missing,
   unreadable, non-regular, or illegal dependencies should fail preparation
   before provider startup with a safe `agent.config_dependency_unavailable`
