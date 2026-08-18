@@ -482,36 +482,39 @@ type SessionSection struct {
 }
 
 type PersistedSession struct {
-	ID                     string
-	WorkspaceID            string
-	Kind                   string
-	RootAgentSessionID     string
-	RootTurnID             string
-	ParentAgentSessionID   string
-	ParentTurnID           string
-	ParentToolCallID       string
-	Origin                 string
-	UserID                 string
-	AgentTargetID          string
-	Provider               string
-	ProviderSessionID      string
-	Cwd                    string
-	RailSectionKind        string
-	RailProjectPath        string
-	RailSectionKey         string
-	Settings               ComposerSettings
-	Capabilities           *canonical.CapabilitySnapshot
-	Metadata               agentactivitybiz.SessionMetadata
-	InternalRuntimeContext map[string]any
-	Title                  string
-	MessageVersion         uint64
-	PinnedAtUnixMS         int64
-	LastEventUnixMS        int64
-	StartedAtUnixMS        int64
-	EndedAtUnixMS          int64
-	CreatedAtUnixMS        int64
-	UpdatedAtUnixMS        int64
-	ActiveTurnID           string
+	ID                   string
+	WorkspaceID          string
+	Kind                 string
+	RootAgentSessionID   string
+	RootTurnID           string
+	ParentAgentSessionID string
+	ParentTurnID         string
+	ParentToolCallID     string
+	Origin               string
+	UserID               string
+	AgentTargetID        string
+	Provider             string
+	ProviderSessionID    string
+	// ProviderAuthFingerprint is an opaque auth-owner identity used only while
+	// preparing runtime state. It is not canonical Session data.
+	ProviderAuthFingerprint string
+	Cwd                     string
+	RailSectionKind         string
+	RailProjectPath         string
+	RailSectionKey          string
+	Settings                ComposerSettings
+	Capabilities            *canonical.CapabilitySnapshot
+	Metadata                agentactivitybiz.SessionMetadata
+	InternalRuntimeContext  map[string]any
+	Title                   string
+	MessageVersion          uint64
+	PinnedAtUnixMS          int64
+	LastEventUnixMS         int64
+	StartedAtUnixMS         int64
+	EndedAtUnixMS           int64
+	CreatedAtUnixMS         int64
+	UpdatedAtUnixMS         int64
+	ActiveTurnID            string
 }
 
 type SessionMessage struct {
@@ -715,6 +718,9 @@ type CreateSessionInput struct {
 	SessionOrigin       string
 	LegacyCodexHomePath string
 	AgentTargetID       string
+	// ProviderAuthFingerprint is supplied by the auth owner and is never
+	// derived from Session or Workspace identity.
+	ProviderAuthFingerprint string
 	// WorkspaceAgentRevision and HarnessAgentTargetID identify the immutable
 	// user-facing Agent definition and underlying Harness selected for launch.
 	// Legacy system targets leave the revision zero and use AgentTargetID as the

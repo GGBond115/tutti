@@ -139,6 +139,7 @@ func (r *initializationBarrierTestRuntime) Close(
 type initializationBarrierTestPreparation struct {
 	cleanupCalls int
 	cleanupCtx   contextObservation
+	prepareInput RuntimePreparationInput
 	prepared     *AppServerRuntimePreparation
 }
 
@@ -146,6 +147,7 @@ func (p *initializationBarrierTestPreparation) Prepare(
 	_ context.Context,
 	input RuntimePreparationInput,
 ) (PreparedRuntime, error) {
+	p.prepareInput = input
 	return PreparedRuntime{Cwd: input.Cwd, AppServer: cloneHostAppServerPreparation(p.prepared)}, nil
 }
 
@@ -237,7 +239,8 @@ func TestCreateSessionPassesPreparedAppServerDTOToRuntime(t *testing.T) {
 
 	result, err := host.CreateSession(t.Context(), "workspace-1", CreateSessionInput{
 		AgentSessionID: "session-1", AgentTargetID: "target-1", Provider: "codex", Cwd: &cwd,
-		RailPlacement: &RailPlacement{Version: 1, Kind: RailPlacementKindProject, ProjectPath: "/workspace"},
+		ProviderAuthFingerprint: "auth-fingerprint-account-a",
+		RailPlacement:           &RailPlacement{Version: 1, Kind: RailPlacementKindProject, ProjectPath: "/workspace"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -266,6 +269,9 @@ func TestCreateSessionPassesPreparedAppServerDTOToRuntime(t *testing.T) {
 	}
 	if result.Canonical.InternalRuntimeContext[providerStateIDRuntimeContextKey] != "provider-state-account-a" {
 		t.Fatalf("canonical runtime context provider state ID = %#v", result.Canonical.InternalRuntimeContext)
+	}
+	if preparation.prepareInput.ProviderAuthFingerprint != "auth-fingerprint-account-a" {
+		t.Fatalf("runtime preparation auth fingerprint = %q, want auth-fingerprint-account-a", preparation.prepareInput.ProviderAuthFingerprint)
 	}
 }
 

@@ -63,7 +63,7 @@ func createPreparationInput(workspaceID string, input CreateSessionInput) Runtim
 		WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID,
 		Provider: input.Provider, Cwd: value(input.Cwd), Title: value(input.Title), PermissionModeID: value(input.PermissionModeID),
 		PlanMode: valueBool(input.PlanMode), BrowserUse: valueBoolDefault(input.BrowserUse, true), ComputerUse: valueBoolDefault(input.ComputerUse, true), CodexSaverMode: valueBool(input.CodexSaverMode),
-		ProviderTargetRef: cloneMap(input.ProviderTargetRef), Model: value(input.Model), ReasoningEffort: value(input.ReasoningEffort),
+		ProviderTargetRef: cloneMap(input.ProviderTargetRef), ProviderAuthFingerprint: strings.TrimSpace(input.ProviderAuthFingerprint), Model: value(input.Model), ReasoningEffort: value(input.ReasoningEffort),
 		ConversationDetailMode: input.ConversationDetailMode, Metadata: cloneMap(input.Metadata), RuntimeContext: cloneMap(input.RuntimeContext),
 	}
 }

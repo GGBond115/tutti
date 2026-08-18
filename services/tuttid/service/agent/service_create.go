@@ -45,6 +45,9 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		return createSessionFailureResult(input, ErrInvalidArgument)
 	}
 	input.Provider = provider
+	if strings.TrimSpace(input.ProviderAuthFingerprint) == "" {
+		input.ProviderAuthFingerprint = providerAuthFingerprint(provider)
+	}
 	input.ProviderTargetRef = launch.ProviderTargetRef
 	ctx = withRequestScopedAgentModelCatalog(ctx, s.ModelCatalog)
 	isolationMode := strings.TrimSpace(input.Isolation)
@@ -286,7 +289,7 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		Model:            stringPointer(runtimeSettings.Model),
 		PlanMode:         boolPointer(runtimeSettings.PlanMode),
 		BrowserUse:       input.BrowserUse, ComputerUse: input.ComputerUse, CodexSaverMode: input.CodexSaverMode,
-		ProviderTargetRef:      input.ProviderTargetRef,
+		ProviderTargetRef: input.ProviderTargetRef, ProviderAuthFingerprint: input.ProviderAuthFingerprint,
 		ReasoningEffort:        stringPointer(runtimeSettings.ReasoningEffort),
 		RuntimeContext:         stampAgentExtensionComposerScope(input.RuntimeContext, input.ProviderTargetRef, cwd, runtimeSettings),
 		Speed:                  stringPointer(runtimeSettings.Speed),
@@ -734,55 +737,6 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		ComputerUse: effectiveCapabilitySetting(input.ComputerUse, effectiveComputerUse),
 		AppServer:   cloneRuntimeAppServerPreparation(prepared.AppServer),
 	}, nil
-}
-
-func (s *Service) buildRuntimePrepareInput(
-	ctx context.Context,
-	workspaceID string,
-	cwd string,
-	input CreateSessionInput,
-	effectiveEndpoint *runtimeprep.ModelEndpointConfig,
-	effectiveBrowserUse bool,
-	effectiveComputerUse bool,
-) runtimeprep.PrepareInput {
-	provider := strings.TrimSpace(input.Provider)
-	return runtimeprep.PrepareInput{
-		WorkspaceID:               workspaceID,
-		AgentSessionID:            strings.TrimSpace(input.AgentSessionID),
-		ProviderSessionID:         strings.TrimSpace(input.ProviderSessionID),
-		ProviderStateID:           providerStateIDFromRuntimeContext(input.RuntimeContext),
-		ProviderAuthFingerprint:   providerAuthFingerprint(provider),
-		ImportedSession:           strings.TrimSpace(input.SessionOrigin) == agenthost.WorkspaceAgentSessionOriginImported,
-		LegacyCodexHomePath:       strings.TrimSpace(input.LegacyCodexHomePath),
-		AgentTargetID:             strings.TrimSpace(input.AgentTargetID),
-		Provider:                  provider,
-		Cwd:                       cwd,
-		ModelEndpoint:             effectiveEndpoint,
-		Title:                     value(input.Title),
-		PermissionModeID:          value(input.PermissionModeID),
-		PlanMode:                  clampComposerPlanModeForLaunch(provider, input.ProviderTargetRef, valueBool(input.PlanMode)),
-		BrowserUse:                effectiveBrowserUse,
-		ComputerUse:               effectiveComputerUse,
-		CodexSaverMode:            valueBool(input.CodexSaverMode),
-		ProviderTargetRef:         clonePayload(input.ProviderTargetRef),
-		ExtensionSkillRoots:       s.resolveExtensionSkillRoots(ctx, input.ProviderTargetRef),
-		ExtensionRuntimePrep:      s.resolveExtensionRuntimePrep(ctx, input.ProviderTargetRef),
-		Model:                     clampComposerModelForLaunch(provider, input.ProviderTargetRef, value(input.Model)),
-		ReasoningEffort:           normalizeReasoningEffortForLaunch(provider, input.ProviderTargetRef, value(input.ReasoningEffort)),
-		ConversationDetailMode:    input.ConversationDetailMode,
-		AgentName:                 input.AgentName,
-		AgentDescription:          input.AgentDescription,
-		AgentInstructions:         input.AgentInstructions,
-		AgentCapabilitiesExplicit: input.AgentCapabilitiesExplicit,
-		AgentSkills:               append([]string(nil), input.AgentSkills...),
-		AgentTools:                append([]string(nil), input.AgentTools...),
-		ExtraSkills:               sessionSkillBundlesToProviderSkillBundles(input.ExtraSkills),
-		Metadata:                  input.Metadata,
-		CommandCapabilityProjection: cloneCommandCapabilityProjection(
-			input.CommandCapabilityProjection,
-		),
-		ExternalRolloutSourcePath: input.ExternalRolloutSourcePath,
-	}
 }
 
 func providerStateIDFromRuntimeContext(runtimeContext map[string]any) string {

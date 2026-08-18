@@ -96,8 +96,12 @@ func createSessionInputFromPersisted(session PersistedSession) CreateSessionInpu
 	input := CreateSessionInput{
 		AgentSessionID: strings.TrimSpace(session.ID),
 		Provider:       strings.TrimSpace(session.Provider), ProviderSessionID: strings.TrimSpace(session.ProviderSessionID),
-		SessionOrigin:  strings.TrimSpace(session.Origin),
-		RuntimeContext: clonePayload(session.InternalRuntimeContext),
+		ProviderAuthFingerprint: strings.TrimSpace(session.ProviderAuthFingerprint),
+		SessionOrigin:           strings.TrimSpace(session.Origin),
+		RuntimeContext:          clonePayload(session.InternalRuntimeContext),
+	}
+	if input.ProviderAuthFingerprint == "" {
+		input.ProviderAuthFingerprint = providerAuthFingerprint(session.Provider)
 	}
 	input.LegacyCodexHomePath = legacyCodexHomePathFromRuntimeContext(session.InternalRuntimeContext)
 	if title := strings.TrimSpace(session.Title); title != "" {

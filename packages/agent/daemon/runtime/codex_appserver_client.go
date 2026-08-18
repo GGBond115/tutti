@@ -228,18 +228,6 @@ func (c *codexAppServerClient) typed(timeout time.Duration, handler acpMessageHa
 	return codexproto.NewClient(caller), caller
 }
 
-func (c *codexAppServerClient) wrapHandler(handler acpMessageHandler) acpMessageHandler {
-	if handler == nil {
-		return nil
-	}
-	return func(ctx context.Context, message acpMessage) error {
-		c.parseInboundMessage(message)
-		if router := c.getMessageRouter(); router != nil {
-			return router(ctx, message)
-		}
-		return handler(ctx, message)
-	}
-}
 func (c *codexAppServerClient) parseInboundMessage(message acpMessage) {
 	method := strings.TrimSpace(message.Method)
 	if method == "" {

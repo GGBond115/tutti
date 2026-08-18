@@ -169,10 +169,15 @@ func (a serviceHostPreparation) Prepare(ctx context.Context, input agenthost.Run
 			MCPServers: hostMCPServerBindings(override.prepared.MCPServers), AppServer: hostAppServerPreparation(override.prepared.AppServer)}, nil
 	}
 	settings := input.Settings
+	authFingerprint := strings.TrimSpace(input.ProviderAuthFingerprint)
+	if authFingerprint == "" {
+		authFingerprint = providerAuthFingerprint(input.Provider)
+	}
 	persisted := PersistedSession{
 		ID: input.AgentSessionID, WorkspaceID: input.WorkspaceID, Origin: input.SessionOrigin,
 		AgentTargetID: input.AgentTargetID, Provider: input.Provider, ProviderSessionID: input.ProviderSessionID,
-		Cwd: input.Cwd, Title: input.Title, Settings: settings,
+		ProviderAuthFingerprint: authFingerprint,
+		Cwd:                     input.Cwd, Title: input.Title, Settings: settings,
 		InternalRuntimeContext: clonePayload(input.RuntimeContext), CreatedAtUnixMS: input.CreatedAtUnixMS,
 		UpdatedAtUnixMS: input.UpdatedAtUnixMS, Metadata: input.SessionMetadata,
 	}

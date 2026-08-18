@@ -451,30 +451,34 @@ type GoalGenerationFenceStore interface {
 }
 
 type RuntimePreparationInput struct {
-	WorkspaceID            string
-	AgentSessionID         string
-	AgentTargetID          string
-	Provider               string
-	Cwd                    string
-	Title                  string
-	PermissionModeID       string
-	PlanMode               bool
-	BrowserUse             bool
-	ComputerUse            bool
-	CodexSaverMode         bool
-	ProviderTargetRef      map[string]any
-	Model                  string
-	ReasoningEffort        string
-	ConversationDetailMode string
-	Metadata               map[string]any
-	RuntimeContext         map[string]any
-	SessionOrigin          string
-	ProviderSessionID      string
-	CreatedAtUnixMS        int64
-	UpdatedAtUnixMS        int64
-	Visible                bool
-	Settings               ComposerSettings
-	SessionMetadata        storesqlite.SessionMetadata
+	WorkspaceID       string
+	AgentSessionID    string
+	AgentTargetID     string
+	Provider          string
+	Cwd               string
+	Title             string
+	PermissionModeID  string
+	PlanMode          bool
+	BrowserUse        bool
+	ComputerUse       bool
+	CodexSaverMode    bool
+	ProviderTargetRef map[string]any
+	// ProviderAuthFingerprint is an opaque, irreversible identity of the
+	// provider auth authority. The auth owner supplies it; Host only transports
+	// it to runtime preparation and never derives it from Session or Workspace.
+	ProviderAuthFingerprint string
+	Model                   string
+	ReasoningEffort         string
+	ConversationDetailMode  string
+	Metadata                map[string]any
+	RuntimeContext          map[string]any
+	SessionOrigin           string
+	ProviderSessionID       string
+	CreatedAtUnixMS         int64
+	UpdatedAtUnixMS         int64
+	Visible                 bool
+	Settings                ComposerSettings
+	SessionMetadata         storesqlite.SessionMetadata
 }
 
 type PreparedRuntime struct {
