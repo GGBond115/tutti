@@ -210,23 +210,26 @@ Current packages:
 - `packages/connector/market`: TypeScript daemon contracts, renderer model and
   UI, i18n, and the reusable local OpenAPI fragment
 
-The Go dependency direction is deliberately one-way:
+The Go dependency direction is deliberately one-way. The outer adapters are
+siblings; the diagram is not a daemon-owned chain:
 
 ```text
 contracts
-  -> application
-       -> daemon
-       -> runtime
-       -> store-sqlite
-       -> market/source
+  <- application
+       <- daemon
+       <- runtime
+       <- store-sqlite
+       <- market/source
 ```
 
-The arrows describe increasing responsibility: the outer modules depend on
-the earlier contracts/application layers, never the reverse. `daemon` also
-composes the SQLite adapter, while the owning product composition root injects
-runtime, Market source, authentication, event publication, and platform
-adapters. One `daemon.Host` is created for that lifecycle, but callers receive
-only its narrow state, catalog, command, operation, and Agent-policy facets.
+Every outer module depends only on the contracts/application layers it adapts,
+never on another sibling. `runtime/process` is a neutral leaf inside the runtime
+module and imports neither contracts nor application. The owning product
+composition root constructs SQLite, runtime, Market source, authentication,
+event publication, and platform adapters separately, then injects their narrow
+ports. Daemon's `store-sqlite` module edge is test-fixture-only. One
+`daemon.Host` is created for that lifecycle, but callers receive only its
+narrow state, catalog, command, operation, and Agent-policy facets.
 
 `NewHost` only assembles dependencies. The product composition must call
 `Start(ctx, initialScope)` to bootstrap and register all background workers

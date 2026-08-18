@@ -109,23 +109,26 @@ The shared Connector modules own:
 - the renderer `ConnectorMarketBackend` contract, readonly renderer model,
   reusable UI System surfaces, semantic events, and Connector i18n bundle
 
-The Go layers form this dependency DAG:
+The Go layers form this dependency DAG. Daemon, runtime, persistence, and
+Market source are sibling adapters rather than a daemon-owned chain:
 
 ```text
 contracts
-  -> application
-       -> daemon
-       -> runtime
-       -> store-sqlite
-       -> market/source
+  <- application
+       <- daemon
+       <- runtime
+       <- store-sqlite
+       <- market/source
 ```
 
-The arrows describe increasing responsibility: every outer module imports the
-contracts/application layers it adapts, and neither foundational layer imports
-an outer module. The product creates one daemon composition object and exposes
-only its narrow query, command, operation, and Agent-policy facets. Daemon
-workers receive a separate private maintenance-port group rather than the
-public root.
+Every outer module imports only the contracts/application layers it adapts,
+and neither foundational layer imports an outer module. `runtime/process` is a
+neutral runtime-internal leaf with no contracts/application import. Product
+composition constructs the SQLite, runtime, Market-source, and daemon siblings
+and injects their narrow ports; daemon's direct `store-sqlite` module edge is
+test-fixture-only. The product exposes only the daemon's narrow query, command,
+operation, and Agent-policy facets. Daemon workers receive a separate private
+maintenance-port group rather than the public root.
 
 `daemon.NewHost` only validates and assembles this graph. The product calls
 `Start(ctx, initialScope)` before serving Connector commands; Start performs
