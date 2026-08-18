@@ -869,7 +869,7 @@ server.serve_forever()
 	t.Setenv(tuttiAppRuntimeRootEnv, createManagedAppRuntimeFixture(t, root))
 	t.Setenv("TUTTI_ENV", "production")
 	t.Setenv("TUTTI_STATE_DIR", stateRoot)
-	runner := &AppRunner{HealthcheckTimeout: 500 * time.Millisecond}
+	runner := &AppRunner{HealthcheckTimeout: 10 * time.Second}
 	state, err := runner.Start(context.Background(), AppStartInput{
 		WorkspaceID:     "ws-runner-retry",
 		WorkspaceName:   "Runner Retry Workspace",

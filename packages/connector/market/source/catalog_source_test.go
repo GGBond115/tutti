@@ -20,7 +20,7 @@ type mutatingCatalogClient struct {
 	itemCalls int
 }
 
-func (client *mutatingCatalogClient) ListMarketCategories(context.Context, *marketv1.ListMarketCategoriesRequest, ...khttp.CallOption) (*marketv1.ListMarketCategoriesReply, error) {
+func (*mutatingCatalogClient) ListMarketCategories(context.Context, *marketv1.ListMarketCategoriesRequest, ...khttp.CallOption) (*marketv1.ListMarketCategoriesReply, error) {
 	return &marketv1.ListMarketCategoriesReply{MarketType: "overseas", Categories: []*marketv1.MarketCategory{{
 		CategoryId: "development", Kind: "category", ItemCount: 2, DisplayNameEn: "Development",
 	}}}, nil

@@ -2401,20 +2401,12 @@ func (source catalogSourceFunc) FetchSnapshot(ctx context.Context) (contracts.Ca
 	return source(ctx)
 }
 
-type catalogSourceStub struct {
-	snapshot contracts.CatalogSnapshot
-}
-
 type failingCatalogSource struct {
 	refreshError error
 }
 
 func (source failingCatalogSource) FetchSnapshot(context.Context) (contracts.CatalogSnapshot, error) {
 	return contracts.CatalogSnapshot{}, source.refreshError
-}
-
-func (source catalogSourceStub) FetchSnapshot(context.Context) (contracts.CatalogSnapshot, error) {
-	return source.snapshot, nil
 }
 
 type memoryScheduler struct {

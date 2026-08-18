@@ -568,9 +568,6 @@ function DesktopAgentGUISurfaceImpl({
   const capabilityMenuState = useMemo<
     AgentGUIProps["hostCapabilities"]["capabilityMenuState"]
   >(() => {
-    const featureFlags =
-      desktopPreferencesState.changingFeatureFlags ??
-      desktopPreferencesState.featureFlags;
     return {
       browserUse: {
         connectionMode: desktopPreferencesState.browserUseConnectionMode
@@ -584,12 +581,7 @@ function DesktopAgentGUISurfaceImpl({
         enabled: true
       }
     };
-  }, [
-    computerUseStatus,
-    desktopPreferencesState.browserUseConnectionMode,
-    desktopPreferencesState.changingFeatureFlags,
-    desktopPreferencesState.featureFlags
-  ]);
+  }, [computerUseStatus, desktopPreferencesState.browserUseConnectionMode]);
   const connectorsEnabled = isFeatureEnabled(
     desktopPreferencesState.changingFeatureFlags ??
       desktopPreferencesState.featureFlags,

@@ -72,9 +72,10 @@ func TestDirectFetcherRejectsMissingOrExpiredResolution(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			resolved := test.resolved
-			if test.name == "expired" {
+			switch test.name {
+			case "expired":
 				resolved.ExpiresAt = directFetcherNow
-			} else if test.name == "expiry beyond bound" {
+			case "expiry beyond bound":
 				resolved.ExpiresAt = directFetcherNow.Add(maxResolvedArtifactExpiry + time.Second)
 			}
 			fetcher, err := NewDirectFetcher(DirectFetcherConfig{

@@ -66,17 +66,6 @@ function replaceSkillTriggerToken(
   );
 }
 
-function promptHasTrigger(prompt: string, trigger: string): boolean {
-  return new RegExp(`(^|\\s)${escapeRegExp(trigger)}(?=$|\\s)`).test(prompt);
-}
-
-function removePromptTrigger(prompt: string, trigger: string): string {
-  return prompt.replace(
-    new RegExp(`(^|\\s)${escapeRegExp(trigger)}(?=$|\\s)`, "g"),
-    (_match, separator: string) => separator
-  );
-}
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

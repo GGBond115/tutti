@@ -64,10 +64,10 @@ type commandFacades struct{ service *service }
 
 func (value root) State() StateQueries                 { return value.service }
 func (value root) Catalog() CatalogQueries             { return value.service }
-func (value root) CatalogCommands() CatalogCommands    { return commandFacades{service: value.service} }
-func (value root) Installations() InstallationCommands { return commandFacades{service: value.service} }
+func (value root) CatalogCommands() CatalogCommands    { return commandFacades(value) }
+func (value root) Installations() InstallationCommands { return commandFacades(value) }
 func (value root) Authorizations() AuthorizationCommands {
-	return commandFacades{service: value.service}
+	return commandFacades(value)
 }
 func (value root) AgentPolicy() AgentConnectorPolicyQueries { return value.service }
 func (value root) Operations() OperationQueries             { return value.service }

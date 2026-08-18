@@ -472,7 +472,7 @@ func validateConnectorMarketCommandResult(value any) error {
 	case contracts.CommandResult:
 		return typed.Validate()
 	case contracts.AuthorizationCommandResult:
-		return typed.CommandResult.Validate()
+		return typed.Validate()
 	default:
 		return nil
 	}
@@ -644,14 +644,6 @@ func invalidConnectorMarketResponse(payload tuttigenerated.ConnectorMarketError)
 
 func notFoundConnectorMarketResponse(payload tuttigenerated.ConnectorMarketError) tuttigenerated.ConnectorMarketNotFoundErrorJSONResponse {
 	return tuttigenerated.ConnectorMarketNotFoundErrorJSONResponse(payload)
-}
-
-func conflictConnectorMarketResponse(payload tuttigenerated.ConnectorMarketError) tuttigenerated.ConnectorMarketConflictErrorJSONResponse {
-	return tuttigenerated.ConnectorMarketConflictErrorJSONResponse(payload)
-}
-
-func unprocessableConnectorMarketResponse(payload tuttigenerated.ConnectorMarketError) tuttigenerated.ConnectorMarketUnprocessableErrorJSONResponse {
-	return tuttigenerated.ConnectorMarketUnprocessableErrorJSONResponse(payload)
 }
 
 func unavailableConnectorMarketResponse(payload tuttigenerated.ConnectorMarketError) tuttigenerated.ConnectorMarketUnavailableErrorJSONResponse {

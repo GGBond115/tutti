@@ -76,7 +76,7 @@ func (runtime *convergencePhysicalRuntime) FailClosed(context.Context, time.Time
 	return nil
 }
 
-func (runtime *convergencePhysicalRuntime) Close(context.Context) error { return nil }
+func (*convergencePhysicalRuntime) Close(context.Context) error { return nil }
 
 func (runtime *convergencePhysicalRuntime) clearRoute(dropEvent bool) {
 	runtime.mu.Lock()
@@ -126,6 +126,12 @@ func (runtime *convergencePhysicalRuntime) snapshotCount() int {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	return runtime.snapshotCalls
+}
+
+func (runtime *convergencePhysicalRuntime) watcherCount() int {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return len(runtime.watchers)
 }
 
 func (runtime *convergencePhysicalRuntime) Watch(ctx context.Context) (contracts.PhysicalRouteWatch, error) {
@@ -226,7 +232,7 @@ type scriptedRouteObservation struct {
 	watchErr error
 }
 
-func (observation scriptedRouteObservation) Snapshot(context.Context) (contracts.PhysicalRouteSnapshot, error) {
+func (scriptedRouteObservation) Snapshot(context.Context) (contracts.PhysicalRouteSnapshot, error) {
 	return contracts.PhysicalRouteSnapshot{}, nil
 }
 
@@ -338,6 +344,7 @@ func testPhysicalRouteRecovery(t *testing.T, dropExitEvent bool) {
 	if before.Observed.DesiredGeneration != before.Desired.Generation {
 		t.Fatalf("initial convergence = %#v", before)
 	}
+	waitForPhysicalRouteWatcher(t, ctx, runtime)
 
 	runtime.unexpectedExit(dropExitEvent)
 	secondCount := waitForRuntimeReconcile(t, ctx, runtime.reconciled, firstCount+1)
@@ -623,6 +630,17 @@ func waitForRuntimeReconcile(t *testing.T, ctx context.Context, reconciled <-cha
 		}
 	}
 	return count
+}
+
+func waitForPhysicalRouteWatcher(t *testing.T, ctx context.Context, runtime *convergencePhysicalRuntime) {
+	t.Helper()
+	for runtime.watcherCount() == 0 {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("wait for physical route watcher: %v", ctx.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 func newPhysicalRouteRecoveryHost(

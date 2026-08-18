@@ -125,7 +125,7 @@ func NewHost(config HostConfig) (*Host, error) {
 	if physicalRoutes == nil {
 		return nil, errors.New("connector physical route observation is required")
 	}
-	scheduler := NewOperationScheduler(nil)
+	scheduler := newOperationScheduler()
 	activationGate := newActivationGateHost(config.ImplementationCommands)
 	composition, err := application.New(application.Config{
 		Repository:               config.Repository,

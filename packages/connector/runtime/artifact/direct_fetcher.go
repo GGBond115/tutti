@@ -97,7 +97,7 @@ type artifactDownloadTransportError struct {
 	cause error
 }
 
-func (err artifactDownloadTransportError) Error() string {
+func (artifactDownloadTransportError) Error() string {
 	return "download connector artifact: transport failed"
 }
 

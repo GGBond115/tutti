@@ -145,7 +145,7 @@ type DesktopAgentHostApiUnderTest = AgentHostInputApi & {
   userProjects: NonNullable<AgentHostInputApi["userProjects"]>;
 };
 
-test("desktop agent host api forwards composer authority invalidations as host events", async () => {
+test("desktop agent host api forwards agent-owned invalidations and keeps connector invalidation internal", async () => {
   const topicHandlers = new Map<string, (event: unknown) => void>();
   const tuttidClient = createTuttidClient();
   const getAgentProviderComposerOptions =
@@ -226,20 +226,20 @@ test("desktop agent host api forwards composer authority invalidations as host e
     connectorInvalidationHandler,
     "expected connector catalog topic subscription"
   );
-  activityService.invalidateConnectorCatalog({
-    connectorKey: "lark-cli",
-    revision: 7
-  });
-  assert.deepEqual(hostEvents.at(-1), {
-    connectorKey: "lark-cli",
-    revision: 7,
-    scope: "global",
-    type: "agent-connector-catalog-invalidated"
-  });
   connectorInvalidationHandler({
     payload: { connectorKey: "lark-cli", revision: 7 }
   });
-  assert.equal(hostEvents.length, 3);
+  assert.equal(hostEvents.length, 2);
+  assert.equal(
+    hostEvents.some(
+      (event) =>
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        event.type === "agent-connector-catalog-invalidated"
+    ),
+    false
+  );
   await activityService.getComposerOptions({
     agentTargetId: "local:codex",
     provider: "codex",
@@ -250,7 +250,7 @@ test("desktop agent host api forwards composer authority invalidations as host e
   invalidationHandler({
     payload: { providers: ["codex"], occurredAtUnixMs: 4300 }
   });
-  assert.equal(hostEvents.length, 3);
+  assert.equal(hostEvents.length, 2);
 });
 
 test("desktop agent host api writes images through the host clipboard", async () => {

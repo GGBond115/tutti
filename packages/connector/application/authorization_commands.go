@@ -403,15 +403,6 @@ func (application *service) releaseAuthorizationRequest(
 	application.authorizationMu.Unlock()
 }
 
-func (application *service) interruptAuthorizationRequest(accountID, connectorKey string) {
-	key := authorizationLaneKey(accountID, connectorKey)
-	application.authorizationMu.Lock()
-	if execution := application.authorizationRequests[key]; execution != nil {
-		execution.cancel()
-	}
-	application.authorizationMu.Unlock()
-}
-
 func (application *service) interruptAuthorizationRequestIfClientRequestID(
 	accountID, connectorKey, clientRequestID string,
 ) {

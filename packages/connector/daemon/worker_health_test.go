@@ -54,7 +54,7 @@ func TestWorkerHealthReporterTransitionsAndCopiesFailureBudget(t *testing.T) {
 	}
 }
 
-func TestWorkerHealthReporterIsRaceSafe(t *testing.T) {
+func TestWorkerHealthReporterIsRaceSafe(_ *testing.T) {
 	group := &workerGroup{health: map[string]WorkerHealth{
 		"worker": {Name: "worker", Status: WorkerStatusRunning},
 	}}
@@ -66,11 +66,12 @@ func TestWorkerHealthReporterIsRaceSafe(t *testing.T) {
 			defer wait.Done()
 			for attempt := 0; attempt < 100; attempt++ {
 				now := time.Unix(int64(index*100+attempt), 0)
-				if attempt%3 == 0 {
+				switch attempt % 3 {
+				case 0:
 					reporter.Success(now)
-				} else if attempt%3 == 1 {
+				case 1:
 					reporter.Failure(now, "stable_failure", now.Add(time.Second), nil)
-				} else {
+				default:
 					reporter.Reset()
 				}
 				_ = group.healthSnapshot()
@@ -141,7 +142,7 @@ func TestCatalogRefreshReportsFailureThenSuccessWithCurrentRetryDeadline(t *test
 		recoveryControl:    control,
 		catalogMaintenance: control,
 		catalogRetryJitter: func(time.Duration) time.Duration { return 0 },
-		catalogRetryWait: func(ctx context.Context, delay time.Duration) bool {
+		catalogRetryWait: func(ctx context.Context, _ time.Duration) bool {
 			if waits.Add(1) == 1 {
 				firstFailure <- group.healthSnapshot()[0]
 				return true

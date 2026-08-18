@@ -164,7 +164,7 @@ func (service stubConnectorMarketService) GetConnectorViewForScope(ctx context.C
 	return connectorMarketTestView(connector), nil
 }
 
-func (service stubConnectorMarketService) PresentConnectorForScope(_ context.Context, _ contracts.OperationScope, connector contracts.Connector) (contracts.ConnectorView, error) {
+func (stubConnectorMarketService) PresentConnectorForScope(_ context.Context, _ contracts.OperationScope, connector contracts.Connector) (contracts.ConnectorView, error) {
 	return connectorMarketTestView(connector), nil
 }
 

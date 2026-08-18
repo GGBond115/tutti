@@ -63,7 +63,7 @@ func (host *Host) shutdownDeadline(ctx context.Context) time.Time {
 // canceled a second time: it retains the bounded call context and, for a
 // pending FailClosed call, remains ordered behind any in-flight mutation so it
 // can perform the durable fence when that mutation eventually returns.
-func (host *Host) runBounded(ctx context.Context, run func(context.Context) error) error {
+func (*Host) runBounded(ctx context.Context, run func(context.Context) error) error {
 	result := make(chan error, 1)
 	go func() { result <- run(ctx) }()
 	select {

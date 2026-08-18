@@ -30,7 +30,7 @@ func (executor *lifecycleSchedulerExecutor) ExecuteOperation(ctx context.Context
 func newStartupCleanupTestHost(t *testing.T, executor OperationExecutor, timeout time.Duration) (*Host, context.CancelFunc) {
 	t.Helper()
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
-	scheduler := NewOperationScheduler(nil)
+	scheduler := newOperationScheduler()
 	if err := scheduler.Bind(executor); err != nil {
 		t.Fatal(err)
 	}

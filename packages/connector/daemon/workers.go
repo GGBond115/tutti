@@ -25,7 +25,13 @@ type OperationScheduler struct {
 var _ application.OperationScheduler = (*OperationScheduler)(nil)
 
 func NewOperationScheduler(ctx context.Context) *OperationScheduler {
-	return &OperationScheduler{ctx: ctx, active: make(map[string]struct{})}
+	scheduler := newOperationScheduler()
+	scheduler.ctx = ctx
+	return scheduler
+}
+
+func newOperationScheduler() *OperationScheduler {
+	return &OperationScheduler{active: make(map[string]struct{})}
 }
 
 func (scheduler *OperationScheduler) Start(ctx context.Context) error {

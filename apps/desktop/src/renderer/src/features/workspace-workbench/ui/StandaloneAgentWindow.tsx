@@ -68,7 +68,6 @@ import { createAgentGuiWorkbenchInstanceId } from "@tutti-os/agent-gui/workbench
 import { DesktopAgentGUISurface } from "@renderer/features/workspace-agent/ui/DesktopAgentGUIWorkbenchBody.tsx";
 import type { DesktopAgentGUISurfaceContext } from "@renderer/features/workspace-agent/ui/desktopAgentGUIWorkbenchModel.ts";
 import { useTranslation } from "@renderer/i18n";
-import { useDesktopPreferencesService } from "@renderer/features/desktop-preferences/ui/useDesktopPreferencesService";
 import { AppUpdateStatus } from "@renderer/features/app-update";
 import { StandaloneAgentToolSidebar } from "./StandaloneAgentToolSidebar";
 import type { StandaloneAgentFileOpenRequest } from "./StandaloneAgentToolSidebar";
@@ -177,7 +176,6 @@ export function StandaloneAgentWindow({
   );
   const workspaceFileManagerService = useService(IWorkspaceFileManagerService);
   const { service: workspaceSettingsService } = useWorkspaceSettingsService();
-  const { state: desktopPreferencesState } = useDesktopPreferencesService();
   const workspaceId = workspace.id;
   const mentionService = useMemo(
     () =>

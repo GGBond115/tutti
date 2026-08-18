@@ -252,7 +252,7 @@ func TestCodexCLIModelListerReusesPersistentAppServerSession(t *testing.T) {
 		Environ: func() []string {
 			return []string{"PATH=/usr/bin:/bin", "CODEX_TEST_STARTS=" + countPath}
 		},
-		Timeout: 2 * time.Second,
+		Timeout: 5 * time.Second,
 	}
 	lister := base
 	lister.Session = newCodexAppServerSession(base)

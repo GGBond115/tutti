@@ -113,7 +113,7 @@ func (delegate *activationGateDelegate) FailClosed(context.Context, time.Time) e
 	delegate.physicalMu.Unlock()
 	return nil
 }
-func (delegate *activationGateDelegate) Close(context.Context) error { return nil }
+func (*activationGateDelegate) Close(context.Context) error { return nil }
 
 func (delegate *activationGateDelegate) Snapshot(context.Context) (contracts.PhysicalRouteSnapshot, error) {
 	delegate.physicalMu.Lock()

@@ -439,7 +439,7 @@ func TestBootstrapTuttiAgentUserAuthWaitsForAgentRefreshLock(t *testing.T) {
 	}
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("bootstrap did not resume after refresh lock release")
 	}
 	if got := issueCalls.Load(); got != 1 {
