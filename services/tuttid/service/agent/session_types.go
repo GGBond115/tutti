@@ -29,6 +29,7 @@ type Service struct {
 	AnalyticsReporter              reporterservice.Reporter
 	AvailabilityChecker            ProviderAvailabilityChecker
 	ModelCatalog                   AgentModelCatalog
+	AppServerCatalog               AppServerCatalogReader
 	ReplayMode                     bool
 	ModelCapabilities              ModelCapabilitiesResolver
 	AgentTargetStore               AgentTargetStore
@@ -224,6 +225,39 @@ type WorkspaceAgentResolver interface {
 
 type ComposerCapabilityLister interface {
 	ListComposerCapabilityOptions(context.Context, string, string, []ComposerSkillOption) ([]ComposerCapabilityOption, []string)
+}
+
+type PreparedComposerCapabilityLister interface {
+	ListComposerCapabilityOptionsWithPreparation(context.Context, string, string, []ComposerSkillOption, *runtimeprep.PrepareInput) ([]ComposerCapabilityOption, []string)
+}
+
+// AppServerCatalogReader is the daemon-owned connection-global catalog seam.
+// It deliberately carries no Agent Session or Thread identity: model/list and
+// capability catalog RPCs run on the same exact app-server connection registry
+// used by live Codex-compatible Sessions.
+//
+// The implementation belongs to the runtime adapter. This package only
+// translates the provider-neutral catalog result into Composer DTOs.
+type AppServerCatalogReader interface {
+	ListAppServerCatalog(context.Context, AppServerCatalogRequest) (AppServerCatalogResult, error)
+}
+
+type AppServerCatalogRequest struct {
+	// Preparation is the exact input used by the normal Session runtime
+	// preparation path. Catalog probes must not reconstruct a near-equivalent
+	// profile from Provider/Cwd alone.
+	Preparation *runtimeprep.PrepareInput
+	// Provider/Cwd remain DTO metadata for test adapters and diagnostics. The
+	// runtime adapter does not use them to construct a process profile.
+	Provider   string
+	Cwd        string
+	ClientName string
+	RequestSet string
+}
+
+type AppServerCatalogResult struct {
+	Models       []AgentModelOption
+	Capabilities []ComposerCapabilityOption
 }
 
 type ExtensionComposerProfileResolver interface {

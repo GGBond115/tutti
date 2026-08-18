@@ -15,12 +15,24 @@ const (
 )
 
 func testAppServerSession() Session {
+	const processCWD = "/workspace"
 	return Session{
 		RoomID:         "room-1",
 		AgentSessionID: "agent-session-1",
 		Provider:       ProviderCodex,
 		CWD:            "/workspace/room-1",
+		AppServer:      testAppServerRuntimePreparation(processCWD),
 		Status:         SessionStatusReady,
+	}
+}
+
+func testAppServerRuntimePreparation(processCWD string) *AppServerRuntimePreparation {
+	return &AppServerRuntimePreparation{
+		ExecutionHostID:      "test-host",
+		RuntimeGeneration:    "test-runtime",
+		TransportScopeID:     "test-transport",
+		ProcessProfileDigest: "test-profile",
+		ProcessCWD:           processCWD,
 	}
 }
 

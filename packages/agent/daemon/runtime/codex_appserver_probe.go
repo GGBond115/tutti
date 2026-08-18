@@ -92,6 +92,17 @@ func ProbeCodexAppServer(ctx context.Context, input CodexAppServerProbeInput) (r
 		result.Message = "app-server command is unavailable"
 		return result
 	}
+	// Do not race an already-canceled probe against a transport Start call.
+	// Some test and production transports can return a connection immediately
+	// without observing the context; treating that response as a started
+	// process would make cancellation nondeterministic and leak the ownership
+	// boundary into the scheduler below.
+	if err := ctx.Err(); err != nil {
+		result.CommandCategory = CodexProbeCanceled
+		result.Category = CodexProbeCanceled
+		result.Message = err.Error()
+		return result
+	}
 	transport := input.Transport
 	if transport == nil {
 		transport = NewLocalProcessTransport()

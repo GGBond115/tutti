@@ -4,11 +4,17 @@ on:
   pull_request:
     paths:
       - "packages/agent/daemon/**"
+      - "packages/agent/host/**"
+      - "packages/agent/runtimeprep/**"
+      - "services/tuttid/**"
   push:
     branches:
       - main
     paths:
       - "packages/agent/daemon/**"
+      - "packages/agent/host/**"
+      - "packages/agent/runtimeprep/**"
+      - "services/tuttid/**"
   workflow_dispatch:
 
 concurrency:
@@ -40,6 +46,12 @@ jobs:
             go.work.sum
             packages/agent/daemon/go.mod
             packages/agent/daemon/go.sum
+            packages/agent/host/go.mod
+            packages/agent/host/go.sum
+            packages/agent/runtimeprep/go.mod
+            packages/agent/runtimeprep/go.sum
+            services/tuttid/go.mod
+            services/tuttid/go.sum
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -58,11 +70,9 @@ jobs:
           }
           "TUTTI_CODEX_APP_SERVER_CONTRACT_BIN=$($binaries[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Test Windows agent process adapters
+      - name: Test Windows agent adapters
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          Push-Location packages/agent/daemon
-          go test ./runtime ./runtimecmd -run 'Test(RunVerifiedExecutableUsesVerifiedIdentity|PrepareProcessExecutableExecutesVerifiedDescriptorAfterPathReplacement|LocalProcessTransportUsesWindowsEnvironmentKeySemantics|ResolverResolveAllReturnsEveryExecutableMatchInPathOrder|ResolverResolveAllNamesKeepsDirectoryOrderBeforeLauncherVariant|ResolveNPMGlobalLayoutUsesPrefixRootForWindowsShims|ResolverFindsWindowsNPMGlobalShim|CodexAppServerWindowsTurnStartContract)$' -count=1
-          Pop-Location
+          go test ./packages/agent/daemon/runtime ./packages/agent/daemon/runtimecmd ./packages/agent/runtimeprep ./packages/agent/host ./services/tuttid ./services/tuttid/service/agent -run 'Test(RunVerifiedExecutableUsesVerifiedIdentity|PrepareProcessExecutableExecutesVerifiedDescriptorAfterPathReplacement|LocalProcessTransportUsesWindowsEnvironmentKeySemantics|ResolverResolveAllReturnsEveryExecutableMatchInPathOrder|ResolverResolveAllNamesKeepsDirectoryOrderBeforeLauncherVariant|ResolveNPMGlobalLayoutUsesPrefixRootForWindowsShims|ResolverFindsWindowsNPMGlobalShim|CodexAppServerWindowsTurnStartContract|ConcurrentSessionsShareOneProcessAndRouteInterleavedMessages|DetachAndGracefulCancelAreThreadScoped|WedgedInterruptRetiresConnectionForEveryBinding|AppServerPreparationSharesProcessProfileAndIsolatesThreadOverlay|AppServerPreparationSupportsTuttiAgentProvider|AppServerProcessCleanupRetriesAfterStoreFailure|CreateSessionPassesPreparedAppServerDTOToRuntime|AgentAppServerProviderLaunchPreparerSeparatesProcessAndThreadInputs|ConfigureAgentAppServerPreparationUsesDurableHostAndFreshRuntimeIdentity|HostAppServerPreparationPassesThreadCredentialDTO|AppServerCatalogAndSessionsShareOneRealSubprocess|AppServerCatalogProfileAndProviderIsolationUseSeparateSubprocesses)$' -count=1

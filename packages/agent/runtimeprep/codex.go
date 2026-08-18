@@ -366,7 +366,8 @@ func ensureCodexSessionConfig(configPath string, input PrepareInput) error {
 		next = detailModeNext
 		changed = true
 	}
-	if planNext, planChanged := codexConfigWithModelPlanEndpoint(next, input.ModelEndpoint); planChanged {
+	planNext, planChanged := codexConfigWithModelPlanEndpointAuth(next, input.ModelEndpoint, !input.appServerProcessProfile)
+	if planChanged {
 		next = planNext
 		changed = true
 	}

@@ -9,12 +9,14 @@ import (
 	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
-	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 )
 
 func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (events []activityshared.Event, err error) {
-	unlockLifecycle := a.lockSessionLifecycle(session.AgentSessionID)
+	unlockLifecycle, releaseFenced := a.lockSessionLifecycleForStart(session.AgentSessionID)
 	defer unlockLifecycle()
+	if releaseFenced {
+		return nil, ErrSessionDisconnected
+	}
 	if err := a.admitCodexReplacementLocked(session.AgentSessionID); err != nil {
 		return nil, err
 	}
@@ -30,21 +32,34 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	if err != nil {
 		return nil, err
 	}
-	// One session owns at most one live app-server process. Starting over a
-	// session that already holds a live client replaces it: stop the old
-	// client first, then spawn the new process.
+	// Starting over replaces only the Session binding. The physical process is
+	// owned by the profile-keyed registry and must remain reusable when the
+	// replacement has the same process profile.
 	if existing := a.getSession(session.AgentSessionID); existing != nil && existing.client != nil {
 		a.rejectPendingRequests(session.AgentSessionID, errPermissionRequestCanceled)
-		_ = a.closeLiveSession(session.AgentSessionID)
+		if existing.connection != nil && existing.binding != nil {
+			_ = existing.connection.detachBinding(existing.binding)
+			a.mu.Lock()
+			if a.sessions[session.AgentSessionID] == existing {
+				delete(a.sessions, session.AgentSessionID)
+			}
+			a.mu.Unlock()
+		} else {
+			_ = a.closeLiveSession(session.AgentSessionID)
+		}
 	}
 	client, initializeResult, _, err := a.startClient(ctx, session, trace, false)
 	if err != nil {
 		return nil, err
 	}
+	connection := a.connections.connectionForClient(client)
+	binding := connection.bindingForStartup(session.AgentSessionID, session.ProviderSessionID)
 	started := false
 	keepSession := false
 	startedSession := &codexAppServerSession{
 		client:          client,
+		connection:      connection,
+		binding:         binding,
 		pendingRequests: make(map[string]*pendingInteractiveRequest),
 	}
 	defer func() {
@@ -58,6 +73,8 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	serverInfo := a.appServerInfo(initializeResult)
 	a.storeSession(session.AgentSessionID, &codexAppServerSession{
 		client:          client,
+		connection:      connection,
+		binding:         binding,
 		serverInfo:      serverInfo,
 		acpLiveState:    newACPLiveState(),
 		pendingRequests: make(map[string]*pendingInteractiveRequest),
@@ -71,14 +88,16 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 
 	account, authRequired := a.fetchAccount(ctx, client, session, trace)
 	if authRequired {
-		a.storeSession(session.AgentSessionID, &codexAppServerSession{
-			serverInfo:      serverInfo,
-			account:         account,
-			authState:       "auth_required",
-			authMessage:     a.config.authRequiredMessage,
-			acpLiveState:    newACPLiveState(),
-			pendingRequests: make(map[string]*pendingInteractiveRequest),
-		})
+		// Authentication is a live Session state, not a failed startup. Keep
+		// the connection and Thread binding that startClient registered so
+		// Close can detach the binding and release the shared process lease.
+		startedSession.serverInfo = serverInfo
+		startedSession.account = account
+		startedSession.authState = "auth_required"
+		startedSession.authMessage = a.config.authRequiredMessage
+		startedSession.acpLiveState = newACPLiveState()
+		a.storeSession(session.AgentSessionID, startedSession)
+		started = true
 		keepSession = true
 		return []activityshared.Event{newSessionActivityEvent(session, EventSessionStarted, SessionStatusReady, map[string]any{
 			"adapter":          a.commandString(),
@@ -100,26 +119,21 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	planModeMask, defaultModeMask := a.fetchCollaborationModeMasks(ctx, client, session, trace)
 
 	threadParams := appServerThreadStartParams(session, a.sessionCWD(session))
+	applyAppServerThreadOverlay(threadParams, binding.overlay)
 	trace.Log("thread.start.params", codexAppServerTraceThreadStartParams(session, threadParams, false))
 	threadResult, err := trace.TypedCall(acpStartCallTimeout, appServerMethodThreadStart, func() (json.RawMessage, error) {
-		return client.ThreadStart(ctx, acpStartCallTimeout, threadParams,
-			func(ctx context.Context, message acpMessage) error {
-				trace.LogMessage(message.Method, len(message.ID) > 0, len(message.Params))
-				_, err := a.handleAppServerMessage(ctx, client, session, "", message, nil, nil, nil)
-				return err
-			})
+		return client.ThreadStart(ctx, acpStartCallTimeout, threadParams, nil)
 	})
 	if err != nil {
 		var callErr *acpCallError
 		if errors.As(err, &callErr) && callErr.AuthRequired() {
-			a.storeSession(session.AgentSessionID, &codexAppServerSession{
-				serverInfo:      serverInfo,
-				account:         account,
-				authState:       "auth_required",
-				authMessage:     a.config.authRequiredMessage,
-				acpLiveState:    newACPLiveState(),
-				pendingRequests: make(map[string]*pendingInteractiveRequest),
-			})
+			startedSession.serverInfo = serverInfo
+			startedSession.account = account
+			startedSession.authState = "auth_required"
+			startedSession.authMessage = a.config.authRequiredMessage
+			startedSession.acpLiveState = newACPLiveState()
+			a.storeSession(session.AgentSessionID, startedSession)
+			started = true
 			keepSession = true
 			return []activityshared.Event{newSessionActivityEvent(session, EventSessionStarted, SessionStatusReady, map[string]any{
 				"adapter":          a.commandString(),
@@ -136,6 +150,13 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	if err != nil {
 		return nil, err
 	}
+	if err := connection.bindThread(binding, threadID); err != nil {
+		return nil, err
+	}
+	if err := binding.flush(ctx); err != nil {
+		return nil, err
+	}
+	_, startupUsage, startupUsageKnown := binding.snapshot()
 	session.ProviderSessionID = threadID
 	trace.Log("thread.id.resolved", map[string]any{
 		"thread_id": threadID,
@@ -153,11 +174,16 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	liveState.availableCommands = codexAppServerCommands()
 	liveState.commandsKnown = true
 	applyACPConfigOptionDescriptors(&liveState, codexAppServerConfigOptionDescriptors(models, session, threadResult))
+	if startupUsageKnown {
+		liveState.usage = mergeACPUsageState(liveState.usage, startupUsage)
+	}
 
 	started = true
 	keepSession = true
 	a.storeSession(session.AgentSessionID, &codexAppServerSession{
 		client:                 client,
+		connection:             connection,
+		binding:                binding,
 		threadID:               threadID,
 		serverInfo:             serverInfo,
 		account:                account,
@@ -188,7 +214,7 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	if strings.TrimSpace(session.ProviderSessionID) == "" {
 		return missingProviderSessionResumeError(session)
 	}
-	unlockLifecycle := a.lockSessionLifecycle(session.AgentSessionID)
+	unlockLifecycle := a.lockSessionLifecycleForResume(session.AgentSessionID)
 	defer unlockLifecycle()
 	if err := a.admitCodexReplacementLocked(session.AgentSessionID); err != nil {
 		return err
@@ -216,12 +242,22 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	if err != nil {
 		return err
 	}
+	connection := a.connections.connectionForClient(client)
+	binding := connection.bindingForStartup(session.AgentSessionID, session.ProviderSessionID)
 	started := false
 	keepSession := false
 	previousSession := a.getSession(session.AgentSessionID)
 	startedSession := &codexAppServerSession{
 		client:          client,
+		connection:      connection,
+		binding:         binding,
 		pendingRequests: make(map[string]*pendingInteractiveRequest),
+	}
+	if previousSession == nil {
+		// Cold Resume still needs an adapter-visible provisional owner before
+		// thread/resume: Codex may replay usage, output, or interactions before
+		// returning the RPC response. Failure cleanup below removes it again.
+		a.storeSession(session.AgentSessionID, startedSession)
 	}
 	defer func() {
 		if !started {
@@ -255,6 +291,8 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 		keepSession = true
 		a.storeSession(session.AgentSessionID, &codexAppServerSession{
 			client:               client,
+			connection:           connection,
+			binding:              binding,
 			threadID:             strings.TrimSpace(session.ProviderSessionID),
 			resumeRuntimeContext: clonePayload(session.RuntimeContext),
 			planModeMask:         planModeMask,
@@ -283,15 +321,16 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 
 	account, authRequired := a.fetchAccount(ctx, client, session, trace)
 	if authRequired {
-		a.storeSession(session.AgentSessionID, &codexAppServerSession{
-			threadID:        session.ProviderSessionID,
-			serverInfo:      serverInfo,
-			account:         account,
-			authState:       "auth_required",
-			authMessage:     a.config.authRequiredMessage,
-			acpLiveState:    newACPLiveState(),
-			pendingRequests: make(map[string]*pendingInteractiveRequest),
-		})
+		// Keep the provisional binding on an auth-required resume as well. The
+		// caller owns this live Session and Close must release its Thread lease.
+		startedSession.threadID = strings.TrimSpace(session.ProviderSessionID)
+		startedSession.serverInfo = serverInfo
+		startedSession.account = account
+		startedSession.authState = "auth_required"
+		startedSession.authMessage = a.config.authRequiredMessage
+		startedSession.acpLiveState = newACPLiveState()
+		a.storeSession(session.AgentSessionID, startedSession)
+		started = true
 		keepSession = true
 		return nil
 	}
@@ -314,34 +353,35 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	planModeMask, defaultModeMask := a.fetchCollaborationModeMasks(ctx, client, session, trace)
 
 	params := appServerThreadStartParams(session, a.sessionCWD(session))
+	applyAppServerThreadOverlay(params, binding.overlay)
 	params["threadId"] = strings.TrimSpace(session.ProviderSessionID)
 	trace.Log("thread.start.params", codexAppServerTraceThreadStartParams(session, params, true))
-	// codex replays thread/tokenUsage/updated during thread/resume so the GUI
-	// can show context fill before a new turn runs. The resumed session is not
-	// stored yet, so applyTokenUsage cannot reach it; capture the replayed
-	// usage here and fold it into the live state below.
-	var replayedUsage acpUsageState
-	replayedUsageKnown := false
 	threadResult, err := trace.TypedCall(acpStartCallTimeout, appServerMethodThreadResume, func() (json.RawMessage, error) {
-		return client.ThreadResume(ctx, acpStartCallTimeout, params,
-			func(ctx context.Context, message acpMessage) error {
-				trace.LogMessage(message.Method, len(message.ID) > 0, len(message.Params))
-				if message.Method == appServerNotifyTokenUsage && len(message.Params) > 0 {
-					tokenParams := map[string]any{}
-					if json.Unmarshal(message.Params, &tokenParams) == nil {
-						if usage, ok := appServerTokenUsageState(tokenParams); ok {
-							replayedUsage = usage
-							replayedUsageKnown = true
-						}
-					}
-				}
-				_, err := a.handleAppServerMessage(ctx, client, session, "", message, nil, nil, nil)
-				return err
-			})
+		return client.ThreadResume(ctx, acpStartCallTimeout, params, nil)
 	})
 	if err != nil {
 		return classifyACPResumeError(session, appServerMethodThreadResume, err)
 	}
+	resumedThreadID, threadIDErr := appServerThreadID(threadResult)
+	if threadIDErr == nil {
+		if err := connection.bindThread(binding, resumedThreadID); err != nil {
+			return err
+		}
+	}
+	if err := binding.flush(ctx); err != nil {
+		return err
+	}
+	sharedReplacement := binding.replacementOf.Load() != nil
+	if err := connection.commitBindingReplacement(binding); err != nil {
+		return err
+	}
+	if sharedReplacement {
+		a.publishReplacementBinding(session.AgentSessionID, previousSession, binding)
+	}
+	if sharedReplacement && a.appServerReplacementCommittedHook != nil {
+		a.appServerReplacementCommittedHook(binding)
+	}
+	_, replayedUsage, replayedUsageKnown := binding.snapshot()
 	if len(models) > 0 {
 		effectiveSettings := codexAppServerEffectiveSettings(models, session, threadResult)
 		session.Settings = &effectiveSettings
@@ -354,11 +394,16 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	if replayedUsageKnown {
 		liveState.usage = mergeACPUsageState(liveState.usage, replayedUsage)
 	}
+	if previousSession != nil {
+		liveState.usage = mergeACPUsageState(previousSession.usage, liveState.usage)
+	}
 
 	started = true
 	keepSession = true
-	a.storeSession(session.AgentSessionID, &codexAppServerSession{
+	nextSession := &codexAppServerSession{
 		client:                 client,
+		connection:             connection,
+		binding:                binding,
 		threadID:               strings.TrimSpace(session.ProviderSessionID),
 		serverInfo:             serverInfo,
 		account:                account,
@@ -371,7 +416,13 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 		authState:              "authenticated",
 		acpLiveState:           liveState,
 		pendingRequests:        make(map[string]*pendingInteractiveRequest),
-	})
+	}
+	if sharedReplacement {
+		a.storeReplacementSession(session.AgentSessionID, binding, nextSession)
+		connection.publishBindingReplacement(binding)
+	} else {
+		a.storeSession(session.AgentSessionID, nextSession)
+	}
 	a.refreshStartupMetadataAsync(session, threadResult, len(models) == 0, a.config.rateLimits, trace)
 	// Mirror Start: push the command snapshot so a resumed session advertises
 	// review/compact/undo to the GUI (otherwise the slash palette and the
@@ -404,7 +455,7 @@ func (a *CodexAppServerAdapter) HasLiveSession(session Session) bool {
 	}
 }
 
-func (a *CodexAppServerAdapter) Close(_ context.Context, session Session) error {
+func (a *CodexAppServerAdapter) Close(ctx context.Context, session Session) error {
 	if a == nil {
 		return nil
 	}
@@ -412,26 +463,26 @@ func (a *CodexAppServerAdapter) Close(_ context.Context, session Session) error 
 	unlockLifecycle := a.lockSessionLifecycle(agentSessionID)
 	defer unlockLifecycle()
 	a.rejectPendingRequests(agentSessionID, errPermissionRequestCanceled)
-	return a.closeLiveSession(agentSessionID)
+	return a.detachLiveSession(ctx, agentSessionID, false)
 }
 
-func (a *CodexAppServerAdapter) ReleaseLiveSession(_ context.Context, session Session) error {
+func (a *CodexAppServerAdapter) ReleaseLiveSession(ctx context.Context, session Session) error {
 	if a == nil {
 		return nil
 	}
 	agentSessionID := strings.TrimSpace(session.AgentSessionID)
-	unlockLifecycle := a.lockSessionLifecycle(agentSessionID)
+	unlockLifecycle := a.lockSessionLifecycleForRelease(agentSessionID)
 	defer unlockLifecycle()
 	if a.hasLiveSessionWork(agentSessionID) {
 		return ErrLiveSessionBusy
 	}
-	return a.closeLiveSession(agentSessionID)
+	return a.detachLiveSession(ctx, agentSessionID, true)
 }
 
 // DisconnectLiveSession resolves pending interactions and drops only the
 // app-server transport. The Codex thread remains resumable; no provider
 // thread/session deletion request is sent.
-func (a *CodexAppServerAdapter) DisconnectLiveSession(_ context.Context, session Session) error {
+func (a *CodexAppServerAdapter) DisconnectLiveSession(ctx context.Context, session Session) error {
 	if a == nil {
 		return nil
 	}
@@ -439,19 +490,62 @@ func (a *CodexAppServerAdapter) DisconnectLiveSession(_ context.Context, session
 	unlockLifecycle := a.lockSessionLifecycle(agentSessionID)
 	defer unlockLifecycle()
 	a.rejectPendingRequests(agentSessionID, ErrSessionDisconnected)
-	return a.closeLiveSession(agentSessionID)
+	return a.detachLiveSession(ctx, agentSessionID, true)
 }
 
 func (a *CodexAppServerAdapter) closeLiveSession(agentSessionID string) error {
+	return a.detachLiveSession(context.Background(), agentSessionID, true)
+}
+
+func (a *CodexAppServerAdapter) detachLiveSession(ctx context.Context, agentSessionID string, closePhysical bool) error {
 	a.mu.Lock()
 	appSession := a.sessions[agentSessionID]
-	if appSession != nil && appSession.client != nil {
-		appSession.releasing = true
-		appSession.client.SetMessageHandler(nil)
+	var client *codexAppServerClient
+	var connection *appServerConnection
+	var binding *appServerThreadBinding
+	var threadID string
+	if appSession != nil {
+		client = appSession.client
+		connection = appSession.connection
+		binding = appSession.binding
+		threadID = appSession.threadID
+		if client != nil {
+			appSession.releasing = true
+		}
 	}
 	a.mu.Unlock()
-	if appSession != nil && appSession.client != nil {
-		if err := appSession.client.Close(); err != nil {
+	if appSession != nil && connection != nil && binding != nil {
+		var unsubscribeErr error
+		if threadID = strings.TrimSpace(threadID); threadID != "" {
+			unsubscribeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_, unsubscribeErr = client.ThreadUnsubscribe(unsubscribeCtx, 5*time.Second, threadID)
+			cancel()
+		}
+		detachErr := connection.detachBinding(binding)
+		a.mu.Lock()
+		if a.sessions[agentSessionID] == appSession {
+			appSession.binding = nil
+			appSession.threadID = ""
+		}
+		a.mu.Unlock()
+		var closeErr error
+		if closePhysical {
+			_, closeErr = a.connections.closeIfIdle(connection)
+		}
+		a.mu.Lock()
+		if closeErr != nil {
+			if a.sessions[agentSessionID] == appSession {
+				appSession.releasing = false
+				appSession.releaseFailed = true
+			}
+		} else if a.sessions[agentSessionID] == appSession {
+			delete(a.sessions, agentSessionID)
+		}
+		a.mu.Unlock()
+		return errors.Join(unsubscribeErr, detachErr, closeErr)
+	}
+	if appSession != nil && client != nil {
+		if err := client.Close(); err != nil {
 			a.mu.Lock()
 			if a.sessions[agentSessionID] == appSession {
 				appSession.releasing = false
@@ -474,7 +568,11 @@ func (a *CodexAppServerAdapter) startInitializedClient(
 	session Session,
 	trace *codexAppServerStartupTrace,
 ) (*codexAppServerClient, json.RawMessage, error) {
-	client, initializeResult, _, err := a.startClient(ctx, session, trace, false)
+	launch, err := a.prepareInitializedClientLaunch(ctx, session)
+	if err != nil {
+		return nil, nil, err
+	}
+	client, initializeResult, _, err := a.startClientPrepared(ctx, session, trace, launch, false, false)
 	return client, initializeResult, err
 }
 
@@ -484,71 +582,101 @@ func (a *CodexAppServerAdapter) startClient(
 	trace *codexAppServerStartupTrace,
 	allowAttachedCheckpoint bool,
 ) (*codexAppServerClient, json.RawMessage, bool, error) {
-	spec, cleanup, err := a.prepareInitializedClientLaunch(ctx, session)
+	launch, err := a.prepareInitializedClientLaunch(ctx, session)
 	if err != nil {
 		trace.Log("process.prepare.failed", map[string]any{
 			"error": err.Error(),
 		})
 		return nil, nil, false, err
 	}
-	return a.startClientPrepared(
+	client, initializeResult, attachedCheckpoint, err := a.startClientPrepared(
 		ctx,
 		session,
 		trace,
-		spec,
-		cleanup,
+		launch,
 		allowAttachedCheckpoint,
+		true,
 	)
-}
-
-func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
-	ctx context.Context,
-	session Session,
-) (ProcessSpec, func(context.Context), error) {
-	if a == nil || a.transport == nil {
-		return ProcessSpec{}, nil, errors.New(
-			"app-server process transport is unavailable",
-		)
-	}
-	command := append([]string(nil), a.config.command...)
-	spawnEnv := append(codexACPEnv(session, a.host), session.Env...)
-	if a.commandResolver != nil {
-		resolved, err := a.commandResolver(ctx, a.config.provider)
-		if err != nil {
-			return ProcessSpec{}, nil, err
-		}
-		if len(resolved.Command) > 0 {
-			command = append([]string(nil), resolved.Command...)
-		}
-		spawnEnv = append(spawnEnv, resolved.Env...)
-	}
-	spec, cleanup, err := prepareProviderLaunch(ctx, a.preparer, session, ProcessSpec{
-		Provider:           a.config.provider,
-		AgentSessionID:     session.AgentSessionID,
-		RootAgentSessionID: session.RootAgentSessionID,
-		RoomID:             session.RoomID,
-		CWD:                a.sessionCWD(session),
-		Command:            command,
-		Env:                spawnEnv,
-	})
 	if err != nil {
-		return ProcessSpec{}, nil, err
+		return nil, nil, false, errors.Join(err, a.connections.cleanupOrRetain(launch.threadCleanup))
 	}
-	if a.config.skillRootsStrategy == providerregistry.AppServerSkillRootsStrategyTuttiStable {
-		spec.Env = withoutEnvironmentKey(spec.Env, tuttiAgentExtraSkillRootsEnv)
-		spec.Env = withoutEnvironmentKey(spec.Env, tuttiAgentStableSystemSkillsEnv)
+	connection := a.connections.connectionForClient(client)
+	if connection == nil {
+		cleanupErr := a.connections.cleanupOrRetain(launch.threadCleanup)
+		_ = client.Close()
+		return nil, nil, false, errors.Join(errors.New("app-server connection registry lost the started client"), cleanupErr)
 	}
-	return spec, cleanup, nil
+	expectedThreadID := ""
+	if allowAttachedCheckpoint || strings.TrimSpace(session.ProviderSessionID) != "" {
+		expectedThreadID = strings.TrimSpace(session.ProviderSessionID)
+	}
+	binding, err := connection.registerBinding(session, expectedThreadID, launch.overlay, launch.threadCleanup)
+	if err != nil {
+		return nil, nil, false, errors.Join(err, a.connections.cleanupOrRetain(launch.threadCleanup))
+	}
+	binding.startupTrace = trace
+	return client, initializeResult, attachedCheckpoint, nil
 }
 
 func (a *CodexAppServerAdapter) startClientPrepared(
 	ctx context.Context,
 	session Session,
 	trace *codexAppServerStartupTrace,
-	spec ProcessSpec,
-	cleanup func(context.Context),
+	launch appServerPreparedLaunch,
 	allowAttachedCheckpoint bool,
+	shared bool,
 ) (*codexAppServerClient, json.RawMessage, bool, error) {
+	if !shared {
+		connection, err := a.startPhysicalAppServerConnection(
+			ctx, session, trace, launch, allowAttachedCheckpoint, 0,
+		)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		return connection.client, connection.initializeResult, connection.attachedCheckpoint, nil
+	}
+	key, err := appServerConnectionKeyForLaunch(a.transport, launch)
+	if err != nil {
+		return nil, nil, false, errors.Join(err, a.connections.cleanupOrRetain(launch.processCleanup))
+	}
+	connection, reused, err := a.connections.acquire(ctx, key, func(generation uint64) (*appServerConnection, error) {
+		return a.startPhysicalAppServerConnection(
+			ctx, session, trace, launch, allowAttachedCheckpoint, generation,
+		)
+	})
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if reused {
+		// This acquisition did not consume a new process lease. Release the
+		// preparation reference; the existing Connection retains its own lease.
+		if cleanupErr := a.connections.cleanupOrRetain(launch.processCleanup); cleanupErr != nil {
+			return nil, nil, false, cleanupErr
+		}
+	}
+	return connection.client, connection.initializeResult, connection.attachedCheckpoint, nil
+}
+
+func (a *CodexAppServerAdapter) startPhysicalAppServerConnection(
+	ctx context.Context,
+	session Session,
+	trace *codexAppServerStartupTrace,
+	launch appServerPreparedLaunch,
+	allowAttachedCheckpoint bool,
+	generation uint64,
+) (*appServerConnection, error) {
+	if launch.profile == nil {
+		return nil, errors.Join(
+			errors.New("app-server launch requires explicit process profile preparation"),
+			a.connections.cleanupOrRetain(launch.processCleanup),
+		)
+	}
+	connectionKey, err := keyForUnregisteredConnection(launch)
+	if err != nil {
+		return nil, errors.Join(err, a.connections.cleanupOrRetain(launch.processCleanup))
+	}
+	spec := launch.spec
+	cleanup := launch.processCleanup
 	trace.Log("process.start.begin", map[string]any{
 		"command": strings.Join(spec.Command, " "),
 		"cwd":     spec.CWD,
@@ -556,12 +684,12 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 	processStartedAt := time.Now()
 	conn, err := a.transport.Start(ctx, spec)
 	if err != nil {
-		cleanupPreparedLaunch(cleanup)
+		cleanupErr := a.connections.cleanupOrRetain(cleanup)
 		trace.Log("process.start.failed", map[string]any{
 			"duration_ms": time.Since(processStartedAt).Milliseconds(),
 			"error":       err.Error(),
 		})
-		return nil, nil, false, err
+		return nil, errors.Join(err, cleanupErr)
 	}
 	conn = wrapProviderLaunchCleanup(conn, cleanup)
 	trace.Log("process.start.succeeded", map[string]any{
@@ -569,88 +697,48 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 	})
 	client := newCodexAppServerClient(conn)
 	client.SetStderrSink(trace.LogStderr)
-	// The session-level handler receives every message that arrives outside
-	// an in-flight RPC. Because turn/start responds immediately while the
-	// turn keeps streaming, this is the main delivery path for turn output:
-	// resolve the active turn context so notifications keep producing
-	// activity events after the RPC has returned. Child sessions may outlive
-	// that root turn, so their events retain a session-level fallback below.
-	client.SetMessageHandler(func(ctx context.Context, message acpMessage) error {
-		endInputUnit := a.inputUnits.begin(ctx, session.AgentSessionID)
-		defer endInputUnit()
-		turnSession := session
-		if appSession := a.getSession(session.AgentSessionID); appSession != nil {
-			turnSession.ProviderSessionID = firstNonEmpty(appSession.threadID, turnSession.ProviderSessionID)
-		}
-		turnID := ""
-		var normalizer *acpTurnNormalizer
-		var turnEmit func([]activityshared.Event)
-		var turnEmitCommands CommandSnapshotSink
-		if activeTurn := a.sessionActiveTurn(session.AgentSessionID); activeTurn != nil {
-			turnSession = activeTurn.session
-			turnID = activeTurn.turnID
-			normalizer = activeTurn.normalizer
-			turnEmit = activeTurn.emit
-			turnEmitCommands = activeTurn.emitCommands
-		}
-		events, err := a.handleAppServerMessage(ctx, client, turnSession, turnID, message, normalizer, turnEmit, turnEmitCommands)
-		// Stamp the reduction while the decoder-owned provider input unit is
-		// still in scope. Most turn output is stamped again by the active-turn
-		// emitter, but lifecycle reductions such as turn/started can take a
-		// different emission path. The tracker is idempotent, so the emitter
-		// can retain its existing boundary without duplicating indexes.
-		events = a.inputUnits.stamp(session.AgentSessionID, events)
-		// A child may outlive its root Turn. Only child events owned by the
-		// currently active canonical root Turn may enter that Turn's emitter;
-		// otherwise a newer Turn's acceptance buffer or close fence can drop them.
-		turnEvents, detachedChildEvents := appServerEventsForActiveRootTurn(
-			session.AgentSessionID,
-			turnID,
-			events,
-		)
-		if turnEmit != nil {
-			turnEmit(turnEvents)
-		}
-		if len(detachedChildEvents) > 0 {
-			a.emitSessionEvents(
-				session.AgentSessionID,
-				a.stampTurnLifecycleSnapshots(session.AgentSessionID, detachedChildEvents),
-			)
-		}
-		return err
-	})
+	connection := &appServerConnection{
+		key: connectionKey, generation: generation, client: client,
+		bindingsBySession:     make(map[string]*appServerThreadBinding),
+		ownerByThread:         make(map[string]string),
+		replacementByThread:   make(map[string]*appServerThreadBinding),
+		unknownByThread:       make(map[string][]appServerRoutedMessage),
+		retiredThreadCleanups: make(map[*appServerThreadBinding]struct{}),
+	}
+	client.SetMessageHandler(connection.route)
 	started := false
 	defer func() {
 		if !started {
-			a.closeOrRetainCodexSession(session.AgentSessionID, &codexAppServerSession{
-				client:          client,
-				pendingRequests: make(map[string]*pendingInteractiveRequest),
-			})
+			client.SetMessageHandler(nil)
+			_ = client.Close()
 		}
 	}()
 	captureOrigin := processCassetteCaptureOrigin(conn)
 	if captureOrigin == ProcessCassetteCaptureOriginAttachedLiveConnection {
 		if !allowAttachedCheckpoint {
-			return nil, nil, false, errors.New(
+			return nil, errors.New(
 				"attached live provider checkpoint cannot start a new Codex session",
 			)
 		}
+		connection.attachedCheckpoint = true
 		started = true
-		return client, nil, true, nil
+		return connection, nil
 	}
 
+	connection.setInitializingObserver(func(ctx context.Context, message acpMessage) error {
+		trace.LogMessage(message.Method, len(message.ID) > 0, len(message.Params))
+		_, err := a.handleAppServerMessage(ctx, client, session, "", message, nil, nil, nil)
+		return err
+	})
 	initializeResult, err := trace.TypedCall(acpStartCallTimeout, appServerMethodInitialize, func() (json.RawMessage, error) {
 		return client.Initialize(ctx, acpStartCallTimeout, map[string]any{
 			"clientInfo": a.clientInfoParams(spec.Env),
 			"capabilities": map[string]any{
 				"experimentalApi": true,
 			},
-		}, func(ctx context.Context, message acpMessage) error {
-			trace.LogMessage(message.Method, len(message.ID) > 0, len(message.Params))
-			_, err := a.handleAppServerMessage(ctx, client, session, "", message, nil, nil, nil)
-			return err
-		})
+		}, nil)
 	})
+	connection.setInitializingObserver(nil)
 	if err != nil {
 		slog.Warn("agent session app-server initialize failed",
 			"event", "agent_session.app_server.initialize.failed",
@@ -658,7 +746,7 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 			"agent_session_id", session.AgentSessionID,
 			"error", err.Error(),
 		)
-		return nil, nil, false, err
+		return nil, err
 	}
 	trace.Log("initialized.notify.begin", nil)
 	notifyStartedAt := time.Now()
@@ -667,13 +755,29 @@ func (a *CodexAppServerAdapter) startClientPrepared(
 			"duration_ms": time.Since(notifyStartedAt).Milliseconds(),
 			"error":       err.Error(),
 		})
-		return nil, nil, false, err
+		return nil, err
 	}
 	trace.Log("initialized.notify.succeeded", map[string]any{
 		"duration_ms": time.Since(notifyStartedAt).Milliseconds(),
 	})
+	connection.initializeResult = initializeResult
 	started = true
-	return client, initializeResult, false, nil
+	return connection, nil
+}
+
+func keyForUnregisteredConnection(launch appServerPreparedLaunch) (appServerConnectionKey, error) {
+	if launch.profile == nil {
+		return appServerConnectionKey{}, errors.New(
+			"app-server launch requires explicit process profile preparation",
+		)
+	}
+	return appServerConnectionKey{
+		Provider:             strings.TrimSpace(launch.spec.Provider),
+		ExecutionHostID:      strings.TrimSpace(launch.profile.ExecutionHostID),
+		RuntimeGeneration:    strings.TrimSpace(launch.profile.RuntimeGeneration),
+		TransportScopeID:     strings.TrimSpace(launch.profile.TransportScopeID),
+		ProcessProfileDigest: strings.TrimSpace(launch.profile.ProcessProfileDigest),
+	}, nil
 }
 
 func appServerEventsForActiveRootTurn(

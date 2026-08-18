@@ -49,8 +49,45 @@ Dynamic host skills use `SkillSource`; per-session skills use `ExtraSkills`.
 The canonical template and shared skill bodies remain in runtimeprep so hosts
 do not fork the actual prompt content.
 
-Tutti Agent keeps auth, configuration, transcripts, and other mutable state in
-its session-scoped `TUTTI_AGENT_HOME`, while Tutti-managed Skills use a
+## Shared App-Server Preparation
+
+Codex and Tutti Agent may share one physical app-server across compatible
+provider Threads. This is an explicit preparation mode, not a provider-side
+fallback. The product composition supplies three real identities: the durable
+execution host, the current runtime generation, and the concrete process
+transport instance. Runtimeprep combines those identities with process-stable
+provider inputs to select a profile root, then hashes the actual prepared home,
+environment, and cwd for `ProcessProfileDigest`. A runtime or transport rebuild
+therefore cannot inherit an earlier process profile accidentally.
+
+Every Codex-compatible app-server launch must carry this explicit
+`AppServerProcessProfile`. Missing preparation is a configuration error and
+fails before process start. The runtime has no `SessionIsolated` key,
+per-Session derived process identity, or compatibility fallback.
+
+The shared process profile contains the provider home, auth projection,
+process-compatible config, and stable Skill/PATH inputs. It never receives the
+Workspace or Session identity, Session cwd, invocation context, native MCP
+bindings, model-plan credential, or Workspace Agent instructions. Those values
+remain in `ThreadOverlay`; MCP headers and credentials reach only the provider
+Thread request. The shared home has no host-generated `AGENTS.md`; the exact
+resolved Tutti and Workspace Agent policy is sent as Thread developer
+instructions.
+
+Ownership is split into two leases. A Thread lease owns the Session run root
+and provider projection created for that overlay. A process lease owns one
+reference to the shared profile root. Reusing an existing physical process
+releases the unused new process acquisition immediately; the live connection
+keeps its original acquisition until physical close. Thread close must not
+delete the profile, and final process close must not depend on Session cleanup.
+Host only transports the preparation DTO. The product adapter transfers the
+two cleanup callbacks to the daemon app-server boundary; Host gains no new
+Session lifecycle semantics.
+
+In isolated mode, Tutti Agent keeps auth, configuration, transcripts, and other
+mutable state in its session-scoped `TUTTI_AGENT_HOME`. In shared app-server
+mode those process-owned files live in the compatible Process Profile, while
+Session inputs stay in the Thread overlay. Tutti-managed Skills use a
 daemon-owned content-addressed store. Runtimeprep computes the stable bundle,
 then carries its absolute root as internal launch metadata through the existing
 environment overlay. `CodexAppServerAdapter` consumes and strips that metadata,

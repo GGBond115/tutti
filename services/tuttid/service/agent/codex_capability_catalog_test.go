@@ -1,12 +1,8 @@
 package agent
 
 import (
-	"bytes"
 	"encoding/json"
-	"strings"
 	"testing"
-
-	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 )
 
 func TestParseCodexCapabilityResponses(t *testing.T) {
@@ -33,64 +29,30 @@ func TestParseCodexCapabilityResponses(t *testing.T) {
 
 func TestComposerCapabilityCatalogListerRejectsUnknownKind(t *testing.T) {
 	_, ok, err := composerCapabilityCatalogLister(composerProfile{
-		CapabilityCatalogKind:    "poison",
-		CapabilityCatalogCommand: []string{"codex", "app-server"},
+		CapabilityCatalogKind: "poison",
 	})
 	if err == nil || ok {
 		t.Fatalf("composerCapabilityCatalogLister() = (_, %v, %v), want unsupported error", ok, err)
 	}
 }
 
-func TestComposerCapabilityCatalogListerRequiresRuntimeCommand(t *testing.T) {
-	_, ok, err := composerCapabilityCatalogLister(composerProfile{
-		CapabilityCatalogKind: providerregistry.CapabilityCatalogKindCodexAppServer,
-	})
-	if err == nil || ok {
-		t.Fatalf("composerCapabilityCatalogLister() = (_, %v, %v), want command error", ok, err)
+func TestCodexCapabilityListerDelegatesToRuntimeCatalog(t *testing.T) {
+	reader := &recordingAppServerCatalogReader{result: AppServerCatalogResult{
+		Capabilities: []ComposerCapabilityOption{{ID: "skill:review", Kind: "skill", Name: "review"}},
+	}}
+	lister := CodexCLICapabilityLister{
+		Provider: "codex", RequestSet: appServerCatalogRequestSetCodex, Catalog: reader,
 	}
-}
-
-func TestAppServerCapabilityListSkillsOnly(t *testing.T) {
-	var stdin bytes.Buffer
-	if err := writeAppServerCapabilityListRequests(
-		&stdin,
-		"/tmp/workspace",
-		appServerCatalogRequestSetSkillsOnly,
-	); err != nil {
-		t.Fatalf("writeAppServerCapabilityListRequests returned error: %v", err)
-	}
-	requests := stdin.String()
-	if !strings.Contains(requests, `"method":"skills/list"`) {
-		t.Fatalf("requests = %q, want skills/list", requests)
-	}
-	for _, excluded := range []string{"app/list", "plugin/list", "mcpServerStatus/list"} {
-		if strings.Contains(requests, excluded) {
-			t.Fatalf("requests = %q, must not include %s", requests, excluded)
-		}
-	}
-
-	options, err := readAppServerCapabilityListResponses(
-		strings.NewReader(`{"id":"2","result":{"data":[{"skills":[{"name":"review","description":"Review","path":"/tmp/review/SKILL.md","enabled":true}]}]}}`+"\n"),
-		appServerCatalogRequestSetSkillsOnly,
-	)
+	options, err := lister.List(t.Context(), "/workspace")
 	if err != nil {
-		t.Fatalf("readAppServerCapabilityListResponses returned error: %v", err)
+		t.Fatalf("List() error = %v", err)
 	}
-	if len(options) != 1 {
-		t.Fatalf("options = %#v, want one skill", options)
+	if len(options) != 1 || options[0].ID != "skill:review" {
+		t.Fatalf("capability options = %#v", options)
 	}
-	skill := options[0]
-	if skill.ID != "skill:review" ||
-		skill.Kind != "skill" ||
-		skill.Trigger != "$review" ||
-		skill.Path != "/tmp/review/SKILL.md" ||
-		skill.Invocation != "promptItem" {
-		t.Fatalf("skill option = %#v", skill)
-	}
-}
-
-func TestAppServerCatalogRequestsRejectsUnknownSet(t *testing.T) {
-	if _, _, err := appServerCatalogRequests("/tmp/workspace", "poison"); err == nil {
-		t.Fatal("appServerCatalogRequests() error = nil, want unsupported request set")
+	if reader.lastRequest != (AppServerCatalogRequest{
+		Provider: "codex", Cwd: "/workspace", ClientName: "tuttid", RequestSet: string(appServerCatalogRequestSetCodex),
+	}) {
+		t.Fatalf("runtime catalog request = %#v", reader.lastRequest)
 	}
 }

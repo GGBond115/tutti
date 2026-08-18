@@ -561,6 +561,106 @@ func TestCodexAppServerAdapterStartAuthRequired(t *testing.T) {
 	}
 }
 
+func TestCodexAppServerAdapterStartAuthRequiredCloseReleasesOwnedResources(t *testing.T) {
+	transport := newScriptedAppServerTransport()
+	transport.server.requiresAuth = true
+	adapter := NewCodexAppServerAdapter(transport)
+	processCleanupCalls, threadCleanupCalls := 0, 0
+	adapter.SetProviderLaunchPreparer(func(_ context.Context, input ProviderLaunchPrepareInput) (ProviderLaunchPrepareResult, error) {
+		return authRequiredTestLaunchPreparation(input, &processCleanupCalls, &threadCleanupCalls), nil
+	})
+	session := testAppServerSession()
+	if _, err := adapter.Start(t.Context(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if processCleanupCalls != 0 || threadCleanupCalls != 0 {
+		t.Fatalf("cleanup before Close = process %d, thread %d; want both zero", processCleanupCalls, threadCleanupCalls)
+	}
+	if err := adapter.Close(t.Context(), session); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if threadCleanupCalls != 1 {
+		t.Fatalf("thread cleanup calls after Close = %d, want 1", threadCleanupCalls)
+	}
+	cleanup := adapter.CleanupLiveSessionResources(t.Context(), 1)
+	if cleanup.Attempted != 1 || cleanup.Cleaned != 1 || cleanup.Failed != 0 {
+		t.Fatalf("process cleanup = %#v, want one clean attempt", cleanup)
+	}
+	if processCleanupCalls != 1 {
+		t.Fatalf("process cleanup calls = %d, want 1", processCleanupCalls)
+	}
+	if second := adapter.CleanupLiveSessionResources(t.Context(), 1); second.Attempted != 0 {
+		t.Fatalf("second cleanup = %#v, want no repeated ownership", second)
+	}
+	transport.conn.mu.Lock()
+	closeCount := transport.conn.closeCount
+	transport.conn.mu.Unlock()
+	if closeCount != 1 {
+		t.Fatalf("physical connection close count = %d, want 1", closeCount)
+	}
+}
+
+func TestCodexAppServerAdapterResumeAuthRequiredCloseReleasesOwnedResources(t *testing.T) {
+	transport := newScriptedAppServerTransport()
+	transport.server.requiresAuth = true
+	adapter := NewCodexAppServerAdapter(transport)
+	processCleanupCalls, threadCleanupCalls := 0, 0
+	adapter.SetProviderLaunchPreparer(func(_ context.Context, input ProviderLaunchPrepareInput) (ProviderLaunchPrepareResult, error) {
+		return authRequiredTestLaunchPreparation(input, &processCleanupCalls, &threadCleanupCalls), nil
+	})
+	session := testAppServerSession()
+	session.ProviderSessionID = "codex-thread-auth-required"
+	if err := adapter.Resume(t.Context(), session); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if processCleanupCalls != 0 || threadCleanupCalls != 0 {
+		t.Fatalf("cleanup before Close = process %d, thread %d; want both zero", processCleanupCalls, threadCleanupCalls)
+	}
+	if err := adapter.Close(t.Context(), session); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if threadCleanupCalls != 1 {
+		t.Fatalf("thread cleanup calls after Close = %d, want 1", threadCleanupCalls)
+	}
+	cleanup := adapter.CleanupLiveSessionResources(t.Context(), 1)
+	if cleanup.Attempted != 1 || cleanup.Cleaned != 1 || cleanup.Failed != 0 {
+		t.Fatalf("process cleanup = %#v, want one clean attempt", cleanup)
+	}
+	if processCleanupCalls != 1 {
+		t.Fatalf("process cleanup calls = %d, want 1", processCleanupCalls)
+	}
+	if second := adapter.CleanupLiveSessionResources(t.Context(), 1); second.Attempted != 0 {
+		t.Fatalf("second cleanup = %#v, want no repeated ownership", second)
+	}
+	transport.conn.mu.Lock()
+	closeCount := transport.conn.closeCount
+	transport.conn.mu.Unlock()
+	if closeCount != 1 {
+		t.Fatalf("physical connection close count = %d, want 1", closeCount)
+	}
+}
+
+func authRequiredTestLaunchPreparation(
+	input ProviderLaunchPrepareInput,
+	processCleanupCalls, threadCleanupCalls *int,
+) ProviderLaunchPrepareResult {
+	return ProviderLaunchPrepareResult{AppServer: &AppServerLaunchPreparation{
+		ProcessProfile: AppServerProcessProfile{
+			ExecutionHostID: "auth-test-host", RuntimeGeneration: "auth-test-runtime",
+			TransportScopeID: "auth-test-transport", ProcessProfileDigest: "auth-test-profile",
+			Command: append([]string(nil), input.Command...), Env: append([]string(nil), input.Env...), CWD: input.CWD,
+		},
+		ProcessCleanup: func(context.Context) error {
+			(*processCleanupCalls)++
+			return nil
+		},
+		ThreadCleanup: func(context.Context) error {
+			(*threadCleanupCalls)++
+			return nil
+		},
+	}}
+}
+
 func TestCodexAppServerAdapterStartToleratesAccountReadError(t *testing.T) {
 	t.Parallel()
 

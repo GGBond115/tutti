@@ -34,6 +34,24 @@ prepared, err := preparer.Prepare(ctx, runtimeprep.PrepareInput{
 process environment. `Cleanup` removes only paths recorded in the session
 manifest or the session-scoped runtime root.
 
+For Codex-compatible app-server providers, a host may set
+`DefaultPreparer.AppServerScope` with its real execution-host identity, one
+fresh runtime generation, and the exact process-transport instance scope.
+`Prepare` then returns `PreparedRuntime.AppServer`: a stable process profile
+plus a per-Thread environment and instruction overlay. The process profile
+contains only the provider home and process-stable Skill/PATH inputs. Session,
+workspace, cwd, MCP headers, invocation data, and model-plan credentials remain
+in the Thread overlay. A product launch adapter must implement
+`AppServerLaunchLeaseProvider` transfer and pass both cleanup callbacks to the
+daemon app-server adapter. Thread cleanup removes only the Session run root;
+process cleanup reclaims the profile root after its final acquisition.
+
+The scope fields are compatibility evidence, not labels. Use a durable device
+or VM identity for `ExecutionHostID`, rotate `RuntimeGeneration` whenever the
+owning runtime is rebuilt, and assign `TransportScopeID` to the concrete
+transport instance. Any missing field makes Codex-compatible app-server
+preparation invalid; it does not enable a per-Session process fallback.
+
 Agent Extension hosts may pass a signed, validated
 `PrepareInput.ExtensionRuntimePrep` overlay for ACP providers that need
 provider-owned state projected into the session. The overlay is declarative and
@@ -46,19 +64,20 @@ config projection must use the shared parser-backed merge helpers and fail
 closed on invalid or incompatible config instead of maintaining provider-specific
 line parsers.
 
-Codex preparation keeps session state isolated under the run-scoped
-`CODEX_HOME`, while linking its writable `models_cache.json` to the provider
-user's process-default `~/.codex/models_cache.json`. The link may initially be
-dangling: the first Codex refresh creates the shared VM- or host-local cache,
-and later sessions reuse it. Hosts must therefore run preparation with `HOME`
-set to the provider user's stable local Home, never a session runtime directory
-or a remote filesystem projection.
+The Codex-compatible app-server adapter accepts only preparation with a
+complete app-server scope and explicit process profile. A run-scoped
+`CODEX_HOME` is still used by other provider preparations, but it is not a
+fallback launch identity for the shared app-server path. Hosts must therefore
+run app-server preparation with `HOME` set to the provider user's stable local
+Home, never a session runtime directory or a remote filesystem projection.
 
 `TuttiAgentPreparer.ResolveAuthSource` lets a host expose one explicit absolute
-credential authority into the session-scoped `TUTTI_AGENT_HOME`. When omitted,
-the Tutti desktop keeps its existing `~/.tutti-agent/auth.json` behavior. An
-explicit source may be a dangling symlink target so a host-controlled login can
-materialize it atomically later; runtimeprep never follows or deletes that
+credential authority into the prepared `TUTTI_AGENT_HOME`. It is Session-scoped
+in isolated mode and Process-Profile-scoped when app-server sharing is enabled.
+When omitted, the Tutti desktop keeps its existing
+`~/.tutti-agent/auth.json` behavior. An explicit source may be a dangling
+symlink target so a host-controlled login can materialize it atomically later;
+runtimeprep never follows or deletes that
 target during session cleanup. If a configured resolver returns no path,
 runtimeprep leaves auth unprojected and does not fall back to the VM user's
 `~/.tutti-agent`. Tutti Agent preparation also materializes the same resolved

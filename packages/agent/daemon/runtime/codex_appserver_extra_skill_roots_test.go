@@ -44,8 +44,8 @@ func TestTuttiAgentStartSetsExtraSkillRootsBeforeThread(t *testing.T) {
 	if _, found := lastEnvironmentValue(transport.specs[0].Env, tuttiAgentExtraSkillRootsEnv); found {
 		t.Fatalf("internal extra roots metadata leaked to child env: %#v", transport.specs[0].Env)
 	}
-	if !containsString(transport.specs[0].Env, "SESSION_ENV=1") {
-		t.Fatalf("process env lost ordinary session env: %#v", transport.specs[0].Env)
+	if containsString(transport.specs[0].Env, "SESSION_ENV=1") {
+		t.Fatalf("session overlay leaked into shared process env: %#v", transport.specs[0].Env)
 	}
 }
 

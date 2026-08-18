@@ -3,8 +3,33 @@ package agentruntime
 import "strings"
 
 func (a *CodexAppServerAdapter) lockSessionLifecycle(agentSessionID string) func() {
+	lock, unlock, _ := a.acquireSessionLifecycle(agentSessionID)
+	lock.releaseFence = false
+	return unlock
+}
+
+func (a *CodexAppServerAdapter) lockSessionLifecycleForStart(agentSessionID string) (func(), bool) {
+	lock, unlock, _ := a.acquireSessionLifecycle(agentSessionID)
+	fenced := lock.releaseFence
+	lock.releaseFence = false
+	return unlock, fenced
+}
+
+func (a *CodexAppServerAdapter) lockSessionLifecycleForRelease(agentSessionID string) func() {
+	lock, unlock, _ := a.acquireSessionLifecycle(agentSessionID)
+	lock.releaseFence = true
+	return unlock
+}
+
+func (a *CodexAppServerAdapter) lockSessionLifecycleForResume(agentSessionID string) func() {
+	lock, unlock, _ := a.acquireSessionLifecycle(agentSessionID)
+	lock.releaseFence = false
+	return unlock
+}
+
+func (a *CodexAppServerAdapter) acquireSessionLifecycle(agentSessionID string) (*codexAppServerSessionLock, func(), bool) {
 	if a == nil {
-		return func() {}
+		return &codexAppServerSessionLock{}, func() {}, false
 	}
 	key := strings.TrimSpace(agentSessionID)
 	a.lifecycleMu.Lock()
@@ -17,15 +42,17 @@ func (a *CodexAppServerAdapter) lockSessionLifecycle(agentSessionID string) func
 	a.lifecycleMu.Unlock()
 
 	lock.mu.Lock()
-	return func() {
+	fenced := lock.releaseFence
+	return lock, func() {
+		releaseFence := lock.releaseFence
 		lock.mu.Unlock()
 		a.lifecycleMu.Lock()
 		lock.refs--
-		if lock.refs <= 0 && a.lifecycleLocks[key] == lock {
+		if lock.refs <= 0 && !releaseFence && a.lifecycleLocks[key] == lock {
 			delete(a.lifecycleLocks, key)
 		}
 		a.lifecycleMu.Unlock()
-	}
+	}, fenced
 }
 
 func (a *CodexAppServerAdapter) storeSession(agentSessionID string, session *codexAppServerSession) {
@@ -47,7 +74,6 @@ func (a *CodexAppServerAdapter) storeSession(agentSessionID string, session *cod
 	if existing := a.sessions[key]; existing != nil && existing != session && existing.client != nil &&
 		(session == nil || existing.client != session.client) {
 		existing.releasing = true
-		existing.client.SetMessageHandler(nil)
 		replaced = existing
 	}
 	a.sessions[key] = session
@@ -55,6 +81,54 @@ func (a *CodexAppServerAdapter) storeSession(agentSessionID string, session *cod
 	if replaced != nil {
 		a.closeOrRetainCodexSession(key, replaced)
 	}
+}
+
+func (a *CodexAppServerAdapter) publishReplacementBinding(
+	agentSessionID string,
+	previous *codexAppServerSession,
+	binding *appServerThreadBinding,
+) {
+	if a == nil || previous == nil || binding == nil {
+		return
+	}
+	a.mu.Lock()
+	if a.sessions[strings.TrimSpace(agentSessionID)] != previous {
+		a.mu.Unlock()
+		return
+	}
+	previous.client = binding.connection.client
+	previous.connection = binding.connection
+	previous.binding = binding
+	childThreadIDs := make([]string, 0, len(previous.childThreads))
+	for threadID := range previous.childThreads {
+		childThreadIDs = append(childThreadIDs, threadID)
+	}
+	a.mu.Unlock()
+	binding.connection.bindChildThreads(binding, childThreadIDs)
+}
+
+func (a *CodexAppServerAdapter) storeReplacementSession(
+	agentSessionID string,
+	binding *appServerThreadBinding,
+	next *codexAppServerSession,
+) {
+	if a == nil || next == nil {
+		return
+	}
+	a.mu.Lock()
+	current := a.sessions[strings.TrimSpace(agentSessionID)]
+	if current != nil && current.binding == binding {
+		next.childThreads = current.childThreads
+		next.recentForeignDrops = current.recentForeignDrops
+		next.canceledRootTurnID = current.canceledRootTurnID
+		next.canceledProviderThreads = current.canceledProviderThreads
+		next.activeTurn = current.activeTurn
+		if len(current.pendingRequests) > 0 {
+			next.pendingRequests = current.pendingRequests
+		}
+	}
+	a.sessions[strings.TrimSpace(agentSessionID)] = next
+	a.mu.Unlock()
 }
 
 func (a *CodexAppServerAdapter) removeSession(agentSessionID string) {
@@ -118,6 +192,19 @@ func (a *CodexAppServerAdapter) getSession(agentSessionID string) *codexAppServe
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.sessions[strings.TrimSpace(agentSessionID)]
+}
+
+func (a *CodexAppServerAdapter) sessionBindingSnapshot(agentSessionID string) (*appServerThreadBinding, *appServerConnection, string) {
+	if a == nil {
+		return nil, nil, ""
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	session := a.sessions[strings.TrimSpace(agentSessionID)]
+	if session == nil {
+		return nil, nil, ""
+	}
+	return session.binding, session.connection, session.threadID
 }
 
 func (a *CodexAppServerAdapter) beginActiveTurn(

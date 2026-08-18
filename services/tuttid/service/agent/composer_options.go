@@ -285,6 +285,12 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 	if planEndpoint != nil {
 		settings.Model = planEndpoint.Model
 	}
+	modelCatalogPreparation := s.composerCatalogPrepareInput(
+		ctx, input, provider, settings, launchInput, planEndpoint, "model",
+	)
+	capabilityCatalogPreparation := s.composerCatalogPrepareInput(
+		ctx, input, provider, settings, launchInput, planEndpoint, "capability",
+	)
 	var catalogLoad <-chan composerModelCatalogLoadResult
 	if composerOptionsSectionIncludesCore(section) && planEndpoint == nil && (composerOptionsProviderUsesModelCatalog(provider) ||
 		(s.ReplayMode && s.ModelCatalog != nil)) {
@@ -295,6 +301,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 			input.Cwd,
 			settings.Model,
 			input.WaitForFreshModelCatalog,
+			modelCatalogPreparation,
 		)
 	}
 	skills := []ComposerSkillOption{}
@@ -317,7 +324,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		capabilityGroup, capabilityContext := errgroup.WithContext(ctx)
 		if composerOptionsSectionIncludesProviderCapabilities(section) {
 			capabilityGroup.Go(func() error {
-				capabilityCatalog, capabilityErrors = s.listComposerCapabilityOptions(capabilityContext, provider, input.Cwd, skills)
+				capabilityCatalog, capabilityErrors = s.listComposerCapabilityOptionsWithPreparation(capabilityContext, provider, input.Cwd, skills, capabilityCatalogPreparation)
 				return nil
 			})
 		}

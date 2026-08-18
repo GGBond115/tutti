@@ -191,6 +191,8 @@ func (a *CodexAppServerAdapter) rememberAppServerChildThreads(
 	if appSession.childThreads == nil {
 		appSession.childThreads = make(map[string]*codexAppServerThreadContext)
 	}
+	connection := appSession.connection
+	binding := appSession.binding
 	added := make([]string, 0, len(childThreadIDs))
 	addedContexts := make([]*codexAppServerThreadContext, 0, len(childThreadIDs))
 	for _, childThreadID := range childThreadIDs {
@@ -226,6 +228,9 @@ func (a *CodexAppServerAdapter) rememberAppServerChildThreads(
 		addedContexts = append(addedContexts, context)
 	}
 	a.mu.Unlock()
+	if connection != nil {
+		connection.bindChildThreads(binding, added)
+	}
 	events := make([]activityshared.Event, 0, len(addedContexts))
 	for index, child := range addedContexts {
 		childSession := appServerChildSession(session, added[index], child)

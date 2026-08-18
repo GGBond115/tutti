@@ -600,6 +600,7 @@ type preparedRuntime struct {
 	MCPServers  []runtimeprep.MCPServerBinding
 	BrowserUse  *bool
 	ComputerUse *bool
+	AppServer   *runtimeprep.AppServerPreparedRuntime
 }
 
 func (s *Service) prepareRuntime(ctx context.Context, workspaceID string, cwd string, input CreateSessionInput, endpoints ...*runtimeprep.ModelEndpointConfig) (preparedRuntime, error) {
@@ -664,38 +665,9 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 	}
 	effectiveBrowserUse := s.clampComposerBrowserUseForLaunch(ctx, provider, input.ProviderTargetRef, input.BrowserUse)
 	effectiveComputerUse := s.clampComposerComputerUseForLaunch(ctx, provider, input.ProviderTargetRef, input.ComputerUse)
-	prepareInput := runtimeprep.PrepareInput{
-		WorkspaceID:               workspaceID,
-		AgentSessionID:            strings.TrimSpace(input.AgentSessionID),
-		AgentTargetID:             strings.TrimSpace(input.AgentTargetID),
-		Provider:                  provider,
-		Cwd:                       cwd,
-		ModelEndpoint:             effectiveEndpoint,
-		Title:                     value(input.Title),
-		PermissionModeID:          value(input.PermissionModeID),
-		PlanMode:                  clampComposerPlanModeForLaunch(provider, input.ProviderTargetRef, valueBool(input.PlanMode)),
-		BrowserUse:                effectiveBrowserUse,
-		ComputerUse:               effectiveComputerUse,
-		CodexSaverMode:            valueBool(input.CodexSaverMode),
-		ProviderTargetRef:         clonePayload(input.ProviderTargetRef),
-		ExtensionSkillRoots:       s.resolveExtensionSkillRoots(ctx, input.ProviderTargetRef),
-		ExtensionRuntimePrep:      s.resolveExtensionRuntimePrep(ctx, input.ProviderTargetRef),
-		Model:                     clampComposerModelForLaunch(provider, input.ProviderTargetRef, value(input.Model)),
-		ReasoningEffort:           normalizeReasoningEffortForLaunch(provider, input.ProviderTargetRef, value(input.ReasoningEffort)),
-		ConversationDetailMode:    input.ConversationDetailMode,
-		AgentName:                 input.AgentName,
-		AgentDescription:          input.AgentDescription,
-		AgentInstructions:         input.AgentInstructions,
-		AgentCapabilitiesExplicit: input.AgentCapabilitiesExplicit,
-		AgentSkills:               append([]string(nil), input.AgentSkills...),
-		AgentTools:                append([]string(nil), input.AgentTools...),
-		ExtraSkills:               sessionSkillBundlesToProviderSkillBundles(input.ExtraSkills),
-		Metadata:                  input.Metadata,
-		CommandCapabilityProjection: cloneCommandCapabilityProjection(
-			input.CommandCapabilityProjection,
-		),
-		ExternalRolloutSourcePath: input.ExternalRolloutSourcePath,
-	}
+	prepareInput := s.buildRuntimePrepareInput(
+		ctx, workspaceID, cwd, input, effectiveEndpoint, effectiveBrowserUse, effectiveComputerUse,
+	)
 	prepared, err := s.RuntimePreparer.Prepare(ctx, prepareInput)
 	if err != nil {
 		if gatewayRegistered {
@@ -760,7 +732,65 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		MCPServers:  cloneRuntimeMCPServerBindings(prepared.MCPServers),
 		BrowserUse:  effectiveCapabilitySetting(input.BrowserUse, effectiveBrowserUse),
 		ComputerUse: effectiveCapabilitySetting(input.ComputerUse, effectiveComputerUse),
+		AppServer:   cloneRuntimeAppServerPreparation(prepared.AppServer),
 	}, nil
+}
+
+func (s *Service) buildRuntimePrepareInput(
+	ctx context.Context,
+	workspaceID string,
+	cwd string,
+	input CreateSessionInput,
+	effectiveEndpoint *runtimeprep.ModelEndpointConfig,
+	effectiveBrowserUse bool,
+	effectiveComputerUse bool,
+) runtimeprep.PrepareInput {
+	provider := strings.TrimSpace(input.Provider)
+	return runtimeprep.PrepareInput{
+		WorkspaceID:               workspaceID,
+		AgentSessionID:            strings.TrimSpace(input.AgentSessionID),
+		AgentTargetID:             strings.TrimSpace(input.AgentTargetID),
+		Provider:                  provider,
+		Cwd:                       cwd,
+		ModelEndpoint:             effectiveEndpoint,
+		Title:                     value(input.Title),
+		PermissionModeID:          value(input.PermissionModeID),
+		PlanMode:                  clampComposerPlanModeForLaunch(provider, input.ProviderTargetRef, valueBool(input.PlanMode)),
+		BrowserUse:                effectiveBrowserUse,
+		ComputerUse:               effectiveComputerUse,
+		CodexSaverMode:            valueBool(input.CodexSaverMode),
+		ProviderTargetRef:         clonePayload(input.ProviderTargetRef),
+		ExtensionSkillRoots:       s.resolveExtensionSkillRoots(ctx, input.ProviderTargetRef),
+		ExtensionRuntimePrep:      s.resolveExtensionRuntimePrep(ctx, input.ProviderTargetRef),
+		Model:                     clampComposerModelForLaunch(provider, input.ProviderTargetRef, value(input.Model)),
+		ReasoningEffort:           normalizeReasoningEffortForLaunch(provider, input.ProviderTargetRef, value(input.ReasoningEffort)),
+		ConversationDetailMode:    input.ConversationDetailMode,
+		AgentName:                 input.AgentName,
+		AgentDescription:          input.AgentDescription,
+		AgentInstructions:         input.AgentInstructions,
+		AgentCapabilitiesExplicit: input.AgentCapabilitiesExplicit,
+		AgentSkills:               append([]string(nil), input.AgentSkills...),
+		AgentTools:                append([]string(nil), input.AgentTools...),
+		ExtraSkills:               sessionSkillBundlesToProviderSkillBundles(input.ExtraSkills),
+		Metadata:                  input.Metadata,
+		CommandCapabilityProjection: cloneCommandCapabilityProjection(
+			input.CommandCapabilityProjection,
+		),
+		ExternalRolloutSourcePath: input.ExternalRolloutSourcePath,
+	}
+}
+
+func cloneRuntimeAppServerPreparation(input *runtimeprep.AppServerPreparedRuntime) *runtimeprep.AppServerPreparedRuntime {
+	if input == nil {
+		return nil
+	}
+	value := *input
+	value.ProcessEnv = append([]string(nil), input.ProcessEnv...)
+	value.ThreadEnv = append([]string(nil), input.ThreadEnv...)
+	value.ModelProviderCredentials = append(
+		[]runtimeprep.AppServerModelProviderCredential(nil), input.ModelProviderCredentials...,
+	)
+	return &value
 }
 
 func prepareInputWithoutConnector(input runtimeprep.PrepareInput) runtimeprep.PrepareInput {

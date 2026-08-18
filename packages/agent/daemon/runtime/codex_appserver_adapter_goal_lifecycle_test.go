@@ -704,9 +704,10 @@ func TestControllerExecDoesNotBypassActiveTurnForTypedGoal(t *testing.T) {
 	adapter := NewCodexAppServerAdapter(transport)
 	controller := NewController([]Adapter{adapter}, nil)
 	started, err := controller.Start(context.Background(), StartInput{
-		RoomID:   "room-1",
-		Provider: ProviderCodex,
-		CWD:      "/workspace",
+		RoomID:    "room-1",
+		Provider:  ProviderCodex,
+		CWD:       "/workspace",
+		AppServer: testAppServerRuntimePreparation("/workspace"),
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

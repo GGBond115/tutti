@@ -2,10 +2,14 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
 
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	"github.com/tutti-os/tutti/services/tuttid/biz/agentprovider"
 )
 
@@ -81,13 +85,14 @@ func (c *composerCapabilityCatalogCache) setFailure(key string, now time.Time, e
 	}
 }
 
-func (s *Service) listComposerCapabilityOptions(
+func (s *Service) listComposerCapabilityOptionsWithPreparation(
 	ctx context.Context,
 	provider string,
 	cwd string,
 	fallbackSkills []ComposerSkillOption,
+	preparation *runtimeprep.PrepareInput,
 ) ([]ComposerCapabilityOption, []string) {
-	cacheKey := composerCapabilityCatalogCacheKey(provider, cwd, fallbackSkills)
+	cacheKey := composerCapabilityCatalogCacheKey(provider, cwd, fallbackSkills) + "\n" + runtimePrepareInputCacheKey(preparation)
 	now := time.Now().UTC()
 	if cached, errors, ok := s.capabilityCatalogCache.get(
 		cacheKey,
@@ -106,7 +111,13 @@ func (s *Service) listComposerCapabilityOptions(
 		); ok {
 			return capabilityCatalogLoadResult{options: cached, errors: errors}, nil
 		}
-		options, errors := s.composerCapabilityLister().ListComposerCapabilityOptions(ctx, provider, cwd, fallbackSkills)
+		var options []ComposerCapabilityOption
+		var errors []string
+		if preparedLister, ok := s.composerCapabilityLister().(PreparedComposerCapabilityLister); ok {
+			options, errors = preparedLister.ListComposerCapabilityOptionsWithPreparation(ctx, provider, cwd, fallbackSkills, preparation)
+		} else {
+			options, errors = s.composerCapabilityLister().ListComposerCapabilityOptions(ctx, provider, cwd, fallbackSkills)
+		}
 		if len(errors) == 0 {
 			s.capabilityCatalogCache.set(cacheKey, time.Now().UTC(), options)
 		} else {
@@ -119,6 +130,18 @@ func (s *Service) listComposerCapabilityOptions(
 		return nil, []string{"capability catalog load returned an invalid result"}
 	}
 	return cloneComposerCapabilityOptions(result.options), append([]string(nil), result.errors...)
+}
+
+func runtimePrepareInputCacheKey(input *runtimeprep.PrepareInput) string {
+	if input == nil {
+		return ""
+	}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return "invalid"
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
 }
 
 type capabilityCatalogLoadResult struct {

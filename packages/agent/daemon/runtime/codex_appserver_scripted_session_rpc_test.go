@@ -45,6 +45,11 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 		})
 	case appServerMethodInitialized:
 		// notification, no response
+	case appServerMethodThreadUnsubscribe:
+		s.sendJSON(map[string]any{
+			"id":     message.ID,
+			"result": map[string]any{"status": "unsubscribed"},
+		})
 	case appServerMethodSkillsExtraRootsSet:
 		if s.extraRootsError {
 			s.sendJSON(map[string]any{
@@ -201,8 +206,12 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 			})
 			return true
 		}
+		threadID := "codex-thread-1"
+		if message.Method == appServerMethodThreadResume {
+			threadID = firstNonEmpty(asString(message.Params["threadId"]), threadID)
+		}
 		s.notify(appServerNotifyThreadStarted, map[string]any{
-			"thread": map[string]any{"id": "codex-thread-1"},
+			"thread": map[string]any{"id": threadID},
 		})
 		if replayTokenUsage {
 			// Real codex 0.140.0 replays thread/tokenUsage/updated during
@@ -219,7 +228,7 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 		s.sendJSON(map[string]any{
 			"id": message.ID,
 			"result": map[string]any{
-				"thread":          map[string]any{"id": "codex-thread-1"},
+				"thread":          map[string]any{"id": threadID},
 				"model":           "gpt-5.1-codex",
 				"reasoningEffort": "medium",
 				"cwd":             "/workspace",

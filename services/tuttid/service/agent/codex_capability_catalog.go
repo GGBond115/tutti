@@ -1,20 +1,14 @@
 package agent
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
-	"github.com/tutti-os/tutti/packages/agent/daemon/runtimecmd"
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 )
-
-const codexAppServerCapabilityListTimeout = 8 * time.Second
 
 type appServerCatalogRequestSet string
 
@@ -24,39 +18,74 @@ const (
 )
 
 type CodexCLICapabilityLister struct {
-	Command          string
-	Args             []string
-	Timeout          time.Duration
-	RequestSet       appServerCatalogRequestSet
-	Environ          func() []string
-	HomeDir          func() (string, error)
-	IsExecutableFile func(string) bool
-	LookPath         func(string) (string, error)
+	RequestSet appServerCatalogRequestSet
+	Catalog    AppServerCatalogReader
+	Provider   string
 }
 
-type defaultComposerCapabilityLister struct{}
+// ParseAppServerCapabilityResponses adapts connection-global runtime payloads
+// into Composer DTOs. The runtime owns the RPC connection and response
+// correlation; this package owns only product presentation mapping.
+func ParseAppServerCapabilityResponses(
+	responses map[string]json.RawMessage,
+	requestSet string,
+) []ComposerCapabilityOption {
+	options := make([]ComposerCapabilityOption, 0)
+	if raw := responses["skills/list"]; len(raw) > 0 {
+		options = append(options, parseCodexSkillCapabilities(raw)...)
+	}
+	if strings.TrimSpace(requestSet) != string(appServerCatalogRequestSetCodex) {
+		return dedupeComposerCapabilityOptions(options)
+	}
+	if raw := responses["app/list"]; len(raw) > 0 {
+		options = append(options, parseCodexAppCapabilities(raw)...)
+	}
+	if raw := responses["plugin/list"]; len(raw) > 0 {
+		options = append(options, parseCodexPluginCapabilities(raw)...)
+	}
+	if raw := responses["mcpServerStatus/list"]; len(raw) > 0 {
+		options = append(options, parseCodexMCPCapabilities(raw)...)
+	}
+	return dedupeComposerCapabilityOptions(options)
+}
 
-func (defaultComposerCapabilityLister) ListComposerCapabilityOptions(
+type defaultComposerCapabilityLister struct {
+	catalog AppServerCatalogReader
+}
+
+func (s defaultComposerCapabilityLister) ListComposerCapabilityOptions(
 	ctx context.Context,
 	provider string,
 	cwd string,
 	fallbackSkills []ComposerSkillOption,
 ) ([]ComposerCapabilityOption, []string) {
-	return discoverComposerCapabilityOptions(ctx, provider, cwd, fallbackSkills)
+	return discoverComposerCapabilityOptionsWithCatalog(ctx, provider, cwd, fallbackSkills, s.catalog)
+}
+
+func (s defaultComposerCapabilityLister) ListComposerCapabilityOptionsWithPreparation(
+	ctx context.Context,
+	provider string,
+	cwd string,
+	fallbackSkills []ComposerSkillOption,
+	preparation *runtimeprep.PrepareInput,
+) ([]ComposerCapabilityOption, []string) {
+	return discoverComposerCapabilityOptionsWithCatalog(ctx, provider, cwd, fallbackSkills, s.catalog, preparation)
 }
 
 func (s *Service) composerCapabilityLister() ComposerCapabilityLister {
 	if s.CapabilityLister != nil {
 		return s.CapabilityLister
 	}
-	return defaultComposerCapabilityLister{}
+	return defaultComposerCapabilityLister{catalog: s.AppServerCatalog}
 }
 
-func discoverComposerCapabilityOptions(
+func discoverComposerCapabilityOptionsWithCatalog(
 	ctx context.Context,
 	provider string,
 	cwd string,
 	fallbackSkills []ComposerSkillOption,
+	catalog AppServerCatalogReader,
+	preparation ...*runtimeprep.PrepareInput,
 ) ([]ComposerCapabilityOption, []string) {
 	fallback := composerCapabilityCatalogFromSkills(provider, fallbackSkills)
 	lister, ok, err := composerCapabilityCatalogLister(composerProfileFor(provider))
@@ -66,7 +95,13 @@ func discoverComposerCapabilityOptions(
 	if !ok {
 		return fallback, nil
 	}
-	options, err := lister.List(ctx, cwd)
+	lister.Provider = provider
+	lister.Catalog = catalog
+	var prepared *runtimeprep.PrepareInput
+	if len(preparation) > 0 {
+		prepared = preparation[0]
+	}
+	options, err := lister.ListWithPreparation(ctx, cwd, prepared)
 	if err != nil {
 		return fallback, []string{err.Error()}
 	}
@@ -78,22 +113,11 @@ func composerCapabilityCatalogLister(profile composerProfile) (CodexCLICapabilit
 	case "":
 		return CodexCLICapabilityLister{}, false, nil
 	case providerregistry.CapabilityCatalogKindCodexAppServer, providerregistry.CapabilityCatalogKindAppServerSkills:
-		command := append([]string(nil), profile.CapabilityCatalogCommand...)
-		if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
-			return CodexCLICapabilityLister{}, false, fmt.Errorf("capability catalog command is required")
-		}
-		for index, argument := range command[1:] {
-			if strings.TrimSpace(argument) == "" {
-				return CodexCLICapabilityLister{}, false, fmt.Errorf("capability catalog command argument %d is empty", index+1)
-			}
-		}
 		requestSet := appServerCatalogRequestSetCodex
 		if profile.CapabilityCatalogKind == providerregistry.CapabilityCatalogKindAppServerSkills {
 			requestSet = appServerCatalogRequestSetSkillsOnly
 		}
 		return CodexCLICapabilityLister{
-			Command:    command[0],
-			Args:       command[1:],
 			RequestSet: requestSet,
 		}, true, nil
 	default:
@@ -102,283 +126,20 @@ func composerCapabilityCatalogLister(profile composerProfile) (CodexCLICapabilit
 }
 
 func (l CodexCLICapabilityLister) List(ctx context.Context, cwd string) ([]ComposerCapabilityOption, error) {
-	startedAt := time.Now()
-	slog.Info("agent capability catalog fetch started",
-		"event", "agent.capability_catalog.fetch_start",
-		"provider", "codex",
-		"request_set", l.RequestSet,
-	)
-	timeout := l.Timeout
-	if timeout <= 0 {
-		timeout = codexAppServerCapabilityListTimeout
-	}
-
-	command := strings.TrimSpace(l.Command)
-	if command == "" {
-		return nil, fmt.Errorf("capability catalog command is required")
-	}
-	resolver := runtimecmd.Resolver{
-		Environ:          l.Environ,
-		HomeDir:          l.HomeDir,
-		IsExecutableFile: l.IsExecutableFile,
-		LookPath:         l.LookPath,
-	}
-	processEnv := resolver.Env(nil)
-	command = resolver.Resolve(command, processEnv)
-	args := append([]string{}, l.Args...)
-	processCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	process, err := startCodexAppServerProcess(processCtx, command, args, processEnv)
-	if err != nil {
-		slog.Info("agent capability catalog fetch settled",
-			"event", "agent.capability_catalog.fetch_settled",
-			"provider", "codex",
-			"request_set", l.RequestSet,
-			"durationMs", time.Since(startedAt).Milliseconds(),
-			"error", err,
-		)
-		return nil, err
-	}
-	slog.Info("agent capability catalog process launch",
-		"event", "agent.capability_catalog.process_start",
-		"provider", "codex",
-		"command", command,
-		"args", args,
-	)
-	requestStartedAt := time.Now()
-	if err := writeAppServerCapabilityListRequests(process.stdin, cwd, l.RequestSet); err != nil {
-		slog.Info("agent capability catalog request stage settled",
-			"event", "agent.capability_catalog.stage_settled",
-			"provider", "codex",
-			"request_set", l.RequestSet,
-			"stage", "request_dispatch",
-			"durationMs", time.Since(requestStartedAt).Milliseconds(),
-			"error", err,
-		)
-		processErr := processCtx.Err()
-		_ = process.stop(cancel)
-		if processErr != nil {
-			return nil, fmt.Errorf("codex app-server capability discovery timed out: %w", processErr)
-		}
-		return nil, err
-	}
-	slog.Info("agent capability catalog request stage settled",
-		"event", "agent.capability_catalog.stage_settled",
-		"provider", "codex",
-		"request_set", l.RequestSet,
-		"stage", "request_dispatch",
-		"durationMs", time.Since(requestStartedAt).Milliseconds(),
-	)
-	responseStartedAt := time.Now()
-	options, err := readAppServerCapabilityListResponses(process.stdout, l.RequestSet)
-	slog.Info("agent capability catalog response stage settled",
-		"event", "agent.capability_catalog.stage_settled",
-		"provider", "codex",
-		"request_set", l.RequestSet,
-		"stage", "capability_response",
-		"durationMs", time.Since(responseStartedAt).Milliseconds(),
-		"optionCount", len(options),
-		"error", err,
-	)
-	processErr := processCtx.Err()
-	_ = process.stop(cancel)
-	settled := func(settledErr error) {
-		slog.Info("agent capability catalog fetch settled",
-			"event", "agent.capability_catalog.fetch_settled",
-			"provider", "codex",
-			"request_set", l.RequestSet,
-			"durationMs", time.Since(startedAt).Milliseconds(),
-			"optionCount", len(options),
-			"error", settledErr,
-		)
-	}
-	if err == nil {
-		settled(nil)
-		return options, nil
-	}
-	if processErr != nil {
-		timeoutErr := fmt.Errorf("codex app-server capability discovery timed out: %w", processErr)
-		settled(timeoutErr)
-		return nil, timeoutErr
-	}
-	if stderr := strings.TrimSpace(process.stderr.String()); stderr != "" {
-		stderrErr := fmt.Errorf("%w: %s", err, stderr)
-		settled(stderrErr)
-		return nil, stderrErr
-	}
-	settled(err)
-	return nil, err
+	return l.ListWithPreparation(ctx, cwd, nil)
 }
 
-func writeAppServerCapabilityListRequests(
-	stdin io.Writer,
-	cwd string,
-	requestSet appServerCatalogRequestSet,
-) error {
-	requests, _, err := appServerCatalogRequests(cwd, requestSet)
-	if err != nil {
-		return err
+func (l CodexCLICapabilityLister) ListWithPreparation(ctx context.Context, cwd string, preparation *runtimeprep.PrepareInput) ([]ComposerCapabilityOption, error) {
+	if l.Catalog == nil {
+		return nil, fmt.Errorf("app-server catalog reader is unavailable")
 	}
-	encoder := json.NewEncoder(stdin)
-	if err := encoder.Encode(map[string]any{
-		"id":     "1",
-		"method": "initialize",
-		"params": map[string]any{
-			"clientInfo": map[string]string{
-				"name":    "tuttid",
-				"version": "0.1.0",
-			},
-			"capabilities": map[string]any{
-				"experimentalApi": true,
-			},
-		},
-	}); err != nil {
-		return fmt.Errorf("write codex app-server initialize: %w", err)
-	}
-	if err := encoder.Encode(map[string]any{
-		"method": "initialized",
-		"params": map[string]any{},
-	}); err != nil {
-		return fmt.Errorf("write codex app-server initialized: %w", err)
-	}
-	for _, request := range requests {
-		if err := encoder.Encode(request); err != nil {
-			return fmt.Errorf("write codex app-server %s: %w", request["method"], err)
-		}
-	}
-	return nil
-}
-
-func appServerCatalogRequests(
-	cwd string,
-	requestSet appServerCatalogRequestSet,
-) ([]map[string]any, map[string]string, error) {
-	if requestSet == "" {
-		requestSet = appServerCatalogRequestSetCodex
-	}
-	cwds := []string{}
-	if trimmedCwd := strings.TrimSpace(cwd); trimmedCwd != "" {
-		cwds = append(cwds, trimmedCwd)
-	}
-	requests := []map[string]any{
-		{
-			"id":     "2",
-			"method": "skills/list",
-			"params": map[string]any{
-				"cwds":        cwds,
-				"forceReload": false,
-			},
-		},
-	}
-	pending := map[string]string{
-		"2": "skills/list",
-	}
-	switch requestSet {
-	case appServerCatalogRequestSetSkillsOnly:
-		return requests, pending, nil
-	case appServerCatalogRequestSetCodex:
-	default:
-		return nil, nil, fmt.Errorf("unsupported app-server catalog request set %q", requestSet)
-	}
-	requests = append(requests,
-		map[string]any{
-			"id":     "3",
-			"method": "app/list",
-			"params": map[string]any{
-				"limit":        200,
-				"forceRefetch": false,
-			},
-		},
-		map[string]any{
-			"id":     "4",
-			"method": "plugin/list",
-			"params": map[string]any{
-				"limit": 200,
-			},
-		},
-		map[string]any{
-			"id":     "5",
-			"method": "mcpServerStatus/list",
-			"params": map[string]any{
-				"limit":  200,
-				"detail": "toolsAndAuthOnly",
-			},
-		},
-	)
-	pending["3"] = "app/list"
-	pending["4"] = "plugin/list"
-	pending["5"] = "mcpServerStatus/list"
-	return requests, pending, nil
-}
-
-func readAppServerCapabilityListResponses(
-	stdout io.Reader,
-	requestSet appServerCatalogRequestSet,
-) ([]ComposerCapabilityOption, error) {
-	_, pendingMethods, err := appServerCatalogRequests("", requestSet)
+	result, err := l.Catalog.ListAppServerCatalog(ctx, AppServerCatalogRequest{
+		Preparation: preparation, Provider: l.Provider, Cwd: cwd, ClientName: "tuttid", RequestSet: string(l.RequestSet),
+	})
 	if err != nil {
 		return nil, err
 	}
-	pending := make(map[string]struct{}, len(pendingMethods))
-	for id := range pendingMethods {
-		pending[id] = struct{}{}
-	}
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), codexModelListMaxLineBytes)
-	options := make([]ComposerCapabilityOption, 0)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var payload map[string]json.RawMessage
-		if json.Unmarshal([]byte(line), &payload) != nil {
-			continue
-		}
-		id := codexRPCIDString(payload["id"])
-		if _, ok := pending[id]; !ok {
-			continue
-		}
-		delete(pending, id)
-		if rawError, ok := payload["error"]; ok && string(rawError) != "null" {
-			if len(pending) == 0 {
-				return dedupeComposerCapabilityOptions(options), nil
-			}
-			continue
-		}
-		switch id {
-		case "2":
-			options = append(options, parseCodexSkillCapabilities(payload["result"])...)
-		case "3":
-			options = append(options, parseCodexAppCapabilities(payload["result"])...)
-		case "4":
-			options = append(options, parseCodexPluginCapabilities(payload["result"])...)
-		case "5":
-			options = append(options, parseCodexMCPCapabilities(payload["result"])...)
-		}
-		if len(pending) == 0 {
-			return dedupeComposerCapabilityOptions(options), nil
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read codex app-server stdout: %w", err)
-	}
-	if len(options) > 0 {
-		return dedupeComposerCapabilityOptions(options), nil
-	}
-	return nil, fmt.Errorf("codex app-server exited before capability responses")
-}
-
-func codexRPCIDString(raw json.RawMessage) string {
-	var stringID string
-	if err := json.Unmarshal(raw, &stringID); err == nil {
-		return stringID
-	}
-	var numberID int
-	if err := json.Unmarshal(raw, &numberID); err == nil {
-		return fmt.Sprintf("%d", numberID)
-	}
-	return ""
+	return append([]ComposerCapabilityOption(nil), result.Capabilities...), nil
 }
 
 func parseCodexSkillCapabilities(raw json.RawMessage) []ComposerCapabilityOption {

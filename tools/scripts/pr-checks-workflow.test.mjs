@@ -17,7 +17,12 @@ const windowsWorkflows = [
     path: ".github/workflows/windows-desktop-alpha.yml"
   },
   {
-    expectedPaths: ["packages/agent/daemon/**"],
+    expectedPaths: [
+      "packages/agent/daemon/**",
+      "packages/agent/host/**",
+      "packages/agent/runtimeprep/**",
+      "services/tuttid/**"
+    ],
     expectedSetupSteps: ["Setup Go", "Setup Node"],
     path: ".github/workflows/windows-agent-adapters.yml"
   },

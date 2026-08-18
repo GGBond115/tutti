@@ -16,6 +16,7 @@ import (
 // request construction.
 type codexAppServerExecState struct {
 	liveSession  *codexAppServerSession
+	threadID     string
 	models       []map[string]any
 	config       map[string]any
 	defaultModel string
@@ -464,6 +465,7 @@ func (a *CodexAppServerAdapter) snapshotExecState(agentSessionID string) (codexA
 	}
 	return codexAppServerExecState{
 		liveSession:  appSession,
+		threadID:     appSession.threadID,
 		models:       cloneCodexAppServerModels(appSession.models),
 		config:       clonePayloadDeep(appSession.configOptions),
 		defaultModel: appSession.defaultModel,

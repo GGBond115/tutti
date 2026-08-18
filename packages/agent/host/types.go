@@ -137,6 +137,7 @@ type ProviderRuntimeSession struct {
 	Settings                *ComposerSettings
 	Capabilities            *canonical.CapabilitySnapshot
 	RuntimeContext          map[string]any
+	AppServer               *AppServerRuntimePreparation
 	Status                  string
 	TurnLifecycle           *TurnLifecycle
 	SubmitAvailability      *SubmitAvailability
@@ -300,6 +301,7 @@ type RuntimeStartInput struct {
 	CodexSaverMode          bool
 	ProviderTargetRef       map[string]any
 	RuntimeContext          map[string]any
+	AppServer               *AppServerRuntimePreparation
 	ReasoningEffort         string
 	Speed                   string
 	ConversationDetailMode  string
@@ -346,6 +348,7 @@ type RuntimeResumeInput struct {
 	UpdatedAtUnixMS   int64
 	Visible           *bool
 	RuntimeContext    map[string]any
+	AppServer         *AppServerRuntimePreparation
 	// ProviderLaunchRuntimeContext is request-scoped context exposed only to
 	// provider launch preparation. Runtime implementations must not retain or
 	// publish it as canonical Session runtime context.

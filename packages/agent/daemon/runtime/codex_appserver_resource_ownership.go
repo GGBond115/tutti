@@ -24,7 +24,9 @@ func (a *CodexAppServerAdapter) retainRetiredCodexSession(agentSessionID string,
 		return
 	}
 	agentSessionID = strings.TrimSpace(agentSessionID)
-	session.client.SetMessageHandler(nil)
+	if session.connection == nil {
+		session.client.SetMessageHandler(nil)
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.retiredSessions == nil {
@@ -44,7 +46,18 @@ func (a *CodexAppServerAdapter) closeOrRetainCodexSession(agentSessionID string,
 	if session == nil || session.client == nil {
 		return
 	}
-	session.client.SetMessageHandler(nil)
+	if session.connection != nil {
+		if session.binding != nil {
+			_ = session.connection.detachBinding(session.binding)
+		}
+		if _, err := a.connections.closeIfIdle(session.connection); err != nil {
+			a.retainRetiredCodexSession(agentSessionID, session)
+		}
+		return
+	}
+	if session.connection == nil {
+		session.client.SetMessageHandler(nil)
+	}
 	if err := session.client.Close(); err != nil {
 		a.retainRetiredCodexSession(agentSessionID, session)
 	}
@@ -109,7 +122,9 @@ func (a *CodexAppServerAdapter) retryOneCodexSessionLocked(agentSessionID string
 	current := a.sessions[agentSessionID]
 	if current != nil && current.client != nil && current.releaseFailed && !current.releasing {
 		current.releasing = true
-		current.client.SetMessageHandler(nil)
+		if current.connection == nil {
+			current.client.SetMessageHandler(nil)
+		}
 		a.mu.Unlock()
 		if err := current.client.Close(); err != nil {
 			a.mu.Lock()
@@ -139,13 +154,18 @@ func (a *CodexAppServerAdapter) retryOneCodexSessionLocked(agentSessionID string
 		return false, nil
 	}
 	target.releasing = true
-	target.client.SetMessageHandler(nil)
+	if target.connection == nil {
+		target.client.SetMessageHandler(nil)
+	}
 	a.mu.Unlock()
 	if err := target.client.Close(); err != nil {
 		a.mu.Lock()
 		target.releasing = false
 		a.mu.Unlock()
 		return true, err
+	}
+	if target.connection != nil {
+		a.connections.completeRetired(target.connection, nil)
 	}
 	a.removeRetiredCodexSession(agentSessionID, target)
 	return true, nil
@@ -181,7 +201,13 @@ func (a *CodexAppServerAdapter) CleanupLiveSessionResources(ctx context.Context,
 	}
 	attempted, err := a.retryOneCodexSession("")
 	if !attempted {
-		return result
+		attempted, err = a.connections.retryOneRetired()
+	}
+	if !attempted {
+		attempted, err = a.connections.closeOneIdle()
+		if !attempted {
+			return result
+		}
 	}
 	result.Attempted = 1
 	if err != nil {
@@ -190,4 +216,11 @@ func (a *CodexAppServerAdapter) CleanupLiveSessionResources(ctx context.Context,
 		result.Cleaned = 1
 	}
 	return result
+}
+
+func (a *CodexAppServerAdapter) ShutdownLiveSessionResources(context.Context) LiveSessionResourceCleanupResult {
+	if a == nil || a.connections == nil {
+		return LiveSessionResourceCleanupResult{}
+	}
+	return a.connections.shutdownAll()
 }

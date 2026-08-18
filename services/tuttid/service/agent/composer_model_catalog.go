@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/modelcatalog"
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 )
 
 type composerModelCatalogProjection struct {
@@ -28,23 +29,48 @@ func startComposerModelCatalogLoad(
 	cwd string,
 	selectedModel string,
 	waitForFresh bool,
+	preparation *runtimeprep.PrepareInput,
 ) <-chan composerModelCatalogLoadResult {
 	result := make(chan composerModelCatalogLoadResult, 1)
 	go func() {
-		projection, ok := composerModelOptionsFromCatalog(ctx, catalog, provider, cwd, selectedModel, waitForFresh)
+		projection, ok := composerModelOptionsFromCatalogWithPreparation(ctx, catalog, provider, cwd, selectedModel, waitForFresh, preparation)
 		result <- composerModelCatalogLoadResult{projection: projection, ok: ok}
 	}()
 	return result
 }
 
-func composerModelOptionsFromCatalog(ctx context.Context, catalog AgentModelCatalog, provider string, cwd string, selectedModel string, waitForFresh ...bool) (composerModelCatalogProjection, bool) {
+func composerModelOptionsFromCatalog(
+	ctx context.Context,
+	catalog AgentModelCatalog,
+	provider string,
+	cwd string,
+	selectedModel string,
+	waitForFresh ...bool,
+) (composerModelCatalogProjection, bool) {
+	fresh := false
+	if len(waitForFresh) > 0 {
+		fresh = waitForFresh[0]
+	}
+	return composerModelOptionsFromCatalogWithPreparation(ctx, catalog, provider, cwd, selectedModel, fresh, nil)
+}
+
+func composerModelOptionsFromCatalogWithPreparation(
+	ctx context.Context,
+	catalog AgentModelCatalog,
+	provider string,
+	cwd string,
+	selectedModel string,
+	waitForFresh bool,
+	preparation *runtimeprep.PrepareInput,
+) (composerModelCatalogProjection, bool) {
 	if catalog == nil {
 		return composerModelCatalogProjection{}, false
 	}
 	result, err := catalog.ListModels(ctx, AgentModelCatalogInput{
 		Provider:     provider,
 		Cwd:          cwd,
-		WaitForFresh: len(waitForFresh) > 0 && waitForFresh[0],
+		WaitForFresh: waitForFresh,
+		Preparation:  preparation,
 	})
 	if err != nil {
 		// The model list drives the composer's model selector; when it fails the

@@ -170,29 +170,6 @@ func TestOpenCodeModelCatalogListerUsesDescriptorRuntimeCommand(t *testing.T) {
 	}
 }
 
-func TestCodexModelCatalogListerUsesDescriptorRuntimeCommand(t *testing.T) {
-	descriptor, ok := providerregistry.Find(agentprovider.Codex)
-	if !ok {
-		t.Fatal("codex descriptor missing")
-	}
-	descriptor.Runtime.Command = []string{"poison-codex", "poison-app-server"}
-	spec, registered, err := agentModelCatalogSpecFromDescriptor(descriptor)
-	if err != nil || !registered {
-		t.Fatalf("agentModelCatalogSpecFromDescriptor() = (_, %v, %v)", registered, err)
-	}
-	resolver := &fakeProviderCommandResolver{}
-	lister, ok := spec.lister(&CachedAgentModelCatalog{ProviderCommands: resolver}, AgentModelCatalogInput{}).(CodexCLIModelLister)
-	if !ok {
-		t.Fatalf("lister = %T, want CodexCLIModelLister", spec.lister(&CachedAgentModelCatalog{ProviderCommands: resolver}, AgentModelCatalogInput{}))
-	}
-	if lister.Command != "poison-codex" || !reflect.DeepEqual(lister.Args, []string{"poison-app-server"}) {
-		t.Fatalf("lister command = %q %#v", lister.Command, lister.Args)
-	}
-	if lister.Provider != agentprovider.Codex || lister.ProviderCommands != resolver {
-		t.Fatalf("lister provider wiring = provider %q resolver %T, want %q and injected resolver", lister.Provider, lister.ProviderCommands, agentprovider.Codex)
-	}
-}
-
 func TestAgentModelCatalogSpecRejectsUnknownDescriptorKind(t *testing.T) {
 	descriptor, ok := providerregistry.Find(agentprovider.Codex)
 	if !ok {
@@ -201,44 +178,6 @@ func TestAgentModelCatalogSpecRejectsUnknownDescriptorKind(t *testing.T) {
 	descriptor.ComposerProfile.ModelCatalog = "poison"
 	if _, registered, err := agentModelCatalogSpecFromDescriptor(descriptor); err == nil || registered {
 		t.Fatalf("agentModelCatalogSpecFromDescriptor() = (_, %v, %v), want unsupported error", registered, err)
-	}
-}
-
-func TestCodexCapabilityCatalogCommandComesFromRuntimeDescriptor(t *testing.T) {
-	descriptor, ok := providerregistry.Find(agentprovider.Codex)
-	if !ok {
-		t.Fatal("codex descriptor missing")
-	}
-	descriptor.Runtime.Command = []string{"poison-codex", "poison-app-server"}
-	profile := composerProfileFromDescriptor(descriptor)
-	lister, ok, err := composerCapabilityCatalogLister(profile)
-	if err != nil || !ok {
-		t.Fatalf("composerCapabilityCatalogLister() = (%#v, %v, %v)", lister, ok, err)
-	}
-	if lister.Command != "poison-codex" || !reflect.DeepEqual(lister.Args, []string{"poison-app-server"}) {
-		t.Fatalf("lister command = %q %#v", lister.Command, lister.Args)
-	}
-	if lister.RequestSet != appServerCatalogRequestSetCodex {
-		t.Fatalf("lister request set = %q, want codex", lister.RequestSet)
-	}
-}
-
-func TestTuttiAgentCapabilityCatalogCommandComesFromRuntimeDescriptor(t *testing.T) {
-	descriptor, ok := providerregistry.Find(agentprovider.TuttiAgent)
-	if !ok {
-		t.Fatal("tutti-agent descriptor missing")
-	}
-	descriptor.Runtime.Command = []string{"poison-tutti-agent", "poison-app-server"}
-	profile := composerProfileFromDescriptor(descriptor)
-	lister, ok, err := composerCapabilityCatalogLister(profile)
-	if err != nil || !ok {
-		t.Fatalf("composerCapabilityCatalogLister() = (%#v, %v, %v)", lister, ok, err)
-	}
-	if lister.Command != "poison-tutti-agent" || !reflect.DeepEqual(lister.Args, []string{"poison-app-server"}) {
-		t.Fatalf("lister command = %q %#v", lister.Command, lister.Args)
-	}
-	if lister.RequestSet != appServerCatalogRequestSetSkillsOnly {
-		t.Fatalf("lister request set = %q, want skills_only", lister.RequestSet)
 	}
 }
 

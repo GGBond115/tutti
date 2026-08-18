@@ -131,6 +131,14 @@ func modelEndpointUsesAnthropicAPIKey(baseURL string) bool {
 // provider table. The API key stays out of the file; Codex reads it from the
 // session env via env_key.
 func codexConfigWithModelPlanEndpoint(content string, endpoint *ModelEndpointConfig) (string, bool) {
+	return codexConfigWithModelPlanEndpointAuth(content, endpoint, true)
+}
+
+func codexConfigWithModelPlanEndpointAuth(
+	content string,
+	endpoint *ModelEndpointConfig,
+	useEnvKey bool,
+) (string, bool) {
 	if !endpoint.supportsCodex() {
 		return content, false
 	}
@@ -138,19 +146,43 @@ func codexConfigWithModelPlanEndpoint(content string, endpoint *ModelEndpointCon
 	if model := strings.TrimSpace(endpoint.Model); model != "" {
 		next = codexConfigWithTopLevelAssignment(next, "model", strconv.Quote(model))
 	}
+	next = codexConfigWithoutOwnedModelPlanProvider(next)
 	table := "[model_providers." + codexModelPlanProviderID + "]\n" +
 		"name = " + strconv.Quote(planProviderDisplayName(endpoint)) + "\n" +
-		"base_url = " + strconv.Quote(strings.TrimSpace(endpoint.BaseURL)) + "\n" +
-		"env_key = " + strconv.Quote(codexModelPlanAPIKeyEnv) + "\n" +
+		"base_url = " + strconv.Quote(strings.TrimSpace(endpoint.BaseURL)) + "\n"
+	if useEnvKey {
+		table += "env_key = " + strconv.Quote(codexModelPlanAPIKeyEnv) + "\n"
+	}
+	table +=
 		"wire_api = " + strconv.Quote(codexModelEndpointWireAPI(endpoint)) + "\n"
-	if !strings.Contains(next, "[model_providers."+codexModelPlanProviderID+"]") {
-		if strings.TrimSpace(next) == "" {
-			next = table
-		} else {
-			next = strings.TrimRight(next, "\r\n") + "\n\n" + table
-		}
+	if strings.TrimSpace(next) == "" {
+		next = table
+	} else {
+		next = strings.TrimRight(next, "\r\n") + "\n\n" + table
 	}
 	return next, next != content
+}
+
+func codexConfigWithoutOwnedModelPlanProvider(content string) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	result := make([]string, 0, len(lines))
+	skipping := false
+	exactHeader := "[model_providers." + codexModelPlanProviderID + "]"
+	nestedHeader := "[model_providers." + codexModelPlanProviderID + "."
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if trimmed == exactHeader || strings.HasPrefix(trimmed, nestedHeader) {
+				skipping = true
+				continue
+			}
+			skipping = false
+		}
+		if !skipping {
+			result = append(result, line)
+		}
+	}
+	return strings.TrimRight(strings.Join(result, "\n"), "\n")
 }
 
 func codexModelEndpointWireAPI(endpoint *ModelEndpointConfig) string {

@@ -100,6 +100,8 @@ func TestControllerResumeReattachesExistingProviderSession(t *testing.T) {
 	transport := newScriptedACPTransport()
 	reporter := &recordingReporter{}
 	controller := NewDefaultControllerWithProcessTransport(reporter, transport)
+	appServer := testAppServerRuntimePreparation("/workspace")
+	appServer.ProcessEnv = []string{"CODEX_HOME=/prepared/codex-home"}
 
 	session, err := controller.Resume(context.Background(), ResumeInput{
 		RoomID:            "room-1",
@@ -108,6 +110,7 @@ func TestControllerResumeReattachesExistingProviderSession(t *testing.T) {
 		ProviderSessionID: "codex-acp-session-restored",
 		CWD:               "/workspace",
 		Env:               []string{"CODEX_HOME=/prepared/codex-home"},
+		AppServer:         appServer,
 		Title:             "Restored",
 		Status:            SessionStatusReady,
 		CreatedAtUnixMS:   100,

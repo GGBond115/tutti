@@ -49,6 +49,83 @@ func appServerThreadStartParams(session Session, cwd string) map[string]any {
 	return params
 }
 
+func applyAppServerThreadOverlay(params map[string]any, overlay AppServerThreadOverlay) {
+	if params == nil {
+		return
+	}
+	config, _ := params["config"].(map[string]any)
+	if config == nil {
+		config = make(map[string]any)
+	}
+	if len(overlay.Env) > 0 {
+		set := make(map[string]string)
+		for _, entry := range overlay.Env {
+			key, value, ok := strings.Cut(entry, "=")
+			key = strings.TrimSpace(key)
+			if ok && key != "" {
+				set[key] = value
+			}
+		}
+		if len(set) > 0 {
+			config["shell_environment_policy"] = map[string]any{
+				"inherit": "all",
+				"set":     set,
+			}
+		}
+	}
+	if len(overlay.MCPServers) > 0 {
+		servers := make(map[string]any, len(overlay.MCPServers))
+		for _, binding := range overlay.MCPServers {
+			name := strings.TrimSpace(binding.Name)
+			if name == "" {
+				continue
+			}
+			server := map[string]any{"url": strings.TrimSpace(binding.URL)}
+			if len(binding.Headers) > 0 {
+				server["http_headers"] = binding.Headers
+			}
+			servers[name] = server
+		}
+		if len(servers) > 0 {
+			config["mcp_servers"] = servers
+		}
+	}
+	if len(overlay.ModelProviderCredentials) > 0 {
+		providers, _ := config["model_providers"].(map[string]any)
+		if providers == nil {
+			providers = make(map[string]any)
+		}
+		for _, credential := range overlay.ModelProviderCredentials {
+			providerID := strings.TrimSpace(credential.ModelProviderID)
+			bearerToken := strings.TrimSpace(credential.BearerToken)
+			if providerID == "" || bearerToken == "" {
+				continue
+			}
+			providerConfig, _ := providers[providerID].(map[string]any)
+			clonedConfig := make(map[string]any, len(providerConfig)+1)
+			for key, value := range providerConfig {
+				clonedConfig[key] = value
+			}
+			providerConfig = clonedConfig
+			delete(providerConfig, "env_key")
+			providerConfig["experimental_bearer_token"] = bearerToken
+			providers[providerID] = providerConfig
+		}
+		if len(providers) > 0 {
+			config["model_providers"] = providers
+		}
+	}
+	if len(config) > 0 {
+		params["config"] = config
+	}
+	if value := strings.TrimSpace(overlay.BaseInstructions); value != "" {
+		params["baseInstructions"] = value
+	}
+	if value := strings.TrimSpace(overlay.DeveloperInstructions); value != "" {
+		params["developerInstructions"] = value
+	}
+}
+
 func appServerTurnStartParams(
 	session Session,
 	threadID string,

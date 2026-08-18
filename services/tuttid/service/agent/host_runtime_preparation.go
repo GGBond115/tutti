@@ -162,7 +162,7 @@ func withServicePreparedRuntime(ctx context.Context, service *Service, prepared 
 func (a serviceHostPreparation) Prepare(ctx context.Context, input agenthost.RuntimePreparationInput) (agenthost.PreparedRuntime, error) {
 	if override, ok := ctx.Value(servicePreparedRuntimeContextKey{}).(servicePreparedRuntimeContext); ok && override.support == a.support {
 		return agenthost.PreparedRuntime{Cwd: override.prepared.Cwd, Env: append([]string(nil), override.prepared.Env...),
-			MCPServers: hostMCPServerBindings(override.prepared.MCPServers)}, nil
+			MCPServers: hostMCPServerBindings(override.prepared.MCPServers), AppServer: hostAppServerPreparation(override.prepared.AppServer)}, nil
 	}
 	settings := input.Settings
 	persisted := PersistedSession{
@@ -202,7 +202,36 @@ func (a serviceHostPreparation) Prepare(ctx context.Context, input agenthost.Run
 		Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...), MCPServers: hostMCPServerBindings(prepared.MCPServers),
 		ProviderTargetRef: clonePayload(targetRef), Settings: &settings,
 		RuntimeContext: persistedSessionRuntimeContext(persisted),
+		AppServer:      hostAppServerPreparation(prepared.AppServer),
 	}, nil
+}
+
+func hostAppServerPreparation(input *runtimeprep.AppServerPreparedRuntime) *agenthost.AppServerRuntimePreparation {
+	if input == nil {
+		return nil
+	}
+	return &agenthost.AppServerRuntimePreparation{
+		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
+		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
+		ProcessCwd: input.ProcessCwd, ProcessEnv: append([]string(nil), input.ProcessEnv...),
+		ThreadEnv:                append([]string(nil), input.ThreadEnv...),
+		ModelProviderCredentials: hostAppServerModelProviderCredentials(input.ModelProviderCredentials),
+		BaseInstructions:         input.BaseInstructions,
+		DeveloperInstructions:    input.DeveloperInstructions,
+	}
+}
+
+func hostAppServerModelProviderCredentials(
+	input []runtimeprep.AppServerModelProviderCredential,
+) []agenthost.AppServerModelProviderCredential {
+	result := make([]agenthost.AppServerModelProviderCredential, 0, len(input))
+	for _, credential := range input {
+		result = append(result, agenthost.AppServerModelProviderCredential{
+			ModelProviderID: credential.ModelProviderID,
+			BearerToken:     credential.BearerToken,
+		})
+	}
+	return result
 }
 
 func hostMCPServerBindings(input []runtimeprep.MCPServerBinding) []agenthost.MCPServerBinding {

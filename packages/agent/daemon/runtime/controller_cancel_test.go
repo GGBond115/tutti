@@ -16,10 +16,11 @@ func TestControllerCancelStopsBackgroundTurn(t *testing.T) {
 	transport.conn.promptPermission = true
 	controller := NewDefaultControllerWithProcessTransport(nil, transport)
 	started, err := controller.Start(context.Background(), StartInput{
-		RoomID:   "room-1",
-		Provider: ProviderCodex,
-		CWD:      "/workspace",
-		Title:    "Codex",
+		RoomID:    "room-1",
+		Provider:  ProviderCodex,
+		CWD:       "/workspace",
+		Title:     "Codex",
+		AppServer: testAppServerRuntimePreparation("/workspace"),
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

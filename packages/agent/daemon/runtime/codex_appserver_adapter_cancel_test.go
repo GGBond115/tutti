@@ -119,6 +119,7 @@ func TestControllerCodexCancelInterruptsRootAndKnownChildBeforeLocalCleanup(t *t
 		Provider:       ProviderCodex,
 		CWD:            "/workspace/room-1",
 		Title:          "Codex",
+		AppServer:      testAppServerRuntimePreparation("/workspace/room-1"),
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

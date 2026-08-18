@@ -51,6 +51,11 @@ func (a *CodexAppServerAdapter) fetchModels(
 	session Session,
 	trace *codexAppServerStartupTrace,
 ) []map[string]any {
+	if a != nil && a.connections != nil {
+		if connection := a.connections.connectionForClient(client); connection != nil {
+			return connection.modelList(ctx, trace)
+		}
+	}
 	result, err := trace.TypedCall(acpStartCallTimeout, appServerMethodModelList, func() (json.RawMessage, error) {
 		return client.ModelList(ctx, acpStartCallTimeout, map[string]any{},
 			func(ctx context.Context, message acpMessage) error {

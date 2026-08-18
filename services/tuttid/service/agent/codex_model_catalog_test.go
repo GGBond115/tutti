@@ -2,281 +2,108 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
-	"os"
 	"path/filepath"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 )
 
-func TestCodexCLIModelListerCompletesInitializeHandshakeBeforeModelList(t *testing.T) {
-	scriptPath := filepath.Join(t.TempDir(), "codex")
-	script := `#!/bin/sh
-initialized=false
-while IFS= read -r line; do
-  case "$line" in
-    *'"method":"initialize"'*)
-      echo '{"id":"1","result":{}}'
-      ;;
-    *'"method":"initialized"'*)
-      initialized=true
-      ;;
-    *model/list*)
-      if [ "$initialized" != true ]; then
-        echo '{"id":"2","error":{"code":-32600,"message":"Not initialized"}}'
-        exit 0
-      fi
-      echo '{"id":"2","result":{"data":[{"id":"gpt-5","displayName":"GPT-5","description":"default","isDefault":true,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"Balanced"},{"reasoningEffort":"ultra","description":"Maximum reasoning with automatic task delegation"}]},{"model":"gpt-5.1"}]}}'
-      sleep 10
-      exit 0
-      ;;
-  esac
-done
-`
-	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake codex script: %v", err)
+func TestCodexCLIModelListerDelegatesModelListToRuntimeCatalog(t *testing.T) {
+	reader := &recordingAppServerCatalogReader{result: AppServerCatalogResult{
+		Models: []AgentModelOption{{ID: "gpt-5", DisplayName: "GPT-5"}},
+	}}
+	lister := CodexCLIModelLister{
+		Provider: "codex", Cwd: "/workspace", ClientName: "tuttid", Catalog: reader,
 	}
-
-	result, err := (CodexCLIModelLister{
-		Command: scriptPath,
-		Timeout: 15 * time.Second,
-	}).ListModels(context.Background())
+	result, err := lister.ListModels(t.Context())
 	if err != nil {
-		t.Fatalf("ListModels returned error: %v", err)
-	}
-	models := result.Models
-	if len(models) != 2 {
-		t.Fatalf("len(models) = %d, want 2", len(models))
-	}
-	if models[0].ID != "gpt-5" || models[0].DisplayName != "GPT-5" || !models[0].IsDefault {
-		t.Fatalf("first model = %#v", models[0])
-	}
-	if models[0].DefaultReasoningEffort != "medium" {
-		t.Fatalf("first model default reasoning effort = %q, want medium", models[0].DefaultReasoningEffort)
-	}
-	if !models[0].ReasoningEffortsAdvertised {
-		t.Fatal("first model reasoning efforts advertised = false, want true")
-	}
-	if len(models[0].SupportedReasoningEfforts) != 2 ||
-		models[0].SupportedReasoningEfforts[1].Value != "ultra" ||
-		models[0].SupportedReasoningEfforts[1].Description != "Maximum reasoning with automatic task delegation" {
-		t.Fatalf("first model reasoning efforts = %#v", models[0].SupportedReasoningEfforts)
-	}
-	if models[1].ID != "gpt-5.1" || models[1].DisplayName != "gpt-5.1" {
-		t.Fatalf("second model = %#v", models[1])
-	}
-	if models[1].ReasoningEffortsAdvertised {
-		t.Fatal("second model reasoning efforts advertised = true, want false")
-	}
-}
-
-func TestRequestCodexModelListReadsInitializeResponseBeforeFollowingRequests(t *testing.T) {
-	transport := &strictCodexHandshakeTransport{}
-
-	models, err := requestCodexModelList(transport, transport, "tuttid-test")
-	if err != nil {
-		t.Fatalf("requestCodexModelList returned error: %v", err)
-	}
-	if len(models) != 1 || models[0].ID != "gpt-5" {
-		t.Fatalf("models = %#v, want gpt-5", models)
-	}
-	wantMethods := []string{"initialize", "initialized", "model/list"}
-	if !reflect.DeepEqual(transport.methods, wantMethods) {
-		t.Fatalf("request methods = %#v, want %#v", transport.methods, wantMethods)
-	}
-}
-
-func TestRequestCodexModelListWithStagesReportsProviderStages(t *testing.T) {
-	transport := &strictCodexHandshakeTransport{}
-	var stages []string
-	models, err := requestCodexModelListWithStages(
-		transport,
-		transport,
-		"tuttid-test",
-		func(stage string, _ time.Time, stageErr error) {
-			if stageErr != nil {
-				t.Fatalf("stage %q returned error: %v", stage, stageErr)
-			}
-			stages = append(stages, stage)
-		},
-	)
-	if err != nil {
-		t.Fatalf("requestCodexModelListWithStages returned error: %v", err)
-	}
-	if len(models) != 1 || models[0].ID != "gpt-5" {
-		t.Fatalf("models = %#v, want gpt-5", models)
-	}
-	if !reflect.DeepEqual(stages, []string{"initialize", "model_list"}) {
-		t.Fatalf("stages = %#v, want initialize then model_list", stages)
-	}
-}
-
-type strictCodexHandshakeTransport struct {
-	methods                []string
-	initializeRequested    bool
-	initializeResponseRead bool
-	initializedReceived    bool
-	modelListRequested     bool
-	responseStage          int
-}
-
-func (t *strictCodexHandshakeTransport) Write(p []byte) (int, error) {
-	var request struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-	}
-	if err := json.Unmarshal(p, &request); err != nil {
-		return 0, err
-	}
-	t.methods = append(t.methods, request.Method)
-	switch request.Method {
-	case "initialize":
-		t.initializeRequested = true
-	case "initialized":
-		if !t.initializeResponseRead {
-			return 0, errors.New("initialized sent before initialize response was read")
-		}
-		if len(request.ID) != 0 {
-			return 0, errors.New("initialized must be a notification without an id")
-		}
-		t.initializedReceived = true
-	case "model/list":
-		if !t.initializeResponseRead {
-			return 0, errors.New("model/list sent before initialize response was read")
-		}
-		if !t.initializedReceived {
-			return 0, errors.New("model/list sent before initialized")
-		}
-		t.modelListRequested = true
-	default:
-		return 0, errors.New("unexpected Codex app-server method")
-	}
-	return len(p), nil
-}
-
-func (t *strictCodexHandshakeTransport) Read(p []byte) (int, error) {
-	var response string
-	switch t.responseStage {
-	case 0:
-		if !t.initializeRequested {
-			return 0, errors.New("initialize response read before initialize request")
-		}
-		t.initializeResponseRead = true
-		response = `{"id":"1","result":{}}` + "\n"
-	case 1:
-		if !t.modelListRequested {
-			return 0, errors.New("model/list response read before model/list request")
-		}
-		response = `{"id":"2","result":{"data":[{"id":"gpt-5"}]}}` + "\n"
-	default:
-		return 0, io.EOF
-	}
-	t.responseStage += 1
-	return copy(p, response), nil
-}
-
-func TestCodexCLIModelListerResolvesCodexFromKnownUserBin(t *testing.T) {
-	home := t.TempDir()
-	binDir := filepath.Join(home, ".local", "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("mkdir local bin: %v", err)
-	}
-	scriptPath := filepath.Join(binDir, "codex")
-	script := `#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"method":"initialize"'*)
-      echo '{"id":"1","result":{}}'
-      ;;
-    *model/list*)
-      echo '{"id":"2","result":{"data":[{"id":"gpt-5","displayName":"GPT-5"}]}}'
-      exit 0
-      ;;
-  esac
-done
-`
-	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake codex script: %v", err)
-	}
-
-	result, err := (CodexCLIModelLister{
-		Environ: func() []string {
-			return []string{"PATH=/usr/bin:/bin"}
-		},
-		HomeDir: func() (string, error) {
-			return home, nil
-		},
-		LookPath: func(string) (string, error) {
-			return "", os.ErrNotExist
-		},
-		Timeout: 15 * time.Second,
-	}).ListModels(context.Background())
-	if err != nil {
-		t.Fatalf("ListModels returned error: %v", err)
+		t.Fatalf("ListModels() error = %v", err)
 	}
 	if len(result.Models) != 1 || result.Models[0].ID != "gpt-5" {
-		t.Fatalf("models = %#v, want resolved user-bin codex result", result.Models)
+		t.Fatalf("models = %#v, want runtime catalog result", result.Models)
+	}
+	if reader.lastRequest != (AppServerCatalogRequest{
+		Provider: "codex", Cwd: "/workspace", ClientName: "tuttid", RequestSet: "model",
+	}) {
+		t.Fatalf("runtime catalog request = %#v", reader.lastRequest)
 	}
 }
 
-func TestCodexCLIModelListerReusesPersistentAppServerSession(t *testing.T) {
-	tempDir := t.TempDir()
-	scriptPath := filepath.Join(tempDir, "codex")
-	countPath := filepath.Join(tempDir, "starts")
-	script := "#!/bin/sh\n" +
-		"count=0\n" +
-		"if [ -f \"$CODEX_TEST_STARTS\" ]; then count=$(cat \"$CODEX_TEST_STARTS\"); fi\n" +
-		"count=$((count + 1))\n" +
-		"printf '%s' \"$count\" > \"$CODEX_TEST_STARTS\"\n" +
-		"while IFS= read -r line; do\n" +
-		"  case \"$line\" in\n" +
-		"    *'\"method\":\"initialize\"'*)\n" +
-		"      id=$(printf '%s' \"$line\" | sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p')\n" +
-		"      printf '{\"id\":\"%s\",\"result\":{}}\\n' \"$id\"\n" +
-		"      ;;\n" +
-		"    *'\"method\":\"model/list\"'*)\n" +
-		"      id=$(printf '%s' \"$line\" | sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p')\n" +
-		"      printf '{\"id\":\"%s\",\"result\":{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\"}]}}\\n' \"$id\"\n" +
-		"      ;;\n" +
-		"  esac\n" +
-		"done\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write persistent fake codex: %v", err)
+func TestCachedAgentModelCatalogScopesInjectedCodexListerToPreparation(t *testing.T) {
+	reader := &recordingAppServerCatalogReader{result: AppServerCatalogResult{
+		Models: []AgentModelOption{{ID: "gpt-5"}},
+	}}
+	catalog := &CachedAgentModelCatalog{
+		Codex: CodexCLIModelLister{Provider: "codex", Catalog: reader},
 	}
-	base := CodexCLIModelLister{
-		Command: scriptPath,
-		Environ: func() []string {
-			return []string{"PATH=/usr/bin:/bin", "CODEX_TEST_STARTS=" + countPath}
-		},
-		Timeout: 2 * time.Second,
+	preparation := &runtimeprep.PrepareInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "catalog-model-1", Provider: "codex", Cwd: "/workspace",
 	}
-	lister := base
-	lister.Session = newCodexAppServerSession(base)
-	first, err := lister.ListModels(context.Background())
-	if err != nil {
-		t.Fatalf("first ListModels returned error: %v", err)
+	if _, err := catalog.ListModels(t.Context(), AgentModelCatalogInput{
+		Provider: "codex", Cwd: "/workspace", Preparation: preparation,
+	}); err != nil {
+		t.Fatalf("ListModels() error = %v", err)
 	}
-	second, err := lister.ListModels(context.Background())
-	if err != nil {
-		t.Fatalf("second ListModels returned error: %v", err)
+	if reader.lastRequest.Preparation != preparation {
+		t.Fatalf("request preparation = %#v, want exact request-scoped preparation", reader.lastRequest.Preparation)
 	}
-	if len(first.Models) != 1 || len(second.Models) != 1 || first.Models[0].ID != "gpt-5" || second.Models[0].ID != "gpt-5" {
-		t.Fatalf("models = %#v / %#v, want gpt-5", first.Models, second.Models)
+}
+
+func TestCachedAgentModelCatalogDoesNotCrossCacheDifferentPreparations(t *testing.T) {
+	reader := &preparationAwareAppServerCatalogReader{}
+	catalog := &CachedAgentModelCatalog{
+		Codex: CodexCLIModelLister{Provider: "codex", Catalog: reader},
 	}
-	starts, err := os.ReadFile(countPath)
-	if err != nil {
-		t.Fatalf("read process start count: %v", err)
+	preparationA := &runtimeprep.PrepareInput{
+		WorkspaceID: "workspace-a", AgentSessionID: "session-a", Provider: "codex", Cwd: "/workspace",
 	}
-	if string(starts) != "1" {
-		t.Fatalf("app-server starts = %q, want one persistent process", starts)
+	preparationB := &runtimeprep.PrepareInput{
+		WorkspaceID: "workspace-b", AgentSessionID: "session-b", Provider: "codex", Cwd: "/workspace",
 	}
-	if err := lister.Session.Close(); err != nil {
-		t.Fatalf("close persistent app-server: %v", err)
+	for _, preparation := range []*runtimeprep.PrepareInput{preparationA, preparationB, preparationA, preparationB} {
+		result, err := catalog.ListModels(t.Context(), AgentModelCatalogInput{
+			Provider: "codex", Cwd: "/workspace", Preparation: preparation,
+		})
+		if err != nil {
+			t.Fatalf("ListModels(%s) error = %v", preparation.WorkspaceID, err)
+		}
+		if len(result.Models) == 0 || result.Models[0].ID != preparation.WorkspaceID {
+			t.Fatalf("models(%s) = %#v, want preparation-specific result", preparation.WorkspaceID, result.Models)
+		}
 	}
+	if reader.calls != 2 {
+		t.Fatalf("runtime catalog calls = %d, want one fetch per exact preparation", reader.calls)
+	}
+}
+
+type recordingAppServerCatalogReader struct {
+	result      AppServerCatalogResult
+	lastRequest AppServerCatalogRequest
+}
+
+type preparationAwareAppServerCatalogReader struct {
+	calls int
+}
+
+func (r *preparationAwareAppServerCatalogReader) ListAppServerCatalog(
+	_ context.Context,
+	input AppServerCatalogRequest,
+) (AppServerCatalogResult, error) {
+	r.calls++
+	if input.Preparation == nil {
+		return AppServerCatalogResult{}, errors.New("preparation is required")
+	}
+	return AppServerCatalogResult{
+		Models: []AgentModelOption{{ID: input.Preparation.WorkspaceID}},
+	}, nil
+}
+
+func (r *recordingAppServerCatalogReader) ListAppServerCatalog(_ context.Context, input AppServerCatalogRequest) (AppServerCatalogResult, error) {
+	r.lastRequest = input
+	return r.result, nil
 }
 
 func TestCachedAgentModelCatalogCachesCodexModels(t *testing.T) {

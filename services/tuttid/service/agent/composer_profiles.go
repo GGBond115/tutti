@@ -43,11 +43,8 @@ type composerProfile struct {
 	// ModelCatalog identifies the descriptor-backed catalog implementation.
 	ModelCatalog providerregistry.ModelCatalogKind
 	// CapabilityCatalogKind selects the dynamic capability discovery protocol.
-	// CapabilityCatalogCommand is cloned from the provider runtime command so
-	// the executable remains a single descriptor-owned fact.
-	CapabilityCatalogKind    providerregistry.CapabilityCatalogKind
-	CapabilityCatalogCommand []string
-	SlashCommandPolicy       providerregistry.SlashCommandPolicyDescriptor
+	CapabilityCatalogKind providerregistry.CapabilityCatalogKind
+	SlashCommandPolicy    providerregistry.SlashCommandPolicyDescriptor
 	// ReasoningEffort: the composer exposes a reasoning-effort selector.
 	ReasoningEffort bool
 	// ReasoningEffortOptions selects the descriptor-owned source of the list.
@@ -110,16 +107,15 @@ func composerProfileFromDescriptor(provider providerregistry.ProviderDescriptor)
 		})
 	}
 	return composerProfile{
-		SubagentSaverMode:        descriptor.SubagentSaverMode,
-		ModelSelection:           descriptor.ModelSelection,
-		LiveModelDiscovery:       descriptor.LiveModelDiscovery.Kind != "",
-		LiveModelDiscoveryKind:   descriptor.LiveModelDiscovery.Kind,
-		LiveModelProbeSession:    descriptor.LiveModelDiscovery.HiddenProbe,
-		LiveModelAccountScoped:   descriptor.LiveModelDiscovery.AccountScoped,
-		UsesModelCatalog:         strings.TrimSpace(string(descriptor.ModelCatalog)) != "",
-		ModelCatalog:             descriptor.ModelCatalog,
-		CapabilityCatalogKind:    descriptor.CapabilityCatalog.Kind,
-		CapabilityCatalogCommand: append([]string(nil), provider.Runtime.Command...),
+		SubagentSaverMode:      descriptor.SubagentSaverMode,
+		ModelSelection:         descriptor.ModelSelection,
+		LiveModelDiscovery:     descriptor.LiveModelDiscovery.Kind != "",
+		LiveModelDiscoveryKind: descriptor.LiveModelDiscovery.Kind,
+		LiveModelProbeSession:  descriptor.LiveModelDiscovery.HiddenProbe,
+		LiveModelAccountScoped: descriptor.LiveModelDiscovery.AccountScoped,
+		UsesModelCatalog:       strings.TrimSpace(string(descriptor.ModelCatalog)) != "",
+		ModelCatalog:           descriptor.ModelCatalog,
+		CapabilityCatalogKind:  descriptor.CapabilityCatalog.Kind,
 		SlashCommandPolicy: providerregistry.SlashCommandPolicyDescriptor{
 			FallbackCommands:            append([]string(nil), descriptor.SlashCommandPolicy.FallbackCommands...),
 			CommandEffects:              append([]providerregistry.SlashCommandEffectDescriptor(nil), descriptor.SlashCommandPolicy.CommandEffects...),

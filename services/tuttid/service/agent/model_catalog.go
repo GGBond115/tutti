@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,9 +13,8 @@ import (
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/modelcatalog"
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	"github.com/tutti-os/tutti/services/tuttid/biz/agentprovider"
-	tuttiagentservice "github.com/tutti-os/tutti/services/tuttid/service/tuttiagent"
-	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -44,8 +42,9 @@ type AgentModelCatalogResult struct {
 }
 
 type AgentModelCatalogInput struct {
-	Provider string
-	Cwd      string
+	Provider    string
+	Cwd         string
+	Preparation *runtimeprep.PrepareInput
 	// WaitForFresh makes a stale cached result synchronous. Normal composer
 	// loads leave this false so the stale result can render immediately while a
 	// refresh runs in the background; the explicit model picker request sets it.
@@ -63,6 +62,20 @@ type AgentModelListResult struct {
 
 type AgentModelLister interface {
 	ListModels(context.Context) (AgentModelListResult, error)
+}
+
+type requestScopedAgentModelLister interface {
+	WithPreparation(*runtimeprep.PrepareInput) AgentModelLister
+}
+
+func modelListerForInput(lister AgentModelLister, input AgentModelCatalogInput) AgentModelLister {
+	if lister == nil || input.Preparation == nil {
+		return lister
+	}
+	if scoped, ok := lister.(requestScopedAgentModelLister); ok {
+		return scoped.WithPreparation(input.Preparation)
+	}
+	return lister
 }
 
 // agentModelCatalogSpec declares how one provider's model list is fetched and
@@ -112,28 +125,20 @@ func agentModelCatalogSpecFromDescriptor(descriptor providerregistry.ProviderDes
 	case "":
 		return agentModelCatalogSpec{}, false, nil
 	case providerregistry.ModelCatalogKindCodexCLI:
-		command := append([]string(nil), descriptor.Runtime.Command...)
-		if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
-			return agentModelCatalogSpec{}, false, fmt.Errorf(
-				"provider %q model catalog runtime command is required",
-				descriptor.Identity.ID,
-			)
-		}
 		return agentModelCatalogSpec{
 			source: string(descriptor.ComposerProfile.ModelCatalog),
 			ttl:    codexModelCacheTTL,
 			errTTL: codexModelErrorCacheTTL,
-			lister: func(c *CachedAgentModelCatalog, _ AgentModelCatalogInput) AgentModelLister {
+			lister: func(c *CachedAgentModelCatalog, input AgentModelCatalogInput) AgentModelLister {
 				if c.Codex != nil {
-					return c.Codex
+					return modelListerForInput(c.Codex, input)
 				}
 				lister := CodexCLIModelLister{
-					Command:          command[0],
-					Args:             append([]string(nil), command[1:]...),
-					Provider:         descriptor.Identity.ID,
-					ProviderCommands: c.ProviderCommands,
+					Provider:    descriptor.Identity.ID,
+					Catalog:     c.AppServerCatalog,
+					Cwd:         input.Cwd,
+					Preparation: input.Preparation,
 				}
-				lister.Session = c.codexSession(descriptor.Identity.ID, lister)
 				return lister
 			},
 			configuredDefaultModel:    readCodexConfiguredDefaultModel,
@@ -165,13 +170,14 @@ func agentModelCatalogSpecFromDescriptor(descriptor providerregistry.ProviderDes
 	case providerregistry.ModelCatalogKindTuttiCLI:
 		return agentModelCatalogSpec{
 			source: string(descriptor.ComposerProfile.ModelCatalog), ttl: codexModelCacheTTL, errTTL: codexModelErrorCacheTTL,
-			lister: func(c *CachedAgentModelCatalog, _ AgentModelCatalogInput) AgentModelLister {
+			lister: func(c *CachedAgentModelCatalog, input AgentModelCatalogInput) AgentModelLister {
 				if c.TuttiAgent != nil {
-					return c.TuttiAgent
+					return modelListerForInput(c.TuttiAgent, input)
 				}
-				lister := defaultTuttiAgentModelLister(descriptor.Identity.ID, c.ProviderCommands)
-				lister.Session = c.codexSession(descriptor.Identity.ID, lister)
-				return lister
+				return CodexCLIModelLister{
+					Provider: descriptor.Identity.ID, ClientName: "tutti_agent", Cwd: input.Cwd,
+					Catalog: c.AppServerCatalog, Preparation: input.Preparation,
+				}
 			},
 			configuredDefaultModel: func() string { return "" },
 		}, true, nil
@@ -189,7 +195,7 @@ type CachedAgentModelCatalog struct {
 	TuttiAgent        AgentModelLister
 	OpenCode          AgentModelLister
 	ModelCapabilities ModelCapabilitiesResolver
-	ProviderCommands  ProviderCommandResolver
+	AppServerCatalog  AppServerCatalogReader
 	Now               func() time.Time
 	// PersistentPath is configured by the daemon composition root. Keeping the
 	// path injectable leaves unit tests in-memory and avoids coupling them to a
@@ -205,7 +211,6 @@ type CachedAgentModelCatalog struct {
 	mu             sync.Mutex
 	cache          map[string]*agentModelCatalogCacheEntry
 	generation     map[string]uint64
-	codexSessions  map[string]*codexAppServerSession
 	loads          singleflight.Group
 	persistentOnce sync.Once
 }
@@ -340,8 +345,9 @@ func (c *CachedAgentModelCatalog) ListModels(ctx context.Context, input AgentMod
 		return AgentModelCatalogResult{}, ErrInvalidArgument
 	}
 	now := c.now()
+	cacheKey := agentModelCatalogCacheKey(input, spec)
 	if specCachesModelCatalog(spec) {
-		if cached := c.readCache(provider, now); cached != nil {
+		if cached := c.readCache(cacheKey, now); cached != nil {
 			if !c.cacheAuthMatches(provider, cached.authFingerprint) {
 				slog.Info("agent model catalog cache rejected for auth generation",
 					"event", "agent.model_catalog.cache_rejected",
@@ -376,10 +382,7 @@ func (c *CachedAgentModelCatalog) loadModels(
 	expectedGeneration uint64,
 ) (AgentModelCatalogResult, error) {
 	provider := agentprovider.Normalize(input.Provider)
-	key := provider
-	if !specCachesModelCatalog(spec) {
-		key += "\x00" + strings.TrimSpace(input.Cwd)
-	}
+	key := agentModelCatalogCacheKey(input, spec)
 	startedAt := time.Now()
 	resultCh := c.loads.DoChan(key, func() (any, error) {
 		fetchContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelCatalogFetchTimeout)
@@ -416,11 +419,7 @@ func (c *CachedAgentModelCatalog) startBackgroundRefresh(
 	spec agentModelCatalogSpec,
 	expectedGeneration uint64,
 ) {
-	provider := agentprovider.Normalize(input.Provider)
-	key := provider
-	if !specCachesModelCatalog(spec) {
-		key += "\x00" + strings.TrimSpace(input.Cwd)
-	}
+	key := agentModelCatalogCacheKey(input, spec)
 	resultCh := c.loads.DoChan(key, func() (any, error) {
 		fetchContext, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), modelCatalogFetchTimeout)
 		defer cancel()
@@ -455,7 +454,18 @@ func (c *CachedAgentModelCatalog) fetchModels(
 		FetchedAt: startedAt,
 		Models:    models,
 	}
-	accepted := c.writeCache(provider, spec, startedAt, result, listResult.IsFallback, err, expectedGeneration, staleRefresh)
+	accepted := c.writeCache(
+		agentModelCatalogCacheKey(input, spec),
+		provider,
+		spec,
+		startedAt,
+		result,
+		listResult.IsFallback,
+		err,
+		expectedGeneration,
+		staleRefresh,
+		input.Preparation == nil,
+	)
 	if accepted && staleRefresh && err == nil && c.OnRefresh != nil {
 		c.OnRefresh(provider)
 	}
@@ -509,93 +519,26 @@ func specCachesModelCatalog(spec agentModelCatalogSpec) bool {
 	return spec.ttl > 0 || spec.errTTL > 0 || spec.fallbackTTL > 0
 }
 
-func defaultTuttiAgentModelLister(provider string, providerCommands ProviderCommandResolver) CodexCLIModelLister {
-	return CodexCLIModelLister{
-		Command:          "tutti-agent",
-		ClientName:       "tutti_agent",
-		Provider:         provider,
-		ProviderCommands: providerCommands,
-		PrepareEnv:       prepareTuttiAgentModelListEnv,
+func agentModelCatalogCacheKey(input AgentModelCatalogInput, spec agentModelCatalogSpec) string {
+	provider := agentprovider.Normalize(input.Provider)
+	key := provider
+	if !specCachesModelCatalog(spec) || input.Preparation != nil {
+		key += "\x00" + strings.TrimSpace(input.Cwd)
 	}
+	if input.Preparation != nil {
+		key += "\x00preparation:" + runtimePrepareInputCacheKey(input.Preparation)
+	}
+	return key
 }
 
-func prepareTuttiAgentModelListEnv(ctx context.Context, env []string) ([]string, error) {
-	env = append([]string(nil), env...)
-	env = withoutEnvKeys(env, "TUTTI_AGENT_HOME", "CODEX_HOME")
-	tuttiAgentHome := filepath.Join(tuttitypes.DefaultStateDir(), "agent-model-catalog", "tutti-agent-home")
-	tuttiagentservice.BootstrapTuttiAgentUserAuth(ctx)
-	if err := refreshTuttiAgentModelCatalogAuth(tuttiAgentHome); err != nil {
-		return nil, err
-	}
-	if err := tuttiagentservice.PrepareHome(tuttiAgentHome); err != nil {
-		return nil, err
-	}
-	env = append(env, "TUTTI_AGENT_HOME="+tuttiAgentHome)
-	// Prevent Tutti Agent's legacy CODEX_HOME fallback from reading Codex's
-	// model cache when tuttid itself runs inside a Codex-hosted environment.
-	env = append(env, "CODEX_HOME=")
-	return env, nil
-}
-
-// refreshTuttiAgentModelCatalogAuth drops only a stale materialized auth view
-// in the dedicated model-catalog home. PrepareHome will then recreate the
-// view from the freshly bootstrapped user auth (symlink/hard-link when
-// possible). This matters on Windows, where a first-run copy can otherwise
-// remain frozen after the host auth is refreshed.
-func refreshTuttiAgentModelCatalogAuth(home string) error {
-	userHome, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(userHome) == "" {
-		return nil
-	}
-	source := filepath.Join(userHome, ".tutti-agent", "auth.json")
-	sourceBytes, err := os.ReadFile(source)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read tutti-agent user auth: %w", err)
-	}
-	target := filepath.Join(home, "auth.json")
-	targetBytes, err := os.ReadFile(target)
-	if err == nil && bytes.Equal(sourceBytes, targetBytes) {
-		return nil
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read tutti-agent model catalog auth: %w", err)
-	}
-	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove stale tutti-agent model catalog auth: %w", err)
-	}
-	return nil
-}
-
-func withoutEnvKeys(env []string, keys ...string) []string {
-	if len(env) == 0 || len(keys) == 0 {
-		return env
-	}
-	drop := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		drop[key] = struct{}{}
-	}
-	filtered := env[:0]
-	for _, entry := range env {
-		key, _, _ := strings.Cut(entry, "=")
-		if _, ok := drop[key]; ok {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
-}
-
-// Invalidate marks cached model lists stale for the given providers and closes
-// their persistent app-server sessions. The last known list remains available
-// for presentation while the next read refreshes it in the background.
+// Invalidate marks cached model lists stale for the given providers. The last
+// known list remains available for presentation while the next read refreshes
+// it in the background. Physical app-server ownership belongs to the runtime
+// connection registry, never to this cache.
 func (c *CachedAgentModelCatalog) Invalidate(providers ...string) {
 	if c == nil {
 		return
 	}
-	var sessions []*codexAppServerSession
 	c.mu.Lock()
 	for _, provider := range providers {
 		normalized := agentprovider.Normalize(provider)
@@ -606,31 +549,29 @@ func (c *CachedAgentModelCatalog) Invalidate(providers ...string) {
 			c.generation = make(map[string]uint64)
 		}
 		c.generation[normalized]++
-		if entry := c.cache[normalized]; entry != nil {
-			entry.stale = true
-			entry.refreshRetryAtMS = 0
-			entry.generation = c.generation[normalized]
-		}
-		if session := c.codexSessions[normalized]; session != nil {
-			sessions = append(sessions, session)
-			delete(c.codexSessions, normalized)
+		for cacheKey, entry := range c.cache {
+			if cacheKey != normalized && !strings.HasPrefix(cacheKey, normalized+"\x00") {
+				continue
+			}
+			if entry != nil {
+				entry.stale = true
+				entry.refreshRetryAtMS = 0
+				entry.generation = c.generation[normalized]
+			}
 		}
 	}
 	c.mu.Unlock()
-	for _, session := range sessions {
-		_ = session.Close()
-	}
 }
 
-func (c *CachedAgentModelCatalog) readCache(provider string, now time.Time) *agentModelCatalogCacheEntry {
+func (c *CachedAgentModelCatalog) readCache(key string, now time.Time) *agentModelCatalogCacheEntry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry := c.cache[provider]
+	entry := c.cache[key]
 	if entry == nil {
 		return nil
 	}
 	if entry.err != nil && now.UnixMilli() > entry.expiresAtMS {
-		delete(c.cache, provider)
+		delete(c.cache, key)
 		return nil
 	}
 	if !entry.stale && entry.err == nil && now.UnixMilli() > entry.expiresAtMS {
@@ -649,6 +590,7 @@ func (c *CachedAgentModelCatalog) readCache(provider string, now time.Time) *age
 }
 
 func (c *CachedAgentModelCatalog) writeCache(
+	cacheKey string,
 	provider string,
 	spec agentModelCatalogSpec,
 	now time.Time,
@@ -657,6 +599,7 @@ func (c *CachedAgentModelCatalog) writeCache(
 	err error,
 	expectedGeneration uint64,
 	staleRefresh bool,
+	persist bool,
 ) bool {
 	ttl := spec.ttl
 	switch {
@@ -682,13 +625,13 @@ func (c *CachedAgentModelCatalog) writeCache(
 		c.generation = make(map[string]uint64)
 	}
 	if err != nil && staleRefresh {
-		if entry := c.cache[provider]; entry != nil && entry.generation == expectedGeneration {
+		if entry := c.cache[cacheKey]; entry != nil && entry.generation == expectedGeneration {
 			entry.refreshRetryAtMS = now.Add(ttl).UnixMilli()
 		}
 		c.mu.Unlock()
 		return false
 	}
-	c.cache[provider] = &agentModelCatalogCacheEntry{
+	c.cache[cacheKey] = &agentModelCatalogCacheEntry{
 		result:          cloneAgentModelCatalogResult(result),
 		err:             err,
 		expiresAtMS:     now.Add(ttl).UnixMilli(),
@@ -696,7 +639,7 @@ func (c *CachedAgentModelCatalog) writeCache(
 		authFingerprint: authFingerprint,
 	}
 	c.mu.Unlock()
-	if err == nil && !isFallback && len(result.Models) > 0 {
+	if persist && err == nil && !isFallback && len(result.Models) > 0 {
 		c.persistCache()
 	}
 	return true
@@ -710,6 +653,13 @@ func (c *CachedAgentModelCatalog) persistCache() {
 	persisted := persistedAgentModelCatalog{Version: 1, Entries: make(map[string]persistedAgentModelCatalogEntry)}
 	c.mu.Lock()
 	for provider, entry := range c.cache {
+		// Prepared requests are keyed by the exact request preparation and
+		// intentionally remain process-local. The v1 persistent format is
+		// provider-keyed, so writing a preparation key here would either be
+		// misloaded as a provider or create a false cross-process hit.
+		if strings.Contains(provider, "\x00") {
+			continue
+		}
 		if entry == nil || entry.err != nil || len(entry.result.Models) == 0 {
 			continue
 		}
@@ -797,40 +747,10 @@ func (c *CachedAgentModelCatalog) currentGeneration(provider string) uint64 {
 	return c.generation[provider]
 }
 
-func (c *CachedAgentModelCatalog) codexSession(provider string, lister CodexCLIModelLister) *codexAppServerSession {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.codexSessions == nil {
-		c.codexSessions = make(map[string]*codexAppServerSession)
-	}
-	if session := c.codexSessions[provider]; session != nil {
-		return session
-	}
-	lister.Session = nil
-	session := newCodexAppServerSession(lister)
-	c.codexSessions[provider] = session
-	return session
-}
-
-// Close releases persistent provider app-server processes owned by the catalog.
-func (c *CachedAgentModelCatalog) Close() error {
-	if c == nil {
-		return nil
-	}
-	c.mu.Lock()
-	sessions := make([]*codexAppServerSession, 0, len(c.codexSessions))
-	for provider, session := range c.codexSessions {
-		sessions = append(sessions, session)
-		delete(c.codexSessions, provider)
-	}
-	c.mu.Unlock()
-	var closeErr error
-	for _, session := range sessions {
-		if err := session.Close(); err != nil && closeErr == nil {
-			closeErr = err
-		}
-	}
-	return closeErr
+// Close is retained as a lifecycle no-op for callers that close all daemon
+// catalogs. Physical app-server ownership belongs to the runtime registry.
+func (*CachedAgentModelCatalog) Close() error {
+	return nil
 }
 
 func (c *CachedAgentModelCatalog) now() time.Time {

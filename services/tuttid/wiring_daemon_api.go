@@ -246,6 +246,16 @@ func buildDaemonAPI(
 	agentTargetSetup.Actions = agentextensiondata.NewFileSetupActionStore(agentExtensionStateDir)
 	agentTargetSetup.Discovery = agentSetupDiscovery
 	agentTargetSetup.AuthInvalidation = runOutcomes
+	agentRuntimePreparer := runtimeprep.NewDefaultPreparer(tuttitypes.DefaultStateDir())
+	agentRuntimePreparer.RegisterProvider(runtimeprep.CodexPreparer{AuthProjector: runtimeprep.MutagenAuthFileProjector{StateDir: tuttitypes.DefaultStateDir()}})
+	agentRuntimePreparer.RegisterProvider(tuttiagentservice.NewPreparer(tuttitypes.DefaultStateDir()))
+	configureAgentRuntimeAvailability(agentRuntimePreparer, browserService, computerService)
+	agentProviderLaunchPreparer, err := configureAgentAppServerPreparation(
+		agentRuntimePreparer, tuttitypes.DefaultStateDir(), agentProcessComposition.transportScopeID,
+	)
+	if err != nil {
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("configure agent app-server preparation: %w", err)
+	}
 	agentRuntimeConfig := agentdaemon.Config{
 		Reporter: agentRunOutcomeReporter{
 			DurableActivityReporter: agentActivityProjection,
@@ -258,16 +268,13 @@ func buildDaemonAPI(
 		},
 		ProviderCommandResolver:    agentProviderCommandResolver(&agentStatusService),
 		CommandNetworkAccessPolicy: tuttiDesktopCommandNetworkAccessPolicy,
+		ProviderLaunchPreparer:     agentProviderLaunchPreparer,
 	}
 	agentRuntimeConfig = applyAgentReplayRuntimeComposition(agentRuntimeConfig, replayComposition)
 	agentRuntime, err := agentdaemon.NewRuntime(agentRuntimeConfig)
 	if err != nil {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("create agent runtime: %w", err)
 	}
-	agentRuntimePreparer := runtimeprep.NewDefaultPreparer(tuttitypes.DefaultStateDir())
-	agentRuntimePreparer.RegisterProvider(runtimeprep.CodexPreparer{AuthProjector: runtimeprep.MutagenAuthFileProjector{StateDir: tuttitypes.DefaultStateDir()}})
-	agentRuntimePreparer.RegisterProvider(tuttiagentservice.NewPreparer(tuttitypes.DefaultStateDir()))
-	configureAgentRuntimeAvailability(agentRuntimePreparer, browserService, computerService)
 	userProjectService := userprojectservice.Service{
 		Store:     userProjectStore,
 		Publisher: eventstreamservice.UserProjectPublisher{Service: events},
@@ -276,7 +283,7 @@ func buildDaemonAPI(
 		Store:     agentQuickPromptStore,
 		Publisher: eventstreamservice.AgentQuickPromptPublisher{Service: events},
 	}
-	agentRuntimeController := newAgentRuntimeAdapter(agentRuntime.Controller())
+	agentRuntimeController := newAgentRuntimeAdapter(agentRuntime.Controller(), agentRuntimePreparer)
 	agentRuntime.Controller().SetStreamEventObserver(agentRuntimeActivityEventBridge{
 		publisher: eventstreamservice.AgentActivityPublisher{Service: events},
 	})
@@ -286,7 +293,9 @@ func buildDaemonAPI(
 		tuttitypes.DefaultStateDir(), "agent-model-catalog", "model-catalog.json",
 	)
 	agentModelCatalog.ModelCapabilities = agentModelCapabilities
-	agentModelCatalog.ProviderCommands = &agentStatusService
+	if catalogReader, ok := any(agentRuntimeController).(agentservice.AppServerCatalogReader); ok {
+		agentModelCatalog.AppServerCatalog = catalogReader
+	}
 	agentSessionPurgeStore, ok := agentActivityRepo.(agenthost.SessionPurgeStore)
 	if !ok {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("agent session purge store is unavailable")
@@ -394,6 +403,7 @@ func buildDaemonAPI(
 		Composer: agentservice.ServiceComposerConfig{
 			AvailabilityChecker:         availabilityChecker,
 			ModelCatalog:                replayAgentModelCatalog(replayComposition, agentProcessComposition, agentModelCatalog),
+			AppServerCatalog:            agentModelCatalog.AppServerCatalog,
 			ReplayMode:                  replayComposition,
 			ModelCapabilities:           agentModelCapabilities,
 			AgentTargetStore:            agentTargetStore,

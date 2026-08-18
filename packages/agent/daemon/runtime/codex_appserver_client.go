@@ -13,7 +13,8 @@ import (
 )
 
 type codexAppServerClient struct {
-	raw *acpClient
+	raw       *acpClient
+	scheduler *appServerRequestScheduler
 	// Close remains idempotent after success but retries a failed physical
 	// transport close so lifecycle cleanup never loses process ownership.
 	closeMu sync.Mutex
@@ -25,9 +26,8 @@ type codexAppServerClient struct {
 
 type codexAppServerCaller struct {
 	raw       *acpClient
+	scheduler *appServerRequestScheduler
 	timeout   time.Duration
-	handler   acpMessageHandler
-	noHandler bool
 	rawResult json.RawMessage
 }
 
@@ -36,7 +36,9 @@ type providerProgressWaiter interface {
 }
 
 func newCodexAppServerClient(conn ProcessConnection) *codexAppServerClient {
-	return &codexAppServerClient{raw: newAppServerJSONRPCClient(conn)}
+	return &codexAppServerClient{
+		raw: newAppServerJSONRPCClient(conn), scheduler: newAppServerRequestScheduler(),
+	}
 }
 
 func (c *codexAppServerClient) SetMessageHandler(handler acpMessageHandler) {
@@ -68,6 +70,7 @@ func (c *codexAppServerClient) Close() error {
 	if c.closed {
 		return nil
 	}
+	c.scheduler.close()
 	err := c.raw.Close()
 	if err == nil {
 		c.closed = true
@@ -124,7 +127,10 @@ func (c *codexAppServerClient) Respond(ctx context.Context, id json.RawMessage, 
 	if c == nil || c.raw == nil {
 		return errors.New("app-server client is nil")
 	}
-	return c.raw.Respond(ctx, id, result, responseErr)
+	_, err := c.scheduler.do(ctx, appServerSchedulerResponseMethod, map[string]any{"id": string(id)}, func(runCtx context.Context) ([]byte, error) {
+		return nil, c.raw.Respond(runCtx, id, result, responseErr)
+	})
+	return err
 }
 
 func (c *codexAppServerClient) Initialized(ctx context.Context) error {
@@ -135,23 +141,21 @@ func (c *codexAppServerClient) Initialized(ctx context.Context) error {
 }
 
 func (c *codexAppServerClient) typed(timeout time.Duration, handler acpMessageHandler, noHandler bool) (*codexproto.Client, *codexAppServerCaller) {
+	// App-server connections have one permanent message router installed with
+	// SetMessageHandler. Request-local handlers were inherited from the
+	// single-session ACP client and made every handler-carrying request claim a
+	// global slot for its complete lifetime. That ownership model cannot route
+	// notifications from several provider threads. Keep the parameters while
+	// callers migrate, but all app-server requests now correlate independently
+	// by JSON-RPC request id and the permanent router owns server traffic.
+	_ = handler
+	_ = noHandler
 	caller := &codexAppServerCaller{
 		raw:       c.raw,
+		scheduler: c.scheduler,
 		timeout:   timeout,
-		handler:   c.wrapHandler(handler),
-		noHandler: noHandler,
 	}
 	return codexproto.NewClient(caller), caller
-}
-
-func (c *codexAppServerClient) wrapHandler(handler acpMessageHandler) acpMessageHandler {
-	if handler == nil {
-		return nil
-	}
-	return func(ctx context.Context, message acpMessage) error {
-		c.parseInboundMessage(message)
-		return handler(ctx, message)
-	}
 }
 
 func (c *codexAppServerClient) parseInboundMessage(message acpMessage) {
@@ -205,13 +209,9 @@ func (c *codexAppServerCaller) Call(ctx context.Context, method string, params a
 	if c.raw == nil {
 		return errors.New("app-server client is nil")
 	}
-	var raw json.RawMessage
-	var err error
-	if c.noHandler {
-		raw, err = c.raw.CallNoHandlerWithTimeout(ctx, c.timeout, method, params)
-	} else {
-		raw, err = c.raw.CallWithTimeout(ctx, c.timeout, method, params, c.handler)
-	}
+	raw, err := c.scheduler.do(ctx, method, params, func(runCtx context.Context) ([]byte, error) {
+		return c.raw.CallNoHandlerWithTimeout(runCtx, c.timeout, method, params)
+	})
 	if err != nil {
 		return err
 	}
@@ -315,6 +315,25 @@ func (c *codexAppServerClient) ModelListNoHandler(
 	return caller.rawResult, nil
 }
 
+// RawCallNoHandler is the narrow connection-global escape hatch for catalog
+// methods that are not part of the generated Codex protocol surface. It still
+// goes through the shared scheduler, so catalog RPCs cannot race or steal
+// response routing from Thread traffic.
+func (c *codexAppServerClient) RawCallNoHandler(
+	ctx context.Context,
+	timeout time.Duration,
+	method string,
+	params map[string]any,
+) (json.RawMessage, error) {
+	if c == nil || c.raw == nil {
+		return nil, errors.New("app-server client is nil")
+	}
+	raw, err := c.scheduler.do(ctx, method, params, func(runCtx context.Context) ([]byte, error) {
+		return c.raw.CallNoHandlerWithTimeout(runCtx, timeout, method, params)
+	})
+	return raw, err
+}
+
 func (c *codexAppServerClient) AccountRateLimitsRead(
 	ctx context.Context,
 	timeout time.Duration,
@@ -403,6 +422,21 @@ func (c *codexAppServerClient) ThreadResume(
 	}
 	client, caller := c.typed(timeout, handler, false)
 	_, err = client.ThreadResume(ctx, typedParams)
+	if err != nil {
+		return nil, err
+	}
+	return caller.rawResult, nil
+}
+
+func (c *codexAppServerClient) ThreadUnsubscribe(
+	ctx context.Context,
+	timeout time.Duration,
+	threadID string,
+) (json.RawMessage, error) {
+	client, caller := c.typed(timeout, nil, true)
+	_, err := client.ThreadUnsubscribe(ctx, codexproto.ThreadUnsubscribeParams{
+		ThreadID: strings.TrimSpace(threadID),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -529,10 +563,9 @@ func (c *codexAppServerClient) ThreadGoalClear(
 	return caller.rawResult, nil
 }
 
-// The NoHandler goal variants are for background or mid-turn goal RPCs: a
-// handler-carrying call claims the single active message handler slot and
-// serializes behind other calls, so concurrent turn notifications would be
-// swallowed (or the call would block) while the RPC is in flight.
+// The NoHandler names remain source-compatible with callers that used them
+// before the app-server transport gained a permanent message router. All
+// app-server requests now use the same concurrent request-id correlation path.
 
 func (c *codexAppServerClient) ThreadGoalSetNoHandler(
 	ctx context.Context,

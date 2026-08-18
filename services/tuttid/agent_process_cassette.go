@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
 	agentdaemon "github.com/tutti-os/tutti/packages/agent/daemon"
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
@@ -27,6 +28,7 @@ const (
 
 type agentProcessComposition struct {
 	transport           agentdaemon.ProcessTransport
+	transportScopeID    string
 	recorder            *agentdaemon.SessionRecordingProcessTransport
 	replay              *agentdaemon.SessionReplayProcessTransport
 	replayRegistrations []agentSessionReplayRegistration
@@ -107,6 +109,7 @@ func buildAgentProcessComposition(
 			)
 		}
 		return agentProcessComposition{
+			transportScopeID: uuid.NewString(),
 			transport: &agentReplayProviderHomeTransport{
 				base: replay, stateDir: tuttitypes.DefaultStateDir(),
 			},
@@ -119,13 +122,13 @@ func buildAgentProcessComposition(
 		if err != nil {
 			return agentProcessComposition{}, err
 		}
-		return agentProcessComposition{transport: transport}, nil
+		return agentProcessComposition{transport: transport, transportScopeID: uuid.NewString()}, nil
 	}
 	recorder, err := buildSessionRecordingProcessTransport()
 	if err != nil {
 		return agentProcessComposition{}, err
 	}
-	return agentProcessComposition{transport: recorder, recorder: recorder}, nil
+	return agentProcessComposition{transport: recorder, transportScopeID: uuid.NewString(), recorder: recorder}, nil
 }
 
 type agentReplayProviderHomeTransport struct {

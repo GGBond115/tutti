@@ -123,8 +123,7 @@ func (a *ClaudeCodeSDKAdapter) statelessClaudeSDKForkRequest(
 	}
 	conn, err := a.transport.Start(ctx, spec)
 	if err != nil {
-		cleanupPreparedLaunch(cleanup)
-		return claudeSDKSidecarEvent{}, false, err
+		return claudeSDKSidecarEvent{}, false, errors.Join(err, cleanupPreparedLaunch(cleanup))
 	}
 	trackInputUnits := providerInputUnitsEnabled(conn)
 	conn = wrapProviderLaunchCleanup(conn, cleanup)

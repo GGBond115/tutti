@@ -272,7 +272,13 @@ func TestCodexUnprovenGoalTurnDurablyPreparesBeforeExactInterrupt(t *testing.T) 
 	adapter.goalProvenanceGraceWindow = 10 * time.Millisecond
 	reporter := &goalPrepareBarrierReporter{prepared: make(chan struct{}), release: make(chan struct{})}
 	controller := NewController([]Adapter{adapter}, reporter)
-	started, err := controller.Start(context.Background(), StartInput{RoomID: "room-1", Provider: ProviderCodex, CWD: "/workspace", Title: "Codex"})
+	started, err := controller.Start(context.Background(), StartInput{
+		RoomID: "room-1", Provider: ProviderCodex, CWD: "/workspace", Title: "Codex",
+		AppServer: &AppServerRuntimePreparation{
+			ExecutionHostID: "test-host", RuntimeGeneration: "test-runtime", TransportScopeID: "test-transport",
+			ProcessProfileDigest: "test-profile", ProcessCWD: "/workspace",
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +324,13 @@ func TestCodexUnprovenGoalTurnPrepareFailureForceClosesProvider(t *testing.T) {
 	adapter.goalProvenanceGraceWindow = 10 * time.Millisecond
 	adapter.goalReconcileAckTimeout = 20 * time.Millisecond
 	controller := NewController([]Adapter{adapter}, blockingGoalReconcileReporter{})
-	started, err := controller.Start(context.Background(), StartInput{RoomID: "room-1", Provider: ProviderCodex, CWD: "/workspace", Title: "Codex"})
+	started, err := controller.Start(context.Background(), StartInput{
+		RoomID: "room-1", Provider: ProviderCodex, CWD: "/workspace", Title: "Codex",
+		AppServer: &AppServerRuntimePreparation{
+			ExecutionHostID: "test-host", RuntimeGeneration: "test-runtime", TransportScopeID: "test-transport",
+			ProcessProfileDigest: "test-profile", ProcessCWD: "/workspace",
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

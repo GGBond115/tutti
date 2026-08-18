@@ -22,12 +22,17 @@ const (
 	appServerMethodAccountRead         = "account/read"
 	appServerMethodRateLimitsRead      = "account/rateLimits/read"
 	appServerMethodModelList           = "model/list"
+	appServerMethodSkillsList          = "skills/list"
+	appServerMethodAppList             = "app/list"
+	appServerMethodPluginList          = "plugin/list"
+	appServerMethodMCPServerStatusList = "mcpServerStatus/list"
 	appServerMethodSkillsExtraRootsSet = "skills/extraRoots/set"
 	// Experimental: collaboration mode presets (plan/pair/execute). Absence of
 	// the method on older binaries downgrades planMode capability gracefully.
 	appServerMethodCollaborationModeList = "collaborationMode/list"
 	appServerMethodThreadStart           = "thread/start"
 	appServerMethodThreadResume          = "thread/resume"
+	appServerMethodThreadUnsubscribe     = "thread/unsubscribe"
 	appServerMethodThreadFork            = "thread/fork"
 	appServerMethodThreadRollback        = "thread/rollback"
 	appServerMethodThreadRead            = "thread/read"
@@ -149,6 +154,7 @@ type CodexAppServerAdapter struct {
 	config                     appServerAdapterConfig
 	preparer                   ProviderLaunchPreparer
 	commandResolver            ProviderCommandResolver
+	connections                *appServerConnectionRegistry
 	mu                         sync.Mutex
 	sessions                   map[string]*codexAppServerSession
 	retiredSessions            map[string][]*codexAppServerSession
@@ -200,15 +206,26 @@ type CodexAppServerAdapter struct {
 	goalHandoffCommittedHook func()
 	goalBeforeAdoptHook      func()
 	goalHandoffDrainHook     func()
+	// appServerDispatchAcceptedHook is a test-only generation-fence observer.
+	appServerDispatchAcceptedHook func(*appServerThreadBinding, acpMessage)
+	// appServerReplacementReadHook is a test-only barrier immediately before a
+	// dispatch observes provisional replacement publication state.
+	appServerReplacementReadHook func()
+	// appServerReplacementCommittedHook is a test-only publication-fence
+	// observer between registry swap and Adapter Session publication.
+	appServerReplacementCommittedHook func(*appServerThreadBinding)
 }
 
 type codexAppServerSessionLock struct {
-	mu   sync.Mutex
-	refs int
+	mu           sync.Mutex
+	refs         int
+	releaseFence bool
 }
 
 type codexAppServerSession struct {
-	client *codexAppServerClient
+	client     *codexAppServerClient
+	connection *appServerConnection
+	binding    *appServerThreadBinding
 	// releaseFailed preserves ownership after a physical Close error while
 	// making the client unavailable to Exec. A successful replacement moves
 	// this handle to retiredSessions until bounded cleanup confirms closure.
@@ -475,7 +492,7 @@ func newAppServerAdapter(
 	config appServerAdapterConfig,
 	commandResolver ProviderCommandResolver,
 ) *CodexAppServerAdapter {
-	return &CodexAppServerAdapter{
+	adapter := &CodexAppServerAdapter{
 		transport:           transport,
 		host:                host,
 		config:              config,
@@ -488,6 +505,8 @@ func newAppServerAdapter(
 		turnSteerTimeout:    defaultCodexAppServerTurnSteerTimeout,
 		inputUnits:          providerInputUnitTrackerForTransport(transport),
 	}
+	adapter.connections = newAppServerConnectionRegistry(adapter)
+	return adapter
 }
 
 // resolveCLIVersion returns the version of the binary that serves the

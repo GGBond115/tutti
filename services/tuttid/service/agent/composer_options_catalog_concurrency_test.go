@@ -7,8 +7,50 @@ import (
 	"testing"
 	"time"
 
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 )
+
+type preparationRecordingModelCatalog struct {
+	preparations chan *runtimeprep.PrepareInput
+}
+
+func (c preparationRecordingModelCatalog) ListModels(
+	ctx context.Context,
+	input AgentModelCatalogInput,
+) (AgentModelCatalogResult, error) {
+	select {
+	case c.preparations <- input.Preparation:
+	case <-ctx.Done():
+		return AgentModelCatalogResult{}, ctx.Err()
+	}
+	return AgentModelCatalogResult{Models: []AgentModelOption{{ID: "gpt-5"}}}, nil
+}
+
+type preparationRecordingCapabilityLister struct {
+	preparations chan *runtimeprep.PrepareInput
+}
+
+func (preparationRecordingCapabilityLister) ListComposerCapabilityOptions(
+	context.Context, string, string, []ComposerSkillOption,
+) ([]ComposerCapabilityOption, []string) {
+	return nil, nil
+}
+
+func (l preparationRecordingCapabilityLister) ListComposerCapabilityOptionsWithPreparation(
+	ctx context.Context,
+	_ string,
+	_ string,
+	_ []ComposerSkillOption,
+	preparation *runtimeprep.PrepareInput,
+) ([]ComposerCapabilityOption, []string) {
+	select {
+	case l.preparations <- preparation:
+	case <-ctx.Done():
+		return nil, []string{ctx.Err().Error()}
+	}
+	return nil, nil
+}
 
 type blockingComposerModelCatalog struct {
 	started chan struct{}
@@ -92,6 +134,32 @@ func TestServiceGetComposerOptionsLoadsModelAndCapabilityCatalogsConcurrently(t 
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("GetComposerOptions did not finish after catalog releases")
+	}
+}
+
+func TestServiceGetComposerOptionsUsesIndependentCatalogThreadLeases(t *testing.T) {
+	modelPreparations := make(chan *runtimeprep.PrepareInput, 1)
+	capabilityPreparations := make(chan *runtimeprep.PrepareInput, 1)
+	service := newIsolatedAgentService(newFakeRuntime())
+	service.ModelCatalog = preparationRecordingModelCatalog{preparations: modelPreparations}
+	service.CapabilityLister = preparationRecordingCapabilityLister{preparations: capabilityPreparations}
+
+	if _, err := service.GetComposerOptions(context.Background(), ComposerOptionsInput{
+		WorkspaceID: "workspace-1", Provider: "codex", Cwd: t.TempDir(),
+	}); err != nil {
+		t.Fatalf("GetComposerOptions returned error: %v", err)
+	}
+	modelPreparation := <-modelPreparations
+	capabilityPreparation := <-capabilityPreparations
+	if modelPreparation == nil || capabilityPreparation == nil {
+		t.Fatalf("catalog preparations = %#v/%#v, want both exact preparations", modelPreparation, capabilityPreparation)
+	}
+	if modelPreparation.AgentSessionID == capabilityPreparation.AgentSessionID {
+		t.Fatalf("catalog lease ids share mutable thread scope: model=%q capability=%q", modelPreparation.AgentSessionID, capabilityPreparation.AgentSessionID)
+	}
+	if modelPreparation.Provider != capabilityPreparation.Provider || modelPreparation.Cwd != capabilityPreparation.Cwd ||
+		modelPreparation.AgentTargetID != capabilityPreparation.AgentTargetID {
+		t.Fatalf("catalog process identity inputs diverged: model=%#v capability=%#v", modelPreparation, capabilityPreparation)
 	}
 }
 

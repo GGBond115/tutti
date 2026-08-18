@@ -20,9 +20,10 @@ func TestReconcileRootTurnSettlementPublishesFailureDetail(t *testing.T) {
 	ctx := context.Background()
 
 	started, err := controller.Start(ctx, StartInput{
-		RoomID:   "room-1",
-		Provider: ProviderCodex,
-		CWD:      "/workspace",
+		RoomID:    "room-1",
+		Provider:  ProviderCodex,
+		CWD:       "/workspace",
+		AppServer: testAppServerRuntimePreparation("/workspace"),
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

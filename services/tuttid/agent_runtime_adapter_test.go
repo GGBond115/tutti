@@ -43,16 +43,19 @@ type providerAcceptanceMappingTestAdapter struct {
 	execCalls           int
 	acceptanceExecCalls int
 	failure             error
+	startSession        agentruntime.Session
+	resumeSession       agentruntime.Session
 }
 
 func (*providerAcceptanceMappingTestAdapter) Provider() string {
 	return "provider-acceptance-mapping-test"
 }
 
-func (*providerAcceptanceMappingTestAdapter) Start(
+func (a *providerAcceptanceMappingTestAdapter) Start(
 	_ context.Context,
 	session agentruntime.Session,
 ) ([]activityshared.Event, error) {
+	a.startSession = session
 	event := activityshared.NewSessionStarted(activityshared.EventContext{
 		EventID:            "session-started",
 		Provider:           activityshared.Provider(session.Provider),
@@ -64,10 +67,11 @@ func (*providerAcceptanceMappingTestAdapter) Start(
 	return []activityshared.Event{event}, nil
 }
 
-func (*providerAcceptanceMappingTestAdapter) Resume(
-	context.Context,
-	agentruntime.Session,
+func (a *providerAcceptanceMappingTestAdapter) Resume(
+	_ context.Context,
+	session agentruntime.Session,
 ) error {
+	a.resumeSession = session
 	return nil
 }
 
@@ -320,6 +324,52 @@ func TestAgentRuntimeAdapterPreservesProviderAcceptanceRequirement(t *testing.T)
 	}
 	if session.ProviderSessionID != "provider-session-1" {
 		t.Fatalf("provider session id = %q", session.ProviderSessionID)
+	}
+}
+
+func TestAgentRuntimeAdapterMapsAppServerPreparationAcrossStartAndResume(t *testing.T) {
+	provider := &providerAcceptanceMappingTestAdapter{}
+	controller := agentruntime.NewController([]agentruntime.Adapter{provider}, nil)
+	adapter := newAgentRuntimeAdapter(controller)
+	preparation := &agenthost.AppServerRuntimePreparation{
+		ExecutionHostID: "host-1", RuntimeGeneration: "runtime-1", TransportScopeID: "transport-1",
+		ProcessProfileDigest: "profile-1", ProcessCwd: "/prepared", ProcessEnv: []string{"CODEX_HOME=/profile"},
+		ThreadEnv: []string{"TUTTI_AGENT_SESSION_ID=session-1"},
+		ModelProviderCredentials: []agenthost.AppServerModelProviderCredential{{
+			ModelProviderID: "model-provider", BearerToken: "secret",
+		}},
+		BaseInstructions: "base", DeveloperInstructions: "developer",
+	}
+	start, err := adapter.Start(t.Context(), agentservice.RuntimeStartInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", Provider: provider.Provider(),
+		AppServer: preparation,
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if provider.startSession.AppServer == nil || provider.startSession.AppServer.ProcessProfileDigest != "profile-1" {
+		t.Fatalf("runtime Start AppServer = %#v, want explicit profile", provider.startSession.AppServer)
+	}
+	if start.Session.AppServer == nil || start.Session.AppServer.ProcessCwd != "/prepared" ||
+		len(start.Session.AppServer.ModelProviderCredentials) != 1 ||
+		start.Session.AppServer.ModelProviderCredentials[0].BearerToken != "secret" {
+		t.Fatalf("Start() returned AppServer = %#v, want round-tripped preparation", start.Session.AppServer)
+	}
+
+	resumeController := agentruntime.NewController([]agentruntime.Adapter{provider}, nil)
+	resumeAdapter := newAgentRuntimeAdapter(resumeController)
+	resumed, err := resumeAdapter.Resume(t.Context(), agentservice.RuntimeResumeInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1", Provider: provider.Provider(),
+		ProviderSessionID: "provider-session-1", Status: "ready", AppServer: preparation,
+	})
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if provider.resumeSession.AppServer == nil || provider.resumeSession.AppServer.ProcessProfileDigest != "profile-1" {
+		t.Fatalf("runtime Resume AppServer = %#v, want explicit profile", provider.resumeSession.AppServer)
+	}
+	if resumed.AppServer == nil || resumed.AppServer.ProcessProfileDigest != "profile-1" {
+		t.Fatalf("Resume() returned AppServer = %#v, want round-tripped preparation", resumed.AppServer)
 	}
 }
 

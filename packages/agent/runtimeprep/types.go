@@ -97,10 +97,11 @@ type PrepareInput struct {
 	// endpoint when the agent target is bound to one. Nil keeps the
 	// provider's native credential source. Credentials must never reach
 	// logs, manifests, or generated instructions.
-	ModelEndpoint       *ModelEndpointConfig
-	resolved            *resolvedCapabilities
-	hostFacts           HostFacts
-	commandCapabilities *CommandResolver
+	ModelEndpoint           *ModelEndpointConfig
+	resolved                *resolvedCapabilities
+	hostFacts               HostFacts
+	commandCapabilities     *CommandResolver
+	appServerProcessProfile bool
 	// ExternalRolloutSourcePath is the absolute path to the original provider
 	// CLI rollout/transcript file this session was imported from (Codex CLI's
 	// own on-disk conversation transcript under the user's real
@@ -123,6 +124,46 @@ type PreparedRuntime struct {
 	Cwd        string
 	Env        []string
 	MCPServers []MCPServerBinding
+	AppServer  *AppServerPreparedRuntime
+}
+
+type AppServerProfileScope struct {
+	ExecutionHostID   string
+	RuntimeGeneration string
+	TransportScopeID  string
+}
+
+type AppServerLaunchLease struct {
+	ProcessCleanup func(context.Context) error
+	ThreadCleanup  func(context.Context) error
+}
+
+type AppServerLaunchLeaseInput struct {
+	WorkspaceID    string
+	AgentSessionID string
+	Provider       string
+}
+
+type AppServerLaunchLeaseProvider interface {
+	AcquireAppServerLaunchLease(context.Context, AppServerLaunchLeaseInput) (AppServerLaunchLease, error)
+}
+
+type AppServerPreparedRuntime struct {
+	ExecutionHostID          string
+	RuntimeGeneration        string
+	TransportScopeID         string
+	ProcessProfileDigest     string
+	ProcessCwd               string
+	ProcessEnv               []string
+	ThreadEnv                []string
+	ModelProviderCredentials []AppServerModelProviderCredential
+	BaseInstructions         string
+	DeveloperInstructions    string
+}
+
+type AppServerModelProviderCredential struct {
+	ModelProviderID string
+	BearerToken     string
 }
 
 type MCPServerBinding struct {

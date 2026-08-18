@@ -187,7 +187,11 @@ func (a *CodexAppServerAdapter) interruptActiveTurn(
 		"reason", reason,
 		"grace_ms", grace.Milliseconds(),
 	)
-	_ = appSession.client.Close()
+	if appSession.connection != nil {
+		_ = appSession.connection.forceClose()
+	} else {
+		_ = appSession.client.Close()
+	}
 
 	// Wait for the turn goroutine to finalize so we respond after it stopped.
 	select {

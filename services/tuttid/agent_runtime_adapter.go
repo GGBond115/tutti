@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"strings"
 
+	agentmodelcatalog "github.com/tutti-os/tutti/packages/agent/daemon/modelcatalog"
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
+	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 )
 
 type agentRuntimeAdapter struct {
 	controller *agentruntime.Controller
+	preparer   runtimeprep.Preparer
 }
 
 func (a agentRuntimeAdapter) ObserveRootTurnSettled(_ context.Context, workspaceID string, agentSessionID string, turn agentactivitybiz.Turn) {
@@ -26,8 +29,121 @@ func (a agentRuntimeAdapter) ObserveRootTurnSettled(_ context.Context, workspace
 	})
 }
 
-func newAgentRuntimeAdapter(controller *agentruntime.Controller) agentRuntimeAdapter {
-	return agentRuntimeAdapter{controller: controller}
+func newAgentRuntimeAdapter(controller *agentruntime.Controller, preparers ...runtimeprep.Preparer) agentRuntimeAdapter {
+	var preparer runtimeprep.Preparer
+	if len(preparers) > 0 {
+		preparer = preparers[0]
+	}
+	return agentRuntimeAdapter{controller: controller, preparer: preparer}
+}
+
+func (a agentRuntimeAdapter) ListAppServerCatalog(
+	ctx context.Context,
+	input agentservice.AppServerCatalogRequest,
+) (agentservice.AppServerCatalogResult, error) {
+	if input.Preparation == nil {
+		return agentservice.AppServerCatalogResult{}, errors.New("app-server catalog requires exact runtime preparation")
+	}
+	provider := strings.TrimSpace(input.Preparation.Provider)
+	cwd := strings.TrimSpace(input.Preparation.Cwd)
+	if provider == "" || cwd == "" {
+		return agentservice.AppServerCatalogResult{}, fmt.Errorf("app-server catalog preparation requires provider and cwd")
+	}
+	if a.preparer == nil {
+		return agentservice.AppServerCatalogResult{}, errors.New("app-server catalog runtime preparer is unavailable")
+	}
+	preparation := *input.Preparation
+	preparation.SkipSkills = false
+	prepared, err := a.preparer.Prepare(ctx, preparation)
+	if err != nil {
+		return agentservice.AppServerCatalogResult{}, err
+	}
+	cleanupPrepared := func() error {
+		return a.preparer.Cleanup(ctx, runtimeprep.CleanupInput{
+			WorkspaceID: preparation.WorkspaceID, AgentSessionID: preparation.AgentSessionID,
+		})
+	}
+	if prepared.AppServer == nil {
+		return agentservice.AppServerCatalogResult{}, errors.Join(
+			fmt.Errorf("provider %q has no shared app-server preparation", provider), cleanupPrepared(),
+		)
+	}
+	preparedCWD := strings.TrimSpace(prepared.Cwd)
+	if preparedCWD == "" {
+		preparedCWD = cwd
+	}
+	session := agentruntime.Session{
+		RoomID: preparation.WorkspaceID, AgentSessionID: preparation.AgentSessionID, Provider: provider,
+		CWD: preparedCWD, Env: append([]string(nil), prepared.Env...),
+		MCPServers: runtimeMCPServersFromPrepared(prepared.MCPServers),
+		AppServer:  runtimeAppServerPreparation(prepared.AppServer),
+	}
+	result, err := a.controller.ListAppServerCatalog(ctx, agentruntime.AppServerCatalogRequest{
+		Session: session, RequestSet: input.RequestSet, CWD: cwd, ClientName: input.ClientName,
+	})
+	err = errors.Join(err, cleanupPrepared())
+	if err != nil {
+		return agentservice.AppServerCatalogResult{}, err
+	}
+	models := make([]agentservice.AgentModelOption, 0, len(result.Models))
+	for _, raw := range result.Models {
+		model, ok := agentmodelcatalog.NormalizeCodexModel(raw)
+		if ok {
+			models = append(models, model)
+		}
+	}
+	capabilities := agentservice.ParseAppServerCapabilityResponses(result.CapabilityResponse, input.RequestSet)
+	return agentservice.AppServerCatalogResult{Models: models, Capabilities: capabilities}, nil
+}
+
+func runtimeAppServerPreparation(input *runtimeprep.AppServerPreparedRuntime) *agentruntime.AppServerRuntimePreparation {
+	if input == nil {
+		return nil
+	}
+	result := &agentruntime.AppServerRuntimePreparation{
+		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
+		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
+		ProcessCWD: input.ProcessCwd, ProcessEnv: append([]string(nil), input.ProcessEnv...),
+		ThreadEnv: append([]string(nil), input.ThreadEnv...), BaseInstructions: input.BaseInstructions,
+		DeveloperInstructions: input.DeveloperInstructions,
+	}
+	for _, credential := range input.ModelProviderCredentials {
+		result.ModelProviderCredentials = append(result.ModelProviderCredentials, agentruntime.AppServerModelProviderCredential{
+			ModelProviderID: credential.ModelProviderID, BearerToken: credential.BearerToken,
+		})
+	}
+	return result
+}
+
+func runtimeHostAppServerPreparation(input *agenthost.AppServerRuntimePreparation) *agentruntime.AppServerRuntimePreparation {
+	if input == nil {
+		return nil
+	}
+	result := &agentruntime.AppServerRuntimePreparation{
+		ExecutionHostID: input.ExecutionHostID, RuntimeGeneration: input.RuntimeGeneration,
+		TransportScopeID: input.TransportScopeID, ProcessProfileDigest: input.ProcessProfileDigest,
+		ProcessCWD: input.ProcessCwd, ProcessEnv: append([]string(nil), input.ProcessEnv...),
+		ThreadEnv: append([]string(nil), input.ThreadEnv...), BaseInstructions: input.BaseInstructions,
+		DeveloperInstructions: input.DeveloperInstructions,
+	}
+	for _, credential := range input.ModelProviderCredentials {
+		result.ModelProviderCredentials = append(result.ModelProviderCredentials, agentruntime.AppServerModelProviderCredential{
+			ModelProviderID: credential.ModelProviderID, BearerToken: credential.BearerToken,
+		})
+	}
+	return result
+}
+
+func runtimeMCPServersFromPrepared(input []runtimeprep.MCPServerBinding) []agentruntime.MCPServerBinding {
+	result := make([]agentruntime.MCPServerBinding, 0, len(input))
+	for _, binding := range input {
+		headers := make(map[string]string, len(binding.Headers))
+		for key, value := range binding.Headers {
+			headers[key] = value
+		}
+		result = append(result, agentruntime.MCPServerBinding{Name: binding.Name, Type: binding.Type, URL: binding.URL, Headers: headers})
+	}
+	return result
 }
 
 func (a agentRuntimeAdapter) ConnectorHTTPMCPSupported(
@@ -150,6 +266,7 @@ func (a agentRuntimeAdapter) CanResume(input agentservice.RuntimeResumeInput) bo
 		CWD:               input.Cwd,
 		Env:               append([]string(nil), input.Env...),
 		MCPServers:        daemonMCPServerBindings(input.MCPServers),
+		AppServer:         runtimeHostAppServerPreparation(input.AppServer),
 		Title:             input.Title,
 		Status:            input.Status,
 		Settings:          agentRuntimeSessionSettings(input.Settings),
@@ -467,6 +584,7 @@ func (a agentRuntimeAdapter) Resume(ctx context.Context, input agentservice.Runt
 		CWD:               input.Cwd,
 		Env:               append([]string(nil), input.Env...),
 		MCPServers:        daemonMCPServerBindings(input.MCPServers),
+		AppServer:         runtimeHostAppServerPreparation(input.AppServer),
 		Title:             input.Title,
 		Status:            input.Status,
 		Settings:          agentRuntimeSessionSettings(input.Settings),
@@ -526,6 +644,7 @@ func (a agentRuntimeAdapter) Start(ctx context.Context, input agentservice.Runti
 		CWD:                     input.Cwd,
 		Env:                     append([]string(nil), input.Env...),
 		MCPServers:              daemonMCPServerBindings(input.MCPServers),
+		AppServer:               runtimeHostAppServerPreparation(input.AppServer),
 		Title:                   input.Title,
 		InitialTitleEstablished: input.InitialTitleEstablished,
 		ProviderTargetRef:       cloneRuntimeContext(input.ProviderTargetRef),
@@ -572,75 +691,6 @@ func (a agentRuntimeAdapter) Subscribe(workspaceID string, agentSessionID string
 	return agentRuntimeStreamEvents(events), unsubscribe, ok
 }
 
-func agentRuntimeStreamEvents(events <-chan agentruntime.StreamEvent) <-chan agentservice.RuntimeStreamEvent {
-	out := make(chan agentservice.RuntimeStreamEvent)
-	go func() {
-		defer close(out)
-		for event := range events {
-			out <- agentservice.RuntimeStreamEvent{
-				EventType: event.EventType,
-				Data:      event.Data,
-			}
-		}
-	}()
-	return out
-}
-
-func agentRuntimeSession(session agentruntime.Session) agentservice.ProviderRuntimeSession {
-	return agentservice.ProviderRuntimeSession{
-		ID:                      session.AgentSessionID,
-		WorkspaceID:             session.RoomID,
-		AgentTargetID:           session.AgentTargetID,
-		Provider:                session.Provider,
-		ProviderSessionID:       session.ProviderSessionID,
-		Resumable:               session.Resumable,
-		Cwd:                     session.CWD,
-		Env:                     append([]string(nil), session.Env...),
-		MCPServers:              serviceMCPServerBindings(session.MCPServers),
-		Settings:                agentRuntimeComposerSettings(session.Settings),
-		Status:                  session.Status,
-		TurnLifecycle:           serviceTurnLifecyclePointerFromRuntime(session.TurnLifecycle),
-		SubmitAvailability:      serviceSubmitAvailabilityPointerFromRuntime(session.SubmitAvailability),
-		Visible:                 session.Visible,
-		Title:                   session.Title,
-		InitialTitleEstablished: session.InitialTitleEstablished,
-		LastError:               session.LastError,
-		RuntimeContext:          cloneRuntimeContext(session.RuntimeContext),
-		CreatedAtUnixMS:         session.CreatedAtUnixMS,
-		UpdatedAtUnixMS:         session.UpdatedAtUnixMS,
-	}
-}
-
-func daemonMCPServerBindings(input []agenthost.MCPServerBinding) []agentruntime.MCPServerBinding {
-	if len(input) == 0 {
-		return nil
-	}
-	result := make([]agentruntime.MCPServerBinding, 0, len(input))
-	for _, binding := range input {
-		headers := make(map[string]string, len(binding.Headers))
-		for key, value := range binding.Headers {
-			headers[key] = value
-		}
-		result = append(result, agentruntime.MCPServerBinding{Name: binding.Name, Type: binding.Type, URL: binding.URL, Headers: headers})
-	}
-	return result
-}
-
-func serviceMCPServerBindings(input []agentruntime.MCPServerBinding) []agenthost.MCPServerBinding {
-	if len(input) == 0 {
-		return nil
-	}
-	result := make([]agenthost.MCPServerBinding, 0, len(input))
-	for _, binding := range input {
-		headers := make(map[string]string, len(binding.Headers))
-		for key, value := range binding.Headers {
-			headers[key] = value
-		}
-		result = append(result, agenthost.MCPServerBinding{Name: binding.Name, Type: binding.Type, URL: binding.URL, Headers: headers})
-	}
-	return result
-}
-
 func (a agentRuntimeAdapter) runtimeSessionWithState(session agentruntime.Session) agentservice.ProviderRuntimeSession {
 	result := agentRuntimeSession(session)
 	state, err := a.controller.State(session.RoomID, session.AgentSessionID)
@@ -668,75 +718,6 @@ func (a agentRuntimeAdapter) runtimeSessionWithState(session agentruntime.Sessio
 		result.UpdatedAtUnixMS = state.UpdatedAtUnixMS
 	}
 	return result
-}
-
-func serviceSubmitAvailabilityPointerFromRuntime(value *agentruntime.SubmitAvailability) *agentservice.SubmitAvailability {
-	if value == nil {
-		return nil
-	}
-	converted := serviceSubmitAvailabilityFromRuntime(*value)
-	return &converted
-}
-
-func serviceTurnLifecyclePointerFromRuntime(value *agentruntime.TurnLifecycle) *agentservice.TurnLifecycle {
-	if value == nil {
-		return nil
-	}
-	converted := serviceTurnLifecycleFromRuntime(*value)
-	return &converted
-}
-
-func agentRuntimeComposerSettings(settings *agentruntime.SessionSettings) *agentservice.ComposerSettings {
-	if settings == nil {
-		return nil
-	}
-	return &agentservice.ComposerSettings{
-		Model:                  settings.Model,
-		PermissionModeID:       settings.PermissionModeID,
-		PlanMode:               settings.PlanMode,
-		BrowserUse:             cloneOptionalBool(settings.BrowserUse),
-		ReasoningEffort:        settings.ReasoningEffort,
-		Speed:                  settings.Speed,
-		ConversationDetailMode: settings.ConversationDetailMode,
-	}
-}
-
-func cloneRuntimeContext(value map[string]any) map[string]any {
-	if len(value) == 0 {
-		return nil
-	}
-	cloned := make(map[string]any, len(value))
-	for key, item := range value {
-		cloned[key] = cloneRuntimeContextValue(item)
-	}
-	return cloned
-}
-
-func cloneRuntimeContextValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for key, item := range typed {
-			out[key] = cloneRuntimeContextValue(item)
-		}
-		return out
-	case []any:
-		out := make([]any, len(typed))
-		for index, item := range typed {
-			out[index] = cloneRuntimeContextValue(item)
-		}
-		return out
-	default:
-		return value
-	}
-}
-
-func cloneOptionalBool(value *bool) *bool {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }
 
 func mapAgentRuntimeError(err error) error {

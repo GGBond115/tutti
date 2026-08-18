@@ -373,6 +373,10 @@ type LiveSessionResourceCleanupAdapter interface {
 	CleanupLiveSessionResources(context.Context, int) LiveSessionResourceCleanupResult
 }
 
+type LiveSessionResourceShutdownAdapter interface {
+	ShutdownLiveSessionResources(context.Context) LiveSessionResourceCleanupResult
+}
+
 type LiveSessionReleaseAdapter interface {
 	ReleaseLiveSession(context.Context, Session) error
 }

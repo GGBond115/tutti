@@ -480,8 +480,7 @@ func (a *standardACPAdapter) startClient(
 	if a.config.finalizeEnv != nil {
 		spec.Env, err = a.config.finalizeEnv(spec.Env, session)
 		if err != nil {
-			cleanupPreparedLaunch(cleanup)
-			return nil, nil, false, err
+			return nil, nil, false, errors.Join(err, cleanupPreparedLaunch(cleanup))
 		}
 	}
 	processStartedAt := time.Now()
@@ -494,14 +493,14 @@ func (a *standardACPAdapter) startClient(
 	})
 	conn, err := a.transport.Start(ctx, spec)
 	if err != nil {
-		cleanupPreparedLaunch(cleanup)
+		cleanupErr := cleanupPreparedLaunch(cleanup)
 		a.logStandardACPStartupDiagnostics("process_start.failed", map[string]any{
 			"room_id":          session.RoomID,
 			"agent_session_id": session.AgentSessionID,
 			"elapsed_ms":       time.Since(processStartedAt).Milliseconds(),
 			"error":            err.Error(),
 		})
-		return nil, nil, false, err
+		return nil, nil, false, errors.Join(err, cleanupErr)
 	}
 	conn = wrapProviderLaunchCleanup(conn, cleanup)
 	a.logStandardACPStartupDiagnostics("process_start.succeeded", map[string]any{

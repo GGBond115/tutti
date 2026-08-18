@@ -61,8 +61,7 @@ func (a *ClaudeCodeSDKAdapter) startClaudeSDKSession(ctx context.Context, sessio
 	launchSession.Env = append([]string(nil), spec.Env...)
 	conn, err := a.transport.Start(ctx, spec)
 	if err != nil {
-		cleanupPreparedLaunch(cleanup)
-		return nil, err
+		return nil, errors.Join(err, cleanupPreparedLaunch(cleanup))
 	}
 	trackInputUnits := providerInputUnitsEnabled(conn)
 	conn = wrapProviderLaunchCleanup(conn, cleanup)

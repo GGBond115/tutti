@@ -103,6 +103,7 @@ func TestCodexAppServerAdapterRefreshesStartupMetadataAsync(t *testing.T) {
 		AgentSessionID: "agent-session-1",
 		Provider:       ProviderCodex,
 		CWD:            "/workspace/room-1",
+		AppServer:      testAppServerRuntimePreparation("/workspace"),
 		Settings: &SessionSettings{
 			Model:           "gpt-5.3-codex-spark",
 			ReasoningEffort: "high",

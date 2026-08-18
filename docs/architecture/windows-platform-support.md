@@ -307,7 +307,9 @@ The Alpha workflow is intentionally separate from the formal desktop release:
 - `.github/workflows/windows-agent-adapters.yml` and
   `.github/workflows/windows-daemon-adapters.yml` provide focused pull-request
   coverage and maintain reusable caches on matching `main` pushes; they do not
-  produce desktop packages;
+  produce desktop packages. The agent-adapters lane covers the daemon process
+  boundary together with shared app-server runtime preparation, Host DTO
+  transport, and tuttid composition on native Windows;
 - `.github/workflows/windows-desktop-alpha.yml` always tests Windows x64 and
   builds the Desktop bundles for pull requests;
 - pull requests build, smoke-test, and upload an unsigned NSIS installer only

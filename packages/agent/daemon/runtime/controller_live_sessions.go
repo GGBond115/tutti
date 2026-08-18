@@ -92,6 +92,35 @@ func (c *Controller) ReleaseIdleLiveSessions(ctx context.Context, input ReleaseI
 	return result
 }
 
+func (c *Controller) shutdownDetachedLiveSessionResources(ctx context.Context, failedProviders map[string]bool) LiveSessionResourceCleanupResult {
+	var result LiveSessionResourceCleanupResult
+	c.mu.Lock()
+	adapters := make([]Adapter, 0, len(c.adapters))
+	for _, adapter := range c.adapters {
+		adapters = append(adapters, adapter)
+	}
+	c.mu.Unlock()
+	for _, adapter := range adapters {
+		if failedProviders[strings.TrimSpace(adapter.Provider())] {
+			continue
+		}
+		if shutdown, ok := adapter.(LiveSessionResourceShutdownAdapter); ok {
+			next := shutdown.ShutdownLiveSessionResources(ctx)
+			result.Attempted += next.Attempted
+			result.Cleaned += next.Cleaned
+			result.Failed += next.Failed
+			continue
+		}
+		if cleanup, ok := adapter.(LiveSessionResourceCleanupAdapter); ok {
+			next := cleanup.CleanupLiveSessionResources(ctx, 1)
+			result.Attempted += next.Attempted
+			result.Cleaned += next.Cleaned
+			result.Failed += next.Failed
+		}
+	}
+	return result
+}
+
 func (c *Controller) releaseIdleLiveSession(
 	ctx context.Context,
 	session Session,
@@ -359,14 +388,7 @@ func (c *Controller) CloseAllLiveSessions(ctx context.Context) CloseAllLiveSessi
 		})
 	}
 	c.mu.Unlock()
-	failedProviders := make(map[string]bool)
-
 	for _, cand := range candidates {
-		provider := strings.TrimSpace(cand.session.Provider)
-		if failedProviders[provider] {
-			result.SkippedCleanupBudget++
-			continue
-		}
 		probe, ok := cand.adapter.(LiveSessionProbeAdapter)
 		if !ok || !probe.HasLiveSession(cand.session) {
 			continue
@@ -377,7 +399,6 @@ func (c *Controller) CloseAllLiveSessions(ctx context.Context) CloseAllLiveSessi
 		releaseLifecycleLock()
 		if err != nil {
 			result.Failed++
-			failedProviders[provider] = true
 			slog.Warn("agent live session shutdown close failed",
 				"event", "agent_session.shutdown_close.failed",
 				"room_id", cand.session.RoomID,
@@ -389,7 +410,10 @@ func (c *Controller) CloseAllLiveSessions(ctx context.Context) CloseAllLiveSessi
 		}
 		result.Closed++
 	}
-	cleanup := c.cleanupDetachedLiveSessionResources(ctx, failedProviders)
+	// Shutdown owns the physical provider registry independently from any one
+	// Session's detach/unsubscribe result. Always run it after every candidate
+	// so one failed thread cleanup cannot leave a shared process alive.
+	cleanup := c.shutdownDetachedLiveSessionResources(ctx, nil)
 	result.ResourceCleanupAttempted = cleanup.Attempted
 	result.ResourceCleanupCleaned = cleanup.Cleaned
 	result.ResourceCleanupFailed = cleanup.Failed

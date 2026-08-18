@@ -397,7 +397,7 @@ func TestControllerCloseAllLiveSessionsForcesClosureDuringActiveTurn(t *testing.
 	}
 }
 
-func TestControllerCloseAllLiveSessionsBoundsFailedCloseBudgetPerAdapter(t *testing.T) {
+func TestControllerCloseAllLiveSessionsContinuesAfterEachCloseFailure(t *testing.T) {
 	t.Parallel()
 
 	adapter := newReleasableAdapter()
@@ -408,14 +408,34 @@ func TestControllerCloseAllLiveSessionsBoundsFailedCloseBudgetPerAdapter(t *test
 	adapter.closeErrByAgentSessionID[closes.Session.AgentSessionID] = errors.New("close failed too")
 
 	result := controller.CloseAllLiveSessions(context.Background())
-	if result.Scanned != 1 || result.Failed != 1 || result.Closed != 0 || result.SkippedCleanupBudget != 1 {
-		t.Fatalf("close-all result = %#v, want one failure budget and one deferred session", result)
+	if result.Scanned != 2 || result.Failed != 2 || result.Closed != 0 || result.SkippedCleanupBudget != 0 {
+		t.Fatalf("close-all result = %#v, want both failures attempted", result)
 	}
 	if !adapter.hasLiveSession(failing.Session.AgentSessionID) {
 		t.Fatalf("failing session should remain live since Close returned an error")
 	}
 	if !adapter.hasLiveSession(closes.Session.AgentSessionID) {
-		t.Fatalf("closes-session was attempted after the adapter spent its failed close budget")
+		t.Fatalf("second failed session should remain live after its attempted close")
+	}
+	if adapter.closeCallCount(failing.Session.AgentSessionID) != 1 || adapter.closeCallCount(closes.Session.AgentSessionID) != 1 {
+		t.Fatal("shutdown did not attempt every live Session")
+	}
+}
+
+func TestControllerCloseAllLiveSessionsAlwaysShutsDownSharedResourcesAfterDetachFailure(t *testing.T) {
+	base := newReleasableAdapter()
+	adapter := &shutdownTrackingAdapter{releasableAdapter: base}
+	controller := NewController([]Adapter{adapter}, nil)
+	started := startReleasableSession(t, controller, "unsubscribe-fails")
+	base.closeErrByAgentSessionID[started.Session.AgentSessionID] = errors.New("unsubscribe failed")
+
+	result := controller.CloseAllLiveSessions(context.Background())
+	if result.Scanned != 1 || result.Failed != 1 || result.ResourceCleanupAttempted != 1 ||
+		result.ResourceCleanupCleaned != 1 || result.ResourceCleanupFailed != 0 {
+		t.Fatalf("close-all result = %#v, want failed detach plus successful registry shutdown", result)
+	}
+	if adapter.shutdownCalls != 1 {
+		t.Fatalf("shared resource shutdown calls = %d, want 1", adapter.shutdownCalls)
 	}
 }
 
@@ -725,6 +745,16 @@ type detachedCleanupTestAdapter struct {
 	mu     sync.Mutex
 	calls  int
 	result LiveSessionResourceCleanupResult
+}
+
+type shutdownTrackingAdapter struct {
+	*releasableAdapter
+	shutdownCalls int
+}
+
+func (a *shutdownTrackingAdapter) ShutdownLiveSessionResources(context.Context) LiveSessionResourceCleanupResult {
+	a.shutdownCalls++
+	return LiveSessionResourceCleanupResult{Attempted: 1, Cleaned: 1}
 }
 
 func (a *detachedCleanupTestAdapter) CleanupLiveSessionResources(_ context.Context, limit int) LiveSessionResourceCleanupResult {

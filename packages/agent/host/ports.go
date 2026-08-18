@@ -468,6 +468,7 @@ type PreparedRuntime struct {
 	ProviderTargetRef map[string]any
 	Settings          *ComposerSettings
 	RuntimeContext    map[string]any
+	AppServer         *AppServerRuntimePreparation
 }
 
 type MCPServerBinding struct {
@@ -491,6 +492,19 @@ func cloneHostMCPServerBindings(input []MCPServerBinding) []MCPServerBinding {
 		result = append(result, binding)
 	}
 	return result
+}
+
+func cloneHostAppServerPreparation(input *AppServerRuntimePreparation) *AppServerRuntimePreparation {
+	if input == nil {
+		return nil
+	}
+	value := *input
+	value.ProcessEnv = append([]string(nil), input.ProcessEnv...)
+	value.ThreadEnv = append([]string(nil), input.ThreadEnv...)
+	value.ModelProviderCredentials = append(
+		[]AppServerModelProviderCredential(nil), input.ModelProviderCredentials...,
+	)
+	return &value
 }
 
 type RuntimeCleanupInput struct {

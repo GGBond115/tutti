@@ -90,6 +90,7 @@ type initializationBarrierTestRuntime struct {
 	closeCtx      contextObservation
 	closeCalls    int
 	startCalls    int
+	startInput    RuntimeStartInput
 	publishCalls  int
 }
 
@@ -98,6 +99,7 @@ func (r *initializationBarrierTestRuntime) Start(
 	input RuntimeStartInput,
 ) (RuntimeStartResult, error) {
 	r.startCalls++
+	r.startInput = input
 	r.session = ProviderRuntimeSession{
 		ID: input.AgentSessionID, WorkspaceID: input.WorkspaceID,
 		AgentTargetID: input.AgentTargetID, Provider: input.Provider,
@@ -135,13 +137,14 @@ func (r *initializationBarrierTestRuntime) Close(
 type initializationBarrierTestPreparation struct {
 	cleanupCalls int
 	cleanupCtx   contextObservation
+	prepared     *AppServerRuntimePreparation
 }
 
-func (*initializationBarrierTestPreparation) Prepare(
+func (p *initializationBarrierTestPreparation) Prepare(
 	_ context.Context,
 	input RuntimePreparationInput,
 ) (PreparedRuntime, error) {
-	return PreparedRuntime{Cwd: input.Cwd}, nil
+	return PreparedRuntime{Cwd: input.Cwd, AppServer: cloneHostAppServerPreparation(p.prepared)}, nil
 }
 
 func (p *initializationBarrierTestPreparation) Cleanup(
@@ -211,6 +214,38 @@ func observeContext(ctx context.Context) contextObservation {
 	}
 	return contextObservation{
 		err: ctx.Err(), hasDeadline: hasDeadline, remaining: remaining,
+	}
+}
+
+func TestCreateSessionPassesPreparedAppServerDTOToRuntime(t *testing.T) {
+	store := &initializationBarrierTestStore{}
+	runtime := &initializationBarrierTestRuntime{}
+	preparation := &initializationBarrierTestPreparation{prepared: &AppServerRuntimePreparation{
+		ExecutionHostID: "device-1", RuntimeGeneration: "runtime-1", TransportScopeID: "transport-1",
+		ProcessProfileDigest: "profile-1", ProcessCwd: "/profile",
+		ProcessEnv: []string{"CODEX_HOME=/profile/codex-home"},
+		ThreadEnv:  []string{"TUTTI_AGENT_SESSION_ID=session-1"},
+		ModelProviderCredentials: []AppServerModelProviderCredential{{
+			ModelProviderID: "tutti-model-plan", BearerToken: "session-token",
+		}},
+	}}
+	host := New(Config{CanonicalStore: store, Runtime: runtime, RuntimePreparation: preparation})
+	cwd := "/workspace"
+
+	_, err := host.CreateSession(t.Context(), "workspace-1", CreateSessionInput{
+		AgentSessionID: "session-1", AgentTargetID: "target-1", Provider: "codex", Cwd: &cwd,
+		RailPlacement: &RailPlacement{Version: 1, Kind: RailPlacementKindProject, ProjectPath: "/workspace"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := runtime.startInput.AppServer
+	if got == nil || got.ExecutionHostID != "device-1" || got.RuntimeGeneration != "runtime-1" ||
+		got.TransportScopeID != "transport-1" || got.ProcessProfileDigest != "profile-1" ||
+		len(got.ProcessEnv) != 1 || len(got.ThreadEnv) != 1 ||
+		len(got.ModelProviderCredentials) != 1 ||
+		got.ModelProviderCredentials[0].BearerToken != "session-token" {
+		t.Fatalf("runtime AppServer DTO = %#v", got)
 	}
 }
 

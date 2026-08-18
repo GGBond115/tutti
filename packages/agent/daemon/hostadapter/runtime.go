@@ -12,7 +12,6 @@ import (
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	host "github.com/tutti-os/tutti/packages/agent/host"
-	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 // RuntimeBackend is the daemon controller surface required by Agent Host.
@@ -159,6 +158,7 @@ func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartIn
 		CWD:                     input.Cwd,
 		Env:                     append([]string(nil), input.Env...),
 		MCPServers:              runtimeMCPServerBindings(input.MCPServers),
+		AppServer:               runtimeAppServerPreparation(input.AppServer),
 		Title:                   input.Title,
 		InitialTitleEstablished: input.InitialTitleEstablished,
 		Visible:                 input.Visible,
@@ -692,83 +692,6 @@ func mapRuntimeError(err error) error {
 	return err
 }
 
-func (a *RuntimeController) fromSession(session agentruntime.Session) host.ProviderRuntimeSession {
-	var settings *host.ComposerSettings
-	if session.Settings != nil {
-		value := hostSettings(*session.Settings)
-		settings = &value
-	}
-	return host.ProviderRuntimeSession{
-		ID: session.AgentSessionID, WorkspaceID: session.RoomID, UserID: a.currentUserID(),
-		AgentTargetID: session.AgentTargetID, Provider: session.Provider, ProviderSessionID: session.ProviderSessionID,
-		Resumable: session.Resumable,
-		Cwd:       session.CWD, Env: append([]string(nil), session.Env...), MCPServers: hostMCPServerBindings(session.MCPServers), Settings: settings,
-		ProviderTargetRef: cloneMap(session.ProviderTargetRef),
-		RuntimeContext:    cloneMap(session.RuntimeContext), Status: session.Status,
-		TurnLifecycle: hostTurnLifecyclePointer(session.TurnLifecycle), SubmitAvailability: hostSubmitAvailability(session.SubmitAvailability),
-		Visible: session.Visible, Title: session.Title, InitialTitleEstablished: session.InitialTitleEstablished,
-		LastError: session.LastError, CreatedAtUnixMS: session.CreatedAtUnixMS, UpdatedAtUnixMS: session.UpdatedAtUnixMS,
-	}
-}
-
-func runtimeSession(session host.ProviderRuntimeSession) agentruntime.Session {
-	var settings *agentruntime.SessionSettings
-	if session.Settings != nil {
-		settings = runtimeSettings(*session.Settings)
-	}
-	return agentruntime.Session{
-		RoomID: session.WorkspaceID, AgentSessionID: session.ID,
-		AgentTargetID: session.AgentTargetID, Provider: session.Provider,
-		ProviderSessionID: session.ProviderSessionID, Resumable: session.Resumable,
-		CWD: session.Cwd, Env: append([]string(nil), session.Env...), MCPServers: runtimeMCPServerBindings(session.MCPServers),
-		Status: session.Status, TurnLifecycle: runtimeTurnLifecyclePointer(session.TurnLifecycle),
-		SubmitAvailability: runtimeSubmitAvailability(session.SubmitAvailability),
-		Title:              session.Title, LastError: session.LastError, Visible: session.Visible,
-		RuntimeContext: cloneMap(session.RuntimeContext), ProviderTargetRef: cloneMap(session.ProviderTargetRef),
-		Settings:        settings,
-		CreatedAtUnixMS: session.CreatedAtUnixMS, UpdatedAtUnixMS: session.UpdatedAtUnixMS,
-		InitialTitleEstablished: session.InitialTitleEstablished,
-	}
-}
-
-// sessionWithState preserves the daemon runtime's provider-enriched live
-// observation. The base Session owns process identity and lifecycle fields;
-// State overlays provider-computed settings and runtime context such as model
-// catalogs, usage, rate limits, account details, and commands.
-func (a *RuntimeController) sessionWithState(session agentruntime.Session) host.ProviderRuntimeSession {
-	result := a.fromSession(session)
-	if a == nil || a.Backend == nil {
-		return result
-	}
-	state, err := a.Backend.State(session.RoomID, session.AgentSessionID)
-	if err != nil {
-		return result
-	}
-	if state.ProviderSessionID != "" {
-		result.ProviderSessionID = state.ProviderSessionID
-	}
-	result.Resumable = result.Resumable || state.Resumable
-	if state.Status != "" {
-		result.Status = state.Status
-	}
-	if state.TurnLifecycle != nil {
-		result.TurnLifecycle = hostTurnLifecyclePointer(state.TurnLifecycle)
-	}
-	if state.SubmitAvailability != nil {
-		result.SubmitAvailability = hostSubmitAvailability(state.SubmitAvailability)
-	}
-	if state.Settings != nil {
-		settings := hostSettings(*state.Settings)
-		result.Settings = &settings
-	}
-	result.Capabilities = canonical.CloneCapabilitySnapshot(state.Capabilities)
-	result.RuntimeContext = cloneMap(state.RuntimeContext)
-	if state.UpdatedAtUnixMS > 0 {
-		result.UpdatedAtUnixMS = state.UpdatedAtUnixMS
-	}
-	return result
-}
-
 func (a *RuntimeController) currentUserID() string {
 	if a != nil && a.CurrentUserID != nil {
 		return strings.TrimSpace(a.CurrentUserID())
@@ -782,7 +705,8 @@ func runtimeResumeInput(input host.RuntimeResumeInput) agentruntime.ResumeInput 
 		Provider: input.Provider, ProviderSessionID: input.ProviderSessionID, CWD: input.Cwd,
 		Resumable: input.Resumable,
 		Env:       append([]string(nil), input.Env...), MCPServers: runtimeMCPServerBindings(input.MCPServers),
-		Title: input.Title, Status: input.Status, Visible: input.Visible,
+		AppServer: runtimeAppServerPreparation(input.AppServer),
+		Title:     input.Title, Status: input.Status, Visible: input.Visible,
 		RuntimeContext:               cloneMap(input.RuntimeContext),
 		ProviderLaunchRuntimeContext: cloneMap(input.ProviderLaunchRuntimeContext),
 		ProviderTargetRef:            cloneMap(input.ProviderTargetRef),

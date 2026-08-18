@@ -40,6 +40,74 @@ type ProviderLaunchPrepareResult struct {
 	Env     []string
 	CWD     string
 	Cleanup func(context.Context) error
+	// AppServer is consumed only by the Codex-compatible app-server adapter.
+	// Generic ProcessTransport and ACP adapters never receive Thread overlay
+	// material. Codex-compatible app-server launches must provide it explicitly.
+	AppServer *AppServerLaunchPreparation
+}
+
+// AppServerLaunchPreparation separates a shared process lease from one
+// provider Thread lease. A non-nil value is an explicit compatibility proof:
+// ProcessProfile fields never fall back to the flat Session launch fields.
+type AppServerLaunchPreparation struct {
+	ProcessProfile AppServerProcessProfile
+	ThreadOverlay  AppServerThreadOverlay
+	ProcessCleanup func(context.Context) error
+	ThreadCleanup  func(context.Context) error
+}
+
+type AppServerProcessProfile struct {
+	ExecutionHostID      string
+	RuntimeGeneration    string
+	TransportScopeID     string
+	ProcessProfileDigest string
+	Command              []string
+	Env                  []string
+	CWD                  string
+}
+
+type AppServerThreadOverlay struct {
+	Env                      []string
+	MCPServers               []MCPServerBinding
+	ModelProviderCredentials []AppServerModelProviderCredential
+	BaseInstructions         string
+	DeveloperInstructions    string
+}
+
+// AppServerModelProviderCredential delivers one provider token through the
+// provider Thread config. It must never be copied into the shared process env
+// or represented by a model-provider env_key.
+type AppServerModelProviderCredential struct {
+	ModelProviderID string
+	BearerToken     string
+}
+
+type AppServerRuntimePreparation struct {
+	ExecutionHostID          string
+	RuntimeGeneration        string
+	TransportScopeID         string
+	ProcessProfileDigest     string
+	ProcessCWD               string
+	ProcessEnv               []string
+	ThreadEnv                []string
+	ModelProviderCredentials []AppServerModelProviderCredential
+	BaseInstructions         string
+	DeveloperInstructions    string
+}
+
+func cloneAppServerRuntimePreparation(input *AppServerRuntimePreparation) *AppServerRuntimePreparation {
+	if input == nil {
+		return nil
+	}
+	value := *input
+	value.ProcessEnv = append([]string(nil), input.ProcessEnv...)
+	value.ThreadEnv = append([]string(nil), input.ThreadEnv...)
+	value.ModelProviderCredentials = cloneAppServerModelProviderCredentials(input.ModelProviderCredentials)
+	return &value
+}
+
+func cloneAppServerModelProviderCredentials(input []AppServerModelProviderCredential) []AppServerModelProviderCredential {
+	return append([]AppServerModelProviderCredential(nil), input...)
 }
 
 type ProviderLaunchPreparer func(context.Context, ProviderLaunchPrepareInput) (ProviderLaunchPrepareResult, error)
@@ -68,7 +136,7 @@ func prepareProviderLaunch(
 	preparer ProviderLaunchPreparer,
 	session Session,
 	spec ProcessSpec,
-) (ProcessSpec, func(context.Context), error) {
+) (ProcessSpec, func(context.Context) error, error) {
 	spec.Command = append([]string(nil), spec.Command...)
 	spec.Env = append([]string(nil), spec.Env...)
 	spec.ExecutableIdentity = cloneExecutableIdentity(spec.ExecutableIdentity)
@@ -114,36 +182,44 @@ func cloneProviderLaunchSession(session Session) Session {
 	return session
 }
 
-func providerLaunchCleanup(spec ProcessSpec, cleanup func(context.Context) error) func(context.Context) {
+func providerLaunchCleanup(spec ProcessSpec, cleanup func(context.Context) error) func(context.Context) error {
 	if cleanup == nil {
 		return nil
 	}
-	var once sync.Once
-	return func(ctx context.Context) {
-		once.Do(func() {
-			if ctx == nil {
-				ctx = context.Background()
-			}
-			if err := cleanup(ctx); err != nil {
-				slog.Warn("agent session provider launch cleanup failed",
-					"event", "agent_session.provider_launch.cleanup_failed",
-					"provider", spec.Provider,
-					"room_id", spec.RoomID,
-					"agent_session_id", spec.AgentSessionID,
-					"error", err.Error(),
-				)
-			}
-		})
+	var mu sync.Mutex
+	completed := false
+	return func(ctx context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if completed {
+			return nil
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := cleanup(ctx); err != nil {
+			slog.Warn("agent session provider launch cleanup failed",
+				"event", "agent_session.provider_launch.cleanup_failed",
+				"provider", spec.Provider,
+				"room_id", spec.RoomID,
+				"agent_session_id", spec.AgentSessionID,
+				"error", err.Error(),
+			)
+			return err
+		}
+		completed = true
+		return nil
 	}
 }
 
-func cleanupPreparedLaunch(cleanup func(context.Context)) {
+func cleanupPreparedLaunch(cleanup func(context.Context) error) error {
 	if cleanup != nil {
-		cleanup(context.Background())
+		return cleanup(context.Background())
 	}
+	return nil
 }
 
-func wrapProviderLaunchCleanup(conn ProcessConnection, cleanup func(context.Context)) ProcessConnection {
+func wrapProviderLaunchCleanup(conn ProcessConnection, cleanup func(context.Context) error) ProcessConnection {
 	if conn == nil || cleanup == nil {
 		return conn
 	}
@@ -162,7 +238,7 @@ func wrapProviderLaunchCleanup(conn ProcessConnection, cleanup func(context.Cont
 
 type providerLaunchCleanupConnection struct {
 	ProcessConnection
-	cleanup func(context.Context)
+	cleanup func(context.Context) error
 }
 
 func (c *providerLaunchCleanupConnection) ProcessCassetteCaptureOrigin() ProcessCassetteCaptureOrigin {
@@ -185,8 +261,10 @@ func (c *providerLaunchCleanupConnection) Close() error {
 		return nil
 	}
 	err := c.ProcessConnection.Close()
-	c.cleanup(context.Background())
-	return err
+	if err != nil {
+		return err
+	}
+	return c.cleanup(context.Background())
 }
 
 type providerLaunchCleanupGracefulConnection struct {

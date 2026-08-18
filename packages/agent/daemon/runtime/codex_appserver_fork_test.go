@@ -305,7 +305,9 @@ func TestCodexAppServerForkedChildCanResumeAndStartTurn(t *testing.T) {
 	); err != nil {
 		t.Fatalf("ExecAsync forked child: %v", err)
 	}
-	targetConn := transport.conn(2)
+	// The fork mutation uses a short-lived probe connection, but the child
+	// resume reuses the source session's profile-compatible registry connection.
+	targetConn := transport.conn(0)
 	waitForCondition(t, func() bool {
 		return len(appServerRequestParamsList(
 			t,

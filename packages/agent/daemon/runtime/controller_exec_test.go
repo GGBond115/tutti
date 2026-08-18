@@ -97,10 +97,11 @@ func TestControllerHiddenSessionPublishesLiveEventsAndReportsActivity(t *testing
 	ctx := context.Background()
 
 	started, err := controller.Start(ctx, StartInput{
-		RoomID:   "room-1",
-		Provider: ProviderCodex,
-		CWD:      "/workspace",
-		Visible:  boolPtr(false),
+		RoomID:    "room-1",
+		Provider:  ProviderCodex,
+		CWD:       "/workspace",
+		AppServer: testAppServerRuntimePreparation("/workspace"),
+		Visible:   boolPtr(false),
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -158,9 +159,10 @@ func TestControllerStartExecPublishesAndReports(t *testing.T) {
 	ctx := context.Background()
 
 	started, err := controller.Start(ctx, StartInput{
-		RoomID:   "room-1",
-		Provider: ProviderCodex,
-		CWD:      "/workspace",
+		RoomID:    "room-1",
+		Provider:  ProviderCodex,
+		CWD:       "/workspace",
+		AppServer: testAppServerRuntimePreparation("/workspace"),
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -357,10 +359,11 @@ func TestControllerExecRunsOutsideRequestContext(t *testing.T) {
 	reporter := &recordingReporter{}
 	controller := NewDefaultControllerWithProcessTransport(reporter, transport)
 	started, err := controller.Start(context.Background(), StartInput{
-		RoomID:   "room-1",
-		Provider: ProviderCodex,
-		CWD:      "/workspace",
-		Title:    "Codex",
+		RoomID:    "room-1",
+		Provider:  ProviderCodex,
+		CWD:       "/workspace",
+		Title:     "Codex",
+		AppServer: testAppServerRuntimePreparation("/workspace"),
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -75,15 +76,6 @@ func (t *multiProcAppServerTransport) conn(index int) *scriptedAppServerConnecti
 	return t.conns[index]
 }
 
-func connClosed(conn *scriptedAppServerConnection) bool {
-	if conn == nil {
-		return false
-	}
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-	return conn.closeCount > 0
-}
-
 func TestCodexAppServerAdapterProviderLaunchPrepareMutatesSpecAndCleansUpOnClose(t *testing.T) {
 	t.Parallel()
 
@@ -101,12 +93,18 @@ func TestCodexAppServerAdapterProviderLaunchPrepareMutatesSpecAndCleansUpOnClose
 			t.Fatalf("Session.AgentSessionID = %q", input.Session.AgentSessionID)
 		}
 		return ProviderLaunchPrepareResult{
-			Command: []string{"prepared-codex", "app-server"},
-			Env:     append(append([]string(nil), input.Env...), "HOOK_ENV=1"),
-			CWD:     "/prepared/workspace",
-			Cleanup: func(context.Context) error {
-				cleanupCalls++
-				return nil
+			AppServer: &AppServerLaunchPreparation{
+				ProcessProfile: AppServerProcessProfile{
+					ExecutionHostID: "test-host", RuntimeGeneration: "test-runtime",
+					TransportScopeID: "test-transport", ProcessProfileDigest: "test-profile",
+					Command: []string{"prepared-codex", "app-server"},
+					Env:     append(append([]string(nil), input.Env...), "HOOK_ENV=1"),
+					CWD:     "/prepared/workspace",
+				},
+				ProcessCleanup: func(context.Context) error {
+					cleanupCalls++
+					return nil
+				},
 			},
 		}, nil
 	})
@@ -139,8 +137,11 @@ func TestCodexAppServerAdapterProviderLaunchPrepareMutatesSpecAndCleansUpOnClose
 	if err := adapter.Close(context.Background(), session); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
+	if cleanup := adapter.CleanupLiveSessionResources(context.Background(), 1); cleanup.Attempted != 1 || cleanup.Cleaned != 1 {
+		t.Fatalf("idle app-server cleanup = %#v, want one clean close", cleanup)
+	}
 	if cleanupCalls != 1 {
-		t.Fatalf("cleanup calls after close = %d, want 1", cleanupCalls)
+		t.Fatalf("cleanup calls after idle cleanup = %d, want 1", cleanupCalls)
 	}
 }
 
@@ -174,8 +175,8 @@ func TestCodexAppServerAdapterStartUsesInjectedProviderCommand(t *testing.T) {
 	if !reflect.DeepEqual(spec.Command, []string{"/user/bin/codex", "app-server"}) {
 		t.Fatalf("Command = %#v", spec.Command)
 	}
-	if !containsString(spec.Env, "SESSION_ENV=1") || !containsString(spec.Env, "TUTTI_APP_NODE=/managed/node/bin/node") {
-		t.Fatalf("Env = %#v, want session and managed runtime env", spec.Env)
+	if containsString(spec.Env, "SESSION_ENV=1") || !containsString(spec.Env, "TUTTI_APP_NODE=/managed/node/bin/node") {
+		t.Fatalf("Env = %#v, want process profile env without session overlay", spec.Env)
 	}
 }
 
@@ -209,15 +210,19 @@ func TestCodexAppServerAdapterProviderLaunchCleanupRunsOnProcessStartFailure(t *
 	cleanupSawCanceledContext := false
 	adapter.SetProviderLaunchPreparer(func(_ context.Context, input ProviderLaunchPrepareInput) (ProviderLaunchPrepareResult, error) {
 		return ProviderLaunchPrepareResult{
-			Command: input.Command,
-			Env:     input.Env,
-			CWD:     input.CWD,
-			Cleanup: func(ctx context.Context) error {
-				if ctx.Err() != nil {
-					cleanupSawCanceledContext = true
-				}
-				cleanupCalls++
-				return nil
+			AppServer: &AppServerLaunchPreparation{
+				ProcessProfile: AppServerProcessProfile{
+					ExecutionHostID: "test-host", RuntimeGeneration: "test-runtime",
+					TransportScopeID: "test-transport", ProcessProfileDigest: "test-profile",
+					Command: input.Command, Env: input.Env, CWD: input.CWD,
+				},
+				ProcessCleanup: func(ctx context.Context) error {
+					if ctx.Err() != nil {
+						cleanupSawCanceledContext = true
+					}
+					cleanupCalls++
+					return nil
+				},
 			},
 		}, nil
 	})
@@ -232,6 +237,46 @@ func TestCodexAppServerAdapterProviderLaunchCleanupRunsOnProcessStartFailure(t *
 	}
 	if cleanupSawCanceledContext {
 		t.Fatal("cleanup received canceled launch context")
+	}
+}
+
+func TestCodexAppServerAdapterMissingProcessProfileFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		preparer ProviderLaunchPreparer
+	}{
+		{
+			name: "missing preparer",
+		},
+		{
+			name: "flat preparation result",
+			preparer: func(context.Context, ProviderLaunchPrepareInput) (ProviderLaunchPrepareResult, error) {
+				return ProviderLaunchPrepareResult{
+					Command: []string{"codex", "app-server"}, CWD: "/workspace",
+				}, nil
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &multiProcAppServerTransport{}
+			adapter := NewCodexAppServerAdapter(transport)
+			adapter.SetProviderLaunchPreparer(test.preparer)
+			_, err := adapter.Start(context.Background(), Session{
+				RoomID:         "room-1",
+				AgentSessionID: "session-without-profile",
+				Provider:       ProviderCodex,
+				CWD:            "/workspace",
+			})
+			if err == nil || !strings.Contains(err.Error(), "explicit process profile") {
+				t.Fatalf("Start error = %v, want explicit process profile preparation error", err)
+			}
+			if spawned, _ := transport.snapshot(); spawned != 0 {
+				t.Fatalf("spawned processes = %d, want 0", spawned)
+			}
+		})
 	}
 }
 
@@ -268,7 +313,7 @@ func TestCodexAppServerAdapterConcurrentStartsLeaveSingleLiveProcess(t *testing.
 	}
 }
 
-func TestCodexAppServerAdapterStartOverLiveSessionStopsPreviousProcess(t *testing.T) {
+func TestCodexAppServerAdapterStartOverLiveSessionReusesProfileConnection(t *testing.T) {
 	t.Parallel()
 
 	transport := &multiProcAppServerTransport{}
@@ -282,18 +327,15 @@ func TestCodexAppServerAdapterStartOverLiveSessionStopsPreviousProcess(t *testin
 		t.Fatalf("second Start: %v", err)
 	}
 	spawned, live := transport.snapshot()
-	if spawned != 2 {
-		t.Fatalf("spawned processes = %d, want 2", spawned)
+	if spawned != 1 {
+		t.Fatalf("spawned processes = %d, want 1 shared process", spawned)
 	}
-	if len(live) != 1 || live[0] != transport.conn(1) {
-		t.Fatalf("live processes = %d, want exactly the replacement process live", len(live))
-	}
-	if !connClosed(transport.conn(0)) {
-		t.Fatalf("previous app-server process was orphaned instead of closed")
+	if len(live) != 1 || live[0] != transport.conn(0) {
+		t.Fatalf("live processes = %d, want the shared profile process live", len(live))
 	}
 }
 
-func TestCodexAppServerAdapterResumeOverLiveSessionClosesPreviousProcess(t *testing.T) {
+func TestCodexAppServerAdapterResumeOverLiveSessionReusesProfileConnection(t *testing.T) {
 	t.Parallel()
 
 	transport := &multiProcAppServerTransport{}
@@ -308,14 +350,11 @@ func TestCodexAppServerAdapterResumeOverLiveSessionClosesPreviousProcess(t *test
 		t.Fatalf("Resume: %v", err)
 	}
 	spawned, live := transport.snapshot()
-	if spawned != 2 {
-		t.Fatalf("spawned processes = %d, want 2", spawned)
+	if spawned != 1 {
+		t.Fatalf("spawned processes = %d, want 1 shared process", spawned)
 	}
-	if len(live) != 1 || live[0] != transport.conn(1) {
-		t.Fatalf("live processes = %d, want exactly the resumed process live", len(live))
-	}
-	if !connClosed(transport.conn(0)) {
-		t.Fatalf("pre-resume app-server process was orphaned instead of closed")
+	if len(live) != 1 || live[0] != transport.conn(0) {
+		t.Fatalf("live processes = %d, want the shared profile process live", len(live))
 	}
 	if !adapter.HasLiveSession(session) {
 		t.Fatalf("HasLiveSession = false, want true after resume")
@@ -333,6 +372,9 @@ func TestCodexAppServerAdapterResumeSpawnFailureKeepsPreviousSessionLive(t *test
 		t.Fatalf("Start: %v", err)
 	}
 	transport.setStartErr(errors.New("spawn failed"))
+	profile := *session.AppServer
+	profile.RuntimeGeneration = "test-runtime-rebuilt"
+	session.AppServer = &profile
 	session.ProviderSessionID = "codex-thread-1"
 	if err := adapter.Resume(context.Background(), session); err == nil {
 		t.Fatalf("Resume with failing spawn should error")
@@ -359,13 +401,16 @@ func TestCodexAppServerAdapterResumeThreadFailureKeepsPreviousSessionLive(t *tes
 	transport.setConfigure(func(server *fakeCodexAppServer) {
 		server.threadResumeError = true
 	})
+	profile := *session.AppServer
+	profile.RuntimeGeneration = "test-runtime-rebuilt"
+	session.AppServer = &profile
 	session.ProviderSessionID = "codex-thread-1"
 	if err := adapter.Resume(context.Background(), session); err == nil {
 		t.Fatalf("Resume with failing thread/resume should error")
 	}
 	spawned, live := transport.snapshot()
 	if spawned != 2 {
-		t.Fatalf("spawned processes = %d, want 2", spawned)
+		t.Fatalf("spawned processes = %d, want 2 after incompatible profile", spawned)
 	}
 	if len(live) != 1 || live[0] != transport.conn(0) {
 		t.Fatalf("live processes = %d, want only the original process live (new one closed)", len(live))
@@ -398,14 +443,15 @@ func TestCodexAppServerAdapterStartReleaseRaceLeavesNoOrphanProcess(t *testing.T
 		}()
 		wg.Wait()
 
-		wantLive := 0
-		if adapter.HasLiveSession(session) {
-			wantLive = 1
-		}
 		spawned, live := transport.snapshot()
-		if len(live) != wantLive {
-			t.Fatalf("iteration %d: live processes = %d, want %d (spawned %d): process leaked or half-closed",
-				iteration, len(live), wantLive, spawned)
+		if len(live) > 1 {
+			t.Fatalf("iteration %d: live processes = %d, want at most one (spawned %d)", iteration, len(live), spawned)
+		}
+		if cleanup := adapter.CleanupLiveSessionResources(context.Background(), 1); cleanup.Attempted > 1 {
+			t.Fatalf("iteration %d: cleanup = %#v, want at most one attempt", iteration, cleanup)
+		}
+		if _, live = transport.snapshot(); len(live) != 0 {
+			t.Fatalf("iteration %d: live processes after cleanup = %d, want 0", iteration, len(live))
 		}
 	}
 }

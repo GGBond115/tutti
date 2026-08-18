@@ -375,7 +375,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 		nil,
 	)
 	session.Settings = &effectiveSettings
-	session.ProviderSessionID = appSession.threadID
+	session.ProviderSessionID = execState.threadID
 	explicitDisplayPrompt, visibleText := explicitAndVisiblePromptText(content, displayPrompt)
 	mentionRoutingApplied, mentionRoutingSkills := tuttiMentionRoutingSkills(visibleText)
 
@@ -518,7 +518,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 	}
 	appTurn.emitTerminal = emitTerminal
 	admitProviderTurn := func(providerTurnID string) error {
-		if err := options.confirmProviderTurnAcceptance(appSession.threadID, providerTurnID); err != nil {
+		if err := options.confirmProviderTurnAcceptance(execState.threadID, providerTurnID); err != nil {
 			discardProviderEvents()
 			if providerTurnID != "" {
 				a.interruptActiveTurnAsync(
@@ -597,7 +597,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 	appTurn.diagnostics.Start(trace)
 	turnParams := appServerTurnStartParams(
 		session,
-		appSession.threadID,
+		execState.threadID,
 		providerContent,
 		appSession.planModeMask,
 		appSession.defaultModeMask,
@@ -652,7 +652,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 				"agent session app-server client invalidated after turn/start failed",
 				"event", "agent_session.app_server.turn_start.client_invalidated",
 				"agent_session_id", session.AgentSessionID,
-				"provider_session_id", appSession.threadID,
+				"provider_session_id", execState.threadID,
 				"turn_id", turnID,
 				"error", err.Error(),
 			)

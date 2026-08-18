@@ -26,14 +26,20 @@ type DefaultPreparer struct {
 	providers            map[string]ProviderPreparer
 	cleanupMu            sync.Mutex
 	providerCleanup      map[string]func(context.Context) error
+	AppServerScope       AppServerProfileScope
+	appServerMu          sync.Mutex
+	appServerProfiles    map[string]*appServerPreparedProfile
+	appServerSessions    map[string]*appServerPreparedSession
 }
 
 func NewDefaultPreparer(stateDir string) *DefaultPreparer {
 	preparer := &DefaultPreparer{
-		StateDir:        stateDir,
-		Profile:         StandardProfile(),
-		providers:       make(map[string]ProviderPreparer),
-		providerCleanup: make(map[string]func(context.Context) error),
+		StateDir:          stateDir,
+		Profile:           StandardProfile(),
+		providers:         make(map[string]ProviderPreparer),
+		providerCleanup:   make(map[string]func(context.Context) error),
+		appServerProfiles: make(map[string]*appServerPreparedProfile),
+		appServerSessions: make(map[string]*appServerPreparedSession),
 	}
 	preparer.RegisterProvider(CodexPreparer{})
 	preparer.RegisterProvider(ClaudeCodePreparer{StateDir: stateDir})
@@ -80,6 +86,12 @@ func (p *DefaultPreparer) Prepare(ctx context.Context, input PrepareInput) (Prep
 	})
 	if err := ensureCwdDirectory(cwd); err != nil {
 		return PreparedRuntime{}, err
+	}
+	sharedAppServer := (providerID == "codex" || providerID == "tutti-agent") && p.appServerPreparationEnabled()
+	if sharedAppServer {
+		if _, err := p.releasePreparedAppServerSession(ctx, workspaceID, agentSessionID, false); err != nil {
+			return PreparedRuntime{}, err
+		}
 	}
 	logRuntimePrepareTrace("runtime_prepare.cwd_checked", input, nil)
 
@@ -163,15 +175,52 @@ func (p *DefaultPreparer) Prepare(ctx context.Context, input PrepareInput) (Prep
 		}
 		return PreparedRuntime{}, err
 	}
-	if result.Cleanup != nil {
+	if result.Cleanup != nil && !sharedAppServer {
 		p.rememberProviderCleanup(workspaceID, agentSessionID, result.Cleanup)
 	}
 	logRuntimePrepareTrace("runtime_prepare.manifest_saved", input, nil)
-	return PreparedRuntime{
+	prepared := PreparedRuntime{
 		Cwd:        result.Cwd,
 		Env:        result.Env,
 		MCPServers: cloneMCPServerBindings(input.MCPServers),
-	}, nil
+	}
+	if sharedAppServer {
+		profile, profileErr := p.acquireAppServerProfile(ctx, input, store)
+		if profileErr != nil {
+			if result.Cleanup != nil {
+				_ = result.Cleanup(ctx)
+			}
+			_ = store.CleanupRuntime(StoreCleanupInput{WorkspaceID: workspaceID, AgentSessionID: agentSessionID, RuntimeRoot: runtimeRoot})
+			return PreparedRuntime{}, profileErr
+		}
+		instructions, instructionsErr := tuttiCLIPolicy(input)
+		if instructionsErr != nil {
+			_ = p.releaseAppServerProfileReference(ctx, profile.key)
+			if result.Cleanup != nil {
+				_ = result.Cleanup(ctx)
+			}
+			return PreparedRuntime{}, instructionsErr
+		}
+		if agentInstructions := strings.TrimSpace(input.AgentInstructions); agentInstructions != "" {
+			instructions = strings.TrimSpace(instructions) + "\n\n# Agent Instructions\n\n" + agentInstructions
+		}
+		threadEnv := appServerThreadEnvironment(result.Env)
+		p.rememberAppServerSession(&appServerPreparedSession{
+			workspaceID: workspaceID, agentSessionID: agentSessionID, provider: providerID,
+			profile: profile, runtimeRoot: runtimeRoot, providerCleanup: result.Cleanup,
+		})
+		prepared.Env = threadEnv
+		prepared.AppServer = &AppServerPreparedRuntime{
+			ExecutionHostID:      strings.TrimSpace(p.AppServerScope.ExecutionHostID),
+			RuntimeGeneration:    strings.TrimSpace(p.AppServerScope.RuntimeGeneration),
+			TransportScopeID:     strings.TrimSpace(p.AppServerScope.TransportScopeID),
+			ProcessProfileDigest: profile.digest,
+			ProcessCwd:           profile.cwd, ProcessEnv: append([]string(nil), profile.env...), ThreadEnv: threadEnv,
+			ModelProviderCredentials: appServerModelProviderCredentials(input.ModelEndpoint),
+			DeveloperInstructions:    instructions,
+		}
+	}
+	return prepared, nil
 }
 
 func cloneMCPServerBindings(input []MCPServerBinding) []MCPServerBinding {
@@ -232,6 +281,9 @@ func (p *DefaultPreparer) Cleanup(ctx context.Context, input CleanupInput) error
 	agentSessionID := strings.TrimSpace(input.AgentSessionID)
 	if workspaceID == "" || agentSessionID == "" {
 		return errors.New("agent runtime cleanup requires workspace and session")
+	}
+	if found, err := p.releasePreparedAppServerSession(ctx, workspaceID, agentSessionID, false); found {
+		return err
 	}
 	if cleanup := p.providerCleanupFor(workspaceID, agentSessionID); cleanup != nil {
 		if err := cleanup(ctx); err != nil {

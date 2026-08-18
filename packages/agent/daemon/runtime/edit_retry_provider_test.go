@@ -692,6 +692,7 @@ func startedEditRetryControllerWithReporter(
 	started, err := controller.Start(context.Background(), StartInput{
 		RoomID: "room-edit-retry", AgentSessionID: "session-edit-retry",
 		Provider: ProviderCodex, CWD: "/workspace",
+		AppServer: testAppServerRuntimePreparation("/workspace"),
 	})
 	if err != nil {
 		t.Fatal(err)

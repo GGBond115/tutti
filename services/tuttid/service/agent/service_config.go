@@ -70,6 +70,10 @@ type ServiceSessionConfig struct {
 type ServiceComposerConfig struct {
 	AvailabilityChecker ProviderAvailabilityChecker
 	ModelCatalog        AgentModelCatalog
+	// AppServerCatalog is the runtime-owned connection-global catalog seam.
+	// Codex-compatible model and capability probes must use this reader so
+	// Composer and live Sessions share one exact app-server registry.
+	AppServerCatalog AppServerCatalogReader
 	// ReplayMode makes cassette-provided model catalogs authoritative. It is
 	// set only for the isolated Replay daemon; normal sessions keep live
 	// catalog and discovery behavior.
@@ -114,6 +118,7 @@ func (s *Service) applyConfig(config ServiceConfig) {
 	s.AnalyticsReporter = config.Observers.AnalyticsReporter
 	s.AvailabilityChecker = config.Composer.AvailabilityChecker
 	s.ModelCatalog = config.Composer.ModelCatalog
+	s.AppServerCatalog = config.Composer.AppServerCatalog
 	s.ReplayMode = config.Composer.ReplayMode
 	s.ModelCapabilities = config.Composer.ModelCapabilities
 	s.AgentTargetStore = config.Composer.AgentTargetStore
