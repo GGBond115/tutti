@@ -748,13 +748,15 @@ func TestCatalogSnapshotIsAtomicDurableAndReleaseImmutable(t *testing.T) {
 	}
 
 	connectorA := testConnector()
-	installedPayload, err := json.Marshal(connectorA.Release)
+	installedTx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `
-INSERT INTO connector_market_installed_releases (connector_key, release_digest, release_json)
-VALUES (?, ?, ?)`, connectorA.Key, connectorA.Release.ReleaseDigest, string(installedPayload)); err != nil {
+	if err := saveInstalledReleaseOn(ctx, installedTx, connectorA.Release); err != nil {
+		_ = installedTx.Rollback()
+		t.Fatal(err)
+	}
+	if err := installedTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	snapshotA := catalogSnapshotForTest(connectorA.Release)
@@ -792,7 +794,7 @@ VALUES (?, ?, ?)`, connectorA.Key, connectorA.Release.ReleaseDigest, string(inst
 		t.Fatalf("installation overlay = %#v", listing.Connector.Installation)
 	}
 	var installedDigest string
-	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_installed_releases WHERE connector_key = ?`, connectorA.Key).
+	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_current_release_installations WHERE connector_key = ?`, connectorA.Key).
 		Scan(&installedDigest); err != nil || installedDigest != connectorA.Release.ReleaseDigest {
 		t.Fatalf("installed evidence digest = %q; error = %v", installedDigest, err)
 	}

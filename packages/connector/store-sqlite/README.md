@@ -22,7 +22,12 @@ Runtime Reconcile completes.
 Active operations and pending outbox events are durable and never age-pruned.
 The lifecycle cleanup contract removes bounded batches of expired terminal
 operations and already-published events. Installed release evidence is stored
-separately from operation history so runtime recovery does not depend on an
-expired operation row. A probe-detected missing implementation retains that
-evidence while installation is failed, allowing repair or uninstall to keep
-targeting the accepted release.
+in canonical history and current-pointer tables, separately from operation
+history, so runtime recovery does not depend on an expired operation row. A
+versioned SQLite migration reads the legacy installed-release table, Connector
+projection, and completed operation payloads once; validated canonical rows and
+the migration marker commit atomically. After that marker exists, normal reads
+and writes never consult or update the legacy installed-release table or use
+Connector/operation JSON as release-evidence fallback. A probe-detected missing
+implementation retains canonical history while installation is failed,
+allowing repair or uninstall to keep targeting the accepted release.

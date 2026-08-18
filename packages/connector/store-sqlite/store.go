@@ -144,11 +144,6 @@ ON connector_market_catalog_placements(snapshot_id, section_id, placement_order)
   connector_key TEXT PRIMARY KEY,
   connector_json TEXT NOT NULL
 )`,
-		`CREATE TABLE IF NOT EXISTS connector_market_installed_releases (
-  connector_key TEXT PRIMARY KEY,
-  release_digest TEXT NOT NULL,
-  release_json TEXT NOT NULL
-)`,
 		`CREATE TABLE IF NOT EXISTS connector_market_authorization_projections (
   account_id TEXT NOT NULL,
   connector_key TEXT NOT NULL,
@@ -592,11 +587,6 @@ func (store *Store) InstalledRelease(ctx context.Context, connectorKey, releaseD
 	err := store.db.QueryRowContext(ctx, `
 SELECT release_json FROM connector_market_release_installations
 WHERE connector_key = ? AND release_digest = ?`, connectorKey, releaseDigest).Scan(&payload)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = store.db.QueryRowContext(ctx, `
-SELECT release_json FROM connector_market_installed_releases
-WHERE connector_key = ? AND release_digest = ?`, connectorKey, releaseDigest).Scan(&payload)
-	}
 	if err != nil {
 		return contracts.Release{}, mapNotFound(err)
 	}
@@ -630,17 +620,10 @@ func (store *Store) InstalledReleases(
 		return result, nil
 	}
 	query := `
-WITH requested(connector_key, release_digest) AS (VALUES ` + strings.Join(values, ",") + `),
-releases AS (
-  SELECT requested.connector_key, requested.release_digest, installation.release_json, 2 AS priority
-  FROM requested
-  JOIN connector_market_release_installations installation USING (connector_key, release_digest)
-  UNION ALL
-  SELECT requested.connector_key, requested.release_digest, installed.release_json, 1 AS priority
-  FROM requested
-  JOIN connector_market_installed_releases installed USING (connector_key, release_digest)
-)
-SELECT connector_key, release_digest, release_json FROM releases ORDER BY priority`
+WITH requested(connector_key, release_digest) AS (VALUES ` + strings.Join(values, ",") + `)
+SELECT requested.connector_key, requested.release_digest, installation.release_json
+FROM requested
+JOIN connector_market_release_installations installation USING (connector_key, release_digest)`
 	rows, err := store.db.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, err

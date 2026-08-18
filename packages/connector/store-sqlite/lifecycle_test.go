@@ -423,7 +423,7 @@ func TestStoreRetainsCurrentAndPreparedCandidateReleaseEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var currentDigest string
-	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_installed_releases
+	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_current_release_installations
 WHERE connector_key = ?`, connector.Key).Scan(&currentDigest); err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +445,7 @@ WHERE connector_key = ?`, connector.Key).Scan(&currentDigest); err != nil {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_installed_releases
+	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_current_release_installations
 WHERE connector_key = ?`, connector.Key).Scan(&currentDigest); err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +541,6 @@ operation_id, client_request_id, connector_key, kind, state, lease_owner, lease_
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
 	var updatedAtMS int64
 	if err := store.db.QueryRowContext(ctx, `SELECT updated_at_unix_ms FROM connector_market_operations WHERE operation_id = ?`, operation.OperationID).Scan(&updatedAtMS); err != nil {
 		t.Fatal(err)
@@ -560,6 +559,82 @@ WHERE connector_key = ? AND release_digest = ?`, connector.Key, installedRelease
 	}
 	if historicalCount != 1 {
 		t.Fatalf("migrated release installation evidence count = %d, want 1", historicalCount)
+	}
+	var currentDigest string
+	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_current_release_installations
+WHERE connector_key = ?`, connector.Key).Scan(&currentDigest); err != nil {
+		t.Fatal(err)
+	}
+	if currentDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("migrated current release = %q, want %q", currentDigest, installedRelease.ReleaseDigest)
+	}
+	var migrationCount int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM connector_market_schema_migrations WHERE id = ?`,
+		installedReleaseEvidenceMigrationV1).Scan(&migrationCount); err != nil {
+		t.Fatal(err)
+	}
+	if migrationCount != 1 {
+		t.Fatalf("installed release migration marker count = %d, want 1", migrationCount)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	legacy, err = sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`UPDATE connector_market_connectors SET connector_json = '{'`,
+		`UPDATE connector_market_installed_releases SET release_json = '{'`,
+		`UPDATE connector_market_operations SET operation_json = '{' WHERE operation_id = 'legacy-install'`,
+		`CREATE TRIGGER reject_legacy_installed_release_insert BEFORE INSERT ON connector_market_installed_releases
+BEGIN SELECT RAISE(ABORT, 'legacy installed release write'); END`,
+		`CREATE TRIGGER reject_legacy_installed_release_update BEFORE UPDATE ON connector_market_installed_releases
+BEGIN SELECT RAISE(ABORT, 'legacy installed release write'); END`,
+		`CREATE TRIGGER reject_legacy_installed_release_delete BEFORE DELETE ON connector_market_installed_releases
+BEGIN SELECT RAISE(ABORT, 'legacy installed release write'); END`,
+	} {
+		if _, err := legacy.ExecContext(ctx, statement); err != nil {
+			_ = legacy.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatalf("reopen after corrupting migration-only sources: %v", err)
+	}
+	defer reopened.Close()
+	release, err = reopened.InstalledRelease(ctx, connector.Key, installedRelease.ReleaseDigest)
+	if err != nil || release.ReleaseDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("canonical installed release after reopen = %#v, error = %v", release, err)
+	}
+	releases, err := reopened.InstalledReleases(ctx, []contracts.InstalledReleaseRef{{
+		ConnectorKey: connector.Key, ReleaseDigest: installedRelease.ReleaseDigest,
+	}})
+	if err != nil || releases[contracts.InstalledReleaseRef{ConnectorKey: connector.Key, ReleaseDigest: installedRelease.ReleaseDigest}].ReleaseDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("canonical installed releases after reopen = %#v, error = %v", releases, err)
+	}
+	replacement := installedRelease
+	replacement.ReleaseID = connector.Key + "@1.1.0"
+	replacement.Version = "1.1.0"
+	replacement.ReleaseDigest = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	replacement.ManifestDigest = "9999999999999999999999999999999999999999999999999999999999999999"
+	replacementOperation := lifecycleTestOperation("canonical-install", connector.Key, contracts.OperationStateCompleted, operation.UpdatedAt.Add(time.Hour))
+	replacementOperation.Kind = contracts.OperationKindInstall
+	replacementOperation.Target = &contracts.OperationTarget{
+		ConnectorKey: connector.Key, Version: replacement.Version, ReleaseID: replacement.ReleaseID,
+		ReleaseDigest: replacement.ReleaseDigest, ArtifactSHA256: replacement.Artifact.SHA256, Release: &replacement,
+	}
+	if err := reopened.Transaction(ctx, func(tx application.Transaction) error { return tx.SaveOperation(replacementOperation) }); err != nil {
+		t.Fatalf("write canonical release while legacy writes are rejected: %v", err)
+	}
+	if got, err := reopened.InstalledRelease(ctx, connector.Key, replacement.ReleaseDigest); err != nil || got.ReleaseDigest != replacement.ReleaseDigest {
+		t.Fatalf("replacement canonical installed release = %#v, error = %v", got, err)
 	}
 }
 
@@ -600,6 +675,320 @@ func TestStoreReopenToleratesMissingLegacyInstalledReleaseEvidence(t *testing.T)
 	}
 	if _, err := reopened.InstalledRelease(ctx, connector.Key, installedRelease.ReleaseDigest); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("missing release evidence error = %v, want not found", err)
+	}
+}
+
+func TestStoreInstalledReleaseMigrationRollsBackCanonicalRowsAndMarker(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "tuttid.db")
+	legacy, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE connector_market_connectors (connector_key TEXT PRIMARY KEY, connector_json TEXT NOT NULL)`,
+		`CREATE TABLE connector_market_installed_releases (
+  connector_key TEXT PRIMARY KEY,
+  release_digest TEXT NOT NULL,
+  release_json TEXT NOT NULL
+)`,
+		`CREATE TABLE connector_market_release_installations (
+  connector_key TEXT NOT NULL,
+  release_digest TEXT NOT NULL,
+  release_json TEXT NOT NULL,
+  PRIMARY KEY (connector_key, release_digest)
+)`,
+		`CREATE TABLE connector_market_current_release_installations (
+  connector_key TEXT PRIMARY KEY,
+  release_digest TEXT NOT NULL,
+  release_json TEXT NOT NULL
+)`,
+		`CREATE TABLE connector_market_schema_migrations (id TEXT PRIMARY KEY, applied_at_unix_ms INTEGER NOT NULL)`,
+		`CREATE TRIGGER fail_current_release_migration BEFORE INSERT ON connector_market_current_release_installations
+BEGIN SELECT RAISE(ABORT, 'injected current release migration failure'); END`,
+	} {
+		if _, err := legacy.ExecContext(ctx, statement); err != nil {
+			_ = legacy.Close()
+			t.Fatal(err)
+		}
+	}
+	connector := testConnector()
+	installedRelease := connector.Release
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledVersion: installedRelease.Version,
+		InstalledReleaseID: installedRelease.ReleaseID, InstalledReleaseDigest: installedRelease.ReleaseDigest,
+	}
+	connectorPayload, err := json.Marshal(connector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releasePayload, err := json.Marshal(installedRelease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, `INSERT INTO connector_market_connectors (connector_key, connector_json) VALUES (?, ?)`,
+		connector.Key, string(connectorPayload)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, `INSERT INTO connector_market_installed_releases
+(connector_key, release_digest, release_json) VALUES (?, ?, ?)`, connector.Key, installedRelease.ReleaseDigest, string(releasePayload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if store, err := Open(ctx, databasePath); err == nil {
+		_ = store.Close()
+		t.Fatal("Open succeeded despite injected migration failure")
+	}
+	legacy, err = sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for table, want := range map[string]int{
+		"connector_market_release_installations":         0,
+		"connector_market_current_release_installations": 0,
+		"connector_market_schema_migrations":             0,
+	} {
+		var count int
+		if err := legacy.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Fatalf("%s rows after rollback = %d, want %d", table, count, want)
+		}
+	}
+	if _, err := legacy.ExecContext(ctx, `DROP TRIGGER fail_current_release_migration`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatalf("reopen after removing migration fault: %v", err)
+	}
+	defer store.Close()
+	if got, err := store.InstalledRelease(ctx, connector.Key, installedRelease.ReleaseDigest); err != nil || got.ReleaseDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("installed release after retry = %#v, error = %v", got, err)
+	}
+	var markerCount int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM connector_market_schema_migrations WHERE id = ?`,
+		installedReleaseEvidenceMigrationV1).Scan(&markerCount); err != nil || markerCount != 1 {
+		t.Fatalf("migration marker after retry = %d, error = %v", markerCount, err)
+	}
+}
+
+func TestStoreInstalledReleaseMigrationRecoversEvidenceFromCompletedOperation(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "tuttid.db")
+	legacy, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE connector_market_connectors (connector_key TEXT PRIMARY KEY, connector_json TEXT NOT NULL)`,
+		`CREATE TABLE connector_market_operations (
+  operation_id TEXT PRIMARY KEY,
+  client_request_id TEXT NOT NULL UNIQUE,
+  connector_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  state TEXT NOT NULL,
+  lease_owner TEXT NOT NULL,
+  lease_token INTEGER NOT NULL DEFAULT 0,
+  lease_expires_at_unix_ms INTEGER,
+  operation_json TEXT NOT NULL
+)`,
+	} {
+		if _, err := legacy.ExecContext(ctx, statement); err != nil {
+			_ = legacy.Close()
+			t.Fatal(err)
+		}
+	}
+	connector := testConnector()
+	installedRelease := connector.Release
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledVersion: installedRelease.Version,
+		InstalledReleaseID: installedRelease.ReleaseID, InstalledReleaseDigest: installedRelease.ReleaseDigest,
+	}
+	connector.Release.ReleaseID = connector.Key + "@2.0.0"
+	connector.Release.Version = "2.0.0"
+	connector.Release.ReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	connector.Release.ManifestDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	operation := lifecycleTestOperation("legacy-operation-evidence", connector.Key, contracts.OperationStateCompleted, time.Unix(100, 0).UTC())
+	operation.Kind = contracts.OperationKindInstall
+	operation.Target = &contracts.OperationTarget{
+		ConnectorKey: connector.Key, Version: installedRelease.Version, ReleaseID: installedRelease.ReleaseID,
+		ReleaseDigest: installedRelease.ReleaseDigest, ArtifactSHA256: installedRelease.Artifact.SHA256, Release: &installedRelease,
+	}
+	connectorPayload, err := json.Marshal(connector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationPayload, err := json.Marshal(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, `INSERT INTO connector_market_connectors (connector_key, connector_json) VALUES (?, ?)`,
+		connector.Key, string(connectorPayload)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, `INSERT INTO connector_market_operations (
+operation_id, client_request_id, connector_key, kind, state, lease_owner, lease_token, lease_expires_at_unix_ms, operation_json
+) VALUES (?, ?, ?, ?, ?, '', 0, NULL, ?)`, operation.OperationID, operation.ClientRequestID, operation.ConnectorKey,
+		operation.Kind, operation.State, string(operationPayload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if got, err := store.InstalledRelease(ctx, connector.Key, installedRelease.ReleaseDigest); err != nil || got.ReleaseDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("operation-backed installed release = %#v, error = %v", got, err)
+	}
+	var currentDigest string
+	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_current_release_installations WHERE connector_key = ?`,
+		connector.Key).Scan(&currentDigest); err != nil || currentDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("operation-backed current release = %q, error = %v", currentDigest, err)
+	}
+}
+
+func TestStoreInstalledReleaseMigrationRejectsMismatchedLegacyIdentity(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "tuttid.db")
+	legacy, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE connector_market_connectors (connector_key TEXT PRIMARY KEY, connector_json TEXT NOT NULL)`,
+		`CREATE TABLE connector_market_installed_releases (
+  connector_key TEXT PRIMARY KEY,
+  release_digest TEXT NOT NULL,
+  release_json TEXT NOT NULL
+)`,
+		`CREATE TABLE connector_market_release_installations (
+  connector_key TEXT NOT NULL,
+  release_digest TEXT NOT NULL,
+  release_json TEXT NOT NULL,
+  PRIMARY KEY (connector_key, release_digest)
+)`,
+		`CREATE TABLE connector_market_current_release_installations (
+  connector_key TEXT PRIMARY KEY,
+  release_digest TEXT NOT NULL,
+  release_json TEXT NOT NULL
+)`,
+		`CREATE TABLE connector_market_schema_migrations (id TEXT PRIMARY KEY, applied_at_unix_ms INTEGER NOT NULL)`,
+	} {
+		if _, err := legacy.ExecContext(ctx, statement); err != nil {
+			_ = legacy.Close()
+			t.Fatal(err)
+		}
+	}
+	connector := testConnector()
+	installedRelease := connector.Release
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledVersion: installedRelease.Version,
+		InstalledReleaseID: installedRelease.ReleaseID, InstalledReleaseDigest: installedRelease.ReleaseDigest,
+	}
+	connector.Release.ReleaseID = connector.Key + "@2.0.0"
+	connector.Release.Version = "2.0.0"
+	connector.Release.ReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	connector.Release.ManifestDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	invalidRelease := installedRelease
+	invalidRelease.ConnectorKey = "slack"
+	connectorPayload, err := json.Marshal(connector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidPayload, err := json.Marshal(invalidRelease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, `INSERT INTO connector_market_connectors (connector_key, connector_json) VALUES (?, ?)`,
+		connector.Key, string(connectorPayload)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, `INSERT INTO connector_market_installed_releases
+(connector_key, release_digest, release_json) VALUES (?, ?, ?)`, connector.Key, installedRelease.ReleaseDigest, string(invalidPayload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if store, err := Open(ctx, databasePath); err == nil {
+		_ = store.Close()
+		t.Fatal("Open succeeded with mismatched legacy release identity")
+	}
+	legacy, err = sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
+	for _, table := range []string{
+		"connector_market_release_installations",
+		"connector_market_current_release_installations",
+		"connector_market_schema_migrations",
+	} {
+		var count int
+		if err := legacy.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows after validation failure = %d, want 0", table, count)
+		}
+	}
+}
+
+func TestStoreInstalledReleaseMigrationRecoversEvidenceFromConnectorProjection(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "tuttid.db")
+	legacy, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx,
+		`CREATE TABLE connector_market_connectors (connector_key TEXT PRIMARY KEY, connector_json TEXT NOT NULL)`); err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	connector := testConnector()
+	connector.Installation = contracts.Installation{
+		State: contracts.InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	payload, err := json.Marshal(connector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, `INSERT INTO connector_market_connectors (connector_key, connector_json) VALUES (?, ?)`,
+		connector.Key, string(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if got, err := store.InstalledRelease(ctx, connector.Key, connector.Release.ReleaseDigest); err != nil || got.ReleaseDigest != connector.Release.ReleaseDigest {
+		t.Fatalf("projection-backed installed release = %#v, error = %v", got, err)
+	}
+	var currentDigest string
+	if err := store.db.QueryRowContext(ctx, `SELECT release_digest FROM connector_market_current_release_installations WHERE connector_key = ?`,
+		connector.Key).Scan(&currentDigest); err != nil || currentDigest != connector.Release.ReleaseDigest {
+		t.Fatalf("projection-backed current release = %q, error = %v", currentDigest, err)
 	}
 }
 
