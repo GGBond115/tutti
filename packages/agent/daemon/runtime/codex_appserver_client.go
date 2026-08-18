@@ -21,6 +21,8 @@ type codexAppServerClient struct {
 	// parsedNotificationMethods tracks notification methods already run
 	// through the typed schema parse (telemetry only).
 	parsedNotificationMethods sync.Map
+	stderrMu                  sync.Mutex
+	mcpFailureScheduled       bool
 }
 
 type codexAppServerCaller struct {
@@ -56,7 +58,46 @@ func (c *codexAppServerClient) SetStderrSink(sink func([]byte)) {
 	if c == nil || c.raw == nil {
 		return
 	}
-	c.raw.SetStderrSink(sink)
+	c.raw.SetStderrSink(func(chunk []byte) {
+		if sink != nil {
+			sink(chunk)
+		}
+		c.observeMCPStderr(chunk)
+	})
+}
+
+func (c *codexAppServerClient) observeMCPStderr(chunk []byte) {
+	if c == nil || len(chunk) == 0 {
+		return
+	}
+	diagnostics := c.raw.Diagnostics()
+	detail := diagnostics.StderrTail
+	failure := codexMCPServerStartupFailureFromStderr(detail)
+	if failure == nil {
+		return
+	}
+	c.stderrMu.Lock()
+	if c.mcpFailureScheduled {
+		c.stderrMu.Unlock()
+		return
+	}
+	c.mcpFailureScheduled = true
+	c.stderrMu.Unlock()
+	slog.Warn("agent session Codex MCP server startup failed",
+		"event", "agent_session.codex.mcp.startup_failed",
+		"error", failure.Error(),
+		"grace_ms", defaultCodexAppServerMCPFailureGraceWindow.Milliseconds(),
+	)
+	time.AfterFunc(defaultCodexAppServerMCPFailureGraceWindow, func() {
+		c.failActiveCall(failure)
+	})
+}
+
+func (c *codexAppServerClient) failActiveCall(err error) {
+	if c == nil || c.raw == nil {
+		return
+	}
+	c.raw.failActiveHandler(err)
 }
 
 func (c *codexAppServerClient) Close() error {
