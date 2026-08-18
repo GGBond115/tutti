@@ -7,6 +7,7 @@ import (
 
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
+	reporterservice "github.com/tutti-os/tutti/services/tuttid/service/reporter"
 )
 
 type preferencesStoreStub struct {
@@ -31,6 +32,16 @@ type preferencesPublisherStub struct {
 	published []preferencesbiz.DesktopPreferences
 	err       error
 }
+
+type analyticsReporterStub struct {
+	events []reporterservice.Event
+}
+
+func (s *analyticsReporterStub) Track(_ context.Context, events ...reporterservice.Event) {
+	s.events = append(s.events, events...)
+}
+
+func (*analyticsReporterStub) Close() error { return nil }
 
 func (s preferencesStoreStub) GetDesktopPreferences(context.Context) (preferencesbiz.DesktopPreferences, error) {
 	return s.getResult, nil
@@ -264,6 +275,78 @@ func TestServicePutInitializeIfAbsentReturnsExistingPreferencesWithoutPublishing
 	if len(publisher.published) != 0 {
 		t.Fatalf("published preferences = %d, want 0", len(publisher.published))
 	}
+}
+
+func TestServicePutReportsWorkspaceUiModeInitializedOnlyOnCreation(t *testing.T) {
+	t.Parallel()
+
+	initialized := preferencesbiz.DefaultDesktopPreferences()
+	initialized.Initialized = true
+
+	t.Run("created initialization reports the assigned mode once", func(t *testing.T) {
+		t.Parallel()
+		store := &preferencesStoreStub{
+			getResult:         preferencesbiz.DefaultDesktopPreferences(),
+			initializeResult:  initialized,
+			initializeCreated: true,
+		}
+		reporter := &analyticsReporterStub{}
+		service := Service{Store: store, AnalyticsReporter: reporter}
+		if _, err := service.Put(context.Background(), PutInput{
+			WriteMode: DesktopPreferencesWriteModeInitializeIfAbsent,
+			FeatureFlags: map[string]bool{
+				preferencesbiz.DesktopStandaloneAgentModeFeatureFlag: false,
+			},
+		}); err != nil {
+			t.Fatalf("Put() error = %v", err)
+		}
+		if len(reporter.events) != 1 {
+			t.Fatalf("tracked events = %d, want 1", len(reporter.events))
+		}
+		event := reporter.events[0]
+		if event.Name != "settings.workspace_ui_mode_initialized" {
+			t.Fatalf("event name = %q, want settings.workspace_ui_mode_initialized", event.Name)
+		}
+		// The mode derives from the authoritative stored row, not the caller
+		// input: daemon policy owns the fresh default.
+		if got := event.Params["workspace_ui_mode"]; got != "agent" {
+			t.Fatalf("workspace_ui_mode = %v, want agent", got)
+		}
+	})
+
+	t.Run("existing row initialization reports nothing", func(t *testing.T) {
+		t.Parallel()
+		store := &preferencesStoreStub{
+			getResult:         initialized,
+			initializeResult:  initialized,
+			initializeCreated: false,
+		}
+		reporter := &analyticsReporterStub{}
+		service := Service{Store: store, AnalyticsReporter: reporter}
+		if _, err := service.Put(context.Background(), PutInput{
+			WriteMode: DesktopPreferencesWriteModeInitializeIfAbsent,
+		}); err != nil {
+			t.Fatalf("Put() error = %v", err)
+		}
+		if len(reporter.events) != 0 {
+			t.Fatalf("tracked events = %d, want 0", len(reporter.events))
+		}
+	})
+
+	t.Run("replace write reports nothing", func(t *testing.T) {
+		t.Parallel()
+		store := &preferencesStoreStub{getResult: initialized}
+		reporter := &analyticsReporterStub{}
+		service := Service{Store: store, AnalyticsReporter: reporter}
+		if _, err := service.Put(context.Background(), PutInput{
+			WriteMode: DesktopPreferencesWriteModeReplace,
+		}); err != nil {
+			t.Fatalf("Put() error = %v", err)
+		}
+		if len(reporter.events) != 0 {
+			t.Fatalf("tracked events = %d, want 0", len(reporter.events))
+		}
+	})
 }
 
 func TestServicePutRejectsUnsupportedWriteMode(t *testing.T) {
