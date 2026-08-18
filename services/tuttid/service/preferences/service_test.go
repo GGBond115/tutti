@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
+	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 )
 
 type preferencesStoreStub struct {
@@ -13,10 +14,12 @@ type preferencesStoreStub struct {
 	patchAgentTarget             string
 	patchInput                   preferencesbiz.AgentComposerDefaultsPatch
 	patchResult                  preferencesbiz.AgentComposerDefaults
+	patchErr                     error
 	patchLaunchWorkspaceID       string
 	patchLaunchProjectSectionKey string
 	patchLaunchMode              string
 	patchLaunchResult            preferencesbiz.DesktopPreferences
+	patchLaunchErr               error
 	putInput                     preferencesbiz.DesktopPreferences
 	initializeInput              preferencesbiz.DesktopPreferences
 	initializeResult             preferencesbiz.DesktopPreferences
@@ -46,14 +49,14 @@ func (s *preferencesStoreStub) InitializeDesktopPreferences(_ context.Context, p
 func (s *preferencesStoreStub) PatchAgentComposerDefaultsForTarget(_ context.Context, agentTargetID string, patch preferencesbiz.AgentComposerDefaultsPatch) (preferencesbiz.AgentComposerDefaults, error) {
 	s.patchAgentTarget = agentTargetID
 	s.patchInput = patch
-	return s.patchResult, nil
+	return s.patchResult, s.patchErr
 }
 
 func (s *preferencesStoreStub) PatchAgentSessionLaunchMode(_ context.Context, workspaceID string, projectSectionKey string, mode string) (preferencesbiz.DesktopPreferences, error) {
 	s.patchLaunchWorkspaceID = workspaceID
 	s.patchLaunchProjectSectionKey = projectSectionKey
 	s.patchLaunchMode = mode
-	return s.patchLaunchResult, nil
+	return s.patchLaunchResult, s.patchLaunchErr
 }
 
 type agentComposerDefaultsValidatorStub struct {
@@ -339,6 +342,30 @@ func TestServicePatchAgentSessionLaunchModeUsesDedicatedStoreAndPublishes(t *tes
 	}
 	if len(publisher.published) != 1 || publisher.published[0].AgentSessionLaunchModesByWorkspace["workspace-a"]["project:/alpha"] != "worktree" {
 		t.Fatalf("published preferences = %#v", publisher.published)
+	}
+}
+
+func TestServicePatchAgentSessionLaunchModeDoesNotPublishOrObserveStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	store := &preferencesStoreStub{patchLaunchErr: workspacedata.ErrDesktopPreferencesNotInitialized}
+	publisher := &preferencesPublisherStub{}
+	observed := 0
+	service := Service{Store: store, Publisher: publisher}
+	service.RegisterChangeObserver(func(context.Context, preferencesbiz.DesktopPreferences, preferencesbiz.DesktopPreferences) {
+		observed++
+	})
+
+	_, err := service.PatchAgentSessionLaunchMode(context.Background(), PatchAgentSessionLaunchModeInput{
+		WorkspaceID:       "workspace-a",
+		ProjectSectionKey: "project:/alpha",
+		Mode:              "worktree",
+	})
+	if !errors.Is(err, workspacedata.ErrDesktopPreferencesNotInitialized) {
+		t.Fatalf("PatchAgentSessionLaunchMode() error = %v, want %v", err, workspacedata.ErrDesktopPreferencesNotInitialized)
+	}
+	if len(publisher.published) != 0 || observed != 0 {
+		t.Fatalf("side effects published=%d observed=%d, want none", len(publisher.published), observed)
 	}
 }
 
@@ -781,6 +808,33 @@ func TestServicePatchAgentComposerDefaultsForTargetValidatesStoresAndInvalidates
 	}
 	if len(publisher.agentTargetIDs) != 1 || publisher.agentTargetIDs[0] != "local:codex" {
 		t.Fatalf("invalidations = %#v", publisher.agentTargetIDs)
+	}
+}
+
+func TestServicePatchAgentComposerDefaultsForTargetDoesNotPublishStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	store := &preferencesStoreStub{patchErr: workspacedata.ErrDesktopPreferencesNotInitialized}
+	validator := &agentComposerDefaultsValidatorStub{}
+	publisher := &agentComposerDefaultsPublisherStub{}
+	service := Service{
+		Store:                          store,
+		AgentComposerDefaultsValidator: validator,
+		AgentComposerDefaultsPublisher: publisher,
+	}
+	model := "gpt-5"
+
+	_, err := service.PatchAgentComposerDefaultsForTarget(context.Background(), PatchAgentComposerDefaultsForTargetInput{
+		AgentTargetID: "local:codex",
+		Patch: preferencesbiz.AgentComposerDefaultsPatch{
+			preferencesbiz.AgentComposerDefaultsFieldModel: &model,
+		},
+	})
+	if !errors.Is(err, workspacedata.ErrDesktopPreferencesNotInitialized) {
+		t.Fatalf("PatchAgentComposerDefaultsForTarget() error = %v, want %v", err, workspacedata.ErrDesktopPreferencesNotInitialized)
+	}
+	if len(publisher.agentTargetIDs) != 0 {
+		t.Fatalf("invalidations = %#v, want none", publisher.agentTargetIDs)
 	}
 }
 

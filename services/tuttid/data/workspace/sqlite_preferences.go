@@ -130,9 +130,6 @@ func (s *SQLiteStore) PatchAgentComposerDefaultsForTarget(
 		return preferencesbiz.AgentComposerDefaults{}, fmt.Errorf("begin agent composer defaults patch: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := insertDesktopPreferencesIfAbsent(ctx, tx, preferencesbiz.DefaultDesktopPreferences()); err != nil {
-		return preferencesbiz.AgentComposerDefaults{}, fmt.Errorf("initialize desktop preferences for agent composer defaults patch: %w", err)
-	}
 
 	var raw string
 	if err := tx.QueryRowContext(ctx, `
@@ -140,6 +137,9 @@ SELECT agent_composer_defaults_by_agent_target_json
 FROM desktop_preferences
 WHERE id = ?
 `, desktopPreferencesRowID).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return preferencesbiz.AgentComposerDefaults{}, fmt.Errorf("read agent composer defaults for patch: %w", ErrDesktopPreferencesNotInitialized)
+		}
 		return preferencesbiz.AgentComposerDefaults{}, fmt.Errorf("read agent composer defaults for patch: %w", err)
 	}
 	defaultsByTarget, err := decodeAgentComposerDefaultsByProvider(raw)
@@ -192,7 +192,7 @@ WHERE id = ?
 		return preferencesbiz.AgentComposerDefaults{}, fmt.Errorf("count agent composer defaults patch rows: %w", err)
 	}
 	if rows != 1 {
-		return preferencesbiz.AgentComposerDefaults{}, errors.New("desktop preferences row is not initialized")
+		return preferencesbiz.AgentComposerDefaults{}, ErrDesktopPreferencesNotInitialized
 	}
 	if err := tx.Commit(); err != nil {
 		return preferencesbiz.AgentComposerDefaults{}, fmt.Errorf("commit agent composer defaults patch: %w", err)
@@ -221,9 +221,6 @@ func (s *SQLiteStore) PatchAgentSessionLaunchMode(
 		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("begin agent session launch mode patch: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := insertDesktopPreferencesIfAbsent(ctx, tx, preferencesbiz.DefaultDesktopPreferences()); err != nil {
-		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("initialize desktop preferences for agent session launch mode patch: %w", err)
-	}
 
 	var raw string
 	if err := tx.QueryRowContext(ctx, `
@@ -231,6 +228,9 @@ SELECT agent_session_launch_modes_by_workspace_json
 FROM desktop_preferences
 WHERE id = ?
 `, desktopPreferencesRowID).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return preferencesbiz.DesktopPreferences{}, fmt.Errorf("read agent session launch modes for patch: %w", ErrDesktopPreferencesNotInitialized)
+		}
 		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("read agent session launch modes for patch: %w", err)
 	}
 	modesByWorkspace, err := decodeAgentSessionLaunchModesByWorkspace(raw)
@@ -263,7 +263,7 @@ WHERE id = ?
 		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("count agent session launch mode patch rows: %w", err)
 	}
 	if rows != 1 {
-		return preferencesbiz.DesktopPreferences{}, errors.New("desktop preferences row is not initialized")
+		return preferencesbiz.DesktopPreferences{}, ErrDesktopPreferencesNotInitialized
 	}
 	if err := tx.Commit(); err != nil {
 		return preferencesbiz.DesktopPreferences{}, fmt.Errorf("commit agent session launch mode patch: %w", err)

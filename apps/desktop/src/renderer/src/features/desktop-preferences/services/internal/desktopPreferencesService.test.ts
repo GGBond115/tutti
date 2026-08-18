@@ -14,7 +14,10 @@ import {
 import type { DesktopThemeSource, DesktopThemeState } from "@shared/theme";
 import type { DesktopPreferencesClient } from "./adapters/desktopPreferencesClient.ts";
 import { createDesktopPreferencesClient as createDesktopPreferencesFeatureClient } from "./adapters/desktopPreferencesClient.ts";
-import { DesktopPreferencesService } from "./desktopPreferencesService.ts";
+import {
+  DesktopPreferencesService,
+  type DesktopPreferencesServiceDependencies
+} from "./desktopPreferencesService.ts";
 
 type Preferences = DesktopPreferencesStateResponse["preferences"];
 type PublishedPreferences = Omit<
@@ -141,7 +144,8 @@ test("initial preference hydration failure releases startup with defaults", asyn
   service.dispose();
 });
 
-test("DesktopPreferencesService carries the Agent bootstrap through a full write while preferences are uninitialized", async () => {
+test("DesktopPreferencesService restores authoritative preferences before the first mutation", async () => {
+  const calls: string[] = [];
   const updatedRequests: Preferences[] = [];
   const client = createDesktopPreferencesClient({
     getDesktopPreferences: async () => ({
@@ -149,6 +153,7 @@ test("DesktopPreferencesService carries the Agent bootstrap through a full write
       preferences: createPreferences()
     }),
     updateDesktopPreferences: async (request) => {
+      calls.push("update");
       updatedRequests.push(request.preferences);
       return request.preferences;
     }
@@ -157,7 +162,18 @@ test("DesktopPreferencesService carries the Agent bootstrap through a full write
     client,
     initialLocale: "zh-CN",
     initialTheme: { appearance: "dark", source: "dark" },
-    initialWorkspaceUiMode: "agent"
+    initialWorkspaceUiMode: "agent",
+    ensureInitialized: async (candidate) => {
+      calls.push("ensure");
+      assert.equal(candidate.featureFlags[standaloneAgentModeFlag], true);
+      return {
+        initialized: true,
+        preferences: createPreferences({
+          featureFlags: { [standaloneAgentModeFlag]: false },
+          locale: "zh-CN"
+        })
+      };
+    }
   });
 
   assert.equal(service.store.featureFlags[standaloneAgentModeFlag], true);
@@ -167,7 +183,94 @@ test("DesktopPreferencesService carries the Agent bootstrap through a full write
     source: "dark"
   });
   await service.setLocale("en");
-  assert.equal(updatedRequests[0]?.featureFlags[standaloneAgentModeFlag], true);
+  assert.deepEqual(calls, ["ensure", "update"]);
+  assert.equal(
+    updatedRequests[0]?.featureFlags[standaloneAgentModeFlag],
+    false
+  );
+  cleanup();
+});
+
+test("DesktopPreferencesService blocks mutation when initialization recovery fails", async () => {
+  const client = createDesktopPreferencesClient({
+    getDesktopPreferences: async () => ({
+      initialized: false,
+      preferences: createPreferences()
+    })
+  });
+  const { service, cleanup } = await createServiceHarness({
+    client,
+    initialWorkspaceUiMode: "agent",
+    ensureInitialized: async () => {
+      throw new Error("initialization unavailable");
+    }
+  });
+
+  await assert.rejects(
+    service.setLocale("zh-CN"),
+    /initialization unavailable/
+  );
+  assert.equal(service.store.locale, "en");
+  assert.equal(client.updatedRequests.length, 0);
+  cleanup();
+});
+
+test("DesktopPreferencesService shares one recovery across full and dedicated mutations", async () => {
+  const calls: string[] = [];
+  const updatedRequests: Preferences[] = [];
+  let ensureCalls = 0;
+  let releaseRecovery: (() => void) | undefined;
+  const recoveryBarrier = new Promise<void>((resolve) => {
+    releaseRecovery = resolve;
+  });
+  const client = createDesktopPreferencesClient({
+    getDesktopPreferences: async () => ({
+      initialized: false,
+      preferences: createPreferences()
+    }),
+    patchAgentComposerDefaultsForTarget: async () => {
+      calls.push("composer-patch");
+    },
+    updateDesktopPreferences: async (request) => {
+      calls.push("full-update");
+      updatedRequests.push(request.preferences);
+      return request.preferences;
+    }
+  });
+  const { service, cleanup } = await createServiceHarness({
+    client,
+    initialWorkspaceUiMode: "agent",
+    ensureInitialized: async () => {
+      ensureCalls++;
+      calls.push("ensure");
+      await recoveryBarrier;
+      return {
+        initialized: true,
+        preferences: createPreferences({
+          featureFlags: { [standaloneAgentModeFlag]: false }
+        })
+      };
+    }
+  });
+
+  const localeMutation = service.setLocale("zh-CN");
+  const composerMutation = service.rememberAgentComposerDefaultsForAgentTarget(
+    "local:codex",
+    { model: "gpt-5" }
+  );
+  await Promise.resolve();
+  assert.equal(ensureCalls, 1);
+  assert.deepEqual(calls, ["ensure"]);
+
+  releaseRecovery?.();
+  await Promise.all([localeMutation, composerMutation]);
+
+  assert.equal(ensureCalls, 1);
+  assert.deepEqual(calls.slice(1).sort(), ["composer-patch", "full-update"]);
+  assert.equal(
+    updatedRequests[0]?.featureFlags[standaloneAgentModeFlag],
+    false
+  );
   cleanup();
 });
 
@@ -830,6 +933,7 @@ async function createServiceHarness(
     appliedLocales?: DesktopLocale[];
     appliedThemes?: DesktopThemeState[];
     client?: DesktopPreferencesClient;
+    ensureInitialized?: DesktopPreferencesServiceDependencies["ensureInitialized"];
     initialLocale?: DesktopLocale;
     initialTheme?: DesktopThemeState;
     initialWorkspaceUiMode?: DesktopWorkspaceUiMode;
@@ -844,6 +948,12 @@ async function createServiceHarness(
       options.appliedThemes?.push(theme);
     },
     client,
+    ensureInitialized:
+      options.ensureInitialized ??
+      (async (candidate) => ({
+        initialized: true,
+        preferences: candidate
+      })),
     initialLocale: options.initialLocale ?? "en",
     initialTheme: options.initialTheme ?? {
       appearance: "light",

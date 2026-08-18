@@ -1,5 +1,9 @@
 import type { DesktopLocale } from "@shared/i18n";
 import type { DesktopThemeSource, DesktopThemeState } from "@shared/theme";
+import type {
+  DesktopPreferencesStateResponse,
+  PutDesktopPreferencesRequest
+} from "@tutti-os/client-tuttid-ts";
 import { withDesktopWorkspaceUiMode } from "../../../../../../shared/featureFlags/catalog.ts";
 import type { IDesktopPreferencesService } from "../desktopPreferencesService.interface.ts";
 import type { DesktopAgentComposerDefaultsPatchResult } from "../desktopPreferencesService.interface.ts";
@@ -72,6 +76,9 @@ export interface DesktopPreferencesServiceDependencies {
   applyLocale: (locale: DesktopLocale) => void;
   applyTheme: (theme: DesktopThemeState) => void;
   client: DesktopPreferencesClient;
+  ensureInitialized?: (
+    candidate: PutDesktopPreferencesRequest["preferences"]
+  ) => Promise<DesktopPreferencesStateResponse>;
   initialDockPlacement?: DesktopDockPlacement;
   initialLocale: DesktopLocale;
   initialTheme: DesktopThemeState;
@@ -88,6 +95,8 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
   private readonly initialPreferencesHydration: Promise<void>;
   private readonly unsubscribePreferencesUpdates: () => void;
   private disposed = false;
+  private preferencesInitialized = false;
+  private preferencesInitialization: Promise<void> | null = null;
 
   constructor(dependencies: DesktopPreferencesServiceDependencies) {
     this.dependencies = dependencies;
@@ -134,6 +143,7 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       this.dependencies.client.subscribeToDesktopPreferencesUpdated(
         (preferences) => {
           this.applyPreferences(preferences);
+          this.preferencesInitialized = true;
         }
       );
     this.initialPreferencesHydration = this.hydrateInitialPreferences();
@@ -156,6 +166,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return enabled;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousEnabled = this.store.agentCliUpdateCheckEnabled;
     this.store.changingAgentCliUpdateCheckEnabled = enabled;
     this.store.agentCliUpdateCheckEnabled = enabled;
@@ -186,6 +199,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return provider;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousProvider = this.store.defaultAgentProvider;
     this.store.changingDefaultAgentProvider = provider;
     this.store.defaultAgentProvider = provider;
@@ -215,6 +231,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return nextMode;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousMode = this.store.agentConversationDetailMode;
     this.store.changingAgentConversationDetailMode = nextMode;
     this.store.agentConversationDetailMode = nextMode;
@@ -245,6 +264,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return channel;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousChannel = this.store.appCatalogChannel;
     this.store.changingAppCatalogChannel = channel;
     this.store.appCatalogChannel = channel;
@@ -273,6 +295,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return mode;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousMode = this.store.browserUseConnectionMode;
     this.store.changingBrowserUseConnectionMode = mode;
     this.store.browserUseConnectionMode = mode;
@@ -304,6 +329,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return placement;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousPlacement = this.store.dockPlacement;
     this.store.changingDockPlacement = placement;
     this.store.dockPlacement = placement;
@@ -331,6 +359,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
     const nextDays = normalizeDeletedAgentConversationRetentionDays(days);
     if (this.store.changingDeletedAgentConversationRetentionDays === nextDays) {
       return nextDays;
+    }
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
     }
     const previousDays = this.store.deletedAgentConversationRetentionDays;
     this.store.changingDeletedAgentConversationRetentionDays = nextDays;
@@ -364,6 +395,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return style;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousStyle = this.store.dockIconStyle;
     this.store.changingDockIconStyle = style;
     this.store.dockIconStyle = style;
@@ -399,6 +433,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return this.store.fileDefaultOpenersByExtension;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousOpenersByExtension = this.store.fileDefaultOpenersByExtension;
     this.store.fileDefaultOpenersByExtension = nextOpenersByExtension;
     try {
@@ -422,6 +459,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return locale;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousLocale = this.store.locale;
     this.store.changingLocale = locale;
     applyDesktopPreferenceLocale(
@@ -463,6 +503,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return this.store.featureFlags;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousFlags = this.store.featureFlags;
     this.store.changingFeatureFlags = nextFlags;
     this.store.featureFlags = nextFlags;
@@ -500,6 +543,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return this.store.workbenchShortcuts;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousShortcuts = this.store.workbenchShortcuts;
     this.store.workbenchShortcuts = nextShortcuts;
     try {
@@ -525,6 +571,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return animation;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousAnimation = this.store.minimizeAnimation;
     this.store.changingMinimizeAnimation = animation;
     this.store.minimizeAnimation = animation;
@@ -563,6 +612,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return nextValue;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousValue = this.store.workbenchWindowSnapping;
     this.store.changingWorkbenchWindowSnapping = nextValue;
     this.store.workbenchWindowSnapping = nextValue;
@@ -597,6 +649,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return this.store.theme;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousTheme = this.store.theme;
     const nextTheme = this.dependencies.resolveTheme(source);
     this.store.changingThemeSource = source;
@@ -634,6 +689,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return mode;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousMode = this.store.sleepPreventionMode;
     this.store.changingSleepPreventionMode = mode;
     this.store.sleepPreventionMode = mode;
@@ -660,6 +718,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return show;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousShow = this.store.showAppDeveloperSources;
     this.store.changingShowAppDeveloperSources = show;
     this.store.showAppDeveloperSources = show;
@@ -688,6 +749,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return policy;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousPolicy = this.store.updatePolicy;
     this.store.changingUpdatePolicy = policy;
     this.store.updatePolicy = policy;
@@ -716,6 +780,9 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       return channel;
     }
 
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     const previousChannel = this.store.updateChannel;
     this.store.changingUpdateChannel = channel;
     this.store.updateChannel = channel;
@@ -741,6 +808,15 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
     agentTargetId: string,
     defaults: DesktopAgentComposerDefaultsPatch | null
   ): Promise<DesktopAgentComposerDefaultsPatchResult> {
+    if (!agentTargetId.trim() || Object.keys(defaults ?? {}).length === 0) {
+      return this.agentComposerDefaultsPatchCoordinator.patch(
+        agentTargetId,
+        defaults
+      );
+    }
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
     return this.agentComposerDefaultsPatchCoordinator.patch(
       agentTargetId,
       defaults
@@ -751,9 +827,29 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
     provider: DesktopAgentProvider,
     collapsed: boolean
   ): Promise<void> {
-    const previousCollapsedByProvider =
+    let previousCollapsedByProvider =
       this.store.agentGuiConversationRailCollapsedByProvider;
-    const nextCollapsedByProvider =
+    let nextCollapsedByProvider =
+      mergeDesktopAgentGuiConversationRailCollapsedByProvider(
+        previousCollapsedByProvider,
+        provider,
+        collapsed
+      );
+    if (
+      desktopAgentGuiConversationRailCollapsedByProviderEqual(
+        previousCollapsedByProvider,
+        nextCollapsedByProvider
+      )
+    ) {
+      return;
+    }
+
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
+    previousCollapsedByProvider =
+      this.store.agentGuiConversationRailCollapsedByProvider;
+    nextCollapsedByProvider =
       mergeDesktopAgentGuiConversationRailCollapsedByProvider(
         previousCollapsedByProvider,
         provider,
@@ -788,8 +884,24 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
     projectSectionKey: string,
     mode: DesktopAgentSessionLaunchMode
   ): Promise<void> {
-    const previousModes = this.store.agentSessionLaunchModesByWorkspace;
-    const nextModes = mergeDesktopAgentSessionLaunchMode(
+    let previousModes = this.store.agentSessionLaunchModesByWorkspace;
+    let nextModes = mergeDesktopAgentSessionLaunchMode(
+      previousModes,
+      workspaceId,
+      projectSectionKey,
+      mode
+    );
+    if (
+      desktopAgentSessionLaunchModesByWorkspaceEqual(previousModes, nextModes)
+    ) {
+      return;
+    }
+
+    if (!this.preferencesInitialized) {
+      await this.ensureInitializedForMutation();
+    }
+    previousModes = this.store.agentSessionLaunchModesByWorkspace;
+    nextModes = mergeDesktopAgentSessionLaunchMode(
       previousModes,
       workspaceId,
       projectSectionKey,
@@ -827,6 +939,7 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
         await this.dependencies.client.getDesktopPreferences();
       if (!this.disposed && preferences.initialized) {
         this.applyPreferences(preferences.preferences);
+        this.preferencesInitialized = true;
       }
     } catch {
       // Keep the current in-memory defaults when initial preference hydration fails.
@@ -857,6 +970,44 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
       resolveTheme: this.dependencies.resolveTheme,
       store: this.store
     });
+  }
+
+  private async ensureInitializedForMutation(): Promise<void> {
+    if (this.preferencesInitialized) {
+      return;
+    }
+    if (this.preferencesInitialization) {
+      return this.preferencesInitialization;
+    }
+
+    const ensureInitialized = this.dependencies.ensureInitialized;
+    if (!ensureInitialized) {
+      throw new Error(
+        "Desktop preferences initialization is unavailable for mutation."
+      );
+    }
+
+    const initialization = (async () => {
+      const response = await ensureInitialized(this.currentPreferences());
+      if (!response.initialized) {
+        throw new Error(
+          "Desktop preferences remained uninitialized before mutation."
+        );
+      }
+      if (this.disposed) {
+        throw new Error("Desktop preferences service was disposed.");
+      }
+      this.applyPreferences(response.preferences);
+      this.preferencesInitialized = true;
+    })();
+    this.preferencesInitialization = initialization;
+    try {
+      await initialization;
+    } finally {
+      if (this.preferencesInitialization === initialization) {
+        this.preferencesInitialization = null;
+      }
+    }
   }
 
   private currentPreferences(overrides: DesktopPreferencesOverrides = {}) {

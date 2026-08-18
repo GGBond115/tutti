@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { PutDesktopPreferencesRequest } from "@tutti-os/client-tuttid-ts";
 import { defaultDesktopWorkbenchShortcuts } from "../shared/preferences/index.ts";
@@ -117,6 +120,109 @@ test("desktop preferences preserve a concurrent existing OS preference after an 
 
   assert.equal(state.getFeatureFlags()[standaloneAgentModeFlag], false);
   assert.equal(getCalls, 2);
+});
+
+test("desktop preferences retry failed initialization once before mutation and only then write the installed-version marker", async () => {
+  const migrationStateRootDir = await mkdtemp(
+    join(tmpdir(), "tutti-preferences-initialization-")
+  );
+  const installedVersionStatePath = join(
+    migrationStateRootDir,
+    "migrations",
+    "desktop-update-channel-installed-version-v1"
+  );
+  let getCalls = 0;
+  let putCalls = 0;
+  let releaseRecovery: (() => void) | undefined;
+  const recoveryBarrier = new Promise<void>((resolve) => {
+    releaseRecovery = resolve;
+  });
+  const state = await createDesktopHostPreferencesState({
+    appVersion: "0.2.2-rc.1",
+    fallbackLocale: "en",
+    isPackaged: true,
+    logger: createLogger(),
+    migrationStateRootDir,
+    tuttidClient: {
+      async getDesktopPreferences() {
+        getCalls++;
+        return {
+          initialized: false,
+          preferences: createPreferences({
+            [standaloneAgentModeFlag]: true
+          })
+        };
+      },
+      async putDesktopPreferences(request) {
+        putCalls++;
+        if (putCalls === 1) {
+          throw new Error("write failed before commit");
+        }
+        await recoveryBarrier;
+        return {
+          initialized: true,
+          preferences: request.preferences
+        };
+      }
+    }
+  });
+
+  await assert.rejects(readFile(installedVersionStatePath, "utf8"));
+
+  const first = state.ensureInitialized();
+  const second = state.ensureInitialized();
+  await Promise.resolve();
+  releaseRecovery?.();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.deepEqual(firstResult, secondResult);
+  assert.equal(firstResult.initialized, true);
+  assert.equal(
+    firstResult.preferences.featureFlags[standaloneAgentModeFlag],
+    true
+  );
+  assert.equal(getCalls, 3);
+  assert.equal(putCalls, 2);
+  assert.equal(await readFile(installedVersionStatePath, "utf8"), "0.2.2-rc.1");
+});
+
+test("desktop preferences recover an unknown startup identity before initializing the Agent default", async () => {
+  let getCalls = 0;
+  let putCalls = 0;
+  const state = await createDesktopHostPreferencesState({
+    fallbackLocale: "en",
+    logger: createLogger(),
+    tuttidClient: {
+      async getDesktopPreferences() {
+        getCalls++;
+        if (getCalls === 1) {
+          throw new Error("startup read unavailable");
+        }
+        return {
+          initialized: false,
+          preferences: createPreferences({
+            [standaloneAgentModeFlag]: true
+          })
+        };
+      },
+      async putDesktopPreferences(request) {
+        putCalls++;
+        return {
+          initialized: true,
+          preferences: request.preferences
+        };
+      }
+    }
+  });
+
+  assert.equal(state.getFeatureFlags()[standaloneAgentModeFlag], undefined);
+
+  const recovered = await state.ensureInitialized();
+
+  assert.equal(recovered.initialized, true);
+  assert.equal(state.getFeatureFlags()[standaloneAgentModeFlag], true);
+  assert.equal(getCalls, 2);
+  assert.equal(putCalls, 1);
 });
 
 function createPreferences(

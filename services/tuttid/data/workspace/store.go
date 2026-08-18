@@ -23,6 +23,7 @@ import (
 )
 
 var ErrWorkspaceNotFound = errors.New("workspace not found")
+var ErrDesktopPreferencesNotInitialized = errors.New("desktop preferences are not initialized")
 var ErrWorkbenchSnapshotNotFound = errors.New("workspace workbench snapshot not found")
 var ErrWorkspaceAppNotFound = errors.New("workspace app not found")
 var ErrWorkspaceAppFactoryJobNotFound = errors.New("workspace app factory job not found")

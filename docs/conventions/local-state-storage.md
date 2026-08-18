@@ -135,13 +135,15 @@ service applies the daemon's fresh-profile workspace-mode default to the
 normalized client candidate, so the Agent default cannot vary by caller while
 other candidate fields and feature flags are preserved. The store writes that
 complete row with a single `INSERT ... ON CONFLICT DO NOTHING` and returns the
-authoritative stored row. A concurrent initializer or field-specific preference
-writer therefore wins without being overwritten. Field-specific writers that
-encounter a missing row create the same complete default row before applying
-their patch. The normal omitted/`replace` write mode remains the full preference
-update. The daemon-owned complete default uses the stable desktop update
-channel; packaged RC builds may subsequently align that preference from their
-installed version. Existing rows are never backfilled by initialization.
+authoritative stored row. If a concurrent initializer created the row first,
+that stored row wins without being overwritten. Only `initializeIfAbsent` may
+create this identity row. Field-specific writers fail without side effects when
+the row is missing, so a partial patch can never decide whether the identity is
+new or accidentally replace the complete initialization contract. The normal
+omitted/`replace` write mode remains the full preference update. The daemon-owned
+complete default uses the stable desktop update channel; packaged RC builds may
+subsequently align that preference from their installed version. Existing rows
+are never backfilled by initialization.
 
 `agent_cli_update_check_enabled` stores the
 `agentCliUpdateCheckEnabled` preference as a non-null SQLite boolean and

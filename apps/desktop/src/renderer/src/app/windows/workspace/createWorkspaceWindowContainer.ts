@@ -154,11 +154,19 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     "workspace-renderer",
     reporterService
   );
+  const hostPreferences = desktopApi.host.preferences;
   const desktopPreferencesService = await registerDesktopPreferencesServices(
     registry,
     tuttidClient,
     tuttidEventStreamClient,
-    initialWorkspaceUiMode ? { initialWorkspaceUiMode } : {}
+    {
+      ...(hostPreferences
+        ? {
+            ensureInitialized: () => hostPreferences.ensureInitialized()
+          }
+        : {}),
+      ...(initialWorkspaceUiMode ? { initialWorkspaceUiMode } : {})
+    }
   );
   const daemonConnectionAnalytics = startDesktopDaemonConnectionAnalytics({
     eventStreamClient: tuttidEventStreamClient,

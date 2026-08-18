@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"runtime"
 	"sync"
@@ -590,34 +591,32 @@ func TestSQLiteStorePatchAgentComposerDefaultsForTargetMergesLatestFieldsAndPres
 	}
 }
 
-func TestSQLiteStorePatchAgentComposerDefaultsForTargetInitializesMissingPreferencesRow(t *testing.T) {
+func TestSQLiteStorePatchAgentComposerDefaultsForTargetRejectsMissingPreferencesRow(t *testing.T) {
 	t.Parallel()
 
 	store := openTestSQLiteStore(t)
 	model := "gpt-5"
-	if _, err := store.PatchAgentComposerDefaultsForTarget(context.Background(), "local:codex", preferencesbiz.AgentComposerDefaultsPatch{
+	_, err := store.PatchAgentComposerDefaultsForTarget(context.Background(), "local:codex", preferencesbiz.AgentComposerDefaultsPatch{
 		preferencesbiz.AgentComposerDefaultsFieldModel: &model,
-	}); err != nil {
-		t.Fatalf("PatchAgentComposerDefaultsForTarget() error = %v", err)
+	})
+	if !errors.Is(err, ErrDesktopPreferencesNotInitialized) {
+		t.Fatalf("PatchAgentComposerDefaultsForTarget() error = %v, want %v", err, ErrDesktopPreferencesNotInitialized)
 	}
-	got, err := store.GetDesktopPreferences(context.Background())
-	if err != nil {
-		t.Fatalf("GetDesktopPreferences() error = %v", err)
+	var rows int
+	if err := store.readDB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM desktop_preferences`).Scan(&rows); err != nil {
+		t.Fatalf("count desktop preferences rows: %v", err)
 	}
-	if !got.Initialized || got.AgentComposerDefaultsByAgentTarget["local:codex"].Model != model {
-		t.Fatalf("preferences = %#v", got)
-	}
-	if !got.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
-		t.Fatalf("feature flags = %#v, want standalone Agent mode enabled", got.FeatureFlags)
-	}
-	if got.UpdateChannel != "stable" {
-		t.Fatalf("update channel = %q, want stable", got.UpdateChannel)
+	if rows != 0 {
+		t.Fatalf("desktop preferences rows = %d, want 0", rows)
 	}
 }
 
 func TestSQLiteStorePatchAgentComposerDefaultsForTargetPersistsCodexSaverMode(t *testing.T) {
 	t.Parallel()
 	store := openTestSQLiteStore(t)
+	if _, err := store.PutDesktopPreferences(context.Background(), preferencesbiz.DefaultDesktopPreferences()); err != nil {
+		t.Fatalf("PutDesktopPreferences() error = %v", err)
+	}
 	if _, err := store.PatchAgentComposerDefaultsForTarget(context.Background(), "local:codex", preferencesbiz.AgentComposerDefaultsPatch{
 		preferencesbiz.AgentComposerDefaultsFieldCodexSaverMode: true,
 	}); err != nil {
@@ -648,6 +647,9 @@ func TestSQLiteStorePatchAgentComposerDefaultsForTargetSerializesConcurrentField
 	t.Parallel()
 
 	store := openTestSQLiteStore(t)
+	if _, err := store.PutDesktopPreferences(context.Background(), preferencesbiz.DefaultDesktopPreferences()); err != nil {
+		t.Fatalf("PutDesktopPreferences() error = %v", err)
+	}
 	permission := "full-access"
 	model := "gpt-5"
 	patches := []preferencesbiz.AgentComposerDefaultsPatch{
@@ -740,27 +742,25 @@ func TestSQLiteStorePatchAgentSessionLaunchModeSerializesConcurrentProjectsAndRe
 	}
 }
 
-func TestSQLiteStorePatchAgentSessionLaunchModeInitializesMissingRowInAgentMode(t *testing.T) {
+func TestSQLiteStorePatchAgentSessionLaunchModeRejectsMissingPreferencesRow(t *testing.T) {
 	t.Parallel()
 
 	store := openTestSQLiteStore(t)
-	stored, err := store.PatchAgentSessionLaunchMode(
+	_, err := store.PatchAgentSessionLaunchMode(
 		context.Background(),
 		"workspace-a",
 		"project:/alpha",
 		"worktree",
 	)
-	if err != nil {
-		t.Fatalf("PatchAgentSessionLaunchMode() error = %v", err)
+	if !errors.Is(err, ErrDesktopPreferencesNotInitialized) {
+		t.Fatalf("PatchAgentSessionLaunchMode() error = %v, want %v", err, ErrDesktopPreferencesNotInitialized)
 	}
-	if !stored.Initialized || !stored.FeatureFlags[preferencesbiz.DesktopStandaloneAgentModeFeatureFlag] {
-		t.Fatalf("stored preferences = %#v, want initialized Agent mode", stored)
+	var rows int
+	if err := store.readDB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM desktop_preferences`).Scan(&rows); err != nil {
+		t.Fatalf("count desktop preferences rows: %v", err)
 	}
-	if stored.UpdateChannel != "stable" {
-		t.Fatalf("stored update channel = %q, want stable", stored.UpdateChannel)
-	}
-	if stored.AgentSessionLaunchModesByWorkspace["workspace-a"]["project:/alpha"] != "worktree" {
-		t.Fatalf("stored launch modes = %#v", stored.AgentSessionLaunchModesByWorkspace)
+	if rows != 0 {
+		t.Fatalf("desktop preferences rows = %d, want 0", rows)
 	}
 }
 

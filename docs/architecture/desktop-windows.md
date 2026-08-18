@@ -128,7 +128,16 @@ so startup keeps the legacy OS fallback and does not initialize. If a confirmed
 fresh identity's initialization response is lost, Desktop reads the preference
 row again and uses the authoritative result. If the write failed before commit
 and the row is still absent, the current process keeps the fresh Agent default
-in memory and retries durable initialization on the next launch.
+in memory. Main retains the startup identity as `initialized`, `missing`, or
+`unknown`; before any renderer preference mutation, a typed host capability
+recovers unknown state or atomically retries a confirmed missing initialization.
+The renderer applies the returned authoritative complete row before constructing
+or publishing the requested mutation. Recovery is single-flight in each
+renderer and in main, while SQLite `INSERT ... ON CONFLICT DO NOTHING` remains
+the cross-window and cross-process arbiter. Failed recovery blocks the mutation
+without optimistic state changes or partial daemon writes. Update-channel
+migrations and installed-version markers run only after a durable row is
+confirmed.
 
 On macOS activation with no open windows, the app follows the same startup resolution instead of always forcing the dashboard.
 

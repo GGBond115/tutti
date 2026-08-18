@@ -1,5 +1,6 @@
 import type { ServiceRegistry } from "@tutti-os/infra/di";
 import type {
+  DesktopPreferencesStateResponse,
   TuttidClient,
   TuttidEventStreamClient
 } from "@tutti-os/client-tuttid-ts";
@@ -19,12 +20,22 @@ export async function registerDesktopPreferencesServices(
   registry: ServiceRegistry,
   tuttidClient: TuttidClient,
   eventStreamClient: TuttidEventStreamClient,
-  options: { initialWorkspaceUiMode?: DesktopWorkspaceUiMode } = {}
+  options: {
+    ensureInitialized?: () => Promise<DesktopPreferencesStateResponse>;
+    initialWorkspaceUiMode?: DesktopWorkspaceUiMode;
+  } = {}
 ): Promise<IDesktopPreferencesService> {
   const service = new DesktopPreferencesService({
     applyLocale,
     applyTheme,
     client: createDesktopPreferencesClient(tuttidClient, eventStreamClient),
+    ensureInitialized: (candidate) =>
+      options.ensureInitialized
+        ? options.ensureInitialized()
+        : tuttidClient.putDesktopPreferences({
+            writeMode: "initializeIfAbsent",
+            preferences: candidate
+          }),
     initialDockPlacement: readInitialDockPlacementFromLocation(),
     initialLocale: getActiveLocale(),
     initialTheme: getActiveTheme(),
