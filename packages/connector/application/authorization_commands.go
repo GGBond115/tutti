@@ -223,15 +223,37 @@ func (application *service) cancelAuthorizationCommand(
 		)
 	}
 	session := operation.Execution.AuthorizationSession
-	if session.CancellationClientRequestID == command.ClientRequestID &&
-		session.Resolution == contracts.AuthorizationSessionResolutionSuperseded {
-		connector, connectorErr := application.config.Repository.Connector(ctx, command.ConnectorKey)
-		if connectorErr != nil {
-			return 0, connectorErr
+	exactCancellationReplay := session.CancellationClientRequestID == command.ClientRequestID
+	if exactCancellationReplay {
+		switch session.Resolution {
+		case contracts.AuthorizationSessionResolutionSuperseded:
+			// Provider termination and the receipt transition may have committed
+			// immediately before a crash. Finish the independently durable public
+			// projection reset before acknowledging the exact request again.
+			if err := application.resetPendingAuthorizationState(
+				ctx, contracts.OperationScope{AccountID: command.AccountID}, command.ConnectorKey,
+			); err != nil {
+				return 0, err
+			}
+			connector, connectorErr := application.config.Repository.Connector(ctx, command.ConnectorKey)
+			if connectorErr != nil {
+				return 0, connectorErr
+			}
+			return connector.Revision, nil
+		case "", contracts.AuthorizationSessionResolutionUnresolved,
+			contracts.AuthorizationSessionResolutionCanceling:
+			// A durable cancellation fence already owns this operation. Resume it
+			// without revalidating revisions that may have advanced after the first
+			// accepted attempt.
+		default:
+			return 0, contracts.NewDomainError(
+				contracts.ErrorCodeRevisionConflict,
+				"authorization attempt is no longer active",
+				false,
+				nil,
+			)
 		}
-		return connector.Revision, nil
-	}
-	if session.CancellationClientRequestID != "" || session.IsResolved() {
+	} else if session.CancellationClientRequestID != "" || session.IsResolved() {
 		return 0, contracts.NewDomainError(
 			contracts.ErrorCodeRevisionConflict,
 			"authorization attempt is no longer active",
@@ -239,14 +261,16 @@ func (application *service) cancelAuthorizationCommand(
 			nil,
 		)
 	}
-	if err := application.verifyConnectorMutationRevision(ctx, command.ConnectorMutation); err != nil {
-		return 0, err
-	}
-	operation, err = application.recordAuthorizationCancellationRequest(
-		ctx, operation.OperationID, command.ClientRequestID,
-	)
-	if err != nil {
-		return 0, err
+	if !exactCancellationReplay {
+		if err := application.verifyConnectorMutationRevision(ctx, command.ConnectorMutation); err != nil {
+			return 0, err
+		}
+		operation, err = application.recordAuthorizationCancellationRequest(
+			ctx, operation.OperationID, command.ClientRequestID,
+		)
+		if err != nil {
+			return 0, err
+		}
 	}
 	connector, err := application.config.Repository.Connector(ctx, command.ConnectorKey)
 	if err != nil {
@@ -255,11 +279,16 @@ func (application *service) cancelAuthorizationCommand(
 	application.interruptAuthorizationRequestIfClientRequestID(
 		command.AccountID, command.ConnectorKey, operation.ClientRequestID,
 	)
-	if err := application.cancelAuthorizationAttempt(ctx, connector, operation, false); err != nil {
+	if err := application.terminateAuthorizationAttempt(ctx, connector, operation, false); err != nil {
 		return 0, err
 	}
 	if err := application.resetPendingAuthorizationState(
 		ctx, contracts.OperationScope{AccountID: command.AccountID}, command.ConnectorKey,
+	); err != nil {
+		return 0, err
+	}
+	if err := application.config.Repository.ResolveAuthorizationSession(
+		ctx, operation.OperationID, contracts.AuthorizationSessionResolutionSuperseded,
 	); err != nil {
 		return 0, err
 	}
@@ -401,9 +430,35 @@ func (application *service) cancelAuthorizationAttempt(
 	operation contracts.Operation,
 	requireProviderTermination bool,
 ) error {
+	if err := application.terminateAuthorizationAttempt(
+		ctx, connector, operation, requireProviderTermination,
+	); err != nil {
+		return err
+	}
+	return application.config.Repository.ResolveAuthorizationSession(
+		ctx, operation.OperationID, contracts.AuthorizationSessionResolutionSuperseded,
+	)
+}
+
+// terminateAuthorizationAttempt leaves the durable receipt in canceling. The
+// caller decides when the public pending projection has been reset and only
+// then resolves the receipt, so daemon recovery can observe every crash point.
+func (application *service) terminateAuthorizationAttempt(
+	ctx context.Context,
+	connector contracts.Connector,
+	operation contracts.Operation,
+	requireProviderTermination bool,
+) error {
 	session := operation.Execution.AuthorizationSession
 	if session == nil || session.IsResolved() {
 		return nil
+	}
+	if session.Resolution != contracts.AuthorizationSessionResolutionCanceling {
+		if err := application.config.Repository.ResolveAuthorizationSession(
+			ctx, operation.OperationID, contracts.AuthorizationSessionResolutionCanceling,
+		); err != nil {
+			return err
+		}
 	}
 	canceler, ok := application.config.Authorization.(AuthorizationAttemptCanceler)
 	if !ok {
@@ -415,16 +470,7 @@ func (application *service) cancelAuthorizationAttempt(
 				nil,
 			)
 		}
-		return application.config.Repository.ResolveAuthorizationSession(
-			ctx, operation.OperationID, contracts.AuthorizationSessionResolutionSuperseded,
-		)
-	}
-	if session.Resolution != contracts.AuthorizationSessionResolutionCanceling {
-		if err := application.config.Repository.ResolveAuthorizationSession(
-			ctx, operation.OperationID, contracts.AuthorizationSessionResolutionCanceling,
-		); err != nil {
-			return err
-		}
+		return nil
 	}
 	release, err := frozenRelease(operation)
 	if err != nil {
@@ -445,9 +491,7 @@ func (application *service) cancelAuthorizationAttempt(
 			err,
 		)
 	}
-	return application.config.Repository.ResolveAuthorizationSession(
-		ctx, operation.OperationID, contracts.AuthorizationSessionResolutionSuperseded,
-	)
+	return nil
 }
 
 func (application *service) resetPendingAuthorizationState(
@@ -516,6 +560,28 @@ func (application *service) ReconcileAuthorizations(ctx context.Context, scope c
 			continue
 		}
 		session := *operation.Execution.AuthorizationSession
+		explicitCancellation := session.CancellationClientRequestID != "" &&
+			(session.Resolution == "" ||
+				session.Resolution == contracts.AuthorizationSessionResolutionUnresolved ||
+				session.Resolution == contracts.AuthorizationSessionResolutionCanceling)
+		if explicitCancellation {
+			if cancelErr := application.terminateAuthorizationAttempt(ctx, connector, operation, false); cancelErr != nil {
+				reconcileErr = errors.Join(reconcileErr, cancelErr)
+				continue
+			}
+			if resetErr := application.resetPendingAuthorizationState(
+				ctx, operation.Scope, operation.ConnectorKey,
+			); resetErr != nil {
+				reconcileErr = errors.Join(reconcileErr, resetErr)
+				continue
+			}
+			if resolveErr := application.config.Repository.ResolveAuthorizationSession(
+				ctx, operation.OperationID, contracts.AuthorizationSessionResolutionSuperseded,
+			); resolveErr != nil {
+				reconcileErr = errors.Join(reconcileErr, resolveErr)
+			}
+			continue
+		}
 		if session.Resolution == contracts.AuthorizationSessionResolutionCanceling {
 			if cancelErr := application.cancelAuthorizationAttempt(ctx, connector, operation, true); cancelErr != nil {
 				reconcileErr = errors.Join(reconcileErr, cancelErr)

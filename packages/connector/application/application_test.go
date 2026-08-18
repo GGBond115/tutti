@@ -891,6 +891,208 @@ func TestApplicationRemoteAuthorizationStartPreservesPendingBeforeProjectionConv
 	}
 }
 
+func TestApplicationCancellationReplayResumesDurableFence(t *testing.T) {
+	for _, resolution := range []contracts.AuthorizationSessionResolution{
+		contracts.AuthorizationSessionResolutionUnresolved,
+		contracts.AuthorizationSessionResolutionCanceling,
+	} {
+		t.Run(string(resolution), func(t *testing.T) {
+			connector := testManagedAuthorizedConnector("resume-cancel-" + string(resolution))
+			connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStatePending}
+			connector.Revision = 7
+			repository := newMemoryRepository(connector)
+			repository.revision = connector.Revision
+			operation := contracts.Operation{
+				OperationID: "authorization-resume", ClientRequestID: "authorization-start",
+				ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
+				Scope: contracts.OperationScope{AccountID: "account-1"}, State: contracts.OperationStateCompleted,
+				Stage:  contracts.OperationStageCompleted,
+				Target: operationTarget(contracts.OperationKindStartAuthorization, connector),
+				Execution: contracts.OperationExecution{AuthorizationSession: &contracts.AuthorizationSession{
+					OperationID: "authorization-resume", ConnectorKey: connector.Key,
+					SessionID: "session-resume", State: contracts.AuthorizationStatePending,
+					Resolution: resolution, CancellationClientRequestID: "cancel-request",
+				}},
+			}
+			repository.operations[operation.OperationID] = operation
+			provider := &cancelingAuthorizationProvider{}
+			application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+			application.config.Authorization = provider
+			staleConnectorRevision := uint64(1)
+			result := commandFacades{service: application}.CancelAuthorization(context.Background(), contracts.CancelAuthorizationCommand{
+				ConnectorMutation: contracts.ConnectorMutation{
+					Mutation:     contracts.Mutation{ClientRequestID: "cancel-request", ExpectedRevision: 1},
+					ConnectorKey: connector.Key, AccountID: "account-1", ExpectedConnectorRevision: &staleConnectorRevision,
+				},
+				OperationID: operation.OperationID,
+			})
+			if result.Outcome != contracts.CommandCompleted || result.Revision != 8 {
+				t.Fatalf("cancel replay result = %#v", result)
+			}
+			if len(provider.canceled) != 1 || provider.canceled[0] != operation.OperationID {
+				t.Fatalf("provider cancellations = %#v", provider.canceled)
+			}
+			receipt := repository.operations[operation.OperationID].Execution.AuthorizationSession
+			if receipt == nil || receipt.Resolution != contracts.AuthorizationSessionResolutionSuperseded ||
+				receipt.CancellationClientRequestID != "cancel-request" {
+				t.Fatalf("resumed receipt = %#v", receipt)
+			}
+			if current := repository.connectors[connector.Key]; current.Authorization.State != contracts.AuthorizationStateDisconnected {
+				t.Fatalf("connector after resumed cancel = %#v", current.Authorization)
+			}
+		})
+	}
+}
+
+func TestApplicationCancellationReplayFinishesProjectionAfterTerminalReceipt(t *testing.T) {
+	connector := testManagedAuthorizedConnector("terminal-cancel-replay")
+	connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStatePending}
+	connector.Revision = 4
+	repository := newMemoryRepository(connector)
+	repository.revision = connector.Revision
+	operation := contracts.Operation{
+		OperationID: "authorization-terminal", ClientRequestID: "authorization-start",
+		ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
+		Scope: contracts.OperationScope{AccountID: "account-1"}, State: contracts.OperationStateCompleted,
+		Stage:  contracts.OperationStageCompleted,
+		Target: operationTarget(contracts.OperationKindStartAuthorization, connector),
+		Execution: contracts.OperationExecution{AuthorizationSession: &contracts.AuthorizationSession{
+			OperationID: "authorization-terminal", ConnectorKey: connector.Key,
+			SessionID: "session-terminal", State: contracts.AuthorizationStatePending,
+			Resolution:                  contracts.AuthorizationSessionResolutionSuperseded,
+			CancellationClientRequestID: "cancel-request",
+		}},
+	}
+	repository.operations[operation.OperationID] = operation
+	provider := &cancelingAuthorizationProvider{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+	application.config.Authorization = provider
+	staleConnectorRevision := uint64(1)
+	command := contracts.CancelAuthorizationCommand{
+		ConnectorMutation: contracts.ConnectorMutation{
+			Mutation:     contracts.Mutation{ClientRequestID: "cancel-request", ExpectedRevision: 1},
+			ConnectorKey: connector.Key, AccountID: "account-1", ExpectedConnectorRevision: &staleConnectorRevision,
+		},
+		OperationID: operation.OperationID,
+	}
+	first := commandFacades{service: application}.CancelAuthorization(context.Background(), command)
+	second := commandFacades{service: application}.CancelAuthorization(context.Background(), command)
+	if first.Outcome != contracts.CommandCompleted || second.Outcome != contracts.CommandCompleted ||
+		first.Revision != 5 || second.Revision != first.Revision {
+		t.Fatalf("terminal cancel replays = first %#v second %#v", first, second)
+	}
+	if len(provider.canceled) != 0 {
+		t.Fatalf("terminal replay called provider: %#v", provider.canceled)
+	}
+	if current := repository.connectors[connector.Key]; current.Authorization.State != contracts.AuthorizationStateDisconnected {
+		t.Fatalf("connector after terminal cancel replay = %#v", current.Authorization)
+	}
+}
+
+func TestApplicationCancellationRecoveryKeepsReceiptVisibleUntilProjectionReset(t *testing.T) {
+	connector := testManagedAuthorizedConnector("cancel-reset-crash")
+	connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStatePending}
+	repository := newMemoryRepository(connector)
+	operation := contracts.Operation{
+		OperationID: "authorization-reset-crash", ClientRequestID: "authorization-start",
+		ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
+		Scope: contracts.OperationScope{AccountID: "account-1"}, State: contracts.OperationStateCompleted,
+		Stage:  contracts.OperationStageCompleted,
+		Target: operationTarget(contracts.OperationKindStartAuthorization, connector),
+		Execution: contracts.OperationExecution{AuthorizationSession: &contracts.AuthorizationSession{
+			OperationID: "authorization-reset-crash", ConnectorKey: connector.Key,
+			SessionID: "session-reset-crash", State: contracts.AuthorizationStatePending,
+			Resolution: contracts.AuthorizationSessionResolutionUnresolved,
+		}},
+	}
+	repository.operations[operation.OperationID] = operation
+	repository.failTransactionCall = 3 // revision check + cancellation fence commit; projection reset fails
+	repository.failTransactionErr = errors.New("injected projection reset failure")
+	provider := &cancelingAuthorizationProvider{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+	application.config.Authorization = provider
+	connectorRevision := connector.Revision
+	_, err := application.cancelAuthorizationCommand(context.Background(), contracts.CancelAuthorizationCommand{
+		ConnectorMutation: contracts.ConnectorMutation{
+			Mutation:     contracts.Mutation{ClientRequestID: "cancel-request", ExpectedRevision: repository.revision},
+			ConnectorKey: connector.Key, AccountID: "account-1", ExpectedConnectorRevision: &connectorRevision,
+		},
+		OperationID: operation.OperationID,
+	})
+	if err == nil || err.Error() != "injected projection reset failure" {
+		t.Fatalf("cancel reset failure = %v", err)
+	}
+	receipt := repository.operations[operation.OperationID].Execution.AuthorizationSession
+	if receipt == nil || receipt.Resolution != contracts.AuthorizationSessionResolutionCanceling ||
+		receipt.CancellationClientRequestID != "cancel-request" {
+		t.Fatalf("receipt escaped recovery query after reset failure = %#v", receipt)
+	}
+	if current := repository.connectors[connector.Key]; current.Authorization.State != contracts.AuthorizationStatePending {
+		t.Fatalf("failed reset changed connector = %#v", current.Authorization)
+	}
+	if len(provider.canceled) != 1 {
+		t.Fatalf("provider calls before recovery = %#v", provider.canceled)
+	}
+
+	intents, err := application.ReconcileAuthorizations(context.Background(), operation.Scope)
+	if err != nil || len(intents) != 0 {
+		t.Fatalf("cancel recovery = intents %#v error %v", intents, err)
+	}
+	receipt = repository.operations[operation.OperationID].Execution.AuthorizationSession
+	if receipt == nil || receipt.Resolution != contracts.AuthorizationSessionResolutionSuperseded {
+		t.Fatalf("recovered receipt = %#v", receipt)
+	}
+	if current := repository.connectors[connector.Key]; current.Authorization.State != contracts.AuthorizationStateDisconnected {
+		t.Fatalf("recovered connector = %#v", current.Authorization)
+	}
+	if len(provider.canceled) != 2 {
+		t.Fatalf("provider recovery calls = %#v", provider.canceled)
+	}
+}
+
+func TestApplicationCancellationFenceRejectsDifferentRequestWithoutProviderCall(t *testing.T) {
+	connector := testManagedAuthorizedConnector("different-cancel-request")
+	connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStatePending}
+	repository := newMemoryRepository(connector)
+	operation := contracts.Operation{
+		OperationID: "authorization-fenced", ClientRequestID: "authorization-start",
+		ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
+		Scope: contracts.OperationScope{AccountID: "account-1"}, State: contracts.OperationStateCompleted,
+		Stage:  contracts.OperationStageCompleted,
+		Target: operationTarget(contracts.OperationKindStartAuthorization, connector),
+		Execution: contracts.OperationExecution{AuthorizationSession: &contracts.AuthorizationSession{
+			OperationID: "authorization-fenced", ConnectorKey: connector.Key,
+			SessionID: "session-fenced", State: contracts.AuthorizationStatePending,
+			Resolution:                  contracts.AuthorizationSessionResolutionUnresolved,
+			CancellationClientRequestID: "original-cancel-request",
+		}},
+	}
+	repository.operations[operation.OperationID] = operation
+	provider := &cancelingAuthorizationProvider{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+	application.config.Authorization = provider
+	connectorRevision := connector.Revision
+	result := commandFacades{service: application}.CancelAuthorization(context.Background(), contracts.CancelAuthorizationCommand{
+		ConnectorMutation: contracts.ConnectorMutation{
+			Mutation:     contracts.Mutation{ClientRequestID: "different-cancel-request", ExpectedRevision: repository.revision},
+			ConnectorKey: connector.Key, AccountID: "account-1", ExpectedConnectorRevision: &connectorRevision,
+		},
+		OperationID: operation.OperationID,
+	})
+	if result.Outcome != contracts.CommandRejected || result.Failure == nil ||
+		result.Failure.Code != contracts.ErrorCodeRevisionConflict || result.Failure.Retryable {
+		t.Fatalf("different cancellation result = %#v", result)
+	}
+	if len(provider.canceled) != 0 {
+		t.Fatalf("different cancellation called provider: %#v", provider.canceled)
+	}
+	receipt := repository.operations[operation.OperationID].Execution.AuthorizationSession
+	if receipt == nil || receipt.Resolution != contracts.AuthorizationSessionResolutionUnresolved ||
+		receipt.CancellationClientRequestID != "original-cancel-request" {
+		t.Fatalf("different cancellation changed receipt = %#v", receipt)
+	}
+}
+
 func TestApplicationAuthorizationStartProviderFailureIsTerminal(t *testing.T) {
 	connector := testConnector("notion")
 	connector.Release.Manifest.AuthorizationKind = "oauth2"
@@ -1932,6 +2134,83 @@ func TestApplicationRecoveryFinishesCancelingAuthorizationReceipt(t *testing.T) 
 	receipt := repository.operations[operation.OperationID].Execution.AuthorizationSession
 	if receipt == nil || receipt.Resolution != contracts.AuthorizationSessionResolutionSuperseded {
 		t.Fatalf("recovered receipt = %#v, want superseded", receipt)
+	}
+}
+
+func TestApplicationRecoveryFinishesExplicitCancellationWithoutProviderCanceler(t *testing.T) {
+	for _, resolution := range []contracts.AuthorizationSessionResolution{
+		contracts.AuthorizationSessionResolutionUnresolved,
+		contracts.AuthorizationSessionResolutionCanceling,
+	} {
+		t.Run(string(resolution), func(t *testing.T) {
+			connector := testManagedAuthorizedConnector("recover-explicit-cancel-" + string(resolution))
+			connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStatePending}
+			repository := newMemoryRepository(connector)
+			operation := contracts.Operation{
+				OperationID: "authorization-explicit-cancel", ClientRequestID: "authorization-start",
+				ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
+				Scope: contracts.OperationScope{AccountID: "account-1"}, State: contracts.OperationStateCompleted,
+				Stage:  contracts.OperationStageCompleted,
+				Target: operationTarget(contracts.OperationKindStartAuthorization, connector),
+				Execution: contracts.OperationExecution{AuthorizationSession: &contracts.AuthorizationSession{
+					OperationID: "authorization-explicit-cancel", ConnectorKey: connector.Key,
+					SessionID: "session-explicit-cancel", State: contracts.AuthorizationStatePending,
+					Resolution: resolution, CancellationClientRequestID: "cancel-request",
+				}},
+			}
+			repository.operations[operation.OperationID] = operation
+			application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+
+			intents, err := application.ReconcileAuthorizations(context.Background(), operation.Scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(intents) != 0 {
+				t.Fatalf("explicit cancellation intents = %#v", intents)
+			}
+			receipt := repository.operations[operation.OperationID].Execution.AuthorizationSession
+			if receipt == nil || receipt.Resolution != contracts.AuthorizationSessionResolutionSuperseded ||
+				receipt.CancellationClientRequestID != "cancel-request" {
+				t.Fatalf("recovered explicit cancellation receipt = %#v", receipt)
+			}
+			if current := repository.connectors[connector.Key]; current.Authorization.State != contracts.AuthorizationStateDisconnected {
+				t.Fatalf("connector after explicit cancellation recovery = %#v", current.Authorization)
+			}
+		})
+	}
+}
+
+func TestApplicationRecoveryKeepsReplacementCancellationProviderFenced(t *testing.T) {
+	connector := testManagedAuthorizedConnector("recover-replacement-cancel")
+	connector.Authorization = contracts.Authorization{State: contracts.AuthorizationStatePending}
+	repository := newMemoryRepository(connector)
+	operation := contracts.Operation{
+		OperationID: "authorization-replacement-cancel", ClientRequestID: "authorization-start",
+		ConnectorKey: connector.Key, Kind: contracts.OperationKindStartAuthorization,
+		Scope: contracts.OperationScope{AccountID: "account-1"}, State: contracts.OperationStateCompleted,
+		Stage:  contracts.OperationStageCompleted,
+		Target: operationTarget(contracts.OperationKindStartAuthorization, connector),
+		Execution: contracts.OperationExecution{AuthorizationSession: &contracts.AuthorizationSession{
+			OperationID: "authorization-replacement-cancel", ConnectorKey: connector.Key,
+			SessionID: "session-replacement-cancel", State: contracts.AuthorizationStatePending,
+			Resolution: contracts.AuthorizationSessionResolutionCanceling,
+		}},
+	}
+	repository.operations[operation.OperationID] = operation
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, contracts.CatalogSnapshot{})
+
+	intents, err := application.ReconcileAuthorizations(context.Background(), operation.Scope)
+	var domainError *contracts.DomainError
+	if !errors.As(err, &domainError) || domainError.Code != contracts.ErrorCodeUnavailable || len(intents) != 0 {
+		t.Fatalf("replacement cancellation recovery = intents %#v error %#v", intents, err)
+	}
+	receipt := repository.operations[operation.OperationID].Execution.AuthorizationSession
+	if receipt == nil || receipt.Resolution != contracts.AuthorizationSessionResolutionCanceling ||
+		receipt.CancellationClientRequestID != "" {
+		t.Fatalf("replacement cancellation receipt = %#v", receipt)
+	}
+	if current := repository.connectors[connector.Key]; current.Authorization.State != contracts.AuthorizationStatePending {
+		t.Fatalf("replacement cancellation reset without provider fence = %#v", current.Authorization)
 	}
 }
 
