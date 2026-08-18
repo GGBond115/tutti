@@ -76,11 +76,11 @@ func TestProviderSkillsRenderFromCommandSnapshot(t *testing.T) {
 		"tutti-dev agent start --agent-id <agent-id> --prompt <prompt> --show --json",
 		"tutti-dev agent get --session-id <session-id> --view turns --json",
 		"tutti-dev agent turn-resources --session-id <session-id> --turn-id <turn-id> --json",
-		
+
 "Generic provider-native subagent requests are not Tutti handoffs",
-		
+
 "Use the current provider`'s native subagent or collaboration mechanism when available",
-		
+
 "This skill and the `tutti agent ...` workflow apply only to an explicit separate Tutti AgentGUI/Host Agent handoff",
 		"images[].localPath",
 	} {
@@ -126,11 +126,11 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 		"Run it normally first",
 		"sandbox_permissions=require_escalated",
 		"# Host App Context",
-		
+
 "Agent handoff decisions belong to `$tutti-handoff`.",
-		
+
 "Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider`'s native subagent or collaboration mechanism when available.",
-		
+
 "The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.",
 		"tutti-dev connector available --json",
 		"Connector aliases `lark-cli=Lark CLI|飞书|Feishu|Lark|Lark Suite`",
@@ -248,7 +248,18 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 			t.Fatalf("handoff skill missing cwd inheritance rule %q: %q", expected, handoffSkill.Content)
 		}
 	}
-			if bundle.RecommendedSystemPrompt == nil { 			t.Fatal("missing recommended system prompt") 		} 		for _, expected := range []string{ 			"Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider`'s native subagent or collaboration mechanism when available.", 			"The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.", 		} { 			if !strings.Contains(bundle.RecommendedSystemPrompt.Content, expected) { 				t.Fatalf("recommended system prompt missing routing boundary %q: %s", expected, bundle.RecommendedSystemPrompt.Content) 			} 		} guide, ok := skillBundleFileContent(tuttiSkill, commandGuideReferencePath)
+	if bundle.RecommendedSystemPrompt == nil {
+		t.Fatal("missing recommended system prompt")
+	}
+	for _, expected := range []string{
+		"Without an explicit Tutti AgentGUI/Host Agent handoff or a `mention://agent-target/...` reference, requests for a subagent, delegate, worker, or parallel review should use the current provider's native subagent or collaboration mechanism when available.")
+		"The `tutti agent ...` workflow belongs to `$tutti-handoff` for explicit Tutti AgentGUI/Host Agent handoffs.")
+	} {
+		if !strings.Contains(bundle.RecommendedSystemPrompt.Content, expected) {
+			t.Fatalf("recommended system prompt missing routing boundary %q: %q", expected, bundle.RecommendedSystemPrompt.Content)
+		}
+	}
+	guide, ok := skillBundleFileContent(tuttiSkill, commandGuideReferencePath)
 	if !ok || !strings.Contains(guide, "tutti-dev issue get --issue-id <issue-id> --json") {
 		t.Fatalf("command guide = %q", guide)
 	}
