@@ -3,6 +3,7 @@ package artifact
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,13 @@ func TestDirectFetcherClassifiesArtifactHTTPFailures(t *testing.T) {
 			if !errors.As(err, &domainError) || domainError.Code != contracts.ErrorCodeInstallFailed ||
 				domainError.Retryable != test.retryable {
 				t.Fatalf("status %d error = %#v", test.status, err)
+			}
+			if !strings.Contains(err.Error(), fmt.Sprintf("HTTP %d", test.status)) ||
+				!strings.Contains(err.Error(), strings.TrimPrefix(server.URL, "https://")) {
+				t.Fatalf("status %d error lacks safe response context: %v", test.status, err)
+			}
+			if strings.Contains(err.Error(), "/artifact.zip") {
+				t.Fatalf("status %d error leaked resolved URL path: %v", test.status, err)
 			}
 		})
 	}

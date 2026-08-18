@@ -88,7 +88,7 @@ func (fetcher *DirectFetcher) Fetch(ctx context.Context, request FetchRequest) (
 			contracts.ErrorCodeInstallFailed,
 			"download connector artifact was rejected",
 			artifactDownloadStatusRetryable(downloadResponse.StatusCode),
-			nil,
+			artifactDownloadHTTPError{status: downloadResponse.StatusCode, host: endpoint.Host},
 		)
 	}
 	return FetchResponse{
@@ -96,6 +96,15 @@ func (fetcher *DirectFetcher) Fetch(ctx context.Context, request FetchRequest) (
 		ContentLength: downloadResponse.ContentLength,
 		MediaType:     downloadResponse.Header.Get("Content-Type"),
 	}, nil
+}
+
+type artifactDownloadHTTPError struct {
+	status int
+	host   string
+}
+
+func (err artifactDownloadHTTPError) Error() string {
+	return fmt.Sprintf("artifact host %s returned HTTP %d", err.host, err.status)
 }
 
 func artifactDownloadStatusRetryable(status int) bool {
