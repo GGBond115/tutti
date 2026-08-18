@@ -31,7 +31,7 @@ func (application *service) executeRefresh(ctx context.Context, operation contra
 		}
 		return refreshErr
 	}
-	catalog, err := application.config.CatalogSource.Refresh(ctx)
+	catalog, err := application.config.CatalogSource.FetchSnapshot(ctx)
 	if err != nil {
 		return failRefresh(preserveCatalogSourceError("connector catalog refresh failed", err))
 	}

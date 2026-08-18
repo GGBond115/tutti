@@ -21,6 +21,7 @@ import (
 	application "github.com/tutti-os/tutti/packages/connector/application"
 	contracts "github.com/tutti-os/tutti/packages/connector/contracts"
 	connectormarketdaemon "github.com/tutti-os/tutti/packages/connector/daemon"
+	connectormarketsource "github.com/tutti-os/tutti/packages/connector/market/source"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	connectoragentgateway "github.com/tutti-os/tutti/packages/connector/runtime/agentgateway"
 	marketartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
@@ -278,7 +279,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("configure connector market account authorization: %w", err)
 		}
-		connectorCatalog, err := connectormarketdaemon.NewCatalogSource(connectormarketdaemon.CatalogSourceConfig{
+		connectorCatalog, err := connectormarketsource.NewCatalogSource(connectormarketsource.CatalogSourceConfig{
 			BaseURL:            connectorMarketBaseURL,
 			ExpectedMarketType: connectorMarketType,
 			HTTPClient:         agenthttpx.NewClient(30 * time.Second),

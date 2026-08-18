@@ -2089,7 +2089,7 @@ func testReleaseWithImplementation(key, version, implementationKind string) cont
 
 type catalogSourceFunc func(context.Context) (contracts.CatalogSnapshot, error)
 
-func (source catalogSourceFunc) Refresh(ctx context.Context) (contracts.CatalogSnapshot, error) {
+func (source catalogSourceFunc) FetchSnapshot(ctx context.Context) (contracts.CatalogSnapshot, error) {
 	return source(ctx)
 }
 
@@ -2101,11 +2101,11 @@ type failingCatalogSource struct {
 	refreshError error
 }
 
-func (source failingCatalogSource) Refresh(context.Context) (contracts.CatalogSnapshot, error) {
+func (source failingCatalogSource) FetchSnapshot(context.Context) (contracts.CatalogSnapshot, error) {
 	return contracts.CatalogSnapshot{}, source.refreshError
 }
 
-func (source catalogSourceStub) Refresh(context.Context) (contracts.CatalogSnapshot, error) {
+func (source catalogSourceStub) FetchSnapshot(context.Context) (contracts.CatalogSnapshot, error) {
 	return source.snapshot, nil
 }
 

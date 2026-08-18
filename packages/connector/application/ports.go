@@ -8,7 +8,7 @@ import (
 )
 
 type CatalogSource interface {
-	Refresh(context.Context) (contracts.CatalogSnapshot, error)
+	FetchSnapshot(context.Context) (contracts.CatalogSnapshot, error)
 }
 
 // SharedAgentSupportSource supplies the server-owned declaration of Connector

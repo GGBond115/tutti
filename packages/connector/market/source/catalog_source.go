@@ -1,4 +1,4 @@
-package daemon
+package source
 
 import (
 	"bytes"
@@ -30,7 +30,7 @@ type CatalogSourceConfig struct {
 	HTTPClient         *http.Client
 	AuthorizeRequest   RequestAuthorizer
 	// ExecutionTarget selects a Connector v3 target. Empty defaults to the
-	// daemon process GOOS/GOARCH, which is the correct target for desktop Tutti.
+	// host process GOOS/GOARCH, which is the correct target for desktop hosts.
 	ExecutionTarget string
 }
 
@@ -69,10 +69,12 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 	return &CatalogSource{expectedMarketType: expectedMarketType, marketClient: client, executionTarget: executionTarget}, nil
 }
 
-func (source *CatalogSource) Refresh(ctx context.Context) (contracts.CatalogSnapshot, error) {
-	// The current Market API does not expose a catalog snapshot revision, so a
-	// refresh intentionally pays for two complete reads and accepts only equal
-	// validated results. A future server revision can replace this 2x-read fence.
+func (source *CatalogSource) FetchSnapshot(ctx context.Context) (contracts.CatalogSnapshot, error) {
+	// The current Market server protocol does not expose one authoritative
+	// snapshot revision. For protocol compatibility, this adapter therefore
+	// performs two complete structural reads and accepts only equal validated
+	// results. This is a consistency fence, not a client-computed source or
+	// release digest; server-owned identity remains authoritative.
 	first, err := source.fetchSnapshot(ctx)
 	if err != nil {
 		return contracts.CatalogSnapshot{}, err

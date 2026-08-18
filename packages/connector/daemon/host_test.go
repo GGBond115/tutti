@@ -191,7 +191,7 @@ type countingCatalogSource struct {
 	refreshObserved chan struct{}
 }
 
-func (source *countingCatalogSource) Refresh(context.Context) (contracts.CatalogSnapshot, error) {
+func (source *countingCatalogSource) FetchSnapshot(context.Context) (contracts.CatalogSnapshot, error) {
 	source.refreshes++
 	if source.refreshObserved != nil {
 		select {

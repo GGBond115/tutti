@@ -27,6 +27,7 @@ require (
 	github.com/tutti-os/tutti/packages/connector/daemon v0.0.0
 	github.com/tutti-os/tutti/packages/connector/application v0.0.0
 	github.com/tutti-os/tutti/packages/connector/contracts v0.0.0
+	github.com/tutti-os/tutti/packages/connector/market/source v0.0.0
 	github.com/tutti-os/tutti/packages/connector/runtime v0.0.0
 	github.com/tutti-os/tutti/packages/connector/store-sqlite v0.0.0
 	github.com/tutti-os/tutti/packages/desktop/update-admission v0.0.0
@@ -152,6 +153,8 @@ replace github.com/tutti-os/tutti/packages/connector/daemon => ../../packages/co
 replace github.com/tutti-os/tutti/packages/connector/application => ../../packages/connector/application
 
 replace github.com/tutti-os/tutti/packages/connector/contracts => ../../packages/connector/contracts
+
+replace github.com/tutti-os/tutti/packages/connector/market/source => ../../packages/connector/market/source
 
 replace github.com/tutti-os/tutti/packages/connector/runtime => ../../packages/connector/runtime
 

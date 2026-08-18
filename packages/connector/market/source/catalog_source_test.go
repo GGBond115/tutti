@@ -1,4 +1,4 @@
-package daemon
+package source
 
 import (
 	"context"
@@ -51,7 +51,7 @@ func (*mutatingCatalogClient) ResolveMarketArtifactDownload(context.Context, *ma
 func TestCatalogSourceRejectsMutationBetweenPaginatedFullReads(t *testing.T) {
 	client := &mutatingCatalogClient{t: t}
 	source := &CatalogSource{expectedMarketType: "overseas", marketClient: client, executionTarget: "darwin-arm64"}
-	_, err := source.Refresh(context.Background())
+	_, err := source.FetchSnapshot(context.Background())
 	var domainError *contracts.DomainError
 	if !errors.As(err, &domainError) || domainError.Code != contracts.ErrorCodeUpstreamUnavailable || !domainError.Retryable {
 		t.Fatalf("error = %#v", err)
@@ -166,7 +166,7 @@ func TestCatalogSourceMapsServerDescriptorWithoutDeprecatedArtifactKey(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := source.Refresh(context.Background())
+	result, err := source.FetchSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestCatalogSourceRejectsOversizedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.Refresh(context.Background()); err == nil || !strings.Contains(err.Error(), "size limit") {
+	if _, err := source.FetchSnapshot(context.Background()); err == nil || !strings.Contains(err.Error(), "size limit") {
 		t.Fatalf("error = %v", err)
 	}
 }

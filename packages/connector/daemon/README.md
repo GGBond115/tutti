@@ -25,22 +25,17 @@ Accepted/running Operations are also scanned every 500 ms. The in-memory
 scheduler is a wake-up optimization only: losing a schedule call or restarting
 after an external effect cannot strand durable work.
 
-The module provides the market catalog projection, while hosts inject their
-HTTP client/proxy policy, request authorization, event publication,
-persistence, and execution ports. Product account policy and generated HTTP
-handlers remain in the consuming daemon.
-
-The catalog projection consumes the market-neutral generated protocol from
-`packages/clients/market-go` and fixes `itemType=connector` only at this
-adapter boundary. Category IDs remain opaque and are returned unchanged as
-pagination section IDs; future Skill consumers reuse the client without
-importing this Connector daemon module.
+The module schedules the narrow `application.CatalogSource` port, while hosts
+inject their catalog source, event publication, persistence, and execution
+ports. The generated Market protocol adapter, DTO parsing, pagination, and
+manifest projection are owned by `packages/connector/market/source`; this
+daemon module does not import generated Market transport code.
 
 Catalog releases retain the server-owned `releaseDigest`, archive media type,
-SHA-256, and byte size without recomputing identity. The same authenticated generated client
-implements the narrow artifact resolver port: install exchanges only the
-release digest for a short-lived descriptor, and no daemon code constructs a
-download URL from the deprecated storage key.
+SHA-256, and byte size without recomputing identity. The source adapter's
+authenticated generated client also implements the narrow artifact resolver
+port: install exchanges only the release digest for a short-lived descriptor,
+and no daemon code constructs a download URL from the deprecated storage key.
 
 Hosts with an account-scoped runtime call `BootstrapForScope`; the daemon
 reuses that explicit scope for recovery retries. The legacy `Bootstrap` method

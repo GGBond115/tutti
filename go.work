@@ -22,6 +22,7 @@ use (
 	./packages/connector/contracts
 	./packages/connector/daemon
 	./packages/connector/application
+	./packages/connector/market/source
 	./packages/connector/runtime
 	./packages/connector/store-sqlite
 )
