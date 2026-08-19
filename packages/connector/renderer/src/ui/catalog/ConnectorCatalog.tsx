@@ -73,6 +73,17 @@ export function ConnectorCatalog() {
             i18n
           })}
         >
+          <h3 className="mb-3 mt-0 text-[13px] font-semibold text-[var(--text-secondary)]">
+            {resolveConnectorCategoryTitle({
+              sectionId: section.id,
+              ...(section.displayNameZh === undefined
+                ? {}
+                : { displayNameZh: section.displayNameZh }),
+              ...(section.displayNameEn === undefined
+                ? {}
+                : { displayNameEn: section.displayNameEn }),
+              locale,
+              i18n
             })}
           </h3>
           <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
