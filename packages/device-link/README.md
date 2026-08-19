@@ -72,6 +72,14 @@ waits for accepted stream handlers to finish. Link observations carry a
 per-connection sequence; projections must ignore older deliveries and treat
 `disconnected` as terminal for that globally comparable connection ID.
 
+Lifecycle controllers that cannot wait for transport I/O use `Retire` or
+`RetireAll`. These methods synchronously advance admission generations, revoke
+incoming handlers, and remove the exact old link, then return immutable
+`Retirement` handles for physical close outside the controller lock. A delayed
+retirement close never looks up a key again and therefore cannot close a newer
+link registered for the same opaque key. `Invalidate` and `InvalidateAll`
+remain synchronous compatibility wrappers.
+
 Tutti's `mobileremote` Desktop owner is the first production adapter: it keeps
 pairing, identity proof, rendezvous, and Agent framing in `tuttid`, while the
 shared manager owns the authenticated link and incoming stream lifecycle.
