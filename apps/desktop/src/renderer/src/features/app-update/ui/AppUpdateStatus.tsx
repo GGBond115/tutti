@@ -19,8 +19,7 @@ import {
 
 const updateIconUrl = new URL("../assets/update.png", import.meta.url).href;
 const tuttiIconUrl = new URL("../assets/tutti.png", import.meta.url).href;
-const releaseNotesActionEnabled =
-  import.meta.env.VITE_TUTTI_DESKTOP_RELEASE_NOTES_ENABLED !== "false";
+const releaseNotesActionEnabled = false;
 
 export function AppUpdateStatus({
   density = "default",
