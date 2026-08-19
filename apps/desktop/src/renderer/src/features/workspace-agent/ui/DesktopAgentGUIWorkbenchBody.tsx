@@ -93,6 +93,7 @@ import {
   isFeatureEnabled,
   LAB_CODEX_SAVER_MODE_FLAG,
   LAB_CONNECTORS_FLAG,
+  LAB_TUTTI_MODE_FLAG,
   resolveDesktopWorkspaceUiMode
 } from "../../../../../shared/featureFlags/catalog.ts";
 
@@ -575,7 +576,7 @@ function DesktopAgentGUISurfaceImpl({
         enabled: isFeatureEnabled(featureFlags, LAB_CONNECTORS_FLAG)
       },
       tuttiMode: {
-        enabled: true
+        enabled: isFeatureEnabled(featureFlags, LAB_TUTTI_MODE_FLAG)
       }
     };
   }, [
