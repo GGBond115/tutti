@@ -158,6 +158,7 @@ jobs:
         shell: pwsh
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          VITE_TUTTI_DESKTOP_RELEASE_NOTES_ENABLED: "false"
         run: pnpm --filter @tutti-os/desktop build:win:store
 
       - id: package

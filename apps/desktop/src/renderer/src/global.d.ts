@@ -13,6 +13,7 @@ declare global {
     readonly VITE_TUTTID_BASE_URL?: string;
     readonly VITE_TUTTI_REACT_PROFILER?: string;
     readonly VITE_TUTTI_WHY_DID_YOU_RENDER?: string;
+    readonly VITE_TUTTI_DESKTOP_RELEASE_NOTES_ENABLED?: string;
     readonly VITE_TUTTI_WEB_DEV?: string;
     readonly VITE_TUTTI_WEB_WORKSPACE_ID?: string;
   }
