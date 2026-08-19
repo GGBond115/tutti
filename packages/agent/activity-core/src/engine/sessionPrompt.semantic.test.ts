@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
 import type {
+  AgentActivityInteraction,
   AgentActivitySessionCapabilities,
   AgentActivityTurn
 } from "../types.ts";
@@ -263,6 +264,92 @@ test("send-now stays queued when authoritative capabilities do not support activ
   );
 });
 
+test("deferred send-now survives a temporary interaction blocker for the same turn", () => {
+  const harness = createHarness(true);
+  harness.engine.submitPrompt({
+    agentSessionId: "session-1",
+    clientSubmitId: "submit-after-approval",
+    content: [{ text: "steer after approval", type: "text" }],
+    routing: "send_now"
+  });
+  const pendingInteraction: AgentActivityInteraction = {
+    agentSessionId: "session-1",
+    createdAtUnixMs: 3,
+    kind: "approval",
+    requestId: "approval-1",
+    status: "pending",
+    turnId: "turn-1",
+    updatedAtUnixMs: 3
+  };
+  const blockedSession = {
+    ...sessionWithCapabilities(
+      activeTurn(),
+      capabilities({ activeTurnGuidance: true })
+    ),
+    latestTurnInteractions: [pendingInteraction],
+    pendingInteractions: [pendingInteraction]
+  };
+
+  harness.engine.dispatch({
+    sessions: [blockedSession],
+    type: "session/snapshotReceived"
+  });
+
+  assert.equal(harness.commands.length, 0);
+  assert.ok(
+    harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
+      ?.pendingSendNowByPromptId?.["submit-after-approval"]
+  );
+
+  harness.engine.dispatch({
+    interaction: {
+      ...pendingInteraction,
+      status: "answered",
+      updatedAtUnixMs: 4
+    },
+    type: "interaction/upserted"
+  });
+
+  const send = harness.commands.at(-1);
+  assert.equal(send?.type, "queue/sendPrompt");
+  assert.equal(
+    send?.type === "queue/sendPrompt" ? send.clientSubmitId : null,
+    "submit-after-approval"
+  );
+  assert.equal(
+    send?.type === "queue/sendPrompt" ? send.targetTurnId : null,
+    "turn-1"
+  );
+});
+
+test("unsupported deferred send-now restores ordinary FIFO order", () => {
+  const harness = createHarness(true);
+  harness.engine.submitPrompt({
+    agentSessionId: "session-1",
+    clientSubmitId: "ordinary-first",
+    content: [{ text: "first", type: "text" }]
+  });
+  harness.engine.submitPrompt({
+    agentSessionId: "session-1",
+    clientSubmitId: "send-now-second",
+    content: [{ text: "second", type: "text" }],
+    routing: "send_now"
+  });
+
+  harness.engine.dispatch({
+    sessions: [sessionWithCapabilities(activeTurn(), capabilities({}))],
+    type: "session/snapshotReceived"
+  });
+
+  const queued =
+    harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"];
+  assert.deepEqual(
+    queued?.prompts.map((prompt) => prompt.id),
+    ["ordinary-first", "send-now-second"]
+  );
+  assert.deepEqual(queued?.pendingSendNowByPromptId, undefined);
+});
+
 test("send-now drains as a plain prompt when the active turn settles before capabilities arrive", () => {
   const harness = createHarness(true);
 
@@ -406,7 +493,7 @@ test("consecutive deferred send-now prompts retain independent decisions", () =>
     );
     assert.deepEqual(
       before?.prompts.map((prompt) => prompt.id),
-      [`${scenario.name}-second`, `${scenario.name}-first`]
+      [`${scenario.name}-first`, `${scenario.name}-second`]
     );
 
     harness.engine.dispatch({
@@ -418,8 +505,12 @@ test("consecutive deferred send-now prompts retain independent decisions", () =>
     const after =
       harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"];
     assert.deepEqual(Object.keys(after?.pendingSendNowByPromptId ?? {}), [
-      `${scenario.name}-first`
+      `${scenario.name}-second`
     ]);
+    const command = harness.commands[0];
+    if (command?.type === "queue/sendPrompt") {
+      assert.equal(command.clientSubmitId, `${scenario.name}-first`);
+    }
   }
 });
 

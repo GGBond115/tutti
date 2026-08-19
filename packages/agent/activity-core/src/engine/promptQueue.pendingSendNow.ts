@@ -59,23 +59,30 @@ export function resolvePendingSendNow(input: {
   capabilities: AgentActivitySessionCapabilities | null | undefined;
   record: PromptQueueRecord;
 }): PendingSendNowResolution {
-  const head = input.record.prompts[0];
-  const pending = head
-    ? input.record.pendingSendNowByPromptId?.[head.id]
-    : undefined;
+  if (
+    input.record.inFlight ||
+    input.record.uncertainDelivery ||
+    input.record.sendNextPromptId ||
+    input.record.prompts[0]?.guidance === true
+  ) {
+    return { kind: "continue", record: input.record };
+  }
+  const pending = input.record.prompts
+    .map((prompt) => input.record.pendingSendNowByPromptId?.[prompt.id])
+    .find((candidate) => candidate != null);
   if (!pending) {
     return { kind: "continue", record: input.record };
   }
   const activeTurnId = input.activeTurnId?.trim() ?? "";
   const targetsSameTurn =
     activeTurnId.length > 0 && activeTurnId === pending.targetTurnId;
-  if (
-    targetsSameTurn &&
-    input.availability.state === "blocked" &&
-    input.availability.reason === "active_turn" &&
-    input.capabilities == null
-  ) {
-    return { kind: "waiting" };
+  if (targetsSameTurn && input.availability.state === "blocked") {
+    if (
+      input.availability.reason !== "active_turn" ||
+      input.capabilities == null
+    ) {
+      return { kind: "waiting" };
+    }
   }
 
   const strategy = targetsSameTurn

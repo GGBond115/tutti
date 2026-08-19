@@ -368,15 +368,21 @@ function requestQueuedPromptSendNow(
   const selectedWithoutGuidance = { ...selected! };
   delete selectedWithoutGuidance.guidance;
   delete selectedWithoutGuidance.targetTurnId;
-  prompts.unshift(
-    strategy === "native_guidance"
-      ? {
-          ...selectedWithoutGuidance,
-          guidance: true,
-          ...(targetTurnId?.trim() ? { targetTurnId: targetTurnId.trim() } : {})
-        }
-      : selectedWithoutGuidance
-  );
+  if (strategy === "await_capabilities") {
+    prompts.splice(index, 0, selectedWithoutGuidance);
+  } else {
+    prompts.unshift(
+      strategy === "native_guidance"
+        ? {
+            ...selectedWithoutGuidance,
+            guidance: true,
+            ...(targetTurnId?.trim()
+              ? { targetTurnId: targetTurnId.trim() }
+              : {})
+          }
+        : selectedWithoutGuidance
+    );
+  }
   return result(
     replaceRecord(state, agentSessionId, {
       ...current,
