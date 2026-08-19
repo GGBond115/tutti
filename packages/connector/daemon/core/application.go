@@ -123,7 +123,10 @@ func (application *Application) Snapshot(ctx context.Context) (Snapshot, error) 
 		return Snapshot{}, err
 	}
 	snapshot, err = application.projectConnectorRuntimes(ctx, snapshot, OperationScope{})
-	return publicSnapshot(snapshot, OperationScope{}), err
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return publicSnapshot(snapshot, OperationScope{})
 }
 
 func (application *Application) SnapshotForScope(ctx context.Context, scope OperationScope) (Snapshot, error) {
@@ -133,7 +136,10 @@ func (application *Application) SnapshotForScope(ctx context.Context, scope Oper
 			return Snapshot{}, err
 		}
 		snapshot, err = application.projectConnectorRuntimes(ctx, snapshot, scope)
-		return publicSnapshot(snapshot, scope), err
+		if err != nil {
+			return Snapshot{}, err
+		}
+		return publicSnapshot(snapshot, scope)
 	}
 	snapshot, err := application.config.Repository.Snapshot(ctx)
 	if err != nil {
@@ -156,18 +162,43 @@ func (application *Application) SnapshotForScope(ctx context.Context, scope Oper
 		}
 	}
 	snapshot, err = application.projectConnectorRuntimes(ctx, snapshot, scope)
-	return publicSnapshot(snapshot, scope), err
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return publicSnapshot(snapshot, scope)
 }
 
-func publicSnapshot(snapshot Snapshot, scope OperationScope) Snapshot {
+func publicSnapshot(snapshot Snapshot, scope OperationScope) (Snapshot, error) {
+	visibleConnectorKeys := make(map[string]struct{}, len(snapshot.Connectors))
+	connectors := snapshot.Connectors[:0]
+	for _, connector := range snapshot.Connectors {
+		if connectorRemovedFromCatalog(connector) {
+			continue
+		}
+		if err := ValidateReleaseShape(connector.Release); err != nil {
+			return Snapshot{}, fmt.Errorf("validate connector %q release: %w", connector.Key, err)
+		}
+		visibleConnectorKeys[connector.Key] = struct{}{}
+		connectors = append(connectors, connector)
+	}
+	snapshot.Connectors = connectors
 	operations := snapshot.Operations[:0]
 	for _, operation := range snapshot.Operations {
+		if operation.ConnectorKey != "" {
+			if _, visible := visibleConnectorKeys[operation.ConnectorKey]; !visible {
+				continue
+			}
+		}
 		if OperationVisibleToScope(operation, scope) {
 			operations = append(operations, operation)
 		}
 	}
 	snapshot.Operations = operations
-	return snapshot
+	return snapshot, nil
+}
+
+func connectorRemovedFromCatalog(connector Connector) bool {
+	return connector.Compatibility.Reason == compatibilityReasonRemovedFromCatalog
 }
 
 func (application *Application) ListCatalogCategories(ctx context.Context) ([]CatalogCategory, error) {
@@ -334,6 +365,9 @@ func (application *Application) projectCatalogSourcePage(
 		if err != nil {
 			return CatalogPage{}, err
 		}
+		if connectorRemovedFromCatalog(connector) {
+			continue
+		}
 		result.Items = append(result.Items, CatalogListing{CategoryID: entry.CategoryID, Featured: entry.Featured, Connector: connector})
 	}
 	return result, nil
@@ -382,7 +416,17 @@ func (application *Application) GetConnector(
 	if strings.TrimSpace(connectorKey) == "" {
 		return Connector{}, invalidRequest("connectorKey is required")
 	}
-	return application.config.Repository.Connector(ctx, connectorKey)
+	connector, err := application.config.Repository.Connector(ctx, connectorKey)
+	if err != nil {
+		return Connector{}, err
+	}
+	if connectorRemovedFromCatalog(connector) {
+		return Connector{}, ErrNotFound
+	}
+	if err := ValidateReleaseShape(connector.Release); err != nil {
+		return Connector{}, fmt.Errorf("validate connector %q release: %w", connector.Key, err)
+	}
+	return connector, nil
 }
 
 func (application *Application) GetOperation(ctx context.Context, operationID string) (Operation, error) {

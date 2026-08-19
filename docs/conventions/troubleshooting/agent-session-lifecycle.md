@@ -463,6 +463,44 @@ detailHydrated:false`.
   [tutti_mode_host_context.go](../../../packages/agent/daemon/runtime/tutti_mode_host_context.go),
   [tutti_mode_host_context_test.go](../../../packages/agent/daemon/runtime/tutti_mode_host_context_test.go)
 
+### Tutti Mode review only offers request changes after preference drift
+
+- **Symptom:** A pending plan review shows only a request-changes action, or
+  accepting an existing plan is silently converted into a rejection after the
+  Composer effect or speed changes. The plan may also contain values that never
+  matched the Turn that produced it.
+- **Quick checks:** Compare three distinct values: the producing Turn's
+  `TuttiModeTurnSnapshot`, the current revision's explicit
+  `execution.effect`/`execution.speed`, and the Session's current Composer
+  preferences. If the first two differ, inspect the `plan propose` or
+  `plan revise` response for `tutti_mode_preference_snapshot_mismatch`. If only
+  the current Composer preferences differ, the drift happened legitimately
+  after proposal and both review decisions must remain available.
+- **Root cause:** Range validation alone allowed an Agent to persist plausible
+  but invented preference values. A hardcoded Host Context example could teach
+  the Agent different values than the frozen Turn snapshot. AgentGUI then
+  treated every post-proposal preference difference as implicit rejection, so
+  the user lost a direct way to accept the already-reviewed document.
+- **Fix:** Render Host Context examples from the exact Turn snapshot. Require
+  Agent CLI proposals and revisions to carry that active Turn ID, and have the
+  plan service validate both explicit values through the activation-service
+  snapshot reader before allocating IDs, writing revision content, or mutating
+  workflow state. In AgentGUI, expose `Request changes` beside `Accept` only
+  when both frozen values prove a real preference change; otherwise expose only
+  `Accept`. Accept must keep the visible checkpoint identity and never convert
+  into request-changes feedback.
+- **Validation:** Prove mismatched, missing-value, and missing-snapshot
+  documents leave revision content and workflow state untouched; prove a
+  matching document succeeds. In the UI, verify the divergent state exposes
+  both actions, request-changes rejects with current-preference feedback,
+  explicit accept records `accepted`, and matching empty-send still accepts.
+- **References:**
+  [workspace-workflows.md](../../architecture/workspace-workflows.md),
+  [agent-gui-node.md](../../architecture/agent-gui-node.md),
+  [service.go](../../../services/tuttid/service/tuttimodeplan/service.go),
+  [tutti_mode_host_context.go](../../../packages/agent/daemon/runtime/tutti_mode_host_context.go),
+  [useAgentGUITuttiWorkflow.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/view/useAgentGUITuttiWorkflow.ts)
+
 ### Tutti Mode Plan stops loading after a task-graph revision
 
 - **Symptom:** The configuration review panel works and `tutti plan revise`
@@ -1483,6 +1521,48 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [useAgentGUINodeController.spec.tsx](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUINodeController.spec.tsx)
   [codex_appserver_turn_machine.go](../../../packages/agent/daemon/runtime/codex_appserver_turn_machine.go)
   [codex_appserver_adapter_test.go](../../../packages/agent/daemon/runtime/codex_appserver_adapter_test.go)
+
+### Codex app-server Start/Resume waits after a lifecycle notification
+
+- Symptom:
+  Session start or resume reaches the provider, but Tutti waits for the
+  lifecycle RPC timeout even though Codex sent `thread/started`. A required MCP
+  server can show the same symptom when the only failure evidence is
+  `mcpServer/startupStatus/updated` with `status = failed` and there is no
+  stderr or JSON-RPC response.
+- Quick checks:
+  Inspect the app-server wire trace for `thread/started` or
+  `mcpServer/startupStatus/updated` before the missing `thread/start` or
+  `thread/resume` response. Distinguish this from a completely silent provider:
+  without an authoritative lifecycle notification, process termination, or
+  transport error, the call must still time out rather than manufacture success.
+- Root cause:
+  App-server notifications and the response for their triggering RPC have no
+  safe application-order guarantee. Waiting only on the response leaves the
+  lifecycle call blocked when Codex has already published the authoritative
+  thread snapshot. Required MCP startup failure is also a terminal lifecycle
+  fact, but it can arrive without stderr or a response. Child terminal
+  notifications can arrive before `receiverThreadIds` registers their thread;
+  dropping those unknown-thread terminal events loses the only completion fact.
+- Fix:
+  Complete only the active method-matched `thread/start` or `thread/resume` wait
+  from a valid `thread/started` snapshot. Schedule the structured MCP failure
+  after a short response grace window so a normal response wins the race. Keep
+  ordinary foreign-thread progress dropped, but retain a bounded terminal
+  notification until child registration and replay it with child identity.
+  Keep confirmed provider turn-id fences; only the existing unconfirmed steer
+  stub and goal-adopted exceptions may settle from a different or empty id.
+- Validation:
+  Run the notification-only Start/Resume wire test, the MCP failed-status
+  response-grace tests, and the child terminal-before-registration replay test.
+  Run the focused app-server suite with `-race` and the full
+  `go test ./packages/agent/daemon/runtime` package suite.
+- References:
+  [codex_appserver_client.go](../../../packages/agent/daemon/runtime/codex_appserver_client.go)
+  [codex_appserver_event_routing.go](../../../packages/agent/daemon/runtime/codex_appserver_event_routing.go)
+  [codex_appserver_turn_machine.go](../../../packages/agent/daemon/runtime/codex_appserver_turn_machine.go)
+  [codex_appserver_lifecycle_test.go](../../../packages/agent/daemon/runtime/codex_appserver_lifecycle_test.go)
+  [codex_appserver_events_test.go](../../../packages/agent/daemon/runtime/codex_appserver_events_test.go)
 
 ### Busy-turn message insertion fails or ends without sending the prompt
 

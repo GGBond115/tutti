@@ -101,11 +101,12 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 
 	threadParams := appServerThreadStartParams(session, a.sessionCWD(session))
 	trace.Log("thread.start.params", codexAppServerTraceThreadStartParams(session, threadParams, false))
+	callbackSession := session
 	threadResult, err := trace.TypedCall(acpStartCallTimeout, appServerMethodThreadStart, func() (json.RawMessage, error) {
 		return client.ThreadStart(ctx, acpStartCallTimeout, threadParams,
 			func(ctx context.Context, message acpMessage) error {
 				trace.LogMessage(message.Method, len(message.ID) > 0, len(message.Params))
-				_, err := a.handleAppServerMessage(ctx, client, session, "", message, nil, nil, nil)
+				_, err := a.handleAppServerMessage(ctx, client, callbackSession, "", message, nil, nil, nil)
 				return err
 			})
 	})
@@ -323,6 +324,7 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	// usage here and fold it into the live state below.
 	var replayedUsage acpUsageState
 	replayedUsageKnown := false
+	callbackSession := session
 	threadResult, err := trace.TypedCall(acpStartCallTimeout, appServerMethodThreadResume, func() (json.RawMessage, error) {
 		return client.ThreadResume(ctx, acpStartCallTimeout, params,
 			func(ctx context.Context, message acpMessage) error {
@@ -336,7 +338,7 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 						}
 					}
 				}
-				_, err := a.handleAppServerMessage(ctx, client, session, "", message, nil, nil, nil)
+				_, err := a.handleAppServerMessage(ctx, client, callbackSession, "", message, nil, nil, nil)
 				return err
 			})
 	})

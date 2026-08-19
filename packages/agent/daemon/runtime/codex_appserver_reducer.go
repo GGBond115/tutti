@@ -338,6 +338,7 @@ func (r codexAppServerReducer) reduceNotification(
 			}),
 		}
 		if strings.EqualFold(asString(status["status"]), "failed") {
+			client.observeMCPStartupStatus(status)
 			events = append(events, codexMCPServerStartupWarningEvent(client, session, turnID, status))
 		}
 		a.emitSessionEvents(session.AgentSessionID, events)
@@ -358,6 +359,7 @@ func (r codexAppServerReducer) reduceNotification(
 		})
 		return emit(nil)
 	case appServerNotifyThreadStarted:
+		client.completeThreadLifecycleFromNotification(payloadObject(params["thread"]))
 		return codexAppServerReduction{}
 	default:
 		_ = emitCommands
