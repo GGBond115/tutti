@@ -219,6 +219,11 @@ type ExecInput struct {
 	InitialTitleBase                string
 	Metadata                        map[string]any
 	Guidance                        bool
+	// ConnectorRoutingUpdate carries the current connector alias index when it
+	// diverged from the index materialized into the session's instructions at
+	// preparation time. The controller renders it into provider-facing content
+	// only; canonical prompt content never includes it. Nil means no update.
+	ConnectorRoutingUpdate *string
 	// HistoryReplacement requires a fresh provider turn. It may not steer an
 	// active turn or reinterpret the edited text as a provider slash command.
 	// The provider's complete EffectiveHistoryAdapter seam always returns one

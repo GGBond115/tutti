@@ -120,7 +120,10 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	if len(content) == 0 {
 		return ExecResult{}, fmt.Errorf("prompt is required")
 	}
-	providerContent := projectRuntimeConnectorPromptContent(content)
+	providerContent := prependConnectorRoutingUpdate(
+		projectRuntimeConnectorPromptContent(content),
+		input.ConnectorRoutingUpdate,
+	)
 	displayPrompt := strings.TrimSpace(input.DisplayPrompt)
 	if promptAdapter, ok := adapter.(PromptContentAdapter); ok {
 		if err := promptAdapter.ValidatePromptContent(session, providerContent); err != nil {

@@ -174,6 +174,9 @@ func TestConnectorRoutingIndexIsDeterministicDeduplicatedAndBounded(t *testing.T
 	if got != want {
 		t.Fatalf("connectorRoutingIndex() = %s, want %s", got, want)
 	}
+	if exported := ConnectorRoutingIndex(hints); exported != want {
+		t.Fatalf("ConnectorRoutingIndex() = %s, want internal rendering %s", exported, want)
+	}
 
 	large := make([]ConnectorRoutingHint, 0, 40)
 	for index := 0; index < 40; index++ {

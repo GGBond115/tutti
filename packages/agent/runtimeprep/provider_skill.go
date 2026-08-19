@@ -133,6 +133,13 @@ func renderRuntimeTemplate(name string, content string, input PrepareInput, repl
 	return rendered.String(), nil
 }
 
+// ConnectorRoutingIndex renders the bounded connector alias index. Session
+// preparation templates and turn-level routing updates share this projection
+// so both surfaces stay byte-identical for the same routing hints.
+func ConnectorRoutingIndex(hints []ConnectorRoutingHint) string {
+	return connectorRoutingIndex(hints)
+}
+
 func connectorRoutingIndex(hints []ConnectorRoutingHint) string {
 	if len(hints) == 0 {
 		return ""

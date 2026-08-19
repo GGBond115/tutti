@@ -104,6 +104,51 @@ func TestProjectRuntimeConnectorPromptContentUsesNativeInterfaces(t *testing.T) 
 	}
 }
 
+func TestPrependConnectorRoutingUpdateRendersProviderOnlyInstruction(t *testing.T) {
+	content := []PromptContentBlock{{Type: "text", Text: "check my calendar"}}
+	if got := prependConnectorRoutingUpdate(content, nil); len(got) != 1 || got[0].Text != "check my calendar" {
+		t.Fatalf("nil update projected content = %#v, want unchanged", got)
+	}
+
+	index := "calendar=Calendar|日历;github=GitHub"
+	updated := prependConnectorRoutingUpdate(content, &index)
+	if len(updated) != 2 || updated[0].Type != "text" {
+		t.Fatalf("updated content = %#v, want prepended instruction", updated)
+	}
+	if !strings.Contains(updated[0].Text, "Connector routing update") ||
+		!strings.Contains(updated[0].Text, index) ||
+		!strings.Contains(updated[0].Text, "supersedes the connector alias index") ||
+		!strings.Contains(updated[0].Text, "connector available --json") {
+		t.Fatalf("routing update instruction = %q", updated[0].Text)
+	}
+	if updated[1].Text != "check my calendar" {
+		t.Fatalf("user prompt = %#v, want preserved text", updated[1])
+	}
+
+	empty := "  "
+	drained := prependConnectorRoutingUpdate(content, &empty)
+	if len(drained) != 2 || !strings.Contains(drained[0].Text, "no Tutti connectors are currently available") {
+		t.Fatalf("empty index instruction = %#v", drained)
+	}
+}
+
+func TestConnectorRoutingUpdatePrecedesSelectedConnectorInstruction(t *testing.T) {
+	content := normalizeRuntimePromptContent([]PromptContentBlock{
+		{Type: "text", Text: "list my calendar events"},
+		{Type: "connector", ConnectorKey: "lark-cli"},
+	})
+	index := "lark-cli=Lark CLI|飞书"
+	projected := prependConnectorRoutingUpdate(projectRuntimeConnectorPromptContent(content), &index)
+	if len(projected) != 3 {
+		t.Fatalf("projected content = %#v, want update, selection, and user text", projected)
+	}
+	if !strings.Contains(projected[0].Text, "Connector routing update") ||
+		!strings.Contains(projected[1].Text, "Selected local connector(s): lark-cli") ||
+		projected[2].Text != "list my calendar events" {
+		t.Fatalf("projected order = %#v", projected)
+	}
+}
+
 func TestProviderPromptImageHTTPClientUsesSystemNetworkForReservedAddress(t *testing.T) {
 	t.Parallel()
 
