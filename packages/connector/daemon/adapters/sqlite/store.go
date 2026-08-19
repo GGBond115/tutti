@@ -587,17 +587,12 @@ WHERE owner_account_id = ? AND client_request_id = ?`,
 	return &operation, err
 }
 
-func (transaction *transaction) ActiveOperation(connectorKey string) (*market.Operation, error) {
+func (transaction *transaction) ActiveOperationInLane(connectorKey string) (*market.Operation, error) {
 	var payload string
-	query := `
+	if err := transaction.tx.QueryRowContext(transaction.ctx, `
 SELECT operation_json FROM connector_market_operations
-WHERE connector_key IN ('', ?) AND state IN ('accepted', 'running') LIMIT 1`
-	arguments := []any{connectorKey}
-	if strings.TrimSpace(connectorKey) == "" {
-		query = `SELECT operation_json FROM connector_market_operations WHERE state IN ('accepted', 'running') LIMIT 1`
-		arguments = nil
-	}
-	if err := transaction.tx.QueryRowContext(transaction.ctx, query, arguments...).Scan(&payload); err != nil {
+WHERE connector_key = ? AND state IN ('accepted', 'running') LIMIT 1`,
+		strings.TrimSpace(connectorKey)).Scan(&payload); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

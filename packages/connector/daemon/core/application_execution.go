@@ -65,10 +65,16 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 					continue
 				}
 				if connector.Installation.State == InstallationStateNotInstalled {
-					if err := tx.DeleteConnector(connector.Key); err != nil {
+					active, err := tx.ActiveOperationInLane(connector.Key)
+					if err != nil {
 						return err
 					}
-					continue
+					if active == nil {
+						if err := tx.DeleteConnector(connector.Key); err != nil {
+							return err
+						}
+						continue
+					}
 				}
 				connector.Compatibility = Compatibility{
 					State:  CompatibilityStateUnsupportedVersion,

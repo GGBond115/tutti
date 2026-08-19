@@ -311,6 +311,62 @@ func TestStoreKeepsActiveConnectorLifecycleUniqueAcrossAccounts(t *testing.T) {
 	}
 }
 
+func TestStoreScopesActiveOperationsToExactLane(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Unix(1, 0).UTC()
+	operations := []market.Operation{
+		{
+			OperationID: "refresh", ClientRequestID: "refresh", ConnectorKey: "",
+			Kind: market.OperationKindRefreshCatalog, State: market.OperationStateRunning,
+			CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			OperationID: "authorization", ClientRequestID: "authorization", ConnectorKey: "google-sheets",
+			Kind: market.OperationKindStartAuthorization, State: market.OperationStateAccepted,
+			Scope: market.OperationScope{AccountID: "account-a"}, CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	for _, operation := range operations {
+		operation := operation
+		if err := store.Transaction(ctx, func(tx market.Transaction) error { return tx.SaveOperation(operation) }); err != nil {
+			t.Fatalf("save %s operation: %v", operation.OperationID, err)
+		}
+	}
+	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+		catalog, err := tx.ActiveOperationInLane("")
+		if err != nil {
+			return err
+		}
+		connector, err := tx.ActiveOperationInLane("google-sheets")
+		if err != nil {
+			return err
+		}
+		if catalog == nil || catalog.OperationID != "refresh" {
+			return fmt.Errorf("catalog lane operation = %#v", catalog)
+		}
+		if connector == nil || connector.OperationID != "authorization" {
+			return fmt.Errorf("connector lane operation = %#v", connector)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	secondRefresh := market.Operation{
+		OperationID: "refresh-2", ClientRequestID: "refresh-2", ConnectorKey: "",
+		Kind: market.OperationKindRefreshCatalog, State: market.OperationStateAccepted,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := store.Transaction(ctx, func(tx market.Transaction) error { return tx.SaveOperation(secondRefresh) }); err == nil {
+		t.Fatal("second active catalog refresh unexpectedly entered the catalog lane")
+	}
+}
+
 func TestStorePrivateOperationEventDoesNotExposeOperationID(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))

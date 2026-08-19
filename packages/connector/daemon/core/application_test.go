@@ -75,6 +75,50 @@ func TestApplicationConnectorRevisionFenceAllowsIndependentConcurrentCommands(t 
 	}
 }
 
+func TestApplicationCatalogRefreshDoesNotBlockConnectorAuthorization(t *testing.T) {
+	connector := testManagedAuthorizedConnector("google-sheets")
+	connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
+	repository := newMemoryRepository(connector)
+	repository.operations["refresh-running"] = Operation{
+		OperationID: "refresh-running", ClientRequestID: "refresh-running", ConnectorKey: "",
+		Kind: OperationKindRefreshCatalog, State: OperationStateRunning, Stage: OperationStageRefreshing,
+	}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+
+	result, err := application.BeginAuthorization(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "authorize-google-sheets"},
+		ConnectorKey: connector.Key,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Operation.ConnectorKey != connector.Key || result.Operation.Kind != OperationKindStartAuthorization {
+		t.Fatalf("authorization operation = %#v", result.Operation)
+	}
+	if active := repository.operations["refresh-running"]; active.State != OperationStateRunning {
+		t.Fatalf("catalog refresh operation = %#v", active)
+	}
+}
+
+func TestApplicationConnectorOperationDoesNotBlockCatalogRefresh(t *testing.T) {
+	repository := newMemoryRepository(testConnector("google-sheets"))
+	repository.operations["install-running"] = Operation{
+		OperationID: "install-running", ClientRequestID: "install-running", ConnectorKey: "google-sheets",
+		Kind: OperationKindInstall, State: OperationStateRunning, Stage: OperationStageInstalling,
+	}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+
+	result, err := application.RefreshCatalog(context.Background(), Mutation{
+		ClientRequestID: "refresh-catalog", ExpectedRevision: repository.revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Operation.ConnectorKey != "" || result.Operation.Kind != OperationKindRefreshCatalog {
+		t.Fatalf("catalog refresh operation = %#v", result.Operation)
+	}
+}
+
 func TestApplicationRepairInstallClearsInvalidInstalledEvidence(t *testing.T) {
 	for _, failureCode := range []string{
 		InstallationFailureCodePhysicallyAbsent,
@@ -1779,6 +1823,52 @@ func TestApplicationRefreshRejectsUnknownImplementation(t *testing.T) {
 	}
 }
 
+func TestApplicationRefreshRetainsRemovedUninstalledConnectorWithActiveOperation(t *testing.T) {
+	connector := testConnector("google-sheets")
+	repository := newMemoryRepository(connector)
+	repository.operations["authorization-running"] = Operation{
+		OperationID: "authorization-running", ClientRequestID: "authorization-running", ConnectorKey: connector.Key,
+		Kind: OperationKindStartAuthorization, State: OperationStateRunning, Stage: OperationStageAuthorizing,
+	}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{
+		SourceRevision: "catalog-without-google-sheets",
+	})
+
+	accepted, err := application.RefreshCatalog(context.Background(), Mutation{
+		ClientRequestID: "refresh-catalog", ExpectedRevision: repository.revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	retained, err := repository.Connector(context.Background(), connector.Key)
+	if err != nil {
+		t.Fatalf("connector with an active operation was deleted: %v", err)
+	}
+	if retained.Compatibility.State != CompatibilityStateUnsupportedVersion || retained.Compatibility.Reason != "removed_from_catalog" {
+		t.Fatalf("retained connector compatibility = %#v", retained.Compatibility)
+	}
+
+	authorization := repository.operations["authorization-running"]
+	authorization.State = OperationStateCompleted
+	authorization.Stage = OperationStageCompleted
+	repository.operations[authorization.OperationID] = authorization
+	next, err := application.RefreshCatalog(context.Background(), Mutation{
+		ClientRequestID: "refresh-catalog-again", ExpectedRevision: repository.revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), next.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.Connector(context.Background(), connector.Key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("connector remained after its active operation completed: %v", err)
+	}
+}
+
 func TestApplicationRejectsStaleRevisionBeforeMutation(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
 	repository.revision = 4
@@ -3046,9 +3136,9 @@ func (transaction *memoryTransaction) OperationByClientRequestID(ownerAccountID,
 	return nil, nil
 }
 
-func (transaction *memoryTransaction) ActiveOperation(connectorKey string) (*Operation, error) {
+func (transaction *memoryTransaction) ActiveOperationInLane(connectorKey string) (*Operation, error) {
 	for _, operation := range transaction.operations {
-		if (connectorKey == "" || operation.ConnectorKey == "" || operation.ConnectorKey == connectorKey) &&
+		if operation.ConnectorKey == connectorKey &&
 			(operation.State == OperationStateAccepted || operation.State == OperationStateRunning) {
 			copy := operation
 			return &copy, nil

@@ -33,7 +33,7 @@ func (application *Application) EnsureRuntimeReconcile(
 	var result MutationResult
 	created := false
 	err := application.config.Repository.Transaction(ctx, func(tx Transaction) error {
-		active, err := tx.ActiveOperation(connectorKey)
+		active, err := tx.ActiveOperationInLane(connectorKey)
 		if err != nil {
 			return err
 		}

@@ -107,7 +107,10 @@ type Transaction interface {
 	Connector(connectorKey string) (Connector, error)
 	Operation(operationID string) (Operation, error)
 	OperationByClientRequestID(ownerAccountID, clientRequestID string) (*Operation, error)
-	ActiveOperation(connectorKey string) (*Operation, error)
+	// ActiveOperationInLane returns the active operation for exactly one
+	// scheduling lane. The empty lane is reserved for catalog refreshes; it is
+	// not a wildcard for connector-scoped operations.
+	ActiveOperationInLane(connectorKey string) (*Operation, error)
 	SaveCatalogRevision(sourceRevision string) error
 	SetCatalogState(state CatalogState) error
 	SaveConnector(Connector) error

@@ -1551,7 +1551,7 @@ func verifyIdempotentOperation(operation Operation, kind OperationKind, connecto
 }
 
 func rejectActiveOperation(tx Transaction, connectorKey string) error {
-	active, err := tx.ActiveOperation(connectorKey)
+	active, err := tx.ActiveOperationInLane(connectorKey)
 	if err != nil {
 		return err
 	}

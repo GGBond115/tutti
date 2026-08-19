@@ -457,6 +457,11 @@ global `expectedRevision` remains in the wire contract for old clients and is
 used when the Connector fence is absent. Catalog refresh retains its global
 revision fence. Internal level-triggered repair reads current durable state
 inside its transaction.
+Active-operation exclusion follows the same ownership boundary through exact
+scheduling lanes. The empty lane is reserved for catalog refresh; each
+Connector key is its own device lifecycle lane. A catalog refresh and a
+Connector operation may therefore coexist, while a second refresh or a second
+operation for the same Connector is rejected atomically by the durable store.
 An in-flight reconcile may have resolved its binding before a newer Projection
 was persisted. Its Observed compare-and-swap is rejected after Desired advances;
 the scanner then applies the newer generation before receipt resolution.
