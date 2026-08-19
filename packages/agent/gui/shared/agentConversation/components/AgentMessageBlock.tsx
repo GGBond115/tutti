@@ -26,6 +26,7 @@ import type {
   AgentConversationParticipantPresentation
 } from "../contracts/agentConversationParticipantPresentation";
 import { AgentMessageDetailsDisclosure } from "./AgentMessageDetailsDisclosure";
+import agentSystemNoticeStyles from "./agentSystemNoticeStyles";
 import { AgentToolGroupRow } from "./AgentToolGroupRow";
 import {
   AgentVisibleErrorMessage,
@@ -49,13 +50,6 @@ const DEFAULT_TOOL_CALLS_LABEL = (count: number): string =>
   `${count} tool calls`;
 const TRANSPORT_RETRY_PROGRESS_PATTERN =
   /\b(reconnect(?:ing)?(?:\s*(?:\.\.\.|…|[.。]+|:|-))?\s*\(?\d+\s*\/\s*\d+\)?)/i;
-// Routine system notices use the neutral system surface. Visible error cards
-// and context-handoff notices keep their dedicated danger presentation.
-const SYSTEM_NOTICE_CLASS_NAME =
-  "border-[var(--line-2)] bg-[var(--transparency-block)]";
-const CONTEXT_HANDOFF_NOTICE_CLASS_NAME =
-  "border-[var(--on-danger-hover)] bg-[var(--on-danger)]";
-
 interface AgentMessageBlockProps {
   workspaceRoot: string | null;
   basePath: string;
@@ -569,7 +563,7 @@ function AgentSystemNoticeMessage({
     return (
       <section
         role="alert"
-        className={`box-border w-full min-w-0 rounded-[8px] border p-3 text-[13px] leading-5 text-[var(--text-primary)] ${CONTEXT_HANDOFF_NOTICE_CLASS_NAME}`}
+        className={`box-border w-full min-w-0 rounded-[8px] border p-3 text-[13px] leading-5 text-[var(--text-primary)] ${agentSystemNoticeStyles.contextHandoff}`}
       >
         <div className="font-medium text-[var(--state-danger)]">
           {translate("agentHost.agentGui.contextHandoffRequired")}
@@ -595,7 +589,7 @@ function AgentSystemNoticeMessage({
   return (
     <section
       role={isStatusNotice ? "status" : undefined}
-      className={`box-border w-full min-w-0 rounded-[8px] border p-3 text-[13px] leading-5 text-[var(--text-secondary)] ${SYSTEM_NOTICE_CLASS_NAME}`}
+      className={`box-border w-full min-w-0 rounded-[8px] border p-3 text-[13px] leading-5 text-[var(--text-secondary)] ${agentSystemNoticeStyles.routine}`}
     >
       <div className="min-w-0">
         <div className="font-medium text-[var(--text-secondary)]">{title}</div>
