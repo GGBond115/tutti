@@ -1407,6 +1407,15 @@ The busy-session prompt queue is ephemeral durable-intent coordination in the wo
 - a queued-prompt `Send next` action uses native guidance when the provider
   supports it, even when the provider also supports interruption; guidance
   stays on the same canonical Turn and follows the provider's native semantics
+- when an active-turn `Send now` arrives before the Session has an authoritative
+  capability snapshot, the workspace Engine retains the exact prompt and
+  send-now decision without dispatching guidance or cancellation. A later
+  authoritative snapshot resolves that same intent to native guidance or
+  cancel-then-send. An explicit complete snapshot that supports neither keeps
+  the prompt in the ordinary queue until canonical availability returns; a
+  missing snapshot must never discard the prompt or be treated as unsupported.
+  Each queued prompt owns its deferred decision and exact target Turn; a later
+  Turn must not inherit guidance or cancellation intended for its predecessor
 - Claude SDK guidance acknowledges delivery only after its SDK interrupt has
   succeeded and the guidance prompt has been enqueued; a failed interrupt is a
   failed guidance request and must not allow the old response to keep running.
