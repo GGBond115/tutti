@@ -44,6 +44,15 @@ schema versions belong to different APIs and do not imply compatibility.
 The renderer never calls the remote market. The local daemon is authoritative
 for every state rendered by the desktop application.
 
+An authoritative catalog refresh treats a missing Connector as delisted. A
+not-installed Connector with no active lifecycle operation is deleted
+immediately. Installed Connectors and Connectors with active operations retain
+their private durable installation and cleanup evidence, but the daemon marks
+them `removed_from_catalog` and omits the Connector and its operations from
+public snapshots, single-Connector reads, and catalog-page projections. Public
+validation runs only after that filter, so an obsolete manifest retained solely
+for cleanup cannot make the visible catalog unavailable.
+
 Category identifiers are opaque routing values. The Connector adapter sends
 the exact server `categoryId` back as `sectionId` and never rewrites legacy or
 new IDs. The daemon projects both `displayNameZh` and `displayNameEn` through
@@ -210,10 +219,11 @@ stable CLI shims, and removes every prepared artifact and private Node package
 tree for that Connector. It preserves account authorization, user/workspace
 state, and the shared Node package store and package-manager caches.
 
-Catalog display metadata includes a required, bounded PNG, WebP, or SVG data
-URL. This makes the icon available before installation and removes connector-key
-special cases from the renderer. The data URL is generated from the source
-connector icon during publishing and is limited to 128 KiB after decoding.
+Catalog display metadata includes a required public HTTPS icon URL. Publishing
+stores the source PNG, WebP, or SVG as an immutable versioned object and places
+its CDN URL in the Market manifest. The daemon rejects missing URLs, inline
+`data:` images, non-HTTPS schemes, credentials, surrounding whitespace, and
+URLs longer than 2048 bytes before the release reaches a renderer or runtime.
 
 Manifest permissions use a lowercase stable permission name with an optional
 scope (`permission`, `permission:scope`, or `permission:*`). The daemon keeps
