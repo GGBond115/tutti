@@ -5440,20 +5440,21 @@ type AgentProviderAvailabilityStatus string
 
 // AgentProviderCapabilityOption defines model for AgentProviderCapabilityOption.
 type AgentProviderCapabilityOption struct {
-	Description *string                                 `json:"description,omitempty"`
-	IconUrl     *string                                 `json:"iconUrl,omitempty"`
-	Id          string                                  `json:"id"`
-	Invocation  AgentProviderCapabilityOptionInvocation `json:"invocation"`
-	Kind        AgentProviderCapabilityOptionKind       `json:"kind"`
-	Label       string                                  `json:"label"`
-	Name        string                                  `json:"name"`
-	Path        *string                                 `json:"path,omitempty"`
-	PluginName  *string                                 `json:"pluginName,omitempty"`
-	ServerName  *string                                 `json:"serverName,omitempty"`
-	Source      *string                                 `json:"source,omitempty"`
-	Status      AgentProviderCapabilityOptionStatus     `json:"status"`
-	ToolName    *string                                 `json:"toolName,omitempty"`
-	Trigger     *string                                 `json:"trigger,omitempty"`
+	Description       *string                                 `json:"description,omitempty"`
+	IconUrl           *string                                 `json:"iconUrl,omitempty"`
+	Id                string                                  `json:"id"`
+	InstalledAtUnixMs *int64                                  `json:"installedAtUnixMs,omitempty"`
+	Invocation        AgentProviderCapabilityOptionInvocation `json:"invocation"`
+	Kind              AgentProviderCapabilityOptionKind       `json:"kind"`
+	Label             string                                  `json:"label"`
+	Name              string                                  `json:"name"`
+	Path              *string                                 `json:"path,omitempty"`
+	PluginName        *string                                 `json:"pluginName,omitempty"`
+	ServerName        *string                                 `json:"serverName,omitempty"`
+	Source            *string                                 `json:"source,omitempty"`
+	Status            AgentProviderCapabilityOptionStatus     `json:"status"`
+	ToolName          *string                                 `json:"toolName,omitempty"`
+	Trigger           *string                                 `json:"trigger,omitempty"`
 }
 
 // AgentProviderCapabilityOptionInvocation defines model for AgentProviderCapabilityOption.Invocation.
@@ -6735,6 +6736,7 @@ type ConnectorMarketImplementationKind string
 // ConnectorMarketInstallation defines model for ConnectorMarketInstallation.
 type ConnectorMarketInstallation struct {
 	FailureCode            *string                          `json:"failureCode,omitempty"`
+	InstalledAtUnixMs      *int64                           `json:"installedAtUnixMs,omitempty"`
 	InstalledReleaseDigest *string                          `json:"installedReleaseDigest,omitempty"`
 	InstalledReleaseId     *string                          `json:"installedReleaseId,omitempty"`
 	InstalledVersion       *string                          `json:"installedVersion,omitempty"`

@@ -355,6 +355,9 @@ func TestApplicationExecutesAcceptedInstall(t *testing.T) {
 	if installed.Installation.State != InstallationStateInstalled || installed.Installation.InstalledVersion != "1.0.0" {
 		t.Fatalf("installation = %#v", installed.Installation)
 	}
+	if installed.Installation.InstalledAtUnixMS != application.config.Now().UnixMilli() {
+		t.Fatalf("installed timestamp = %d, want %d", installed.Installation.InstalledAtUnixMS, application.config.Now().UnixMilli())
+	}
 	if operation.State != OperationStateCompleted || installationHost.prepares != 1 || installationHost.reconciles != 1 {
 		t.Fatalf("operation = %#v, prepares = %d, reconciles = %d", operation, installationHost.prepares, installationHost.reconciles)
 	}
