@@ -74,7 +74,7 @@ interface UseAgentGUIComposerSettingsActionsInput {
   isMountedRef: RefObject<boolean>;
   loadDraftComposerOptions(options?: {
     force?: boolean;
-    section?: "core" | "capabilities";
+    section?: "core" | "capabilities" | "connectors";
     waitForFreshModelCatalog?: boolean;
   }): void;
   onDataChangeRef: RefObject<
@@ -522,7 +522,7 @@ export function useAgentGUIComposerSettingsActions(
   // user double-clicks the retry control instead of superseding it.
   const retryComposerOptions = useStableControllerEventCallback(
     (options?: {
-      section?: "core" | "capabilities";
+      section?: "core" | "capabilities" | "connectors";
       waitForFreshModelCatalog?: boolean;
     }) => {
       if (options === undefined) {

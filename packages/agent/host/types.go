@@ -125,6 +125,9 @@ type ComposerSettingsPatch struct {
 type ProviderRuntimeSession struct {
 	ID                      string
 	WorkspaceID             string
+	Scope                   RuntimeSessionScope
+	SourceAgentSessionID    string
+	SideRequestID           string
 	UserID                  string
 	AgentTargetID           string
 	Provider                string
@@ -555,10 +558,6 @@ type RuntimeSubmitInteractiveInput struct {
 	Action             string
 	OptionID           string
 	Payload            map[string]any
-}
-
-type RuntimeSubmitInteractiveResult struct {
-	Disposition RuntimeInteractiveDisposition
 }
 
 type RuntimeInteractiveDisposition string

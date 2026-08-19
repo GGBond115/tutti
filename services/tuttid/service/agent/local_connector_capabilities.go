@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/composercatalog"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	market "github.com/tutti-os/tutti/packages/connector/daemon/core"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 )
 
@@ -37,7 +37,7 @@ func (s *Service) validatePromptConnectors(ctx context.Context, content []Prompt
 	if s == nil || s.ConnectorMarketSnapshots == nil {
 		return fmt.Errorf("%w: local connector state is unavailable", ErrInvalidArgument)
 	}
-	snapshot, err := s.ConnectorMarketSnapshots.Snapshot(ctx)
+	snapshot, err := connectorMarketSnapshot(ctx, s.ConnectorMarketSnapshots, s.ConnectorMarketCurrentScope)
 	if err != nil {
 		return fmt.Errorf("read local connector state: %w", err)
 	}
@@ -60,8 +60,24 @@ func (s *Service) validatePromptConnectors(ctx context.Context, content []Prompt
 func localConnectorCapabilityOptions(
 	ctx context.Context,
 	source market.SnapshotReader,
+	currentScope func() market.OperationScope,
 ) ([]ComposerCapabilityOption, error) {
-	return composercatalog.ConnectorOptions(ctx, source)
+	snapshot, err := connectorMarketSnapshot(ctx, source, currentScope)
+	if err != nil {
+		return nil, err
+	}
+	return composercatalog.ProjectConnectorOptions(snapshot), nil
+}
+
+func connectorMarketSnapshot(
+	ctx context.Context,
+	source market.SnapshotReader,
+	currentScope func() market.OperationScope,
+) (market.Snapshot, error) {
+	if scoped, ok := source.(market.ScopedSnapshotReader); ok && currentScope != nil {
+		return scoped.SnapshotForScope(ctx, currentScope())
+	}
+	return source.Snapshot(ctx)
 }
 
 func replaceComposerConnectorCapabilities(

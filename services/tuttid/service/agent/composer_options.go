@@ -102,15 +102,28 @@ const (
 	ComposerOptionsSectionFull         ComposerOptionsSection = "full"
 	ComposerOptionsSectionCore         ComposerOptionsSection = "core"
 	ComposerOptionsSectionCapabilities ComposerOptionsSection = "capabilities"
+	ComposerOptionsSectionConnectors   ComposerOptionsSection = "connectors"
 )
 
 func normalizeComposerOptionsSection(section ComposerOptionsSection) ComposerOptionsSection {
 	switch section {
-	case ComposerOptionsSectionCore, ComposerOptionsSectionCapabilities:
+	case ComposerOptionsSectionCore, ComposerOptionsSectionCapabilities, ComposerOptionsSectionConnectors:
 		return section
 	default:
 		return ComposerOptionsSectionFull
 	}
+}
+
+func composerOptionsSectionIncludesCore(section ComposerOptionsSection) bool {
+	return section == ComposerOptionsSectionFull || section == ComposerOptionsSectionCore
+}
+
+func composerOptionsSectionIncludesProviderCapabilities(section ComposerOptionsSection) bool {
+	return section == ComposerOptionsSectionFull || section == ComposerOptionsSectionCapabilities
+}
+
+func composerOptionsSectionIncludesConnectors(section ComposerOptionsSection) bool {
+	return section == ComposerOptionsSectionFull || section == ComposerOptionsSectionCapabilities || section == ComposerOptionsSectionConnectors
 }
 
 type ComposerSkillOption struct {
@@ -273,7 +286,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		settings.Model = planEndpoint.Model
 	}
 	var catalogLoad <-chan composerModelCatalogLoadResult
-	if section != ComposerOptionsSectionCapabilities && planEndpoint == nil && (composerOptionsProviderUsesModelCatalog(provider) ||
+	if composerOptionsSectionIncludesCore(section) && planEndpoint == nil && (composerOptionsProviderUsesModelCatalog(provider) ||
 		(s.ReplayMode && s.ModelCatalog != nil)) {
 		catalogLoad = startComposerModelCatalogLoad(
 			ctx,
@@ -285,7 +298,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		)
 	}
 	skills := []ComposerSkillOption{}
-	if section != ComposerOptionsSectionCore {
+	if composerOptionsSectionIncludesProviderCapabilities(section) {
 		skills = filterWorkspaceAgentComposerSkills(
 			s.discoverComposerSkillOptionsForLaunch(ctx, provider, input.Cwd, nil, input.providerTargetRef),
 			launchInput.AgentSkills,
@@ -294,7 +307,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 	}
 	capabilityCatalog := []ComposerCapabilityOption{}
 	capabilityErrors := []string(nil)
-	if section != ComposerOptionsSectionCore && composerOptionsIncludeCapabilityCatalog(input) {
+	if composerOptionsSectionIncludesConnectors(section) && composerOptionsIncludeCapabilityCatalog(input) {
 		var (
 			connectorsVisible   = true
 			connectorVisibleErr error
@@ -302,17 +315,23 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 			localConnectorsErr  error
 		)
 		capabilityGroup, capabilityContext := errgroup.WithContext(ctx)
-		capabilityGroup.Go(func() error {
-			capabilityCatalog, capabilityErrors = s.listComposerCapabilityOptions(capabilityContext, provider, input.Cwd, skills)
-			return nil
-		})
+		if composerOptionsSectionIncludesProviderCapabilities(section) {
+			capabilityGroup.Go(func() error {
+				capabilityCatalog, capabilityErrors = s.listComposerCapabilityOptions(capabilityContext, provider, input.Cwd, skills)
+				return nil
+			})
+		}
 		capabilityGroup.Go(func() error {
 			connectorsVisible, connectorVisibleErr = s.connectorCatalogVisible(capabilityContext)
 			return nil
 		})
 		if s.ConnectorMarketSnapshots != nil {
 			capabilityGroup.Go(func() error {
-				localConnectors, localConnectorsErr = localConnectorCapabilityOptions(capabilityContext, s.ConnectorMarketSnapshots)
+				localConnectors, localConnectorsErr = localConnectorCapabilityOptions(
+					capabilityContext,
+					s.ConnectorMarketSnapshots,
+					s.ConnectorMarketCurrentScope,
+				)
 				return nil
 			})
 		}
@@ -487,7 +506,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		Behavior:                composerProfileFor(provider).Behavior,
 		SlashCommandPolicy:      slashCommandPolicy,
 	}
-	if section != ComposerOptionsSectionCapabilities && planEndpoint == nil && !s.ReplayMode && (composerProfileFor(provider).LiveModelDiscovery ||
+	if composerOptionsSectionIncludesCore(section) && planEndpoint == nil && !s.ReplayMode && (composerProfileFor(provider).LiveModelDiscovery ||
 		providerTargetRefKind(input.providerTargetRef) == "agent_extension") {
 		var err error
 		options, err = s.mergeLiveComposerModelsForComposerOptions(ctx, input, effectiveSettings, options)

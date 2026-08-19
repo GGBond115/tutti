@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	market "github.com/tutti-os/tutti/packages/connector/daemon/core"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 )
 
@@ -148,9 +148,12 @@ func TestDeactivateRuntimeAllConnectionsCancelsPendingAuthorizationRoute(t *test
 	route := testUninstallRoute("account-pending", "github", "superseded-release", market.HostGeneration{BootEpoch: "authorization", Generation: 2})
 	host.authorizationRoutes[route.id] = route
 	canceled := make(chan struct{})
-	host.authorizationProvider.sessions[route.id] = &credentialBrokerSession{
+	const operationID = "authorization-pending"
+	host.authorizationProvider.sessions[operationID] = &credentialBrokerSession{
+		operationID: operationID, route: route,
 		cancel: func() { close(canceled) }, changed: make(chan struct{}), state: market.AuthorizationStatePending,
 	}
+	host.authorizationProvider.activeByRoute[route.id] = operationID
 
 	if err := host.DeactivateRuntime(context.Background(), market.RuntimeDeactivationRequest{
 		ConnectionID: "current-connection", ConnectorKey: "github", ReleaseDigest: "release-1",
@@ -163,7 +166,7 @@ func TestDeactivateRuntimeAllConnectionsCancelsPendingAuthorizationRoute(t *test
 	default:
 		t.Fatal("pending credential broker session was not canceled")
 	}
-	if host.authorizationRoutes[route.id] != nil || host.authorizationProvider.sessions[route.id] != nil || !route.processes.IsFenced() {
+	if host.authorizationRoutes[route.id] != nil || host.authorizationProvider.sessions[operationID] != nil || !route.processes.IsFenced() {
 		t.Fatal("pending authorization route survived uninstall")
 	}
 }

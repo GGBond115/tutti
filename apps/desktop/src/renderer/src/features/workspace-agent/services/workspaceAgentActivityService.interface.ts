@@ -179,7 +179,7 @@ export interface IWorkspaceAgentActivityService {
     force?: boolean;
     waitForFreshModelCatalog?: boolean;
     provider?: string;
-    section?: "full" | "core" | "capabilities";
+    section?: "full" | "core" | "capabilities" | "connectors";
     signal?: AbortSignal;
     settings?: AgentHostAgentSessionComposerSettings | null;
     workspaceId: string;

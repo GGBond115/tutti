@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	market "github.com/tutti-os/tutti/packages/connector/daemon/core"
 )
 
 type blockingComposerModelCatalog struct {
@@ -138,6 +140,52 @@ func TestServiceGetComposerOptionsCapabilitiesDoesNotStartModelCatalog(t *testin
 	select {
 	case <-modelCatalog.started:
 		t.Fatal("capabilities composer options started model discovery")
+	default:
+	}
+}
+
+func TestServiceGetComposerOptionsConnectorsDoesNotStartProviderCatalogs(t *testing.T) {
+	modelCatalog := &blockingComposerModelCatalog{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	capabilityLister := &blockingComposerCapabilityLister{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	service := newIsolatedAgentService(newFakeRuntime())
+	service.ModelCatalog = modelCatalog
+	service.CapabilityLister = capabilityLister
+	service.DesktopPreferencesReader = connectorCatalogPreferencesReader(true)
+	service.ConnectorMarketSnapshots = connectorMarketSnapshotStub{
+		snapshot: market.Snapshot{Connectors: []market.Connector{
+			localConnectorFixture(
+				"google-calendar",
+				market.InstallationStateInstalled,
+				market.AuthorizationStateConnected,
+				market.CompatibilityStateSupported,
+			),
+		}},
+	}
+
+	options, err := service.GetComposerOptions(context.Background(), ComposerOptionsInput{
+		Provider: "codex",
+		Section:  ComposerOptionsSectionConnectors,
+	})
+	if err != nil {
+		t.Fatalf("connectors composer options returned error: %v", err)
+	}
+	if len(options.CapabilityCatalog) != 1 || options.CapabilityCatalog[0].ID != "connector:google-calendar" {
+		t.Fatalf("capability catalog = %#v, want local Google Calendar connector", options.CapabilityCatalog)
+	}
+	select {
+	case <-modelCatalog.started:
+		t.Fatal("connectors composer options started model discovery")
+	default:
+	}
+	select {
+	case <-capabilityLister.started:
+		t.Fatal("connectors composer options started provider capability discovery")
 	default:
 	}
 }

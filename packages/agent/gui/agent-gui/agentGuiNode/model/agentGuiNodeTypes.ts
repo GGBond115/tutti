@@ -214,13 +214,22 @@ export type AgentComposerAttachmentBlock =
   | AgentComposerImageBlock
   | AgentComposerFileBlock;
 
+export interface AgentComposerConnectorBlock {
+  type: "connector";
+  connectorKey: string;
+}
+
+export type AgentComposerSupplementaryBlock =
+  | AgentComposerAttachmentBlock
+  | AgentComposerConnectorBlock;
+
 export type AgentComposerDraftBlock =
   | AgentComposerTextBlock
-  | AgentComposerAttachmentBlock;
+  | AgentComposerSupplementaryBlock;
 
 export type AgentComposerDraftContent = [
   AgentComposerTextBlock,
-  ...AgentComposerAttachmentBlock[]
+  ...AgentComposerSupplementaryBlock[]
 ];
 
 /** One atomic, unsent composer message. */
@@ -243,6 +252,10 @@ export type AgentComposerDraftLargeText = Omit<
   AgentComposerPastedTextBlock,
   "type" | "kind"
 >;
+export type AgentComposerDraftConnector = Omit<
+  AgentComposerConnectorBlock,
+  "type"
+>;
 
 /**
  * Built-in glyph for a home-suggestion category chip. Keeps the localized data
@@ -256,6 +269,7 @@ export type AgentHomeSuggestionIcon =
   | "breakdown"
   | "review"
   | "interaction"
+  | "github"
   | "about"
   | "import";
 
@@ -338,6 +352,8 @@ export interface AgentGUIComposerSettingsVM {
   composerOptionsLoadStatus?: AgentActivityComposerOptionsLoadStatus;
   /** Initial slash command and capability catalog request is in flight. */
   isCapabilityOptionsLoading?: boolean;
+  /** Local Connector Market projection is being loaded or refreshed. */
+  isConnectorOptionsLoading?: boolean;
   isModelOptionsLoading?: boolean;
   /** Device-local model recents/favorites identity and catalog testimony. */
   modelChoiceHistory?: AgentGUIComposerModelChoiceHistoryVM;

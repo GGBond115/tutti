@@ -33,12 +33,25 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	if err != nil {
 		return ExecResult{}, err
 	}
-	canonicalSubmit, err := newCanonicalSubmitFact(
-		input.ClientSubmitID,
-		input.CanonicalSubmitOccurredAtUnixMS,
-	)
-	if err != nil {
-		return ExecResult{}, err
+	var canonicalSubmit canonicalSubmitFact
+	if session.IsSideConversation() {
+		// Side submissions have a caller-stable transient identity, but no
+		// canonical SubmitClaim or durable occurrence. Keep the identity in
+		// execution metadata for provider correlation and the ephemeral
+		// projector; never manufacture a canonical submit fact for this lane.
+		if input.CanonicalSubmitOccurredAtUnixMS > 0 {
+			return ExecResult{}, errors.New(
+				"side conversation cannot carry a canonical submit occurrence",
+			)
+		}
+	} else {
+		canonicalSubmit, err = newCanonicalSubmitFact(
+			input.ClientSubmitID,
+			input.CanonicalSubmitOccurredAtUnixMS,
+		)
+		if err != nil {
+			return ExecResult{}, err
+		}
 	}
 	if canonicalSubmit.occurredAtUnixMS > 0 {
 		observeEventUnixMS(canonicalSubmit.occurredAtUnixMS)
@@ -118,14 +131,16 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		return c.guideActiveTurn(ctx, session, adapter, providerContent, displayPrompt, metadata, input.CapabilityRefs, input.TurnID)
 	}
 	previousSession := session
-	titleUpdated := false
+	// Keep the initial title on the submitted Turn patch so owner admission
+	// persists the title, turn, and prompt as one state/message transaction.
+	submittedTitle := ""
 	if initialTitle := strings.TrimSpace(input.InitialTitle); initialTitle != "" &&
 		!session.InitialTitleEstablished &&
 		strings.TrimSpace(session.Title) == strings.TrimSpace(input.InitialTitleBase) {
 		session.Title = initialTitle
 		session = markInitialTitleEstablished(session)
 		session.UpdatedAtUnixMS = unixMS(now())
-		titleUpdated = true
+		submittedTitle = session.Title
 	}
 	turnID := strings.TrimSpace(input.TurnID)
 	if turnID == "" {
@@ -139,6 +154,10 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		runCtx = context.WithValue(runCtx, execMetadataContextKey{}, metadata)
 	}
 	runCtx = withCanonicalSubmitFact(runCtx, canonicalSubmit)
+	runCtx = withCanonicalPromptContent(runCtx, content)
+	if canonicalSubmit.clientSubmitID == "" {
+		runCtx = withPromptActivityMessageID(runCtx, newTurnUserPromptActivityMessageID())
+	}
 	tuttiModeSnapshot := normalizeTuttiModeTurnSnapshot(input.TuttiModeSnapshot)
 	runCtx = withTuttiModeTurnSnapshot(runCtx, tuttiModeSnapshot)
 	var dispatchObserver *providerDispatchObserver
@@ -157,10 +176,15 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	c.mu.Lock()
 	provisional := c.provisionalSessions[key]
 	c.mu.Unlock()
-	submitEvents := submittedTurnActivityEvents(session, turnID, input.CapabilityRefs)
-	if titleUpdated {
-		submitEvents = append([]activityshared.Event{newSessionTitleActivityEvent(session, session.Title)}, submitEvents...)
-	}
+	submitEvents := submittedTurnActivityEvents(
+		runCtx,
+		session,
+		content,
+		displayPrompt,
+		turnID,
+		input.CapabilityRefs,
+		submittedTitle,
+	)
 	// The submitted Turn is a durable user intent, not provider output. Keep
 	// the Session visible while the provider-identity acceptance barrier is
 	// pending so an explicit provider rejection cannot erase the prompt.
@@ -523,6 +547,9 @@ func (c *Controller) GoalControl(ctx context.Context, input GoalControlInput) (G
 	session, adapter, err := c.sessionAndAdapter(input.RoomID, input.AgentSessionID)
 	if err != nil {
 		return GoalControlResult{}, err
+	}
+	if session.IsSideConversation() {
+		return GoalControlResult{}, ErrSideConversationUnsupported
 	}
 	goalAdapter, ok := adapter.(GoalAdapter)
 	if !ok {

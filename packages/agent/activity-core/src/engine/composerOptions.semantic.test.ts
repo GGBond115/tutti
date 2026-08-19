@@ -113,6 +113,67 @@ test("core settles before capabilities and section requests do not share in-flig
   assert.equal(merged.skills[0]?.name, "search");
 });
 
+test("connector section replaces only connector capabilities", async () => {
+  const harness = createHarness();
+  const capabilities = harness.engine.loadComposerOptions({
+    ...loadInput(),
+    section: "capabilities"
+  });
+  harness.succeed(
+    harness.commands[0]!.commandId,
+    composerOptions("capability-model", {
+      capabilityCatalog: [
+        {
+          id: "skill:review",
+          invocation: "promptItem",
+          kind: "skill",
+          label: "Review",
+          name: "review",
+          status: "available"
+        },
+        {
+          id: "connector:old",
+          invocation: "textTrigger",
+          kind: "connector",
+          label: "Old",
+          name: "old",
+          status: "available"
+        }
+      ]
+    })
+  );
+  await capabilities;
+
+  const connectors = harness.engine.loadComposerOptions({
+    ...loadInput(),
+    section: "connectors"
+  });
+  assert.equal(harness.commands[1]?.type, "composerOptions/load");
+  assert.equal(harness.commands[1]?.section, "connectors");
+  harness.succeed(
+    harness.commands[1]!.commandId,
+    composerOptions("ignored-connector-model", {
+      capabilityCatalog: [
+        {
+          id: "connector:new",
+          invocation: "textTrigger",
+          kind: "connector",
+          label: "New",
+          name: "new",
+          status: "authRequired"
+        }
+      ]
+    })
+  );
+  const merged = await connectors;
+
+  assert.deepEqual(
+    merged.capabilityCatalog?.map((capability) => capability.id),
+    ["skill:review", "connector:new"]
+  );
+  assert.equal(merged.models[0]?.value, "capability-model");
+});
+
 test("semantic composer load joins an identical request and reuses its ready cache", async () => {
   const harness = createHarness();
   const first = harness.engine.loadComposerOptions(loadInput());

@@ -51,11 +51,9 @@ interface Props {
   showComposerAction: boolean;
   isGoalModeActive: boolean;
   isPlanModeActive: boolean;
-  isTuttiModeActive: boolean;
-  isTuttiModeUpdating: boolean;
-  tuttiModeSupported: boolean;
   connectorsVisible: boolean;
-  onTuttiModeChange?: (active: boolean) => void;
+  connectorsReadOnly?: boolean;
+  showConnectorViewMore?: boolean;
   composerAction: ReactNode;
   projectControl?: ReactNode;
   quickPromptControl?: ReactNode;
@@ -77,6 +75,8 @@ interface Props {
   onProviderSelect: AgentComposerProps["onProviderSelect"];
   onLinkAction: AgentComposerProps["onLinkAction"];
   availableSkills: AgentComposerProps["availableSkills"];
+  selectedConnectorKeys: readonly string[];
+  onConnectorSelected: (connectorKey: string, selected: boolean) => void;
   onRetryComposerOptions?: AgentComposerProps["onRetryComposerOptions"];
   onCapabilitySettingsRequest: AgentComposerProps["onCapabilitySettingsRequest"];
   onRequestWorkspaceReferences: AgentComposerProps["onRequestWorkspaceReferences"];
@@ -106,11 +106,9 @@ export function ComposerFooter({
   showComposerAction,
   isGoalModeActive,
   isPlanModeActive,
-  isTuttiModeActive,
-  isTuttiModeUpdating,
-  tuttiModeSupported,
   connectorsVisible,
-  onTuttiModeChange,
+  connectorsReadOnly = false,
+  showConnectorViewMore = true,
   composerAction,
   projectControl,
   quickPromptControl,
@@ -133,6 +131,8 @@ export function ComposerFooter({
   onLinkAction,
   availableSkills,
   onRetryComposerOptions,
+  selectedConnectorKeys,
+  onConnectorSelected,
   onCapabilitySettingsRequest,
   onRequestWorkspaceReferences,
   onWorkspaceReferencePicker: handleWorkspaceReferencePicker,
@@ -220,14 +220,15 @@ export function ComposerFooter({
           <ComposerPrimaryCapabilityControl
             availableSkills={availableSkills}
             connectorsVisible={connectorsVisible}
+            connectorsReadOnly={connectorsReadOnly}
             disabled={composerControlsHardDisabled}
-            isTuttiModeActive={isTuttiModeActive}
-            isTuttiModeUpdating={isTuttiModeUpdating}
             labels={labels}
+            loading={composerSettings.isConnectorOptionsLoading === true}
             onRetryComposerOptions={onRetryComposerOptions}
             onCapabilitySettingsRequest={onCapabilitySettingsRequest}
-            onTuttiModeChange={onTuttiModeChange}
-            tuttiModeSupported={tuttiModeSupported}
+            onConnectorSelected={onConnectorSelected}
+            selectedConnectorKeys={selectedConnectorKeys}
+            showConnectorViewMore={showConnectorViewMore}
           />
           {showHandoffSelect ? (
             <AgentHandoffMenu

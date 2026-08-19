@@ -368,7 +368,9 @@ export interface AgentComposerProps {
     addContentConnectorConnect: string;
     addContentConnectorAuthorize: string;
     addContentConnectorEmpty: string;
+    addContentConnectorLoading: string;
     addContentConnectorMore: string;
+    addContentConnectorSelected: string;
     referenceWorkspaceFiles: string;
     handoffConversation: string;
     handoffConversationTooltip: string;
@@ -424,7 +426,7 @@ export interface AgentComposerProps {
   }) => void;
   /** Retries or explicitly refreshes the target-scoped composer options. */
   onRetryComposerOptions?: (options?: {
-    section?: "core" | "capabilities";
+    section?: "core" | "capabilities" | "connectors";
     waitForFreshModelCatalog?: boolean;
   }) => void;
   onTuttiModeChange?: (active: boolean) => void;
@@ -434,7 +436,7 @@ export interface AgentComposerProps {
   capabilityControlsReadOnly?: boolean;
   onCapabilitySettingsRequest?: (
     capability: AgentComposerCapabilitySettingsTarget
-  ) => void;
+  ) => void | Promise<void>;
   onSlashStatusOpen?: () => void;
   onSlashStatusClose?: () => void;
   onSlashStatusRefresh?: () => void;
@@ -489,6 +491,12 @@ export type AgentComposerCapabilitySettingsTarget =
       kind: "connector";
       connectorKey: string;
       action?: "open";
+    }
+  | {
+      kind: "connector";
+      connectorKey: string;
+      action: "set_runtime_enabled";
+      enabled: boolean;
     };
 
 export interface AgentComposerCapabilityMenuState {
@@ -507,6 +515,10 @@ export interface AgentComposerCapabilityMenuState {
    */
   connectors?: {
     enabled?: boolean | null;
+    /** Catalog remains inspectable but cannot select, authorize, install, or manage. */
+    readOnly?: boolean | null;
+    /** Controls the host management footer independently from catalog visibility. */
+    showViewMore?: boolean | null;
   };
   tuttiMode?: {
     enabled?: boolean | null;

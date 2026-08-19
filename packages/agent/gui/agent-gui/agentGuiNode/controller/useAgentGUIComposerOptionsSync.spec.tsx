@@ -358,7 +358,8 @@ describe("useAgentGUIComposerOptionsSync", () => {
         expect.objectContaining({
           agentTargetId: "local:codex",
           force: true,
-          provider: "codex"
+          provider: "codex",
+          section: "connectors"
         })
       );
     } finally {

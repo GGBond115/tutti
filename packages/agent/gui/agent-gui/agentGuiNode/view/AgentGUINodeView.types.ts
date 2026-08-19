@@ -69,6 +69,8 @@ export interface AgentGUIConversationRailLayout {
 // Provider-gate labels live on AgentGUIProviderReadinessLabels; extend it
 // rather than restating every key here.
 export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
+  selectionAddToConversation: string;
+  selectionAskInSide: string;
   initialPlaceholder: string;
   followupPlaceholder: string;
   installRequiredPlaceholder: string;
@@ -432,7 +434,9 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   addContentConnectorConnect: string;
   addContentConnectorAuthorize: string;
   addContentConnectorEmpty: string;
+  addContentConnectorLoading: string;
   addContentConnectorMore: string;
+  addContentConnectorSelected: string;
   referenceWorkspaceFiles: string;
   handoffConversation: string;
   handoffConversationTooltip: string;
@@ -573,7 +577,7 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   mentionAgentTargets?: readonly AgentGUIAgentTarget[];
   referenceProvenanceFilters?: AgentComposerReferenceProvenanceFilters | null;
   sessionInputHistoryEnabled?: boolean;
-  sessionForkEnabled?: boolean;
+  sideConversationEnabled?: boolean;
   sessionWorktreeEnabled?: boolean;
   sessionLaunchModesByProjectSectionKey?: Readonly<
     Record<string, AgentGUISessionLaunchMode>

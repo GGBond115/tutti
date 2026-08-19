@@ -163,7 +163,7 @@ export interface AgentActivityLoadComposerOptionsInput {
   agentTargetId?: string | null;
   workspaceId: string;
   provider: string;
-  section?: "full" | "core" | "capabilities";
+  section?: "full" | "core" | "capabilities" | "connectors";
   /** Wait only when the user explicitly opens the model picker. */
   waitForFreshModelCatalog?: boolean;
   cwd?: string | null;

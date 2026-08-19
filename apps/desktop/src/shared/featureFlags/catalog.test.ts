@@ -9,12 +9,11 @@ import {
   AGENT_EXTENSION_KILO_FLAG,
   AGENT_EXTENSION_QWEN_FLAG,
   AGENT_REFERENCE_PROVENANCE_FILTER_FLAG,
-  AGENT_QUICK_PROMPT_LIBRARY_FLAG,
   AGENT_SESSION_RECORDING_FLAG,
   isFeatureEnabled,
   labFeatureDefinitions,
   LAB_ENABLED_FLAG,
-  LAB_AGENT_SESSION_FORK_FLAG,
+  LAB_AGENT_SIDE_CONVERSATION_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
   LAB_CONNECTORS_FLAG,
   LAB_CONVERSATION_ACTIVITY_VIEW_FLAG,
@@ -62,23 +61,8 @@ test("isFeatureEnabled falls back to catalog default when key absent", () => {
     isFeatureEnabled({}, AGENT_REFERENCE_PROVENANCE_FILTER_FLAG),
     false
   );
-  assert.equal(isFeatureEnabled({}, AGENT_QUICK_PROMPT_LIBRARY_FLAG), false);
   assert.equal(isFeatureEnabled({}, AGENT_SESSION_RECORDING_FLAG), false);
   assert.equal(isFeatureEnabled({}, MOBILE_REMOTE_ACCESS_SETTINGS_FLAG), false);
-  assert.equal(
-    isFeatureEnabled(
-      { [AGENT_QUICK_PROMPT_LIBRARY_FLAG]: false },
-      AGENT_QUICK_PROMPT_LIBRARY_FLAG
-    ),
-    false
-  );
-  assert.equal(
-    isFeatureEnabled(
-      { [AGENT_QUICK_PROMPT_LIBRARY_FLAG]: true },
-      AGENT_QUICK_PROMPT_LIBRARY_FLAG
-    ),
-    true
-  );
   assert.equal(
     isFeatureEnabled(
       { [AGENT_SESSION_RECORDING_FLAG]: true },
@@ -117,18 +101,18 @@ test("experimental Agent features require independent Lab opt-ins", () => {
   }
 });
 
-test("session Fork keeps its durable flag without appearing in Lab settings", () => {
-  assert.equal(isFeatureEnabled({}, LAB_AGENT_SESSION_FORK_FLAG), false);
+test("Side conversations stay disabled until the developer opts in", () => {
+  assert.equal(isFeatureEnabled({}, LAB_AGENT_SIDE_CONVERSATION_FLAG), false);
   assert.equal(
     isFeatureEnabled(
-      { [LAB_AGENT_SESSION_FORK_FLAG]: true },
-      LAB_AGENT_SESSION_FORK_FLAG
+      { [LAB_AGENT_SIDE_CONVERSATION_FLAG]: true },
+      LAB_AGENT_SIDE_CONVERSATION_FLAG
     ),
     true
   );
   assert.equal(
     labFeatureDefinitions().some(
-      (definition) => definition.key === LAB_AGENT_SESSION_FORK_FLAG
+      (definition) => definition.key === LAB_AGENT_SIDE_CONVERSATION_FLAG
     ),
     false
   );

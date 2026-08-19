@@ -4,7 +4,7 @@ import type {
   AgentActivityComposerSettings
 } from "../types.ts";
 
-export type ComposerOptionsSection = "core" | "capabilities";
+export type ComposerOptionsSection = "core" | "capabilities" | "connectors";
 
 /**
  * Per-target load bookkeeping. Replaces the former imperative cache

@@ -198,6 +198,9 @@ jobs:
           $entryPoint = $application.GetAttribute('EntryPoint')
           $visualElements = $application.SelectSingleNode("*[local-name()='VisualElements']")
           $applicationDisplayName = $visualElements.GetAttribute('DisplayName')
+          $applicationBackgroundColor = $visualElements.GetAttribute('BackgroundColor')
+          $applicationAppListEntry = $visualElements.GetAttribute('AppListEntry')
+          $desktopShortcut = $application.SelectSingleNode("*[local-name()='Extensions']/*[local-name()='Extension' and @Category='windows.shortcut']/*[local-name()='Shortcut']")
 
           if ($identityName -ne $env:TUTTI_STORE_IDENTITY_NAME) {
             throw "Store identity mismatch: $identityName"
@@ -231,6 +234,21 @@ jobs:
           }
           if ($applicationDisplayName -ne 'Tutti') {
             throw "Installed application display name mismatch: $applicationDisplayName"
+          }
+          if ($applicationBackgroundColor -ne 'transparent') {
+            throw "Installed application tile background must be transparent: $applicationBackgroundColor"
+          }
+          if ($applicationAppListEntry -ne 'default') {
+            throw "Installed application must appear in the Start menu: $applicationAppListEntry"
+          }
+          if ($null -eq $desktopShortcut) {
+            throw "Store manifest does not declare the Tutti desktop shortcut"
+          }
+          if ($desktopShortcut.GetAttribute('File') -ne '$(Desktop)\Tutti.lnk') {
+            throw "Store desktop shortcut path mismatch: $($desktopShortcut.GetAttribute('File'))"
+          }
+          if ($desktopShortcut.GetAttribute('Icon') -ne 'app\Tutti.exe') {
+            throw "Store desktop shortcut icon mismatch: $($desktopShortcut.GetAttribute('Icon'))"
           }
           $storeAssets = @(
             'StoreLogo.png',

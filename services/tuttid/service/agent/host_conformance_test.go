@@ -16,7 +16,7 @@ import (
 	hostconformance "github.com/tutti-os/tutti/packages/agent/host/conformance"
 	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	market "github.com/tutti-os/tutti/packages/connector/daemon/core"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	userprojectbiz "github.com/tutti-os/tutti/services/tuttid/biz/userproject"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
@@ -310,6 +310,9 @@ type legacyHostConformanceDriver struct {
 func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconformance.Fixture) error {
 	d.runtime = newFakeRuntime()
 	d.runtime.guidanceTargetMismatch = fixture.GuidanceTargetMismatch
+	if fixture.CancelDeliveryUnconfirmed {
+		d.runtime.cancelErr = agenthost.ErrRuntimeCancelDeliveryUnconfirmed
+	}
 	d.sessions = &fakeSessionReader{
 		sessions: map[string]PersistedSession{}, tombstoned: map[string]bool{}, deletedAt: map[string]int64{},
 		parentByKey: map[string]string{},
@@ -690,15 +693,21 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		d.service.TurnStore = d.turns
 	}
 	if fixture.RecoverInteractive {
+		operationPayload := map[string]any{
+			"rootAgentSessionId": seed.AgentSessionID, "action": "", "optionId": "approve",
+			"payload": (map[string]any)(nil), "turnId": fixture.Interaction.TurnID,
+		}
+		if prompt := strings.TrimSpace(fixture.RecoverInteractiveFollowUpPrompt); prompt != "" {
+			operationPayload["followUpPrompt"] = prompt
+			operationPayload["followUpClientSubmitId"] = strings.TrimSpace(fixture.RecoverInteractiveFollowUpClientSubmitID)
+			operationPayload["followUpDisposition"] = string(fixture.RecoverInteractiveFollowUpDisposition)
+		}
 		d.operations.operation = agentactivitybiz.RuntimeOperation{
 			OperationID: runtimeOperationID(seed.WorkspaceID, seed.AgentSessionID, agentactivitybiz.RuntimeOperationKindInteractiveResponse, fixture.Interaction.TurnID+"\x00"+fixture.Interaction.RequestID),
 			WorkspaceID: seed.WorkspaceID, AgentSessionID: seed.AgentSessionID,
 			Kind: agentactivitybiz.RuntimeOperationKindInteractiveResponse, Status: agentactivitybiz.RuntimeOperationStatusLeased,
 			TurnID: fixture.Interaction.TurnID, RequestID: fixture.Interaction.RequestID,
-			Payload: map[string]any{
-				"rootAgentSessionId": seed.AgentSessionID, "action": "", "optionId": "approve",
-				"payload": (map[string]any)(nil), "turnId": fixture.Interaction.TurnID,
-			},
+			Payload:    operationPayload,
 			LeaseOwner: "dead-worker", LeaseExpiresAtMS: time.UnixMilli(1_000).Add(time.Hour).UnixMilli(),
 		}
 	}
@@ -1030,19 +1039,28 @@ func (s *conformanceHistoricalStateStore) CaptureHistoricalSessionGraph(
 func (d *legacyHostConformanceDriver) CancelTurn(ctx context.Context, input agenthost.CancelTurnInput) (hostconformance.CancelObservation, error) {
 	if d.directHost {
 		result, err := d.service.ApplicationHost().CancelTurn(ctx, input)
-		if err != nil {
+		pending := errors.Is(err, agenthost.ErrRuntimeOperationInProgress) && result.IntentAccepted
+		if err != nil && !pending {
 			return hostconformance.CancelObservation{}, err
 		}
-		session, err := d.service.Get(ctx, input.WorkspaceID, input.AgentSessionID)
+		session, getErr := d.service.Get(ctx, input.WorkspaceID, input.AgentSessionID)
+		if getErr != nil {
+			return hostconformance.CancelObservation{}, getErr
+		}
 		turnID := ""
 		if result.Turn != nil {
 			turnID = result.Turn.TurnID
 		}
+		reason := CancelTurnReasonTurnCanceled
+		if pending {
+			reason = CancelTurnReasonCancelRequested
+		}
 		return hostconformance.CancelObservation{
 			Session: legacyHostSessionObservation(session), TurnID: turnID,
 			Canceled: result.Operation.Result == agentactivitybiz.RuntimeOperationResultCanceled,
-			Reason:   string(CancelTurnReasonTurnCanceled),
-		}, err
+			Pending:  pending,
+			Reason:   string(reason),
+		}, nil
 	}
 	result, err := d.service.CancelTurn(ctx, input.WorkspaceID, input.AgentSessionID, input.TurnID)
 	if err != nil {
@@ -1054,7 +1072,7 @@ func (d *legacyHostConformanceDriver) CancelTurn(ctx context.Context, input agen
 	}
 	return hostconformance.CancelObservation{
 		Session: legacyHostSessionObservation(result.Session), TurnID: turnID,
-		Canceled: result.Canceled, Reason: string(result.Reason),
+		Canceled: result.Canceled, Pending: result.Reason == CancelTurnReasonCancelRequested, Reason: string(result.Reason),
 	}, nil
 }
 
@@ -1413,6 +1431,7 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 	}
 	if len(d.runtime.execCalls) > 0 {
 		last := d.runtime.execCalls[len(d.runtime.execCalls)-1]
+		metrics.LastExecClientSubmitID = last.ClientSubmitID
 		metrics.LastInitialTitle = last.InitialTitle
 		metrics.LastExecRequiresProviderAcceptance =
 			last.RequireProviderAcceptance

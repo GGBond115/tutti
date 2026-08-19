@@ -264,6 +264,20 @@ function mergeSectionOptions(
       loadedAtUnixMs: incoming.loadedAtUnixMs
     });
   }
+  if (section === "connectors") {
+    return cloneAgentActivityComposerOptions({
+      ...existing,
+      capabilityCatalog: [
+        ...(existing.capabilityCatalog ?? []).filter(
+          (capability) => capability.kind !== "connector"
+        ),
+        ...(incoming.capabilityCatalog ?? []).filter(
+          (capability) => capability.kind === "connector"
+        )
+      ],
+      loadedAtUnixMs: incoming.loadedAtUnixMs
+    });
+  }
   return cloneAgentActivityComposerOptions({
     ...existing,
     capabilities: incoming.capabilities ?? existing.capabilities,
@@ -389,7 +403,11 @@ function parseCorrelationKey(value: string): {
 } {
   const separator = value.lastIndexOf("::");
   const suffix = separator >= 0 ? value.slice(separator + 2) : "";
-  if (suffix === "core" || suffix === "capabilities") {
+  if (
+    suffix === "core" ||
+    suffix === "capabilities" ||
+    suffix === "connectors"
+  ) {
     return { section: suffix, targetKey: value.slice(0, separator) };
   }
   return { section: undefined, targetKey: value };

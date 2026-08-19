@@ -131,7 +131,7 @@ export interface AgentActivityRuntimeGetComposerOptionsInput {
   force?: boolean;
   waitForFreshModelCatalog?: boolean;
   provider?: string;
-  section?: "full" | "core" | "capabilities";
+  section?: "full" | "core" | "capabilities" | "connectors";
   settings?: AgentHostAgentSessionComposerSettings | null;
   workspaceId: string;
 }

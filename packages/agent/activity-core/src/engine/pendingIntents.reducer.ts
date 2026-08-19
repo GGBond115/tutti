@@ -22,6 +22,7 @@ import {
 } from "./pendingIntents.activationRecords.ts";
 import {
   confirmActivationsFromSessions,
+  createActivationRecoveryIntent,
   receiveSessionSnapshot,
   settleActivationCommand
 } from "./pendingIntents.activationSettlement.ts";
@@ -602,8 +603,13 @@ function expireActivation(
   if (record.status === "canceled") {
     return { commands: NO_COMMANDS, state: deleteActivation(state, requestId) };
   }
+  const recoveryIntent =
+    record.status === "requested" || record.status === "uncertain"
+      ? createActivationRecoveryIntent(record)
+      : null;
   return {
     commands: NO_COMMANDS,
+    ...(recoveryIntent ? { followUpIntents: [recoveryIntent] } : {}),
     state: replaceActivation(state, {
       ...record,
       errorCode: record.errorCode ?? "activation_confirmation_expired",

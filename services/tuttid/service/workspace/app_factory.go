@@ -204,7 +204,8 @@ func (s *AppFactoryService) GetAgentTargetComposerOptions(ctx context.Context, w
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
 		return agentservice.ComposerOptions{}, fmt.Errorf("create app factory composer draft dir: %w", err)
 	}
-	includeCapabilityCatalog := input.Section == agentservice.ComposerOptionsSectionCapabilities
+	includeCapabilityCatalog := input.Section == agentservice.ComposerOptionsSectionCapabilities ||
+		input.Section == agentservice.ComposerOptionsSectionConnectors
 	return s.AgentSessionService.GetComposerOptions(ctx, agentservice.ComposerOptionsInput{
 		AgentTargetID:            resolvedTarget.ID,
 		Cwd:                      cwd,

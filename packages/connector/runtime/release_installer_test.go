@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	market "github.com/tutti-os/tutti/packages/connector/daemon/core"
 	connectorartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
 )
 

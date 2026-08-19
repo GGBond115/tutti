@@ -32,6 +32,8 @@ The module owns:
   attachment staging, durable lineage, and startup recovery policy;
 - the durable edit-retry saga, effective-history revision fence, authoritative
   provider-history reconciliation, and explicit replacement recovery policy;
+- the provider-neutral runtime-only Side lifecycle, including live-source
+  capability checks, idempotent open, transient execution, and cleanup;
 - typed conformance scenarios under `conformance`.
 
 `CreateSession` has three explicit modes: an empty session, one command with
@@ -186,6 +188,14 @@ that durable operation exists, even when immediate runtime readiness or
 delivery returns an error; `GoalState` then distinguishes pending delivery
 from terminal failure. A provider-accepted or applied Goal is also canonical
 resume evidence for a turnless Goal session after the live runtime disappears.
+
+An exact-provider cancel response can be delivery-unconfirmed: the provider
+received the request but could not prove it stopped the requested Turn. Host
+retains that exact durable operation for retry and canonical reconciliation; it
+does not infer either `canceled` or `failed` from the response. If the canonical
+Turn reaches a terminal state first, the operation completes as a no-op and
+preserves that existing outcome.
+
 `AdoptProviderGoal` is the narrow
 reverse boundary for a Goal created by a provider tool during an already
 accepted Turn. It atomically records the active provider generation as a
@@ -351,6 +361,19 @@ into the current provider response without interrupting it. A preemptive
 adapter must close the interrupted response's live message/tool projections
 and publish its provider-turn terminal boundary before admitting guided output.
 Neither form is a canonical Turn cancel or a second user Turn.
+
+Interactive responses follow the same ownership rule. Runtime may return a
+provider-neutral follow-up intent after an interactive denial, but it does not
+dispatch that prompt itself. Host checkpoints the intent on the leased
+interactive operation, waits for the answered Turn to become idle, and submits
+the prompt through `SendInput` with the stable id
+`interactive-deny:<operation-id>`. The checkpoint also persists the terminal
+interactive disposition, so recovery does not depend on Controller memory or
+an existing Runtime Session. Recovery reuses that disposition and id; if the
+provider connection is temporarily absent, the operation remains retryable
+until ordinary Host admission can replay the prompt without creating a
+duplicate Turn.
+
 Accepted runtime Session reports reconcile their Goal snapshot through the
 canonical bottom-up observation path without overwriting a newer desired
 intent. When that changes the public Goal projection, the same transaction
@@ -503,10 +526,10 @@ through Host. HTTP adapters may project it as structured diagnostic metadata
 while preserving their existing coarse conflict reason; transcript payloads
 and attachment contents never enter that reason.
 
-Session Fork is default-off behind the `lab.agentSessionFork` product flag.
-Desktop exposes the persisted switch in Developer settings, and Desktop plus
-Tuttid enforce the same opt-in for new Fork writes while retaining read and
-acknowledgement access to existing durable operations.
+Session Fork is exposed directly when the provider/runtime attestation and the
+selected canonical Turn satisfy the capability boundary. Product adapters do
+not add a separate feature-preference gate; execution still revalidates the
+exact provider and Turn facts before dispatch.
 
 Capability projection is preparation-free. It reads either the live runtime
 observation or the persisted runtime/driver attestation and never resolves

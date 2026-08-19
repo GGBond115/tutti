@@ -150,7 +150,7 @@ export class WorkspaceAgentComposerOptionsInvalidationCoordinator {
     this.connectorCatalogEventRevision = revision;
     for (const host of this.hosts()) {
       host.engine.dispatch({
-        sections: ["capabilities"],
+        sections: ["connectors"],
         type: "composerOptions/invalidated"
       });
     }

@@ -807,26 +807,37 @@ be resent`). The app never opens.
   `renderer_adapter.create.resolved` and `api.create.completed`. Confirm the
   missing reconcile occurs while the engine still has a requested or uncertain
   new-session activation.
-- **Root cause:** Initial Tutti activation can publish
-  `workspace.tuttimode.updated` before the create transaction is query-visible
-  or its HTTP response returns. The renderer treats the event as a reconcile
-  hint and exposes its transient 404 as a detail failure even though the
-  independent create command is still in flight.
-- **Fix:** Ignore only this Tutti update hint when the exact Session has no
-  canonical record and its latest new-session activation is still requested or
-  uncertain. Let the authoritative create result confirm the Session. Do not
-  broadly swallow reconcile 404s: existing Sessions and other reconcile
-  sources still report their real failures. Tombstone only from explicit
-  deletion evidence such as `session_deleted` or a successful delete command.
-- **Validation:** Hold create in flight, publish
-  `workspace.tuttimode.updated`, and verify the Session read is not called and
-  no reconcile error is recorded. Then resolve create and verify the canonical
-  Session and active activation are present. Also prove the same event still
-  reconciles an existing Session and preserves its not-found diagnostic, while
-  an explicit `session_deleted` event tombstones it.
+- **Root cause:** Initial activation can publish activity or mode updates before
+  the create transaction is query-visible or its HTTP response returns. The
+  renderer treated those independent signals as permission to reconcile an
+  exact Session, so a normal not-yet-visible window became a transient 404 even
+  though the create command was still in flight. A topic-specific guard covered
+  only one of those signals and left the admission boundary fragmented.
+- **Fix:** Keep the new Session behind the admission fence while its activation
+  is still `requested`. The activity-core reconcile reducer records demand but
+  defers transport reads whenever the exact Session has no canonical record
+  and the create command still owns visibility. If the create result becomes
+  uncertain or its confirmation expires, enqueue one authoritative recovery
+  reconcile; that recovery is allowed to discover a Session that was committed
+  even though the create response was lost. A normal successful create still
+  releases the merged demand through `session/upserted`, regardless of whether
+  the trigger was an activity event, a mode update, or direct Session
+  synchronization. Do not broadly swallow reconcile 404s: existing Sessions
+  and settled activations still report real failures. Tombstone only from
+  explicit deletion evidence such as `session_deleted` or a successful delete
+  command.
+- **Validation:** Hold create in flight, publish both
+  `agent.activity.updated` and `workspace.tuttimode.updated`, and request direct
+  Session synchronization. Verify no Session read is called while activation
+  is requested. Then simulate a lost create response and verify one recovery
+  reconcile is admitted, discovers the canonical Session, and confirms the
+  activation. Also prove an existing Session still reconciles and preserves
+  its not-found diagnostic, while an explicit `session_deleted` event
+  tombstones it.
 - **References:**
+  [sessionReconcile.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionReconcile.reducer.ts)
+  [rootReducer.ts](../../../packages/agent/activity-core/src/engine/rootReducer.ts)
   [workspaceAgentActivityReconcileBridge.ts](../../../apps/desktop/src/renderer/src/features/workspace-agent/services/internal/workspaceAgentActivityReconcileBridge.ts)
-  [workspaceEventCoordinator.ts](../../../packages/agent/activity-core/src/workspaceEventCoordinator.ts)
 
 ### A Tutti submission remains `delivery is still being confirmed`
 
@@ -1510,6 +1521,48 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [useAgentGUINodeController.spec.tsx](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUINodeController.spec.tsx)
   [codex_appserver_turn_machine.go](../../../packages/agent/daemon/runtime/codex_appserver_turn_machine.go)
   [codex_appserver_adapter_test.go](../../../packages/agent/daemon/runtime/codex_appserver_adapter_test.go)
+
+### Codex app-server Start/Resume waits after a lifecycle notification
+
+- Symptom:
+  Session start or resume reaches the provider, but Tutti waits for the
+  lifecycle RPC timeout even though Codex sent `thread/started`. A required MCP
+  server can show the same symptom when the only failure evidence is
+  `mcpServer/startupStatus/updated` with `status = failed` and there is no
+  stderr or JSON-RPC response.
+- Quick checks:
+  Inspect the app-server wire trace for `thread/started` or
+  `mcpServer/startupStatus/updated` before the missing `thread/start` or
+  `thread/resume` response. Distinguish this from a completely silent provider:
+  without an authoritative lifecycle notification, process termination, or
+  transport error, the call must still time out rather than manufacture success.
+- Root cause:
+  App-server notifications and the response for their triggering RPC have no
+  safe application-order guarantee. Waiting only on the response leaves the
+  lifecycle call blocked when Codex has already published the authoritative
+  thread snapshot. Required MCP startup failure is also a terminal lifecycle
+  fact, but it can arrive without stderr or a response. Child terminal
+  notifications can arrive before `receiverThreadIds` registers their thread;
+  dropping those unknown-thread terminal events loses the only completion fact.
+- Fix:
+  Complete only the active method-matched `thread/start` or `thread/resume` wait
+  from a valid `thread/started` snapshot. Schedule the structured MCP failure
+  after a short response grace window so a normal response wins the race. Keep
+  ordinary foreign-thread progress dropped, but retain a bounded terminal
+  notification until child registration and replay it with child identity.
+  Keep confirmed provider turn-id fences; only the existing unconfirmed steer
+  stub and goal-adopted exceptions may settle from a different or empty id.
+- Validation:
+  Run the notification-only Start/Resume wire test, the MCP failed-status
+  response-grace tests, and the child terminal-before-registration replay test.
+  Run the focused app-server suite with `-race` and the full
+  `go test ./packages/agent/daemon/runtime` package suite.
+- References:
+  [codex_appserver_client.go](../../../packages/agent/daemon/runtime/codex_appserver_client.go)
+  [codex_appserver_event_routing.go](../../../packages/agent/daemon/runtime/codex_appserver_event_routing.go)
+  [codex_appserver_turn_machine.go](../../../packages/agent/daemon/runtime/codex_appserver_turn_machine.go)
+  [codex_appserver_lifecycle_test.go](../../../packages/agent/daemon/runtime/codex_appserver_lifecycle_test.go)
+  [codex_appserver_events_test.go](../../../packages/agent/daemon/runtime/codex_appserver_events_test.go)
 
 ### Busy-turn message insertion fails or ends without sending the prompt
 
@@ -2909,6 +2962,46 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [turnLifecycle.ts](../../../packages/agent/claude-sdk-sidecar/src/turnLifecycle.ts)
   [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go)
   [claude_sdk_events.go](../../../packages/agent/daemon/runtime/claude_sdk_events.go)
+
+### A completed Turn loses its Fork entry after a rail refresh
+
+- Symptom:
+  A selected Session detail initially offers Fork on its latest completed Turn,
+  but switching provider scope, refreshing the conversation rail, or receiving
+  a section page removes the action. The canonical Turn still has
+  `root_provider_turn_id` and `provider_turn_binding_json`; a full Session
+  detail reports `providerForkBindingState=bound`, while the list projection
+  reports `recovery_required` for the same Turn and timestamp.
+- Quick checks:
+  Compare the list and full-detail payloads for the exact Session and Turn.
+  Then inspect the activity-engine Turn before and after
+  `session/snapshotReceived`. An image attachment is unrelated unless the
+  provider binding itself is absent.
+- Root cause:
+  Session list and section responses batch-project the latest Turn. Treating a
+  non-persisted provider-binding availability flag as canonical without
+  resolving it returns a fail-closed value. The rail then merges that
+  lightweight latest-Turn entity into the same canonical Turn as the
+  authoritative detail. Equal timestamps and outcomes permit the whole Turn
+  replacement, so the fail-closed list value overwrites `bound`.
+- Fix:
+  Resolve settled latest/active Turn forkability in the shared batch response
+  projector and cache duplicate probes within the request. Keep list Session
+  capabilities lightweight, but mark full capability projections explicitly.
+  In Activity Core, a lightweight Session snapshot may upgrade a provider Turn
+  binding but must not downgrade an already bound Turn. Keep message and
+  TuttiMode revisions monotonic for the same reason; Goal synchronization needs
+  its own update version because one Goal revision has multiple sync states.
+- Validation:
+  Cover the list entry point and duplicate active/latest projections through
+  the shared batch projector used by list and section reads, asserting one
+  cached provider probe per exact Turn and fail-closed provider errors.
+  Apply a lightweight `recovery_required` snapshot after an authoritative
+  `bound` snapshot and assert the canonical Turn remains bound. Also verify an
+  actual full projection can still supply authoritative lifecycle state.
+- References:
+  [service_turns.go](../../../services/tuttid/service/agent/service_turns.go)
+  [sessionEntities.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionEntities.reducer.ts)
 
 ### Claude Code Fork fails after the action is clicked
 

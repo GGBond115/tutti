@@ -604,8 +604,8 @@ for a remote pasted-text asset carries only its safe preview mention; short-
 lived URLs and object-store locators remain in structured prompt content and
 must not enter caller-visible transcript projections.
 Device-global quick prompts are also an optional host capability rather than
-activity data. The desktop adapter combines the developer-gated preference,
-the generated `tuttid` client, and global invalidation events behind
+activity data. The desktop adapter combines the generated `tuttid` client and
+global invalidation events behind
 `AgentHostApi.quickPrompts`. AgentGUI may subscribe to that capability to render
 the composer picker and management dialogs, but quick-prompt entities must not
 be copied into `AgentGUIRuntime`, a workspace engine, a Session, or a Turn.
@@ -618,8 +618,8 @@ project the resulting order optimistically, but it must replace that projection
 with the daemon's authoritative list. AgentGUI only renders and requests moves;
 hosts that omit the optional move capability keep the library read/write-only.
 The v2 prompt-order schema is a forward-only daemon migration. After it is
-applied, rollback means disabling the quick-prompt feature flag or reverting
-the renderer surface; do not run an older daemon writer against that database.
+applied, rollback means reverting the renderer surface; do not run an older
+daemon writer against that database.
 Older writers do not maintain `sort_order`, so binary daemon downgrade followed
 by create/delete is not a supported recovery path.
 Conversation rail sections are also an `AgentGUIRuntime` contract:
@@ -918,9 +918,20 @@ for the provider refresh before returning.
 Provider context-window and quota updates enter the daemon at the runtime
 adapter boundary, are split into typed durable session metadata, and reach
 Agent GUI through the protocol-v2 `usage` field. GUI projections must not read
-provider-private runtime context to render usage. Existing
-session control state is read from the daemon; pre-session edits remain in the
-engine-owned activation/draft record until the daemon confirms the session.
+provider-private runtime context to render usage. Legacy Desktop-owned account
+probes may enrich current account limits before or without a Session and keep
+their provider adapters in Electron main. Agent Extension account probes have a
+different ownership boundary: the signed Extension declares a provider-owned
+helper, `tuttid` executes its independently installed companion, and Electron
+main only validates and maps the provider-neutral result. Both paths project
+only provider-neutral billing mode, quota windows, and stable error codes.
+Credentials and raw provider responses must never enter AgentGUI, renderer IPC,
+or logs. A
+provider-owned access-token snapshot is not runtime authentication authority:
+an account probe may retry a newer credential, but an unchanged expiry or
+authorization rejection degrades only account limits. Existing session control
+state is read from the daemon; pre-session edits remain in the engine-owned
+activation/draft record until the daemon confirms the session.
 `AgentHostWorkspaceAgent*` types may only appear in compatibility or projection
 layers while the legacy Agent GUI internals are being migrated. Production read
 paths must not call `workspaceAgents.list`,
@@ -1163,6 +1174,23 @@ JavaScript's maximum safe integer. Durable message `sequence` has the same
 transport bound. Store and service layers retain `uint64`; the daemon API owns
 checked conversion and must fail response projection instead of emitting an
 inexact JSON number.
+
+### Ephemeral conversation projection
+
+`agent-activity-core` also exports
+`createAgentActivityEphemeralConversationProjector` for provider-neutral,
+surface-owned lanes such as live Side. It is a small React-free projector, not
+a workspace `AgentSessionEngine`: callers seed one exact ephemeral identity,
+normalize raw provider events at their adapter boundary, and receive the
+standard snapshot, Turn, and Interaction vocabulary needed by shared
+conversation projections.
+
+The projector enforces monotonic sequence and exact
+`(workspaceId, agentSessionId, sourceAgentSessionId)` identity. Identity
+mismatch, a forward sequence gap, or a terminal Session patch expires the
+projection. It has no adapter, timers, pagination, persistence, authoritative
+reconcile, or fallback to a durable Session. Its caller owns transport
+subscription and cleanup.
 
 The adapter exposes the HTTP operations used by that command port and by the
 desktop reconcile bridge:
