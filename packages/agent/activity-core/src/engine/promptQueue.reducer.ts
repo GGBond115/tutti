@@ -447,17 +447,40 @@ function settleQueueCommand(
     };
   }
   if (isPreTurnSendFailure(intent)) {
+    const nextState =
+      current.prompts.find((prompt) => prompt.id === inFlight.promptId)
+        ?.visibleInQueue === false
+        ? removeHiddenFailedPrompt(
+            state,
+            agentSessionId,
+            current,
+            inFlight.promptId
+          )
+        : replaceRecord(state, agentSessionId, {
+            ...current,
+            failedPromptId: null,
+            failureMessage: null,
+            inFlight: null
+          });
     return {
       commands: [
         queueOwnedReconcileCommand(agentSessionId, current.workspaceId, intent)
       ],
-      state: replaceRecord(state, agentSessionId, {
-        ...current,
-        failedPromptId: null,
-        failureMessage: null,
-        inFlight: null
-      })
+      state: nextState
     };
+  }
+  if (
+    current.prompts.find((prompt) => prompt.id === inFlight.promptId)
+      ?.visibleInQueue === false
+  ) {
+    return result(
+      removeHiddenFailedPrompt(
+        state,
+        agentSessionId,
+        current,
+        inFlight.promptId
+      )
+    );
   }
   return result(
     replaceRecord(state, agentSessionId, {
@@ -467,6 +490,26 @@ function settleQueueCommand(
       inFlight: null
     })
   );
+}
+
+function removeHiddenFailedPrompt(
+  state: PromptQueueState,
+  agentSessionId: string,
+  current: PromptQueueRecord,
+  promptId: string
+): PromptQueueState {
+  const record = compactQueueRecord({
+    ...current,
+    failedPromptId:
+      current.failedPromptId === promptId ? null : current.failedPromptId,
+    failureMessage:
+      current.failedPromptId === promptId ? null : current.failureMessage,
+    inFlight: null,
+    prompts: current.prompts.filter((prompt) => prompt.id !== promptId)
+  });
+  return record
+    ? replaceRecord(state, agentSessionId, record)
+    : deleteRecord(state, agentSessionId);
 }
 
 function isPreTurnSendFailure(intent: EngineIntent): boolean {
