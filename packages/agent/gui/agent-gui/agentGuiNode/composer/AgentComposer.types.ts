@@ -490,7 +490,7 @@ export type AgentComposerCapabilitySettingsTarget =
   | {
       kind: "connector";
       connectorKey: string;
-      action?: "open";
+      action?: "install" | "open";
     }
   | {
       kind: "connector";

@@ -2125,6 +2125,7 @@ export type AgentProviderCapabilityOption = {
   label: string;
   description?: string;
   iconUrl?: string;
+  installedAtUnixMs?: number;
   status:
     | "available"
     | "disabled"
@@ -5067,6 +5068,7 @@ export type ConnectorMarketImplementation = {
 export type ConnectorMarketInstallation = {
   state: ConnectorMarketInstallationState;
   installedVersion?: string;
+  installedAtUnixMs?: number;
   installedReleaseId?: string;
   installedReleaseDigest?: string;
   failureCode?: string;

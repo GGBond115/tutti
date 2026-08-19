@@ -12244,6 +12244,10 @@ components:
           type: string
         iconUrl:
           type: string
+        installedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 1
         status:
           type: string
           enum:

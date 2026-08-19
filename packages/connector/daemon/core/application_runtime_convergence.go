@@ -90,7 +90,9 @@ func (application *Application) finalizeInstallAfterRuntime(
 			return NewDomainError(ErrorCodeUnavailable, "connector runtime candidate is not observed", true, nil)
 		}
 		revision := tx.AdvanceRevision()
+		installedAt := application.config.Now().UTC()
 		connector.Installation.State = InstallationStateInstalled
+		connector.Installation.InstalledAtUnixMS = installedAt.UnixMilli()
 		connector.Installation.InstalledVersion = connector.Installation.CandidateVersion
 		connector.Installation.InstalledReleaseID = connector.Installation.CandidateReleaseID
 		connector.Installation.InstalledReleaseDigest = connector.Installation.CandidateReleaseDigest
@@ -102,7 +104,7 @@ func (application *Application) finalizeInstallAfterRuntime(
 		operation.State = OperationStateCompleted
 		operation.Stage = OperationStageCompleted
 		operation.FailureCode = ""
-		operation.UpdatedAt = application.config.Now().UTC()
+		operation.UpdatedAt = installedAt
 		if err := tx.SaveConnector(connector); err != nil {
 			return err
 		}
