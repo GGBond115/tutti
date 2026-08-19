@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
@@ -54,6 +54,10 @@ export interface ConnectorComposerMenuProps {
   onOpenChange?: (open: boolean) => void;
   onOpenConnector?: (connectorKey: string) => void;
   onOpenMarket?: () => void;
+  onRuntimeEnabledChange?: (
+    connectorKey: string,
+    enabled: boolean
+  ) => void | Promise<void>;
   onSelectConnector?: (connectorKey: string, selected: boolean) => void;
   /** Keeps the catalog inspectable while suppressing every mutation intent. */
   readOnly?: boolean;
@@ -71,10 +75,14 @@ export function ConnectorComposerMenu({
   onOpenChange,
   onOpenConnector,
   onOpenMarket,
+  onRuntimeEnabledChange,
   onSelectConnector,
   readOnly = false
 }: ConnectorComposerMenuProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [runtimeIntents, setRuntimeIntents] = useState<
+    Record<string, { desired: boolean; pending: boolean }>
+  >({});
   const normalizedItems = normalizeConnectorItems(items);
   const quickItems = normalizedItems.slice(0, QUICK_CONNECTOR_LIMIT);
   const connectedItems = normalizedItems.filter(
@@ -87,6 +95,22 @@ export function ConnectorComposerMenu({
     onOpenChange?.(false);
     action();
   };
+  useEffect(() => {
+    setRuntimeIntents((current) => {
+      let next = current;
+      for (const item of normalizedItems) {
+        const intent = current[item.connectorKey];
+        const enabled = item.status === "connected";
+        if (!intent?.pending && intent?.desired === enabled) {
+          if (next === current) {
+            next = { ...current };
+          }
+          delete next[item.connectorKey];
+        }
+      }
+      return next;
+    });
+  }, [items]);
 
   return (
     <DropdownMenu
@@ -139,7 +163,7 @@ export function ConnectorComposerMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="w-[280px] max-w-[calc(100vw-24px)] p-1.5"
+        className="w-[240px] max-w-[calc(100vw-24px)] p-1.5"
         side="top"
         sideOffset={8}
       >
@@ -148,6 +172,8 @@ export function ConnectorComposerMenu({
             const connected = item.status === "connected";
             const installed = connected || item.status === "disabled";
             const selected = connected && item.selected === true;
+            const runtimeIntent = runtimeIntents[item.connectorKey];
+            const runtimeEnabled = runtimeIntent?.desired ?? connected;
             const actionLabel =
               item.status === "authorization_required"
                 ? labels.authorize
@@ -194,10 +220,56 @@ export function ConnectorComposerMenu({
                 {installed ? (
                   <Switch
                     aria-label={item.name}
-                    checked={connected}
-                    className="pointer-events-none ml-auto shrink-0"
+                    checked={runtimeEnabled}
+                    className="ml-auto shrink-0"
                     data-testid={`connector-market-composer-status-${item.connectorKey}`}
-                    tabIndex={-1}
+                    disabled={
+                      readOnly ||
+                      !onRuntimeEnabledChange ||
+                      runtimeIntent?.pending === true
+                    }
+                    onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onCheckedChange={(nextEnabled) => {
+                      if (!onRuntimeEnabledChange) {
+                        return;
+                      }
+                      setRuntimeIntents((current) => ({
+                        ...current,
+                        [item.connectorKey]: {
+                          desired: nextEnabled,
+                          pending: true
+                        }
+                      }));
+                      void Promise.resolve(
+                        onRuntimeEnabledChange(item.connectorKey, nextEnabled)
+                      ).then(
+                        () =>
+                          setRuntimeIntents((current) => {
+                            const intent = current[item.connectorKey];
+                            if (!intent || intent.desired !== nextEnabled) {
+                              return current;
+                            }
+                            return {
+                              ...current,
+                              [item.connectorKey]: {
+                                desired: nextEnabled,
+                                pending: false
+                              }
+                            };
+                          }),
+                        () =>
+                          setRuntimeIntents((current) => {
+                            const intent = current[item.connectorKey];
+                            if (!intent || intent.desired !== nextEnabled) {
+                              return current;
+                            }
+                            const next = { ...current };
+                            delete next[item.connectorKey];
+                            return next;
+                          })
+                      );
+                    }}
                   />
                 ) : !readOnly ? (
                   <div className="ml-auto inline-flex shrink-0 items-center gap-1 pl-3 text-xs text-[var(--text-primary)]">

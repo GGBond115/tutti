@@ -5101,6 +5101,13 @@ export type ConnectorMarketMutationRequest = {
   expectedConnectorRevision?: number;
 };
 
+export type ConnectorMarketRuntimeMutationRequest = {
+  clientRequestId: string;
+  expectedRevision: number;
+  expectedConnectorRevision?: number;
+  enabled: boolean;
+};
+
 export type ConnectorMarketAuthorizationRequest = {
   clientRequestId: string;
   expectedRevision: number;
@@ -17696,6 +17703,51 @@ export type UninstallConnectorMarketConnectorResponses = {
 
 export type UninstallConnectorMarketConnectorResponse =
   UninstallConnectorMarketConnectorResponses[keyof UninstallConnectorMarketConnectorResponses];
+
+export type UpdateConnectorMarketConnectorRuntimeData = {
+  body: ConnectorMarketRuntimeMutationRequest;
+  path: {
+    connectorKey: string;
+  };
+  query?: never;
+  url: "/v1/connector-market/connectors/{connectorKey}/runtime";
+};
+
+export type UpdateConnectorMarketConnectorRuntimeErrors = {
+  /**
+   * Invalid connector-market request
+   */
+  400: ConnectorMarketError;
+  /**
+   * Daemon authorization is required
+   */
+  401: ConnectorMarketError;
+  /**
+   * Connector or operation was not found
+   */
+  404: ConnectorMarketError;
+  /**
+   * Revision conflict or operation already in progress
+   */
+  409: ConnectorMarketError;
+  /**
+   * Connector-market capability is temporarily unavailable
+   */
+  503: ConnectorMarketError;
+};
+
+export type UpdateConnectorMarketConnectorRuntimeError =
+  UpdateConnectorMarketConnectorRuntimeErrors[keyof UpdateConnectorMarketConnectorRuntimeErrors];
+
+export type UpdateConnectorMarketConnectorRuntimeResponses = {
+  /**
+   * Runtime activation intent accepted
+   */
+  202: ConnectorMarketConnector;
+};
+
+export type UpdateConnectorMarketConnectorRuntimeResponse =
+  UpdateConnectorMarketConnectorRuntimeResponses[keyof UpdateConnectorMarketConnectorRuntimeResponses];
 
 export type StartConnectorMarketAuthorizationData = {
   body: ConnectorMarketAuthorizationRequestWritable;

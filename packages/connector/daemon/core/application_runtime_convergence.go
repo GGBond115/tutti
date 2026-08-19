@@ -37,8 +37,13 @@ func (application *Application) prepareInstallRuntimeDesired(
 		operation.Stage = OperationStageRuntimePending
 		operation.FailureCode = ""
 		operation.UpdatedAt = application.config.Now().UTC()
+		activationEnabled, err := runtimeActivationPreference(tx, operation.Scope, connector.Key)
+		if err != nil {
+			return err
+		}
+		binding.Enabled = binding.Enabled && activationEnabled
 		if _, _, err := upsertRuntimeDesired(
-			tx, operation.Scope, connector.Key, release.ReleaseDigest, binding, nextGeneration(revision), false, operation.UpdatedAt,
+			tx, operation.Scope, connector.Key, release.ReleaseDigest, binding, activationEnabled, nextGeneration(revision), false, operation.UpdatedAt,
 		); err != nil {
 			return err
 		}
@@ -132,8 +137,12 @@ func (application *Application) prepareUninstallRuntimeDisabled(
 		binding.Enabled = false
 		now := application.config.Now().UTC()
 		revision := tx.AdvanceRevision()
+		activationEnabled, err := runtimeActivationPreference(tx, operation.Scope, connector.Key)
+		if err != nil {
+			return err
+		}
 		if _, _, err := upsertRuntimeDesired(
-			tx, operation.Scope, connector.Key, release.ReleaseDigest, binding, nextGeneration(revision), false, now,
+			tx, operation.Scope, connector.Key, release.ReleaseDigest, binding, activationEnabled, nextGeneration(revision), false, now,
 		); err != nil {
 			return err
 		}
@@ -165,6 +174,18 @@ func (application *Application) EnsureRuntimeDesired(
 	return application.ensureRuntimeDesired(ctx, scope, connectorKey, false)
 }
 
+// PlanRuntimeAfterFence advances Desired without waiting for host convergence.
+// Daemon bootstrap uses it after fail-closing routes so the background worker
+// can independently prove a fresh Observed receipt even when the fence and the
+// prior receipt were produced during the same daemon boot.
+func (application *Application) PlanRuntimeAfterFence(
+	ctx context.Context,
+	scope OperationScope,
+	connectorKey string,
+) (RuntimeConvergence, error) {
+	return application.ensureRuntimeDesired(ctx, scope, connectorKey, true)
+}
+
 func (application *Application) ensureRuntimeDesired(
 	ctx context.Context,
 	scope OperationScope,
@@ -192,7 +213,52 @@ func (application *Application) ensureRuntimeDesired(
 	if len(binding.CredentialBrokerGrant) != 0 {
 		return RuntimeConvergence{}, invalidOperationReceipt("runtime planning returned a credential grant")
 	}
-	return application.saveRuntimeDesired(ctx, scope, connectorKey, release.ReleaseDigest, binding, forceNewGeneration)
+	return application.saveRuntimeDesired(ctx, scope, connectorKey, release.ReleaseDigest, binding, forceNewGeneration, nil, nil)
+}
+
+// SetRuntimeEnabled records user activation independently from installation
+// and authorization. The resulting effective Desired is the conjunction of
+// this durable preference and the current account binding.
+func (application *Application) SetRuntimeEnabled(
+	ctx context.Context,
+	mutation ConnectorMutation,
+	enabled bool,
+) (Connector, error) {
+	if err := validateConnectorMutation(mutation); err != nil {
+		return Connector{}, err
+	}
+	mutation.Scope.AccountID = strings.TrimSpace(mutation.AccountID)
+	connector, release, err := application.runtimeConnectorAndRelease(ctx, mutation.ConnectorKey)
+	if err != nil {
+		return Connector{}, err
+	}
+	binding, err := application.resolveRuntimeBinding(ctx, Operation{
+		OperationID:  "set-runtime-enabled/" + connector.Key,
+		ConnectorKey: connector.Key,
+		Scope:        mutation.Scope,
+	}, connector, release, RuntimeBindingPurposePlan)
+	if err != nil {
+		return Connector{}, err
+	}
+	defer clear(binding.CredentialBrokerGrant)
+	if len(binding.CredentialBrokerGrant) != 0 {
+		return Connector{}, invalidOperationReceipt("runtime activation planning returned a credential grant")
+	}
+	if _, err := application.saveRuntimeDesired(
+		ctx, mutation.Scope, connector.Key, release.ReleaseDigest, binding, false, &enabled, &mutation,
+	); err != nil {
+		return Connector{}, err
+	}
+	snapshot, err := application.SnapshotForScope(ctx, mutation.Scope)
+	if err != nil {
+		return Connector{}, err
+	}
+	for _, projected := range snapshot.Connectors {
+		if projected.Key == connector.Key {
+			return projected, nil
+		}
+	}
+	return Connector{}, ErrNotFound
 }
 
 // DueRuntimeConvergences returns private, level-triggered work for the active
@@ -332,7 +398,7 @@ func (application *Application) ConvergeRuntime(
 	if !runtimeBindingMatchesDesired(binding, convergence.Desired) {
 		clear(binding.CredentialBrokerGrant)
 		_, saveErr := application.saveRuntimeDesired(
-			context.WithoutCancel(ctx), convergence.Desired.Scope, connector.Key, release.ReleaseDigest, binding, false,
+			context.WithoutCancel(ctx), convergence.Desired.Scope, connector.Key, release.ReleaseDigest, binding, false, nil, nil,
 		)
 		return saveErr
 	}
@@ -362,10 +428,22 @@ func (application *Application) ConvergeRuntime(
 		Summary:           receipt.Summary,
 		ObservedAt:        observedAt,
 	}
-	return application.config.Repository.CompleteRuntimeConvergence(
-		context.WithoutCancel(ctx), convergence.Desired.Scope, connector.Key, application.config.WorkerID,
-		convergence.LeaseToken, convergence.Desired.Generation, observed, observedAt,
-	)
+	return application.completeRuntimeConvergence(context.WithoutCancel(ctx), convergence, observed, observedAt)
+}
+
+func (application *Application) completeRuntimeConvergence(
+	ctx context.Context,
+	claimed RuntimeConvergence,
+	observed RuntimeObserved,
+	now time.Time,
+) error {
+	return application.finishRuntimeConvergence(ctx, claimed, now, func(convergence *RuntimeConvergence) {
+		convergence.Observed = observed
+		convergence.Attempt = 0
+		convergence.NextAttemptAt = time.Time{}
+		convergence.LastErrorCode = ""
+		convergence.LastError = ""
+	})
 }
 
 func (application *Application) inspectRuntimeAuthorization(
@@ -509,6 +587,8 @@ func (application *Application) saveRuntimeDesired(
 	connectorKey, releaseDigest string,
 	binding RuntimeBinding,
 	forceNewGeneration bool,
+	activationOverride *bool,
+	mutation *ConnectorMutation,
 ) (RuntimeConvergence, error) {
 	var saved RuntimeConvergence
 	err := application.config.Repository.Transaction(ctx, func(tx Transaction) error {
@@ -520,8 +600,30 @@ func (application *Application) saveRuntimeDesired(
 			connector.Installation.InstalledReleaseDigest != releaseDigest {
 			return NewDomainError(ErrorCodeRevisionConflict, "installed connector changed while planning runtime", true, nil)
 		}
+		if mutation != nil {
+			if mutation.ExpectedConnectorRevision != nil {
+				if connector.Revision != *mutation.ExpectedConnectorRevision {
+					return NewDomainError(
+						ErrorCodeRevisionConflict,
+						fmt.Sprintf("expected connector revision %d but current connector revision is %d", *mutation.ExpectedConnectorRevision, connector.Revision),
+						true,
+						nil,
+					)
+				}
+			} else if err := verifyRevision(tx, mutation.ExpectedRevision); err != nil {
+				return err
+			}
+		}
+		activationEnabled, err := runtimeActivationPreference(tx, scope, connectorKey)
+		if err != nil {
+			return err
+		}
+		if activationOverride != nil {
+			activationEnabled = *activationOverride
+		}
+		binding.Enabled = binding.Enabled && activationEnabled
 		convergence, changed, err := upsertRuntimeDesired(
-			tx, scope, connectorKey, releaseDigest, binding, nextGeneration(connector.Revision), forceNewGeneration,
+			tx, scope, connectorKey, releaseDigest, binding, activationEnabled, nextGeneration(connector.Revision), forceNewGeneration,
 			application.config.Now().UTC(),
 		)
 		if err != nil {
@@ -549,6 +651,7 @@ func upsertRuntimeDesired(
 	scope OperationScope,
 	connectorKey, releaseDigest string,
 	binding RuntimeBinding,
+	activationEnabled bool,
 	minimumGeneration uint64,
 	forceNewGeneration bool,
 	now time.Time,
@@ -564,7 +667,7 @@ func upsertRuntimeDesired(
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return RuntimeConvergence{}, false, err
 	}
-	if err == nil && !forceNewGeneration && runtimeDesiredMatchesBinding(convergence.Desired, releaseDigest, binding) {
+	if err == nil && !forceNewGeneration && runtimeDesiredMatchesBinding(convergence.Desired, releaseDigest, binding, activationEnabled) {
 		return convergence, false, nil
 	}
 	generation := maxGeneration(minimumGeneration)
@@ -579,7 +682,7 @@ func upsertRuntimeDesired(
 		convergence.LeaseToken++
 	}
 	convergence.Desired = RuntimeDesired{
-		Scope: scope, ConnectorKey: connectorKey, Generation: generation, Enabled: binding.Enabled,
+		Scope: scope, ConnectorKey: connectorKey, Generation: generation, ActivationEnabled: boolPointer(activationEnabled), Enabled: binding.Enabled,
 		ConnectionID: binding.ConnectionID, ReleaseDigest: releaseDigest, AuthorizationState: binding.AuthorizationState,
 		UpdatedAt: now,
 	}
@@ -596,13 +699,34 @@ func upsertRuntimeDesired(
 	return convergence, true, nil
 }
 
-func runtimeDesiredMatchesBinding(desired RuntimeDesired, releaseDigest string, binding RuntimeBinding) bool {
+func runtimeDesiredMatchesBinding(desired RuntimeDesired, releaseDigest string, binding RuntimeBinding, activationEnabled bool) bool {
 	return desired.ReleaseDigest == strings.TrimSpace(releaseDigest) && desired.Enabled == binding.Enabled &&
-		desired.ConnectionID == strings.TrimSpace(binding.ConnectionID) && desired.AuthorizationState == binding.AuthorizationState
+		runtimeActivationEnabled(desired) == activationEnabled && desired.ConnectionID == strings.TrimSpace(binding.ConnectionID) &&
+		desired.AuthorizationState == binding.AuthorizationState
 }
 
 func runtimeBindingMatchesDesired(binding RuntimeBinding, desired RuntimeDesired) bool {
-	return runtimeDesiredMatchesBinding(desired, desired.ReleaseDigest, binding)
+	return desired.ReleaseDigest != "" && desired.Enabled == binding.Enabled &&
+		desired.ConnectionID == strings.TrimSpace(binding.ConnectionID) && desired.AuthorizationState == binding.AuthorizationState
+}
+
+func runtimeActivationEnabled(desired RuntimeDesired) bool {
+	return desired.ActivationEnabled == nil || *desired.ActivationEnabled
+}
+
+func runtimeActivationPreference(tx Transaction, scope OperationScope, connectorKey string) (bool, error) {
+	convergence, err := tx.RuntimeConvergence(scope, connectorKey)
+	if errors.Is(err, ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return runtimeActivationEnabled(convergence.Desired), nil
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }
 
 func (application *Application) retryRuntimeConvergence(
@@ -616,15 +740,65 @@ func (application *Application) retryRuntimeConvergence(
 	if len(message) > 512 {
 		message = message[:512]
 	}
-	retryErr := application.config.Repository.RetryRuntimeConvergence(
-		context.WithoutCancel(ctx), convergence.Desired.Scope, convergence.Desired.ConnectorKey,
-		application.config.WorkerID, convergence.LeaseToken, convergence.Desired.Generation,
-		nextAttemptAt, string(errorCodeOr(cause, ErrorCodeUnavailable)), message, now,
-	)
+	retryErr := application.finishRuntimeConvergence(context.WithoutCancel(ctx), convergence, now,
+		func(current *RuntimeConvergence) {
+			current.Attempt++
+			current.NextAttemptAt = nextAttemptAt
+			current.LastErrorCode = string(errorCodeOr(cause, ErrorCodeUnavailable))
+			current.LastError = message
+		})
 	if retryErr != nil && !errors.Is(retryErr, ErrOperationLeaseLost) {
 		return errors.Join(cause, fmt.Errorf("record runtime convergence retry: %w", retryErr))
 	}
 	return cause
+}
+
+// finishRuntimeConvergence atomically commits the private lease outcome and a
+// public projection invalidation. Without this shared transaction, a runtime
+// could become ready or fail after bootstrap while the UI remained on the
+// earlier "starting" snapshot until an unrelated market event occurred.
+func (application *Application) finishRuntimeConvergence(
+	ctx context.Context,
+	claimed RuntimeConvergence,
+	now time.Time,
+	update func(*RuntimeConvergence),
+) error {
+	now = now.UTC()
+	return application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		convergence, err := tx.RuntimeConvergence(claimed.Desired.Scope, claimed.Desired.ConnectorKey)
+		if err != nil {
+			return err
+		}
+		if convergence.Desired.Generation != claimed.Desired.Generation ||
+			convergence.LeaseOwner != application.config.WorkerID ||
+			convergence.LeaseToken != claimed.LeaseToken ||
+			convergence.LeaseExpiresAt == nil || !convergence.LeaseExpiresAt.After(now) {
+			return ErrOperationLeaseLost
+		}
+		update(&convergence)
+		convergence.LeaseOwner = ""
+		convergence.LeaseExpiresAt = nil
+		convergence.UpdatedAt = now
+		connector, err := tx.Connector(claimed.Desired.ConnectorKey)
+		if err != nil {
+			return err
+		}
+		revision := tx.AdvanceRevision()
+		for revision <= connector.Revision {
+			revision = tx.AdvanceRevision()
+		}
+		connector.Revision = revision
+		if err := tx.SaveRuntimeConvergence(convergence); err != nil {
+			return err
+		}
+		if err := tx.SaveConnector(connector); err != nil {
+			return err
+		}
+		return tx.EnqueueConnectorMarketChanged(ChangedEvent{
+			ConnectorKey: connector.Key,
+			Revision:     revision,
+		})
+	})
 }
 
 func runtimeConvergenceBackoff(attempt uint32) time.Duration {

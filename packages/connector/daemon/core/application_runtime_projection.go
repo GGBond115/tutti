@@ -18,7 +18,10 @@ func (application *Application) projectConnectorRuntimes(
 		}
 		convergence, err := application.config.Repository.RuntimeConvergence(ctx, scope, connector.Key)
 		if errors.Is(err, ErrNotFound) {
-			connector.Runtime = &ConnectorRuntime{State: ConnectorRuntimeStateStopped}
+			// An installed Connector without a Desired row is legacy/bootstrap
+			// planning debt, not an explicit user-disabled state. Project it as
+			// starting while the independent planner creates durable intent.
+			connector.Runtime = &ConnectorRuntime{State: ConnectorRuntimeStateStarting}
 			continue
 		}
 		if err != nil {

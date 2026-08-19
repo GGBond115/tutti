@@ -46,12 +46,76 @@ func TestEnsureRuntimeDesiredIsLevelTriggeredAndConvergesObservedState(t *testin
 	if runtime.reconciles != 1 || runtime.lastReconcile.Generation.Generation != first.Desired.Generation {
 		t.Fatalf("runtime reconciles = %d, request = %#v", runtime.reconciles, runtime.lastReconcile)
 	}
+	if repository.revision != 2 || len(repository.events) != 2 ||
+		repository.events[1].ConnectorKey != connector.Key || repository.events[1].Revision != 2 {
+		t.Fatalf("completion projection events = %#v, revision = %d", repository.events, repository.revision)
+	}
 	due, err := application.DueRuntimeConvergences(context.Background(), OperationScope{}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(due) != 0 {
 		t.Fatalf("converged runtime remained due: %#v", due)
+	}
+}
+
+func TestSetRuntimeEnabledPersistsActivationAcrossReplanning(t *testing.T) {
+	connector := testConnector("github")
+	connector.Installation = Installation{
+		State:                  InstallationStateInstalled,
+		InstalledVersion:       connector.Release.Version,
+		InstalledReleaseID:     connector.Release.ReleaseID,
+		InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	repository := newMemoryRepository(connector)
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	if _, err := application.EnsureRuntimeDesired(context.Background(), OperationScope{}, connector.Key); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := application.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := application.SetRuntimeEnabled(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "disable-github", ExpectedRevision: snapshot.Revision},
+		ConnectorKey: connector.Key,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Runtime == nil || disabled.Runtime.State != ConnectorRuntimeStateStopped {
+		t.Fatalf("disabled runtime projection = %#v", disabled.Runtime)
+	}
+	stored, err := repository.RuntimeConvergence(context.Background(), OperationScope{}, connector.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Desired.ActivationEnabled == nil || *stored.Desired.ActivationEnabled || stored.Desired.Enabled {
+		t.Fatalf("disabled desired = %#v", stored.Desired)
+	}
+	if _, err := application.PlanRuntimeAfterFence(context.Background(), OperationScope{}, connector.Key); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = repository.RuntimeConvergence(context.Background(), OperationScope{}, connector.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeActivationEnabled(stored.Desired) || stored.Desired.Enabled {
+		t.Fatalf("replanned desired lost activation preference: %#v", stored.Desired)
+	}
+	snapshot, err = application.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled, err := application.SetRuntimeEnabled(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "enable-github", ExpectedRevision: snapshot.Revision},
+		ConnectorKey: connector.Key,
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabled.Runtime == nil || enabled.Runtime.State != ConnectorRuntimeStateStarting {
+		t.Fatalf("enabled runtime projection = %#v", enabled.Runtime)
 	}
 }
 
@@ -80,6 +144,10 @@ func TestRuntimeConvergenceFailureRemainsRetryableDebt(t *testing.T) {
 	if stored.Attempt != 1 || stored.Observed.DesiredGeneration != 0 || stored.LastErrorCode != string(ErrorCodeInstallFailed) ||
 		!stored.NextAttemptAt.After(application.config.Now()) {
 		t.Fatalf("retryable convergence = %#v", stored)
+	}
+	if repository.revision != 2 || len(repository.events) != 2 ||
+		repository.events[1].ConnectorKey != connector.Key || repository.events[1].Revision != 2 {
+		t.Fatalf("failure projection events = %#v, revision = %d", repository.events, repository.revision)
 	}
 }
 

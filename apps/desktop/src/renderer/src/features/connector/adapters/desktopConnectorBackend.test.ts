@@ -114,6 +114,48 @@ test("desktop connector market backend delegates uninstall idempotency fields", 
   ]);
 });
 
+test("desktop connector market backend delegates runtime activation", async () => {
+  const calls: unknown[] = [];
+  const projected = { key: "notion", revision: 11 };
+  const client = {
+    async updateConnectorMarketConnectorRuntime(
+      connectorKey: string,
+      request: {
+        clientRequestId: string;
+        expectedRevision: number;
+        expectedConnectorRevision?: number;
+        enabled: boolean;
+      }
+    ) {
+      calls.push({ connectorKey, request });
+      return projected;
+    }
+  } as ConnectorMarketClient;
+
+  const backend = createDesktopConnectorMarketBackend(client);
+  assert.equal(
+    await backend.updateConnectorRuntime({
+      connectorKey: "notion",
+      clientRequestId: "runtime-1",
+      expectedRevision: 10,
+      expectedConnectorRevision: 9,
+      enabled: false
+    }),
+    projected
+  );
+  assert.deepEqual(calls, [
+    {
+      connectorKey: "notion",
+      request: {
+        clientRequestId: "runtime-1",
+        expectedRevision: 10,
+        expectedConnectorRevision: 9,
+        enabled: false
+      }
+    }
+  ]);
+});
+
 test("desktop connector market backend delegates authorization cancellation", async () => {
   const calls: string[] = [];
   const client = {

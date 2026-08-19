@@ -6792,6 +6792,14 @@ type ConnectorMarketRuntime struct {
 // ConnectorMarketRuntimeState defines model for ConnectorMarketRuntime.State.
 type ConnectorMarketRuntimeState string
 
+// ConnectorMarketRuntimeMutationRequest defines model for ConnectorMarketRuntimeMutationRequest.
+type ConnectorMarketRuntimeMutationRequest struct {
+	ClientRequestId           string `json:"clientRequestId"`
+	Enabled                   bool   `json:"enabled"`
+	ExpectedConnectorRevision *int64 `json:"expectedConnectorRevision,omitempty"`
+	ExpectedRevision          int64  `json:"expectedRevision"`
+}
+
 // ConnectorMarketSnapshot defines model for ConnectorMarketSnapshot.
 type ConnectorMarketSnapshot struct {
 	CatalogState   ConnectorMarketCatalogState `json:"catalogState"`
@@ -11101,6 +11109,9 @@ type DisconnectConnectorMarketAuthorizationJSONRequestBody = ConnectorMarketMuta
 
 // StartConnectorMarketAuthorizationJSONRequestBody defines body for StartConnectorMarketAuthorization for application/json ContentType.
 type StartConnectorMarketAuthorizationJSONRequestBody = ConnectorMarketAuthorizationRequest
+
+// UpdateConnectorMarketConnectorRuntimeJSONRequestBody defines body for UpdateConnectorMarketConnectorRuntime for application/json ContentType.
+type UpdateConnectorMarketConnectorRuntimeJSONRequestBody = ConnectorMarketRuntimeMutationRequest
 
 // InstallConnectorMarketConnectorJSONRequestBody defines body for InstallConnectorMarketConnector for application/json ContentType.
 type InstallConnectorMarketConnectorJSONRequestBody = ConnectorMarketMutationRequest

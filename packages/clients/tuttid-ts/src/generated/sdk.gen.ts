@@ -742,6 +742,9 @@ import type {
   UpdateAutomationRuleData,
   UpdateAutomationRuleErrors,
   UpdateAutomationRuleResponses,
+  UpdateConnectorMarketConnectorRuntimeData,
+  UpdateConnectorMarketConnectorRuntimeErrors,
+  UpdateConnectorMarketConnectorRuntimeResponses,
   UpdateModelPlanData,
   UpdateModelPlanErrors,
   UpdateModelPlanResponses,
@@ -5732,6 +5735,30 @@ export const uninstallConnectorMarketConnector = <
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/connector-market/connectors/{connectorKey}:uninstall",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Enable or disable an installed connector runtime
+ *
+ * Persists user activation independently from installation and account authorization. Disabling retires runtime routes without removing local files or authorization; enabling converges the installed release when authorization is ready.
+ */
+export const updateConnectorMarketConnectorRuntime = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<UpdateConnectorMarketConnectorRuntimeData, ThrowOnError>
+) =>
+  (options.client ?? client).put<
+    UpdateConnectorMarketConnectorRuntimeResponses,
+    UpdateConnectorMarketConnectorRuntimeErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/connector-market/connectors/{connectorKey}/runtime",
     ...options,
     headers: {
       "Content-Type": "application/json",

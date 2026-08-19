@@ -436,7 +436,7 @@ export interface AgentComposerProps {
   capabilityControlsReadOnly?: boolean;
   onCapabilitySettingsRequest?: (
     capability: AgentComposerCapabilitySettingsTarget
-  ) => void;
+  ) => void | Promise<void>;
   onSlashStatusOpen?: () => void;
   onSlashStatusClose?: () => void;
   onSlashStatusRefresh?: () => void;
@@ -492,6 +492,12 @@ export type AgentComposerCapabilitySettingsTarget =
       kind: "connector";
       connectorKey: string;
       action?: "open";
+    }
+  | {
+      kind: "connector";
+      connectorKey: string;
+      action: "set_runtime_enabled";
+      enabled: boolean;
     };
 
 export interface AgentComposerCapabilityMenuState {

@@ -276,6 +276,7 @@ function backendWith(
     installConnector: unsupported,
     refreshCatalog: unsupported,
     uninstallConnector: unsupported,
+    updateConnectorRuntime: unsupported,
     ...overrides
   };
 }

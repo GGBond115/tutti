@@ -280,6 +280,39 @@ describe("ConnectorComposerMenu", () => {
     ).not.toBeChecked();
   });
 
+  it("toggles installed runtime in place without selecting or closing the menu", async () => {
+    const onRuntimeEnabledChange = vi.fn();
+    const onSelectConnector = vi.fn();
+    render(
+      <ConnectorComposerMenu
+        items={[connector("github", "connected")]}
+        disabled={false}
+        labels={labels}
+        onOpenConnector={vi.fn()}
+        onOpenMarket={vi.fn()}
+        onRuntimeEnabledChange={onRuntimeEnabledChange}
+        onSelectConnector={onSelectConnector}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Connectors" }), {
+      button: 0,
+      ctrlKey: false
+    });
+    const toggle = await screen.findByTestId(
+      "connector-market-composer-status-github"
+    );
+    fireEvent.click(toggle);
+
+    expect(onRuntimeEnabledChange).toHaveBeenCalledWith("github", false);
+    expect(onSelectConnector).not.toHaveBeenCalled();
+    expect(toggle).not.toBeChecked();
+    expect(
+      screen.getByTestId("connector-market-composer-item-github")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menu")).toHaveClass("w-[240px]");
+  });
+
   it("limits the quick connector projection to ten catalog entries", async () => {
     const connectors = Array.from({ length: 12 }, (_, index) =>
       connector(`connector-${index}`, "setup_required")

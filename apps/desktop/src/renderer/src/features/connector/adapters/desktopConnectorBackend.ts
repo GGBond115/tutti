@@ -29,6 +29,12 @@ export function createDesktopConnectorMarketBackend(
     uninstallConnector({ connectorKey, ...request }) {
       return client.uninstallConnectorMarketConnector(connectorKey, request);
     },
+    updateConnectorRuntime({ connectorKey, ...request }) {
+      return client.updateConnectorMarketConnectorRuntime(
+        connectorKey,
+        request
+      );
+    },
     beginAuthorization({ connectorKey, ...request }) {
       return client.startConnectorMarketAuthorization(connectorKey, request);
     },

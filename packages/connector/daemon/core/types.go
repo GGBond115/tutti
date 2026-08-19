@@ -497,9 +497,12 @@ type RuntimeReadiness struct {
 // account scope and Connector. Generation belongs to this convergence stream;
 // it must not reuse the catalog or public event revision.
 type RuntimeDesired struct {
-	Scope              OperationScope     `json:"scope,omitempty"`
-	ConnectorKey       string             `json:"connectorKey"`
-	Generation         uint64             `json:"generation"`
+	Scope        OperationScope `json:"scope,omitempty"`
+	ConnectorKey string         `json:"connectorKey"`
+	Generation   uint64         `json:"generation"`
+	// ActivationEnabled is the durable user intent for an installed Connector.
+	// Nil preserves the pre-activation-control behavior and therefore means on.
+	ActivationEnabled  *bool              `json:"activationEnabled,omitempty"`
 	Enabled            bool               `json:"enabled"`
 	ConnectionID       string             `json:"connectionId"`
 	ReleaseDigest      string             `json:"releaseDigest"`

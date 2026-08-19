@@ -202,7 +202,7 @@ export interface AgentGUINodeHostActions {
   }) => void | Promise<void>;
   onCapabilitySettingsRequest?: (
     capability: AgentComposerCapabilitySettingsTarget
-  ) => void;
+  ) => void | Promise<void>;
   onAgentProviderLogin?: (provider: AgentGUIProvider) => void;
   onAgentEnvPanelOpen?: (input?: OpenAgentEnvPanelInput) => void;
   /**

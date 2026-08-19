@@ -7,6 +7,7 @@ import type {
   ConnectorMarketMutationInput,
   ConnectorMarketSnapshot,
   ConnectorMutationInput,
+  ConnectorRuntimeMutationInput,
   ConnectorMutationResult,
   ConnectorOperation
 } from "./domain.ts";
@@ -31,6 +32,9 @@ export interface ConnectorMarketBackend {
   uninstallConnector(
     input: ConnectorMutationInput
   ): Promise<ConnectorMutationResult>;
+  updateConnectorRuntime(
+    input: ConnectorRuntimeMutationInput
+  ): Promise<Connector>;
   beginAuthorization(
     input: ConnectorAuthorizationInput
   ): Promise<ConnectorAuthorizationResult>;

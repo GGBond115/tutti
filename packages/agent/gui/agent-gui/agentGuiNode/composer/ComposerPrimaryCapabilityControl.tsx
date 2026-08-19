@@ -81,6 +81,17 @@ export function ComposerPrimaryCapabilityControl({
                 pane: "connectors"
               })
       }
+      onRuntimeEnabledChange={
+        connectorsReadOnly || !onCapabilitySettingsRequest
+          ? undefined
+          : (connectorKey, enabled) =>
+              onCapabilitySettingsRequest({
+                kind: "connector",
+                connectorKey,
+                action: "set_runtime_enabled",
+                enabled
+              })
+      }
       onSelectConnector={connectorsReadOnly ? undefined : onConnectorSelected}
       readOnly={connectorsReadOnly}
     />

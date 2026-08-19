@@ -53,6 +53,7 @@ type Host struct {
 	runtimeRecoveryDone        chan struct{}
 	runtimeRecoveryWake        chan struct{}
 	runtimeConvergenceDone     chan struct{}
+	runtimeConvergenceWake     chan struct{}
 	operationRecoveryDone      chan struct{}
 	closeOnce                  sync.Once
 	bootstrapMu                sync.Mutex
@@ -121,6 +122,7 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 		runtimeRecoveryDone:     make(chan struct{}),
 		runtimeRecoveryWake:     make(chan struct{}, 1),
 		runtimeConvergenceDone:  make(chan struct{}),
+		runtimeConvergenceWake:  make(chan struct{}, 1),
 		operationRecoveryDone:   make(chan struct{}),
 		repository:              config.Repository,
 		implementationHost:      config.ImplementationHost,
@@ -248,11 +250,14 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	if host == nil || host.Application == nil {
 		return errors.New("connector market host is unavailable")
 	}
+	bootstrapStartedAt := time.Now()
 	host.bootstrapMu.Lock()
 	defer host.bootstrapMu.Unlock()
 	sameScope := host.bootstrapScope == scope
 	if host.bootstrapped && sameScope && !host.activationGate.requiresRecovery() {
-		return host.reconcilePendingRuntimesLocked(ctx, scope)
+		host.notifyRuntimeRecovery()
+		host.notifyRuntimeConvergence()
+		return nil
 	}
 	host.bootstrapScope = scope
 	host.runtimeRecoveryPending = make(map[string]struct{})
@@ -297,42 +302,34 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	if err := host.recoverAndWait(ctx); err != nil {
 		return err
 	}
-	if err := host.Application.CalibrateInstalledConnectorsForScope(ctx, scope); err != nil {
-		// A timeout or other indeterminate probe must preserve durable truth. The
-		// following runtime reconcile remains authoritative and may still recover.
-		slog.Warn("connector installation calibration was indeterminate", "error", err)
+	installedConnectorKeys, err := host.Application.InstallationCalibrationConnectorKeys(ctx)
+	if err != nil {
+		return err
 	}
-	if strings.TrimSpace(scope.AccountID) != "" {
-		if _, err := host.syncAuthorizationSnapshot(ctx, scope); err != nil {
-			// Account authorization is fail-closed independently. Device-local
-			// authorization-free connectors can still recover while a later WS or
-			// poll retries the authoritative snapshot.
-			slog.Warn("connector authorization snapshot unavailable during bootstrap", "error", err)
-		} else if host.authorizationReadiness != nil {
-			host.authorizationReadiness.SetReady(scope.AccountID, true)
-		}
+	for _, connectorKey := range installedConnectorKeys {
+		host.runtimeRecoveryPending[connectorKey] = struct{}{}
 	}
+	// Global bootstrap ends once stale authority is fenced and durable work is
+	// safe to resume. Connector-local planning, runtime convergence, physical
+	// installation calibration, and account authorization refresh continue on
+	// independent workers after publication opens. Remote authorized routes
+	// remain fail-closed behind AuthorizationReadiness until their fresh account
+	// snapshot is applied.
 	host.activationGate.setOpen(scope, true)
-	reconcileErr := host.Application.ReconcileInstalledRuntimesForScope(ctx, scope)
-	var reconcileFailures *market.RuntimeReconcileFailures
-	if reconcileErr != nil && !errors.As(reconcileErr, &reconcileFailures) {
-		return reconcileErr
-	}
-	if reconcileFailures != nil {
-		for _, connectorKey := range reconcileFailures.ConnectorKeys() {
-			host.runtimeRecoveryPending[connectorKey] = struct{}{}
-		}
-		host.notifyRuntimeRecovery()
-	}
 	if err := host.applyCapabilityPublication(ctx, scope, true); err != nil {
 		return err
 	}
 	host.activationGate.markRecovered()
 	host.bootstrapped = true
 	committed = true
-	if reconcileFailures != nil {
-		slog.Warn("connector market bootstrap completed with unavailable connectors", "error", reconcileFailures)
+	host.notifyRuntimeRecovery()
+	if strings.TrimSpace(scope.AccountID) != "" {
+		host.NotifyAuthorizationChanged()
 	}
+	slog.Info("connector market bootstrap committed",
+		"accountScoped", strings.TrimSpace(scope.AccountID) != "",
+		"connectorRecoveryCount", len(installedConnectorKeys),
+		"durationMs", time.Since(bootstrapStartedAt).Milliseconds())
 	return nil
 }
 

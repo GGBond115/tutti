@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -28,14 +29,26 @@ func (host *Host) runRuntimeConvergenceWorker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-host.runtimeConvergenceWake:
 		case <-ticker.C:
 		}
+	}
+}
+
+func (host *Host) notifyRuntimeConvergence() {
+	select {
+	case host.runtimeConvergenceWake <- struct{}{}:
+	default:
 	}
 }
 
 func (host *Host) convergeDueRuntimes(ctx context.Context) error {
 	host.bootstrapMu.Lock()
 	bootstrapped, scope := host.bootstrapped, host.bootstrapScope
+	planning := make(map[string]struct{}, len(host.runtimeRecoveryPending))
+	for connectorKey := range host.runtimeRecoveryPending {
+		planning[connectorKey] = struct{}{}
+	}
 	host.bootstrapMu.Unlock()
 	if !bootstrapped {
 		return nil
@@ -49,6 +62,9 @@ func (host *Host) convergeDueRuntimes(ctx context.Context) error {
 	var wait sync.WaitGroup
 	for _, convergence := range due {
 		connectorKey := convergence.Desired.ConnectorKey
+		if _, pending := planning[connectorKey]; pending {
+			continue
+		}
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
@@ -63,7 +79,7 @@ func (host *Host) convergeDueRuntimes(ctx context.Context) error {
 			err := host.Application.ConvergeRuntime(convergeContext, scope, connectorKey)
 			cancel()
 			if err != nil && !errors.Is(err, context.Canceled) {
-				errorsFound <- err
+				errorsFound <- fmt.Errorf("%s: %w", connectorKey, err)
 			}
 		}()
 	}

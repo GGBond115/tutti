@@ -84,6 +84,7 @@ function backendWith(
     refreshCatalog: unsupported,
     installConnector: unsupported,
     uninstallConnector: unsupported,
+    updateConnectorRuntime: unsupported,
     beginAuthorization: unsupported,
     cancelAuthorization: unsupported,
     disconnectAuthorization: unsupported,
@@ -102,6 +103,48 @@ test("exposes commands directly on a class service and state through dataStore",
 
   assert.deepEqual(service.dataStore.connectorKeys, ["github"]);
   assert.equal(service.dataStore.loadState, "ready");
+  service.dispose();
+});
+
+test("persists runtime activation and applies the accepted connector projection", async () => {
+  const installed = connector("github", 1);
+  installed.installation = {
+    state: "installed",
+    installedReleaseDigest: installed.release.releaseDigest
+  };
+  installed.runtime = { state: "started" };
+  let received:
+    | Parameters<ConnectorMarketBackend["updateConnectorRuntime"]>[0]
+    | undefined;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, [installed]),
+      updateConnectorRuntime: async (input) => {
+        received = input;
+        return {
+          ...installed,
+          revision: 2,
+          runtime: { state: "stopped" }
+        };
+      }
+    }),
+    createRequestId: () => "runtime-request-1"
+  });
+
+  await service.ensureLoaded();
+  await service.setRuntimeEnabled("github", false);
+
+  assert.deepEqual(received, {
+    clientRequestId: "runtime-request-1",
+    connectorKey: "github",
+    enabled: false,
+    expectedConnectorRevision: 1,
+    expectedRevision: 1
+  });
+  assert.equal(
+    service.dataStore.connectorsByKey.github?.runtime?.state,
+    "stopped"
+  );
   service.dispose();
 });
 

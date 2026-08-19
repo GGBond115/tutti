@@ -66,6 +66,48 @@ describe("ComposerPrimaryCapabilityControl", () => {
     ).toHaveTextContent("Loading connectors…");
   });
 
+  it("routes the runtime switch to the host instead of draft selection", () => {
+    const onCapabilitySettingsRequest = vi.fn();
+    const onConnectorSelected = vi.fn();
+    render(
+      <ComposerPrimaryCapabilityControl
+        availableSkills={[
+          {
+            connectorKey: "github",
+            kind: "connector",
+            name: "GitHub",
+            sourceKind: "connector",
+            status: "available",
+            trigger: "/github"
+          }
+        ]}
+        connectorsVisible
+        disabled={false}
+        labels={labels}
+        loading={false}
+        onCapabilitySettingsRequest={onCapabilitySettingsRequest}
+        onConnectorSelected={onConnectorSelected}
+        selectedConnectorKeys={[]}
+      />
+    );
+
+    fireEvent.pointerDown(
+      screen.getByTestId("connector-market-composer-trigger"),
+      { button: 0, ctrlKey: false, pointerType: "mouse" }
+    );
+    fireEvent.click(
+      screen.getByTestId("connector-market-composer-status-github")
+    );
+
+    expect(onCapabilitySettingsRequest).toHaveBeenCalledWith({
+      kind: "connector",
+      connectorKey: "github",
+      action: "set_runtime_enabled",
+      enabled: false
+    });
+    expect(onConnectorSelected).not.toHaveBeenCalled();
+  });
+
   it("keeps a shared connector catalog inspectable without mutation or management actions", () => {
     const onCapabilitySettingsRequest = vi.fn();
     const onConnectorSelected = vi.fn();

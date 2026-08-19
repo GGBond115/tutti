@@ -83,7 +83,15 @@ func TestRuntimeConvergenceWorkerAppliesDurableDesiredState(t *testing.T) {
 	if err := scheduler.Bind(application); err != nil {
 		t.Fatal(err)
 	}
-	host := &Host{Application: application, bootstrapped: true}
+	host := &Host{Application: application, bootstrapped: true,
+		runtimeRecoveryPending: map[string]struct{}{connector.Key: {}}}
+	if err := host.convergeDueRuntimes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.reconciles != 0 {
+		t.Fatalf("runtime converged before post-fence planning completed: %d", runtime.reconciles)
+	}
+	delete(host.runtimeRecoveryPending, connector.Key)
 	if err := host.convergeDueRuntimes(ctx); err != nil {
 		t.Fatal(err)
 	}

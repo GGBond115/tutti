@@ -83,6 +83,7 @@ export interface IConnectorMarketService {
   loadMore(sectionId: string): Promise<void>;
   install(connectorKey: string): Promise<ConnectorInstallOutcome>;
   uninstall(connectorKey: string): Promise<ConnectorOperation>;
+  setRuntimeEnabled(connectorKey: string, enabled: boolean): Promise<void>;
   dismissUninstallNotification(operationId: string): void;
   beginAuthorization(connectorKey: string, secret?: string): Promise<void>;
   cancelAuthorization(connectorKey: string): Promise<void>;

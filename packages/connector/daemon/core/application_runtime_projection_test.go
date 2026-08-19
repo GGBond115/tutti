@@ -22,6 +22,21 @@ func TestApplicationSnapshotProjectsInstalledRuntime(t *testing.T) {
 	}
 }
 
+func TestApplicationSnapshotProjectsUnplannedInstalledRuntimeAsStarting(t *testing.T) {
+	connector := testManagedAuthorizedConnector("github")
+	repository := newMemoryRepository(connector)
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+
+	snapshot, err := application.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Connectors) != 1 || snapshot.Connectors[0].Runtime == nil ||
+		snapshot.Connectors[0].Runtime.State != ConnectorRuntimeStateStarting {
+		t.Fatalf("runtime projection = %#v, want starting", snapshot.Connectors)
+	}
+}
+
 func TestConnectorRuntimeProjectionUsesCurrentObservedReadiness(t *testing.T) {
 	tests := []struct {
 		name        string

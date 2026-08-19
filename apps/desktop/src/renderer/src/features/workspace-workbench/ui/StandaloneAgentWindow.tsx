@@ -700,6 +700,12 @@ export function StandaloneAgentWindow({
         if (!isFeatureEnabled(featureFlags, LAB_CONNECTORS_FLAG)) {
           return;
         }
+        if (target.action === "set_runtime_enabled") {
+          return connectorMarketModule.root.market.setRuntimeEnabled(
+            target.connectorKey,
+            target.enabled
+          );
+        }
         if (target.action === "open") {
           void openConnectorMarketDialog(
             connectorMarketModule.root,

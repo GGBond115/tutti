@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 )
 
 type activationGateDelegate struct {
+	mu                      sync.Mutex
 	reconciles              int
 	reconcileFailures       int
 	installationInspections int
@@ -26,6 +28,8 @@ func (delegate *activationGateDelegate) InspectReleaseInstallation(
 	_ context.Context,
 	request market.InspectReleaseInstallationRequest,
 ) (market.ReleaseInstallationObservation, error) {
+	delegate.mu.Lock()
+	defer delegate.mu.Unlock()
 	delegate.installationInspections++
 	state := delegate.installationState
 	if state == "" {
@@ -46,6 +50,8 @@ func (*activationGateDelegate) UninstallRelease(context.Context, market.Uninstal
 }
 
 func (delegate *activationGateDelegate) Reconcile(_ context.Context, request market.RuntimeReconcileRequest) (market.RuntimeReceipt, error) {
+	delegate.mu.Lock()
+	defer delegate.mu.Unlock()
 	delegate.reconciles++
 	delegate.lastReconcile = request
 	if delegate.reconcileFailures > 0 {
@@ -83,12 +89,43 @@ func (connectedAuthorizationObserver) Observe(_ context.Context, request market.
 	}, nil
 }
 func (delegate *activationGateDelegate) DeactivateRuntime(context.Context, market.RuntimeDeactivationRequest) error {
+	delegate.mu.Lock()
+	defer delegate.mu.Unlock()
 	delegate.deactivations++
 	return nil
 }
 func (delegate *activationGateDelegate) FailClosed(context.Context, time.Time) error {
+	delegate.mu.Lock()
+	defer delegate.mu.Unlock()
 	delegate.failClosed++
 	return nil
+}
+
+func (delegate *activationGateDelegate) runtimeSnapshot() (int, int, market.RuntimeReconcileRequest) {
+	delegate.mu.Lock()
+	defer delegate.mu.Unlock()
+	return delegate.reconciles, delegate.installationInspections, delegate.lastReconcile
+}
+
+func (delegate *activationGateDelegate) setInstallationState(state market.ReleaseInstallationObservationState) {
+	delegate.mu.Lock()
+	defer delegate.mu.Unlock()
+	delegate.installationState = state
+}
+
+func waitForRuntimeReconciles(t *testing.T, delegate *activationGateDelegate, want int) market.RuntimeReconcileRequest {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		reconciles, _, request := delegate.runtimeSnapshot()
+		if reconciles >= want {
+			return request
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("runtime reconciles = %d, want at least %d", reconciles, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestActivationGateStagesRecoveryUntilInitialCatalogRefresh(t *testing.T) {
@@ -174,6 +211,136 @@ type recordingPublicationController struct {
 func (controller *recordingPublicationController) ApplyCapabilityPublication(_ context.Context, _ market.OperationScope, enabled bool) error {
 	controller.values = append(controller.values, enabled)
 	return nil
+}
+
+type selectivelyBlockingDelegate struct {
+	activationGateDelegate
+	blockedConnectorKey string
+	inspectionStarted   chan struct{}
+	unblockInspection   chan struct{}
+	inspectionStartOnce sync.Once
+}
+
+func (delegate *selectivelyBlockingDelegate) InspectReleaseInstallation(
+	ctx context.Context,
+	request market.InspectReleaseInstallationRequest,
+) (market.ReleaseInstallationObservation, error) {
+	if request.Release.ConnectorKey == delegate.blockedConnectorKey {
+		delegate.inspectionStartOnce.Do(func() { close(delegate.inspectionStarted) })
+		select {
+		case <-ctx.Done():
+			return market.ReleaseInstallationObservation{}, ctx.Err()
+		case <-delegate.unblockInspection:
+		}
+	}
+	return delegate.activationGateDelegate.InspectReleaseInstallation(ctx, request)
+}
+
+func seedInstalledConnector(t *testing.T, store *marketdata.Store, release market.Release) {
+	t.Helper()
+	connector := market.Connector{
+		Key: release.ConnectorKey, Release: release,
+		Installation: market.Installation{
+			State: market.InstallationStateInstalled, InstalledVersion: release.Version,
+			InstalledReleaseID: release.ReleaseID, InstalledReleaseDigest: release.ReleaseDigest,
+		},
+		Authorization: market.Authorization{State: market.AuthorizationStateNotRequired},
+		Compatibility: market.Compatibility{State: market.CompatibilityStateSupported},
+	}
+	operation := market.Operation{
+		OperationID: "install-" + connector.Key, ClientRequestID: "install-request-" + connector.Key,
+		ConnectorKey: connector.Key, Kind: market.OperationKindInstall,
+		State: market.OperationStateCompleted, Stage: market.OperationStageCompleted,
+		Target: &market.OperationTarget{
+			ConnectorKey: connector.Key, Version: release.Version, ReleaseID: release.ReleaseID,
+			ReleaseDigest: release.ReleaseDigest, ArtifactSHA256: release.Artifact.SHA256, Release: &release,
+		},
+		CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
+	}
+	if err := store.Transaction(t.Context(), func(tx market.Transaction) error {
+		connector.Revision = tx.AdvanceRevision()
+		if err := tx.SaveConnector(connector); err != nil {
+			return err
+		}
+		return tx.SaveOperation(operation)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBootstrapDoesNotWaitForSlowConnectorRecovery(t *testing.T) {
+	ctx := context.Background()
+	store, err := marketdata.Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	fastRelease := hostTestRelease()
+	fastRelease.ConnectorKey = "fast"
+	fastRelease.ReleaseID = "fast@1.0.0"
+	fastRelease.ReleaseDigest = strings.Repeat("d", 64)
+	fastRelease.ManifestDigest = strings.Repeat("e", 64)
+	slowRelease := hostTestRelease()
+	slowRelease.ConnectorKey = "slow"
+	slowRelease.ReleaseID = "slow@1.0.0"
+	slowRelease.ReleaseDigest = strings.Repeat("f", 64)
+	slowRelease.ManifestDigest = strings.Repeat("1", 64)
+	seedInstalledConnector(t, store, fastRelease)
+	seedInstalledConnector(t, store, slowRelease)
+
+	runtime := &selectivelyBlockingDelegate{
+		blockedConnectorKey: "slow", inspectionStarted: make(chan struct{}), unblockInspection: make(chan struct{}),
+	}
+	publication := &recordingPublicationController{}
+	host, err := NewHost(ctx, HostConfig{
+		Repository: store, CatalogSource: &countingCatalogSource{release: fastRelease},
+		ReleaseInstallations: runtime, ImplementationHost: runtime,
+		RuntimeBindings: runtimeBindingResolverFunc(func(_ context.Context, request market.RuntimeBindingRequest) (market.RuntimeBinding, error) {
+			return market.RuntimeBinding{ConnectionID: "device-" + request.Connector.Key, Enabled: true,
+				AuthorizationState: market.AuthorizationStateNotRequired}, nil
+		}),
+		Authorization: unavailableAuthorization{}, Compatibility: rejectingCompatibility{},
+		ImplementationRegistry: market.NewImplementationRegistry(nil), Outbox: store, Lifecycle: store,
+		Publisher: discardChangedEventPublisher{}, Publication: publication,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.refreshWorkerStarted = true
+	var unblockOnce sync.Once
+	unblock := func() { unblockOnce.Do(func() { close(runtime.unblockInspection) }) }
+	t.Cleanup(func() {
+		unblock()
+		host.Close()
+	})
+
+	startedAt := time.Now()
+	if err := host.Bootstrap(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
+		t.Fatalf("bootstrap waited for Connector-local recovery: %s", elapsed)
+	}
+	if len(publication.values) == 0 || !publication.values[len(publication.values)-1] {
+		t.Fatalf("publication transitions = %#v, want open", publication.values)
+	}
+	select {
+	case <-runtime.inspectionStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("slow Connector calibration did not start")
+	}
+	last := waitForRuntimeReconciles(t, &runtime.activationGateDelegate, 1)
+	if last.Connector.Key != "fast" {
+		t.Fatalf("first independently recovered Connector = %q, want fast", last.Connector.Key)
+	}
+	host.bootstrapMu.Lock()
+	_, fastPending := host.runtimeRecoveryPending["fast"]
+	_, slowPending := host.runtimeRecoveryPending["slow"]
+	host.bootstrapMu.Unlock()
+	if fastPending || !slowPending {
+		t.Fatalf("Connector-local planning pending fast=%v slow=%v", fastPending, slowPending)
+	}
+	unblock()
 }
 
 func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T) {
@@ -273,33 +440,39 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 	if err := host.Bootstrap(ctx); err != nil {
 		t.Fatalf("partial bootstrap failed: %v", err)
 	}
-	if len(host.runtimeRecoveryPending) != 1 || len(publication.values) == 0 || !publication.values[len(publication.values)-1] {
-		t.Fatalf("partial bootstrap pending=%#v publication=%#v", host.runtimeRecoveryPending, publication.values)
+	if len(publication.values) == 0 || !publication.values[len(publication.values)-1] {
+		t.Fatalf("bootstrap publication=%#v, want open before runtime convergence", publication.values)
 	}
+	waitForRuntimeReconciles(t, runtime, 2)
 	if err := host.Bootstrap(ctx); err != nil {
 		t.Fatalf("degraded runtime recovery failed: %v", err)
 	}
-	if source.refreshes != 0 || runtime.reconciles != 2 {
-		t.Fatalf("bootstrap refreshes=%d reconciles=%d, want 0 and 2", source.refreshes, runtime.reconciles)
+	reconciles, _, _ := runtime.runtimeSnapshot()
+	if source.refreshes != 0 || reconciles != 2 {
+		t.Fatalf("bootstrap refreshes=%d reconciles=%d, want 0 and 2", source.refreshes, reconciles)
 	}
 	if err := host.BootstrapForScope(ctx, market.OperationScope{AccountID: "account-1"}); err != nil {
 		t.Fatalf("account bootstrap failed: %v", err)
 	}
-	if runtime.reconciles != 3 || runtime.lastReconcile.ConnectionID != "account-account-1" {
-		t.Fatalf("account reconcile = %#v, count = %d", runtime.lastReconcile, runtime.reconciles)
+	lastReconcile := waitForRuntimeReconciles(t, runtime, 3)
+	reconciles, _, _ = runtime.runtimeSnapshot()
+	if lastReconcile.ConnectionID != "account-account-1" {
+		t.Fatalf("account reconcile = %#v, count = %d", lastReconcile, reconciles)
 	}
 	if err := host.BootstrapForScope(ctx, market.OperationScope{AccountID: "account-1"}); err != nil {
 		t.Fatalf("idempotent account bootstrap failed: %v", err)
 	}
-	if runtime.reconciles != 3 {
-		t.Fatalf("unchanged account scope reconciled %d times", runtime.reconciles)
+	reconciles, _, _ = runtime.runtimeSnapshot()
+	if reconciles != 3 {
+		t.Fatalf("unchanged account scope reconciled %d times", reconciles)
 	}
 	accountScope := market.OperationScope{AccountID: "account-1"}
 	if err := host.ReconcileRuntimeForScope(ctx, accountScope, connector.Key); err != nil {
 		t.Fatalf("observed runtime repair failed: %v", err)
 	}
-	if runtime.reconciles != 4 {
-		t.Fatalf("observed runtime repair reconciles = %d, want 4", runtime.reconciles)
+	reconciles, _, _ = runtime.runtimeSnapshot()
+	if reconciles != 4 {
+		t.Fatalf("observed runtime repair reconciles = %d, want 4", reconciles)
 	}
 	if len(publication.values) == 0 || !publication.values[len(publication.values)-1] {
 		t.Fatalf("publication transitions = %#v, want final open", publication.values)
@@ -308,46 +481,65 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 	if err := host.refreshAndWait(ctx); err == nil || !strings.Contains(err.Error(), "refresh failed") {
 		t.Fatalf("refresh error = %v, want catalog failure", err)
 	}
-	if source.refreshes != 1 || runtime.reconciles != 4 {
-		t.Fatalf("refreshes=%d reconciles=%d, want catalog retry isolated from runtime", source.refreshes, runtime.reconciles)
+	reconciles, _, _ = runtime.runtimeSnapshot()
+	if source.refreshes != 1 || reconciles != 4 {
+		t.Fatalf("refreshes=%d reconciles=%d, want catalog retry isolated from runtime", source.refreshes, reconciles)
 	}
 
 	if err := host.FenceForScope(ctx, accountScope); err != nil {
 		t.Fatalf("account fence failed: %v", err)
 	}
-	if len(publication.values) == 0 || publication.values[len(publication.values)-1] || runtime.failClosed == 0 {
-		t.Fatalf("fence publication=%#v failClosed=%d", publication.values, runtime.failClosed)
+	runtime.mu.Lock()
+	failClosed := runtime.failClosed
+	runtime.mu.Unlock()
+	if len(publication.values) == 0 || publication.values[len(publication.values)-1] || failClosed == 0 {
+		t.Fatalf("fence publication=%#v failClosed=%d", publication.values, failClosed)
 	}
 	if err := host.ReconcileRuntimeForScope(ctx, accountScope, connector.Key); err != nil {
 		t.Fatalf("closed-gate runtime repair failed: %v", err)
 	}
-	if runtime.reconciles != 4 {
-		t.Fatalf("closed-gate runtime repair reconciles = %d, want 4", runtime.reconciles)
+	reconciles, _, _ = runtime.runtimeSnapshot()
+	if reconciles != 4 {
+		t.Fatalf("closed-gate runtime repair reconciles = %d, want 4", reconciles)
 	}
 	if err := host.BootstrapForScope(ctx, accountScope); err != nil {
 		t.Fatalf("same-account bootstrap after fence failed: %v", err)
 	}
-	if runtime.reconciles != 5 || !publication.values[len(publication.values)-1] {
-		t.Fatalf("same-account recovery reconciles=%d publication=%#v", runtime.reconciles, publication.values)
+	waitForRuntimeReconciles(t, runtime, 5)
+	reconciles, inspections, _ := runtime.runtimeSnapshot()
+	if reconciles != 5 || !publication.values[len(publication.values)-1] {
+		t.Fatalf("same-account recovery reconciles=%d publication=%#v", reconciles, publication.values)
 	}
-	if runtime.installationInspections != 3 {
-		t.Fatalf("installation inspections = %d, want one per full bootstrap", runtime.installationInspections)
+	if inspections != 3 {
+		t.Fatalf("installation inspections = %d, want one per full bootstrap", inspections)
 	}
 
 	if err := host.FenceForScope(ctx, accountScope); err != nil {
 		t.Fatal(err)
 	}
-	runtime.installationState = market.ReleaseInstallationAbsent
+	runtime.setInstallationState(market.ReleaseInstallationAbsent)
 	if err := host.BootstrapForScope(ctx, accountScope); err != nil {
 		t.Fatalf("bootstrap with explicitly absent installation failed: %v", err)
 	}
-	calibrated, err := store.Connector(ctx, connector.Key)
-	if err != nil {
-		t.Fatal(err)
+	var calibrated market.Connector
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		calibrated, err = store.Connector(ctx, connector.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calibrated.Installation.State == market.InstallationStateFailed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("connector installation was not calibrated: %#v", calibrated.Installation)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	reconciles, _, _ = runtime.runtimeSnapshot()
 	if calibrated.Installation.State != market.InstallationStateFailed ||
-		calibrated.Installation.FailureCode != market.InstallationFailureCodePhysicallyAbsent || runtime.reconciles != 5 {
-		t.Fatalf("calibrated connector=%#v reconciles=%d", calibrated, runtime.reconciles)
+		calibrated.Installation.FailureCode != market.InstallationFailureCodePhysicallyAbsent || reconciles != 5 {
+		t.Fatalf("calibrated connector=%#v reconciles=%d", calibrated, reconciles)
 	}
 }
 

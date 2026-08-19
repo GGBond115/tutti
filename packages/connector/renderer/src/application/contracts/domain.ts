@@ -252,6 +252,10 @@ export interface ConnectorMutationInput extends ConnectorMarketMutationInput {
   expectedConnectorRevision?: number;
 }
 
+export interface ConnectorRuntimeMutationInput extends ConnectorMutationInput {
+  enabled: boolean;
+}
+
 export interface ConnectorAuthorizationInput extends ConnectorMutationInput {
   replacementPolicy?: "replace_active";
   secret?: string;

@@ -28,6 +28,7 @@ type Service interface {
 	RefreshCatalog(ctx context.Context, mutation Mutation) (MutationResult, error)
 	Install(ctx context.Context, mutation ConnectorMutation) (MutationResult, error)
 	Uninstall(ctx context.Context, mutation ConnectorMutation) (MutationResult, error)
+	SetRuntimeEnabled(ctx context.Context, mutation ConnectorMutation, enabled bool) (Connector, error)
 	ReconcileRuntime(ctx context.Context, mutation ConnectorMutation) (MutationResult, error)
 	GetAuthorizationProjection(ctx context.Context, accountID, connectorKey string) (AuthorizationProjection, error)
 	ObserveAuthorization(ctx context.Context, mutation ConnectorMutation, projection AuthorizationProjection) (MutationResult, error)
