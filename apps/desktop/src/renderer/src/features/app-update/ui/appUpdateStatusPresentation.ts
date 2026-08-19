@@ -35,3 +35,12 @@ export function resolveStandaloneAppUpdateStatusPresentation(
     titleParams: view.titleParams
   };
 }
+
+export function shouldShowReleaseNotesAction(
+  action: AppUpdateViewState["action"],
+  releaseNotesActionEnabled: boolean
+): boolean {
+  return (
+    releaseNotesActionEnabled && (action === "download" || action === "install")
+  );
+}
