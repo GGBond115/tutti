@@ -683,3 +683,63 @@ func hostTestRelease() market.Release {
 		Status:      market.ReleaseStatusAvailable,
 	}
 }
+
+func TestRefreshAndWaitIgnoresObsoleteLocalReleasePresentation(t *testing.T) {
+	ctx := context.Background()
+	store, err := marketdata.Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	release := hostTestRelease()
+	obsolete := release
+	obsolete.Manifest.IconURL = "data:image/png;base64,iVBORw0KGgo="
+	if err := store.Transaction(ctx, func(tx market.Transaction) error {
+		connector := market.Connector{
+			Key: obsolete.ConnectorKey, Release: obsolete,
+			Installation:  market.Installation{State: market.InstallationStateNotInstalled},
+			Authorization: market.Authorization{State: market.AuthorizationStateNotRequired},
+			Compatibility: market.Compatibility{State: market.CompatibilityStateSupported},
+		}
+		connector.Revision = tx.AdvanceRevision()
+		return tx.SaveConnector(connector)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source := &countingCatalogSource{release: release}
+	runtime := &activationGateDelegate{}
+	host, err := NewHost(ctx, HostConfig{
+		Repository:             store,
+		CatalogSource:          source,
+		ReleaseInstallations:   runtime,
+		ImplementationHost:     runtime,
+		Authorization:          unavailableAuthorization{},
+		Compatibility:          rejectingCompatibility{},
+		ImplementationRegistry: market.NewImplementationRegistry(nil),
+		Outbox:                 store,
+		Lifecycle:              store,
+		Publisher:              discardChangedEventPublisher{},
+		Publication:            &recordingPublicationController{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.refreshWorkerStarted = true
+	t.Cleanup(host.Close)
+	if _, err := host.Application.Snapshot(ctx); err == nil || !strings.Contains(err.Error(), "iconUrl") {
+		t.Fatalf("validated snapshot error = %v, want iconUrl rejection", err)
+	}
+	if err := host.refreshAndWait(ctx); err != nil {
+		t.Fatalf("refreshAndWait = %v", err)
+	}
+	if source.refreshes != 1 {
+		t.Fatalf("catalog refreshes = %d, want 1", source.refreshes)
+	}
+	snapshot, err := host.Application.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Connectors) != 1 || snapshot.Connectors[0].Release.Manifest.IconURL != release.Manifest.IconURL {
+		t.Fatalf("refreshed snapshot = %#v", snapshot.Connectors)
+	}
+}

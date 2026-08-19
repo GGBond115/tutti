@@ -19,6 +19,11 @@ import (
 
 const metadataID = 1
 
+// currentStoreContract is the durable release contract this binary can read.
+// Contract 1 is published HTTPS icons (#2481). Older local catalog/install
+// rows used data-URL icons and must not be loaded.
+const currentStoreContract = 1
+
 type Store struct {
 	db *sql.DB
 }
@@ -87,10 +92,11 @@ func (store *Store) migrate(ctx context.Context) error {
   id INTEGER PRIMARY KEY CHECK (id = 1),
   revision INTEGER NOT NULL,
   catalog_state TEXT NOT NULL,
-  source_revision TEXT NOT NULL
+  source_revision TEXT NOT NULL,
+  store_contract INTEGER NOT NULL DEFAULT 1
 )`,
-		`INSERT INTO connector_market_metadata (id, revision, catalog_state, source_revision)
-VALUES (1, 0, 'stale', '') ON CONFLICT(id) DO NOTHING`,
+		`INSERT INTO connector_market_metadata (id, revision, catalog_state, source_revision, store_contract)
+VALUES (1, 0, 'stale', '', 1) ON CONFLICT(id) DO NOTHING`,
 		`CREATE TABLE IF NOT EXISTS connector_market_connectors (
   connector_key TEXT PRIMARY KEY,
   connector_json TEXT NOT NULL
@@ -142,8 +148,11 @@ ON connector_market_outbox(published_at_unix_ms, sequence)`,
 		}
 	}
 	if _, err := store.db.ExecContext(ctx, `ALTER TABLE connector_market_operations ADD COLUMN lease_token INTEGER NOT NULL DEFAULT 0`); err != nil &&
-		!strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		!isDuplicateColumnError(err) {
 		return fmt.Errorf("migrate connector market operation lease token: %w", err)
+	}
+	if err := store.migrateStoreContract(ctx); err != nil {
+		return err
 	}
 	if err := store.migrateLifecycle(ctx); err != nil {
 		return err

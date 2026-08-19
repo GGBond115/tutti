@@ -664,7 +664,12 @@ func (host *Host) recoverAndWait(ctx context.Context) error {
 }
 
 func (host *Host) refreshAndWait(ctx context.Context) error {
-	snapshot, err := host.Application.Snapshot(ctx)
+	if host.repository == nil {
+		return errors.New("connector market repository is unavailable")
+	}
+	// Read revision from the durable store without presentation validation so a
+	// leftover incompatible local release cannot block catalog refresh.
+	snapshot, err := host.repository.Snapshot(ctx)
 	if err != nil {
 		return err
 	}

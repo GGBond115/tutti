@@ -226,6 +226,13 @@ its CDN URL in the Market manifest. The daemon rejects missing URLs, inline
 `data:` images, non-HTTPS schemes, credentials, surrounding whitespace, and
 URLs longer than 2048 bytes before the release reaches a renderer or runtime.
 
+The sqlite store records that presentation contract as `store_contract`.
+Opening a database below the current epoch discards catalog, install,
+operation, and outbox rows in one transaction, marks the catalog stale, and
+keeps authorization projections plus snapshot revisions. Catalog refresh reads
+the store revision without presentation validation so an obsolete local
+release cannot block recovery.
+
 Manifest permissions use a lowercase stable permission name with an optional
 scope (`permission`, `permission:scope`, or `permission:*`). The daemon keeps
 fail-closed validation for the permission name, scope grammar, duplicates, and
