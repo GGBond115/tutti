@@ -47,6 +47,11 @@ import { reportAgentSubmitTraceDiagnostic as reportDesktopAgentSubmitTrace } fro
 import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "./desktopAgentGuiIdentity.ts";
 
 export interface CreateDesktopAgentActivityAdapterInput {
+  claimBrowserAutomationTurn?(input: {
+    agentSessionId: string;
+    agentTurnId: string;
+    workspaceId: string;
+  }): void;
   composerOptionsRequestTimeoutMs?: number;
   tuttidClient: TuttidClient;
   runtimeApi: Pick<DesktopRuntimeApi, "logTerminalDiagnostic">;
@@ -138,6 +143,7 @@ export function agentActivitySessionDetailFromTuttid(
 }
 
 export function createDesktopAgentActivityAdapter({
+  claimBrowserAutomationTurn,
   composerOptionsRequestTimeoutMs = defaultComposerOptionsRequestTimeoutMs,
   tuttidClient,
   runtimeApi,
@@ -329,6 +335,13 @@ export function createDesktopAgentActivityAdapter({
           workspaceId: input.workspaceId,
           fields: { sessionStatus: workspaceAgentSessionStatus(session) }
         });
+        if (session.activeTurnId) {
+          claimBrowserAutomationTurn?.({
+            agentSessionId: session.id,
+            agentTurnId: session.activeTurnId,
+            workspaceId: input.workspaceId
+          });
+        }
         return agentActivitySessionFromTuttidSession(
           input.workspaceId,
           session
@@ -417,6 +430,11 @@ export function createDesktopAgentActivityAdapter({
           turnId: result.turnId,
           turnPhase: result.turn.phase
         }
+      });
+      claimBrowserAutomationTurn?.({
+        agentSessionId: input.agentSessionId,
+        agentTurnId: result.turnId,
+        workspaceId: input.workspaceId
       });
       return {
         kind: "turn",

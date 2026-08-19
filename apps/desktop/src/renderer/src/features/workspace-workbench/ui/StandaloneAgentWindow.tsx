@@ -3,7 +3,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -101,6 +100,7 @@ import { Toast } from "@renderer/lib/toast";
 import { useStandaloneAgentWindowLayout } from "./useStandaloneAgentWindowLayout.ts";
 import { createStandaloneAgentWorkspaceAppSurfacePresenter } from "../services/standaloneAgentWorkspaceAppSurfacePresenter.ts";
 import { createStandaloneAgentWorkspaceFilePreviewPresenter } from "../services/standaloneAgentWorkspaceFilePreviewPresenter.ts";
+import { registerWorkspaceFilesLaunchHandler } from "../services/workspaceFilesLaunchCoordinator.ts";
 
 const LazyWorkspaceAccountMenu = lazy(() =>
   import("./WorkspaceAccountMenu").then(({ WorkspaceAccountMenu }) => ({
@@ -444,11 +444,17 @@ export function StandaloneAgentWindow({
     return workspaceFilePreviewSurfaceHost.registerPresenter(
       workspaceId,
       createStandaloneAgentWorkspaceFilePreviewPresenter({
-        hostFilesApi: desktopApi.host.files,
-        workspaceId
+        openFile: (path) => openFileInSidebar(path, true)
       })
     );
-  }, [desktopApi.host.files, workspaceFilePreviewSurfaceHost, workspaceId]);
+  }, [openFileInSidebar, workspaceFilePreviewSurfaceHost, workspaceId]);
+  useEffect(
+    () =>
+      registerWorkspaceFilesLaunchHandler(workspaceId, (request) =>
+        openFileInSidebar(request.path, request.validateExists)
+      ),
+    [openFileInSidebar, workspaceId]
+  );
   useEffect(() => {
     return workspaceAppSurfaceHost.registerPresenter(
       createStandaloneAgentWorkspaceAppSurfacePresenter({
@@ -582,9 +588,23 @@ export function StandaloneAgentWindow({
       }),
     []
   );
-  useLayoutEffect(
-    () => agentEnvService.bindWorkbenchHost(host),
-    [agentEnvService, host]
+  const releaseAgentEnvHostRef = useRef<(() => void) | null>(null);
+  const handleToolHostReady = useCallback(
+    (toolHost: WorkbenchHostHandle | null) => {
+      releaseAgentEnvHostRef.current?.();
+      releaseAgentEnvHostRef.current = toolHost
+        ? agentEnvService.bindWorkbenchHost(toolHost)
+        : null;
+      toolWorkbench.onHostReady(toolHost);
+    },
+    [agentEnvService, toolWorkbench]
+  );
+  useEffect(
+    () => () => {
+      releaseAgentEnvHostRef.current?.();
+      releaseAgentEnvHostRef.current = null;
+    },
+    []
   );
   const surface = useMemo<DesktopAgentGUISurfaceContext>(
     () => ({
@@ -769,7 +789,6 @@ export function StandaloneAgentWindow({
       >
         <StandaloneAgentToolSidebar
           activityService={workspaceAgentActivityService}
-          agentSessionId={nodeState.lastActiveAgentSessionId}
           appOpenId={openAppId}
           appI18n={toolWorkbench.appI18n}
           browserApi={desktopApi.browser}
@@ -851,8 +870,9 @@ export function StandaloneAgentWindow({
           onAppsOpen={ensureWorkspaceAppPolling}
           onAppendBrowserElementMention={appendBrowserElementMention}
           onBrowserElementError={Toast.Error}
-          onToolHostReady={toolWorkbench.onHostReady}
+          onToolHostReady={handleToolHostReady}
           resizeWindowContentWidth={resizeStandaloneAgentWindowContentWidth}
+          runtimeApi={desktopApi.runtime}
           workspaceId={workspaceId}
         >
           <StandaloneAgentWindowContentReady

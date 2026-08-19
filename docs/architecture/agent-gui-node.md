@@ -2423,6 +2423,18 @@ tab state. It also owns the single browser chrome instance for that surface.
 Its controller may activate an existing page by URL inside that one surface;
 the product Host remains responsible for choosing among Browser surfaces and
 focusing the owning top-level node or window.
+Desktop mode adapters register the same semantic Terminal, Browser, and Files
+launch coordinators in each renderer. A Workspace adapter presents through its
+Workbench host; a standalone Agent adapter presents through the right-side tool
+sidebar and waits for the exact mounted controller when necessary. The
+standalone AgentGUI `surface.host` represents the Agent node and must not be
+used as a tool-launch host. After a canonical Turn is created, its originating
+renderer claims the Browser presentation role through Electron main; Browser
+automation then selects or creates that exact Agent or Workspace surface.
+Automation may wait briefly when a provider tool request races ahead of that
+claim. Unclaimed legacy Turns retain the user/Workspace fallback. Host
+readiness must not be used to infer Turn origin. These tools remain Desktop
+chrome and do not enter AgentGUI lifecycle state.
 Hosts compose window controls into the tab strip through `defaultActions`,
 pass draggable-header semantics through `dragHandleProps`, and use
 `navigationActions` for address-row actions. A host must not wrap the panel in
