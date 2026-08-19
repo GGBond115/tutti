@@ -2021,12 +2021,14 @@ converge on the next canonical read without exposing stale entries. The flag
 does not uninstall connectors, stop their runtimes, or reject an already
 structured connector prompt.
 
-Desktop also projects the flag through AgentGUI's existing host-owned
-capability-menu state. The primary footer capability slot renders the
-Connectors menu only when `lab.connectors` is on; otherwise it is omitted.
-Tutti Mode remains available through the slash-command surface, but has no
-dedicated footer entry. The same footer serves both the home hero and
-existing-session dock, so the two AgentGUI contexts cannot drift.
+Desktop also projects these flags through AgentGUI's existing host-owned
+capability-menu state. The footer renders the Connectors menu only when
+`lab.connectors` is on. The independent `lab.tuttiMode` flag defaults off; when
+enabled, the same footer renders the Tutti Mode activation switch and the slash
+palette exposes `/tutti`, including when Connectors are also enabled. When the
+flag is off, both Tutti Mode entry points are omitted. The same footer serves
+both the home hero and existing-session dock, so the two AgentGUI contexts
+cannot drift.
 The menu, selection-chip, and Palette-item implementations plus their neutral
 item contracts belong to `@tutti-os/connector-renderer/ui`. AgentGUI owns only
 the React-free capability projection under `integrations/connector`, Composer
@@ -2346,8 +2348,10 @@ remains a separate adjacent action, and all controls stay disabled while an
 activation update is unresolved. The Desktop command host and HTTP adapter must
 preserve the optimistic CAS revision and both optional preferences; dropping
 any field turns a valid UI intent into a stale or semantically mismatched
-response. Tutti Desktop always advertises the Tutti Mode host capability;
-historical `lab.tuttiMode` preference values do not hide or disable it.
+response. Tutti Desktop advertises the Tutti Mode host capability only while
+the default-off `lab.tuttiMode` preference is enabled. Toggling the preference
+changes presentation without mutating an existing session's durable activation
+or workflow state.
 
 The preference popup uses two independent 0-100 sliders. `effect` raises the
 minimum model capability and task-verification breadth. `speed` asks the
