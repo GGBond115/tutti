@@ -452,6 +452,14 @@ func (a *CodexAppServerAdapter) closeLiveSession(agentSessionID string) error {
 	a.mu.Unlock()
 	if appSession != nil && appSession.client != nil {
 		if err := appSession.client.Close(); err != nil {
+			if codexSessionAlreadyGone(err) {
+				a.mu.Lock()
+				if a.sessions[agentSessionID] == appSession {
+					delete(a.sessions, agentSessionID)
+				}
+				a.mu.Unlock()
+				return nil
+			}
 			a.mu.Lock()
 			if a.sessions[agentSessionID] == appSession {
 				appSession.releasing = false

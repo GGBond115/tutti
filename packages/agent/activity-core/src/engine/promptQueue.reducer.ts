@@ -83,7 +83,7 @@ export function promptQueueReducer(
   if (intent.type === "submit/requested" && intent.routing === "immediate") {
     return reduced;
   }
-  if (isNoActiveTurnSendFailure(intent)) {
+  if (isPreTurnSendFailure(intent)) {
     return reduced;
   }
   return drainAffectedSessions(
@@ -446,7 +446,7 @@ function settleQueueCommand(
       state: replaceRecord(state, agentSessionId, record)
     };
   }
-  if (isNoActiveTurnSendFailure(intent)) {
+  if (isPreTurnSendFailure(intent)) {
     return {
       commands: [
         queueOwnedReconcileCommand(agentSessionId, current.workspaceId, intent)
@@ -469,7 +469,7 @@ function settleQueueCommand(
   );
 }
 
-function isNoActiveTurnSendFailure(intent: EngineIntent): boolean {
+function isPreTurnSendFailure(intent: EngineIntent): boolean {
   if (
     intent.type !== "engine/commandResult" ||
     intent.commandType !== "queue/sendPrompt" ||
@@ -483,7 +483,9 @@ function isNoActiveTurnSendFailure(intent: EngineIntent): boolean {
     errorReason === "agent.no_active_turn" ||
     errorCode === "agent.no_active_turn" ||
     errorReason === "agent.session_no_active_turn" ||
-    errorCode === "agent.session_no_active_turn"
+    errorCode === "agent.session_no_active_turn" ||
+    errorReason === "agent.process_cleanup_pending" ||
+    errorCode === "agent.process_cleanup_pending"
   );
 }
 

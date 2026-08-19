@@ -105,7 +105,7 @@ func (a *CodexAppServerAdapter) invalidateSessionClient(
 	for _, request := range pending {
 		request.supersede(errPermissionRequestCanceled)
 	}
-	if err := expectedClient.Close(); err != nil {
+	if err := expectedClient.Close(); err != nil && !codexSessionAlreadyGone(err) {
 		a.retainRetiredCodexSession(key, appSession)
 	}
 	return true

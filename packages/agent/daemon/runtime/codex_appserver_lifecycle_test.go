@@ -489,6 +489,115 @@ func TestCodexAppServerClientCloseIsIdempotent(t *testing.T) {
 	}
 }
 
+type sequencedCloseErrorConnection struct {
+	ProcessConnection
+	mu     sync.Mutex
+	errors []error
+}
+
+func (c *sequencedCloseErrorConnection) Close() error {
+	c.mu.Lock()
+	var err error
+	if len(c.errors) > 0 {
+		err = c.errors[0]
+		c.errors = c.errors[1:]
+	}
+	c.mu.Unlock()
+	if err == nil {
+		return c.ProcessConnection.Close()
+	}
+	if errors.Is(err, ErrSessionNotFound) {
+		// The sentinel represents a connection whose provider session has
+		// already disappeared. Close the scripted transport for test cleanup,
+		// while preserving the provider error returned to the adapter.
+		_ = c.ProcessConnection.Close()
+	}
+	return err
+}
+
+type sequencedCloseErrorTransport struct {
+	mu          sync.Mutex
+	starts      int
+	closeErrors []error
+}
+
+func (t *sequencedCloseErrorTransport) Start(_ context.Context, _ ProcessSpec) (ProcessConnection, error) {
+	conn, _ := newScriptedAppServerHarness()
+	t.mu.Lock()
+	start := t.starts
+	t.starts++
+	closeErrors := append([]error(nil), t.closeErrors...)
+	t.mu.Unlock()
+	if start == 0 {
+		return &sequencedCloseErrorConnection{
+			ProcessConnection: conn,
+			errors:            closeErrors,
+		}, nil
+	}
+	return conn, nil
+}
+
+func TestAppServerAlreadyGoneRetiredHandleDoesNotBackpressureReplacement(t *testing.T) {
+	t.Parallel()
+
+	transport := &sequencedCloseErrorTransport{
+		closeErrors: []error{
+			errors.New("injected first close failure"),
+			errors.New("injected second close failure"),
+			ErrSessionNotFound,
+		},
+	}
+	adapter := NewCodexAppServerAdapter(transport)
+	session := testAppServerSession()
+	if _, err := adapter.Start(t.Context(), session); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	if _, err := adapter.Start(t.Context(), session); err != nil {
+		t.Fatalf("replacement Start: %v", err)
+	}
+
+	session.ProviderSessionID = "codex-thread-1"
+	if err := adapter.Resume(t.Context(), session); err != nil {
+		t.Fatalf("Resume after provider session disappeared: %v", err)
+	}
+	if !adapter.HasLiveSession(session) {
+		t.Fatal("replacement app-server session is not usable")
+	}
+	cleanup := adapter.CleanupLiveSessionResources(t.Context(), 1)
+	if cleanup.Attempted != 0 || cleanup.Cleaned != 0 || cleanup.Failed != 0 {
+		t.Fatalf("cleanup=%#v, want no retained session", cleanup)
+	}
+	if err := adapter.ReleaseLiveSession(t.Context(), session); err != nil {
+		t.Fatalf("release replacement: %v", err)
+	}
+}
+
+func TestAppServerCloseTreatsMissingSessionAsSuccess(t *testing.T) {
+	t.Parallel()
+
+	connection, _ := newScriptedAppServerHarness()
+	client := newCodexAppServerClient(&sequencedCloseErrorConnection{
+		ProcessConnection: connection,
+		errors:            []error{ErrSessionNotFound},
+	})
+	adapter := NewCodexAppServerAdapter(&multiProcAppServerTransport{})
+	session := testAppServerSession()
+	adapter.storeSession(session.AgentSessionID, &codexAppServerSession{
+		client:          client,
+		pendingRequests: make(map[string]*pendingInteractiveRequest),
+	})
+
+	if err := adapter.ReleaseLiveSession(t.Context(), session); err != nil {
+		t.Fatalf("ReleaseLiveSession: %v", err)
+	}
+	if adapter.getSession(session.AgentSessionID) != nil {
+		t.Fatal("missing provider session remained owned as current")
+	}
+	if adapter.hasRetiredCodexSessions(session.AgentSessionID) {
+		t.Fatal("missing provider session was retained for cleanup")
+	}
+}
+
 func TestAppServerCloseFailureRetainsUnusableHandleAndBackpressuresReplacement(t *testing.T) {
 	for _, provider := range []string{ProviderCodex, ProviderTuttiAgent} {
 		provider := provider
