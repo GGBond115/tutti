@@ -3,6 +3,10 @@ import {
   Button,
   DownloadIcon,
   LoadingIcon,
+  Popover,
+  PopoverClose,
+  PopoverContent,
+  PopoverTrigger,
   RefreshIcon
 } from "@tutti-os/ui-system";
 import { useTranslation } from "@renderer/i18n";
@@ -29,6 +33,7 @@ export function AppUpdateStatus({
     return (
       <StandaloneAppUpdateStatus
         isActing={state.isActing}
+        openReleaseNotes={() => service.openReleaseNotes()}
         runPrimaryAction={() => service.runPrimaryAction()}
         view={view}
       />
@@ -41,6 +46,8 @@ export function AppUpdateStatus({
 
   const label = t(view.titleKey, view.titleParams);
   const compact = density === "compact";
+  const showReleaseNotesAction =
+    view.action === "download" || view.action === "install";
 
   return (
     <div
@@ -60,7 +67,7 @@ export function AppUpdateStatus({
 
       {view.action && view.actionKey ? (
         <>
-          {state.updateState?.releaseNotesUrl ? (
+          {showReleaseNotesAction ? (
             <Button
               onClick={() => void service.openReleaseNotes()}
               size={compact ? "xs" : "sm"}
@@ -102,10 +109,12 @@ export function AppUpdateStatus({
 
 function StandaloneAppUpdateStatus({
   isActing,
+  openReleaseNotes,
   runPrimaryAction,
   view
 }: {
   isActing: boolean;
+  openReleaseNotes(): Promise<void>;
   runPrimaryAction(): Promise<void>;
   view: ReturnType<typeof useAppUpdateService>["state"]["view"];
 }) {
@@ -131,28 +140,81 @@ function StandaloneAppUpdateStatus({
   }
 
   const actionLabel = t(presentation.actionKey);
+  const releaseNotesLabel = t("updates.releaseNotesAction");
+  const actionIcon =
+    presentation.actionKey === "updates.downloadAction" ? (
+      <DownloadIcon aria-hidden className="size-3.5" />
+    ) : (
+      <RefreshIcon aria-hidden className="size-3.5" />
+    );
+
   return (
-    <Button
-      aria-label={`${title}: ${actionLabel}`}
-      className="h-7 gap-1 rounded-[6px] px-2 text-[13px] font-semibold [-webkit-app-region:no-drag]"
-      disabled={isActing}
-      size="xs"
-      title={title}
-      type="button"
-      variant="secondary"
-      onClick={() => {
-        void runPrimaryAction();
-      }}
-    >
-      {isActing ? (
-        <LoadingIcon aria-hidden className="size-3 animate-spin" />
-      ) : presentation.actionKey === "updates.downloadAction" ? (
-        <DownloadIcon aria-hidden className="size-3.5" />
-      ) : (
-        <RefreshIcon aria-hidden className="size-3.5" />
-      )}
-      <span>{actionLabel}</span>
-    </Button>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          aria-label={`${title}: ${actionLabel}`}
+          className="relative h-7 w-7 rounded-[6px] p-0 [-webkit-app-region:no-drag]"
+          disabled={isActing}
+          size="icon-sm"
+          title={title}
+          type="button"
+          variant="chrome"
+        >
+          {isActing ? (
+            <LoadingIcon aria-hidden className="size-3.5 animate-spin" />
+          ) : (
+            actionIcon
+          )}
+          <span
+            aria-hidden
+            className="absolute top-1 right-1 size-1.5 rounded-full bg-[var(--tutti-purple)] ring-2 ring-[var(--background)]"
+          />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-64 gap-3 p-3 [-webkit-app-region:no-drag]"
+        side="bottom"
+        sideOffset={8}
+      >
+        <div className="flex items-start gap-2">
+          <span className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--tutti-purple)_14%,transparent)] text-[var(--tutti-purple)]">
+            {actionIcon}
+          </span>
+          <p className="min-w-0 pt-1 text-[13px] font-semibold leading-5 text-[var(--text-primary)]">
+            {title}
+          </p>
+        </div>
+        <div className="flex items-center justify-end gap-1.5">
+          <PopoverClose asChild>
+            <Button
+              disabled={isActing}
+              onClick={() => {
+                void openReleaseNotes();
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {releaseNotesLabel}
+            </Button>
+          </PopoverClose>
+          <PopoverClose asChild>
+            <Button
+              disabled={isActing}
+              onClick={() => {
+                void runPrimaryAction();
+              }}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              {actionLabel}
+            </Button>
+          </PopoverClose>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

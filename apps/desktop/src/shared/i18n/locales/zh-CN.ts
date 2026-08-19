@@ -1247,6 +1247,9 @@ export const zhCN = {
         agentSessionRecordingDescription:
           "在 Agent 首页显示会话录制与回放开发入口",
         agentSessionRecordingLabel: "Agent 会话录制",
+        agentSideConversationDescription:
+          "在 Agent 对话中启用 /side、Side 临时会话和选中文本浮动操作栏",
+        agentSideConversationLabel: "Side 临时会话",
         codexSaverModeDescription:
           "在 Codex 输入框显示可记忆的省额度开关，将合适的子任务交给 Luna Max",
         codexSaverModeLabel: "Codex 省额度模式",

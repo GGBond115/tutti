@@ -1,6 +1,7 @@
+import { ConnectorComposerMenu } from "@tutti-os/connector-renderer/ui";
 import { openWorkspaceSettingsPanel } from "../../../shared/workspaceSettingsPanel/workspaceSettingsPanelStore";
+import { projectConnectorComposerItems } from "../integrations/connector/model/connectorPresentation";
 import type { AgentComposerProps } from "./AgentComposer.types";
-import { ComposerConnectorsMenu } from "./ComposerConnectorsMenu";
 
 interface Props {
   availableSkills: AgentComposerProps["availableSkills"];
@@ -39,18 +40,21 @@ export function ComposerPrimaryCapabilityControl({
   }
 
   return (
-    <ComposerConnectorsMenu
-      connectors={availableSkills ?? []}
+    <ConnectorComposerMenu
       disabled={disabled}
+      items={projectConnectorComposerItems(
+        availableSkills ?? [],
+        connectorsReadOnly ? [] : selectedConnectorKeys
+      )}
       labels={{
+        authorize: labels.addContentConnectorAuthorize,
+        connect: labels.addContentConnectorConnect,
+        connected: labels.addContentConnectorConnected,
         connectors: labels.addContentConnectors,
-        connectorConnected: labels.addContentConnectorConnected,
-        connectorConnect: labels.addContentConnectorConnect,
-        connectorAuthorize: labels.addContentConnectorAuthorize,
-        connectorEmpty: labels.addContentConnectorEmpty,
-        connectorLoading: labels.addContentConnectorLoading,
-        connectorMore: labels.addContentConnectorMore,
-        connectorSelected: labels.addContentConnectorSelected
+        empty: labels.addContentConnectorEmpty,
+        loading: labels.addContentConnectorLoading,
+        more: labels.addContentConnectorMore,
+        selected: labels.addContentConnectorSelected
       }}
       loading={loading}
       onOpenChange={(open) => {
@@ -68,7 +72,7 @@ export function ComposerPrimaryCapabilityControl({
                 action: "open"
               })
       }
-      onOpenConnectors={
+      onOpenMarket={
         !showConnectorViewMore
           ? undefined
           : () =>
@@ -79,7 +83,6 @@ export function ComposerPrimaryCapabilityControl({
       }
       onSelectConnector={connectorsReadOnly ? undefined : onConnectorSelected}
       readOnly={connectorsReadOnly}
-      selectedConnectorKeys={connectorsReadOnly ? [] : selectedConnectorKeys}
     />
   );
 }

@@ -10,7 +10,7 @@ import { useService } from "@tutti-os/infra/di";
 import {
   IConnectorMarketModule,
   openConnectorMarketDialog
-} from "@tutti-os/connector-market/services";
+} from "@tutti-os/connector-renderer/application";
 import type {
   WorkspaceAgentProvider,
   WorkspaceSummary

@@ -29,6 +29,8 @@ const (
 	appServerMethodThreadStart           = "thread/start"
 	appServerMethodThreadResume          = "thread/resume"
 	appServerMethodThreadFork            = "thread/fork"
+	appServerMethodThreadInjectItems     = "thread/inject_items"
+	appServerMethodThreadUnsubscribe     = "thread/unsubscribe"
 	appServerMethodThreadRollback        = "thread/rollback"
 	appServerMethodThreadRead            = "thread/read"
 	appServerMethodThreadCompact         = "thread/compact/start"
@@ -154,6 +156,7 @@ type CodexAppServerAdapter struct {
 	commandResolver            ProviderCommandResolver
 	mu                         sync.Mutex
 	sessions                   map[string]*codexAppServerSession
+	pendingSideRoutes          map[*codexAppServerClient]*codexPendingSideRoute
 	retiredSessions            map[string][]*codexAppServerSession
 	terminalInteractions       terminalInteractiveDispositionStore
 	interactiveDispositionSink InteractiveDispositionSink
@@ -212,6 +215,9 @@ type codexAppServerSessionLock struct {
 
 type codexAppServerSession struct {
 	client *codexAppServerClient
+	// runtimeSession is the routing identity for connection-scoped clients
+	// that host multiple app-server threads. It is never persisted.
+	runtimeSession Session
 	// releaseFailed preserves ownership after a physical Close error while
 	// making the client unavailable to Exec. A successful replacement moves
 	// this handle to retiredSessions until bounded cleanup confirms closure.
@@ -287,9 +293,13 @@ type codexAppServerSession struct {
 	planModeMask    map[string]any
 	defaultModeMask map[string]any
 	defaultModel    string
-	authState       string
-	authMessage     string
-	activeTurnID    string
+	// tuttiModeHostContext is the latest Tutti-owned developer context applied
+	// to this thread. A Side fork preserves it alongside the provider mode so
+	// the fork cannot silently lose session and workspace context.
+	tuttiModeHostContext string
+	authState            string
+	authMessage          string
+	activeTurnID         string
 	// activeTurnStartConfirmed reports whether a turn/started notification
 	// confirmed activeTurnID. A turn/start issued while another turn is
 	// already running responds with a stub turn id that codex never starts

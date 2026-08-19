@@ -46,6 +46,9 @@ import type {
   CancelTuttiModeExecutionData,
   CancelTuttiModeExecutionErrors,
   CancelTuttiModeExecutionResponses,
+  CancelWorkspaceAgentSideConversationTurnData,
+  CancelWorkspaceAgentSideConversationTurnErrors,
+  CancelWorkspaceAgentSideConversationTurnResponses,
   CancelWorkspaceAgentTurnData,
   CancelWorkspaceAgentTurnErrors,
   CancelWorkspaceAgentTurnResponses,
@@ -67,6 +70,9 @@ import type {
   ClearWorkspaceAgentSessionsData,
   ClearWorkspaceAgentSessionsErrors,
   ClearWorkspaceAgentSessionsResponses,
+  CloseWorkspaceAgentSideConversationData,
+  CloseWorkspaceAgentSideConversationErrors,
+  CloseWorkspaceAgentSideConversationResponses,
   CompleteAgentSessionRecordingData,
   CompleteAgentSessionRecordingErrors,
   CompleteAgentSessionRecordingResponses,
@@ -523,6 +529,9 @@ import type {
   MoveWorkspaceFileEntryData,
   MoveWorkspaceFileEntryErrors,
   MoveWorkspaceFileEntryResponses,
+  OpenWorkspaceAgentSideConversationData,
+  OpenWorkspaceAgentSideConversationErrors,
+  OpenWorkspaceAgentSideConversationResponses,
   OpenWorkspaceData,
   OpenWorkspaceErrors,
   OpenWorkspaceResponses,
@@ -613,6 +622,9 @@ import type {
   ResolveWorkspaceAgentSessionWorktreeSupportData,
   ResolveWorkspaceAgentSessionWorktreeSupportErrors,
   ResolveWorkspaceAgentSessionWorktreeSupportResponses,
+  ResolveWorkspaceAgentSideCapabilitiesData,
+  ResolveWorkspaceAgentSideCapabilitiesErrors,
+  ResolveWorkspaceAgentSideCapabilitiesResponses,
   ResolveWorkspaceGitPatchSupportData,
   ResolveWorkspaceGitPatchSupportErrors,
   ResolveWorkspaceGitPatchSupportResponses,
@@ -649,6 +661,9 @@ import type {
   SendWorkspaceAgentSessionInputData,
   SendWorkspaceAgentSessionInputErrors,
   SendWorkspaceAgentSessionInputResponses,
+  SendWorkspaceAgentSideConversationInputData,
+  SendWorkspaceAgentSideConversationInputErrors,
+  SendWorkspaceAgentSideConversationInputResponses,
   SetAgentModelBindingData,
   SetAgentModelBindingErrors,
   SetAgentModelBindingResponses,
@@ -697,6 +712,9 @@ import type {
   SubmitWorkspaceAgentPlanDecisionData,
   SubmitWorkspaceAgentPlanDecisionErrors,
   SubmitWorkspaceAgentPlanDecisionResponses,
+  SubmitWorkspaceAgentSideConversationInteractiveData,
+  SubmitWorkspaceAgentSideConversationInteractiveErrors,
+  SubmitWorkspaceAgentSideConversationInteractiveResponses,
   SwitchTuttiModeGoalReviewToSelfData,
   SwitchTuttiModeGoalReviewToSelfErrors,
   SwitchTuttiModeGoalReviewToSelfResponses,
@@ -3916,6 +3934,129 @@ export const recoverWorkspaceAgentEditRetry = <
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/edit-retry-operations/{operationID}/recover",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Resolve transient Side support for a live agent session
+ */
+export const resolveWorkspaceAgentSideCapabilities = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<ResolveWorkspaceAgentSideCapabilitiesData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    ResolveWorkspaceAgentSideCapabilitiesResponses,
+    ResolveWorkspaceAgentSideCapabilitiesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/side-capabilities",
+    ...options
+  });
+
+/**
+ * Open one runtime-only Side conversation from a live source session
+ */
+export const openWorkspaceAgentSideConversation = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<OpenWorkspaceAgentSideConversationData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    OpenWorkspaceAgentSideConversationResponses,
+    OpenWorkspaceAgentSideConversationErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/side-conversations",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Close and release one runtime-only Side conversation
+ */
+export const closeWorkspaceAgentSideConversation = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<CloseWorkspaceAgentSideConversationData, ThrowOnError>
+) =>
+  (options.client ?? client).delete<
+    CloseWorkspaceAgentSideConversationResponses,
+    CloseWorkspaceAgentSideConversationErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}",
+    ...options
+  });
+
+/**
+ * Send one input to a runtime-only Side conversation
+ */
+export const sendWorkspaceAgentSideConversationInput = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<SendWorkspaceAgentSideConversationInputData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    SendWorkspaceAgentSideConversationInputResponses,
+    SendWorkspaceAgentSideConversationInputErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}/turns",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Cancel the exact active turn in a runtime-only Side conversation
+ */
+export const cancelWorkspaceAgentSideConversationTurn = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<CancelWorkspaceAgentSideConversationTurnData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    CancelWorkspaceAgentSideConversationTurnResponses,
+    CancelWorkspaceAgentSideConversationTurnErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}/turns/{turnID}/cancel",
+    ...options
+  });
+
+/**
+ * Respond to one live interactive request in a Side conversation
+ */
+export const submitWorkspaceAgentSideConversationInteractive = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<
+    SubmitWorkspaceAgentSideConversationInteractiveData,
+    ThrowOnError
+  >
+) =>
+  (options.client ?? client).post<
+    SubmitWorkspaceAgentSideConversationInteractiveResponses,
+    SubmitWorkspaceAgentSideConversationInteractiveErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-side-conversations/{sideAgentSessionID}/turns/{turnID}/interactive/{requestID}",
     ...options,
     headers: {
       "Content-Type": "application/json",

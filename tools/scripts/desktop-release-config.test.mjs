@@ -472,7 +472,20 @@ test("desktop release workflow passes tsh-aligned Feishu card context", async ()
   );
   assert.match(
     workflow,
-    /release_url:\s*\${{\s*needs\.resolve\.outputs\.release_candidate\s*==\s*'true'[\s\S]*steps\.stage-candidate-release\.outputs\.release_url/
+    /release_url:\s*\${{\s*needs\.resolve\.outputs\.release_candidate\s*==\s*'true'[\s\S]*steps\.resolve-candidate-release-url\.outputs\.release_url/
+  );
+  assert.match(
+    workflow,
+    /RELEASE_ID:\s+\${{\s*steps\.stage-candidate-release\.outputs\.release_id\s*}}/
+  );
+  assert.match(
+    workflow,
+    /gh api "repos\/\${GITHUB_REPOSITORY}\/releases\/\${RELEASE_ID}" --jq \.html_url/
+  );
+  assert.ok(
+    workflow.indexOf("name: Resolve current stable GitHub draft URL") >
+      workflow.indexOf("name: Update release notes with summary and direct downloads"),
+    "the candidate draft URL should be refreshed after release notes are updated"
   );
   assert.match(
     workflow,

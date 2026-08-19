@@ -6,7 +6,7 @@ import (
 	"context"
 	"strings"
 
-	connectorhost "github.com/tutti-os/tutti/packages/connector/host"
+	connectorhost "github.com/tutti-os/tutti/packages/connector/daemon/core"
 )
 
 const (

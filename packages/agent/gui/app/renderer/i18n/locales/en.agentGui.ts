@@ -11,6 +11,7 @@ import { enAgentGuiCollaboration } from "./en.agentGuiCollaboration.ts";
 import { enAgentGuiUsageStatus } from "./en.agentGuiUsageStatus.ts";
 import { enAgentGuiComposer } from "./en.agentGuiComposer.ts";
 import { enAgentGuiProjectLaunch } from "./en.agentGuiProjectLaunch.ts";
+import { enAgentGuiSide } from "./en.agentGuiSide.ts";
 import { enAgentGuiHomeSuggestions } from "./en.agentGuiHomeSuggestions.ts";
 
 export const enAgentGui = {
@@ -770,5 +771,6 @@ export const enAgentGui = {
   syncPending: "Saved locally, syncing to cloud",
   syncSynced: "Synced to cloud",
   syncFailed: "Cloud sync failed",
+  ...enAgentGuiSide,
   ...enAgentGuiCollaboration
 } as const;

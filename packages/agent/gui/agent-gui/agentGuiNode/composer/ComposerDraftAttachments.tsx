@@ -1,7 +1,9 @@
+import { ConnectorSelectionList } from "@tutti-os/connector-renderer/ui";
+import { Spinner } from "@tutti-os/ui-system";
 import { FileText, X } from "lucide-react";
-import { Avatar, Spinner } from "@tutti-os/ui-system";
 import { cn } from "../../../app/renderer/lib/utils";
 import { translate } from "../../../i18n/index";
+import { projectConnectorSelectionItems } from "../integrations/connector/model/connectorPresentation";
 import { pastedTextPreview } from "../model/agentComposerDraft";
 import type {
   AgentComposerDraftImage,
@@ -38,45 +40,11 @@ export function ComposerDraftAttachments({
   const labels = { removeMention: removeLabel };
   return (
     <>
-      {draftConnectors.length > 0 ? (
-        <div
-          className="mb-2 flex w-full max-w-full flex-wrap items-center gap-2"
-          data-testid="agent-gui-composer-connector-drafts"
-        >
-          {draftConnectors.map(({ connectorKey }) => {
-            const option = availableSkills.find(
-              (skill) => skill.connectorKey === connectorKey
-            );
-            const displayName = option?.name.trim() || connectorKey;
-            return (
-              <span
-                key={connectorKey}
-                className="inline-flex h-8 max-w-[240px] items-center gap-2 rounded-full border border-[var(--line-1)] bg-[var(--background-fronted)] py-1 pl-1 pr-2 text-xs text-[var(--text-primary)]"
-                data-connector-key={connectorKey}
-              >
-                <Avatar
-                  aria-hidden="true"
-                  label={displayName}
-                  size={24}
-                  src={option?.iconUrl}
-                />
-                <span className="min-w-0 truncate font-medium">
-                  {displayName}
-                </span>
-                <button
-                  type="button"
-                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition hover:bg-[var(--transparency-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--text-primary)_34%,transparent)]"
-                  aria-label={labels.removeMention}
-                  title={labels.removeMention}
-                  onClick={() => removeDraftConnector(connectorKey)}
-                >
-                  <X size={12} strokeWidth={2.4} aria-hidden />
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      ) : null}
+      <ConnectorSelectionList
+        items={projectConnectorSelectionItems(draftConnectors, availableSkills)}
+        removeLabel={labels.removeMention}
+        onRemove={removeDraftConnector}
+      />
       {draftImages.length > 0 ? (
         <div
           className="mb-2 flex w-full max-w-full flex-wrap items-start gap-2"

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	market "github.com/tutti-os/tutti/packages/connector/host"
+	market "github.com/tutti-os/tutti/packages/connector/daemon/core"
 	admissiondaemon "github.com/tutti-os/tutti/packages/desktop/update-admission/daemon"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	preferencesapi "github.com/tutti-os/tutti/services/tuttid/api/preferences"
@@ -73,6 +73,7 @@ type DaemonAPI struct {
 	CLIRegistry                   *cliservice.Registry
 	AnalyticsReporter             reporterservice.Reporter
 	DesktopUpdateAdmissionService DesktopUpdateAdmissionService
+	SideConversationService       SideConversationService
 	ConnectorMarketService        market.Service
 	ConnectorMarketScope          func() market.OperationScope
 	ConnectorAuthorizationReady   func(string) bool

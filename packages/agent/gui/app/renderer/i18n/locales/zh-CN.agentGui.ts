@@ -10,6 +10,7 @@ import { zhCNAgentGuiCollaboration } from "./zh-CN.agentGuiCollaboration.ts";
 import { zhCNTuttiModePlan } from "./zh-CN.tuttiModePlan.ts";
 import { zhCNAgentGuiComposer } from "./zh-CN.agentGuiComposer.ts";
 import { zhCNAgentGuiProjectLaunch } from "./zh-CN.agentGuiProjectLaunch.ts";
+import { zhCNAgentGuiSide } from "./zh-CN.agentGuiSide.ts";
 import { zhCNAgentGuiHomeSuggestions } from "./zh-CN.agentGuiHomeSuggestions.ts";
 export const zhCNAgentGui = {
   imageDownloaded: "图片已下载",
@@ -773,5 +774,6 @@ export const zhCNAgentGui = {
   syncPending: "已保存到本地，正在同步到云端",
   syncSynced: "已同步到云端",
   syncFailed: "云端同步失败",
+  ...zhCNAgentGuiSide,
   ...zhCNAgentGuiCollaboration
 } as const;
