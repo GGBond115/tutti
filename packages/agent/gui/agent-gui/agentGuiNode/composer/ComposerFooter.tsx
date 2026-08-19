@@ -197,7 +197,7 @@ export function ComposerFooter({
                   >
                     <span
                       aria-hidden
-                      className="inline-block size-4 bg-current transition-colors"
+                      className="inline-block size-4 bg-[var(--agent-gui-text-secondary)] group-hover:bg-[var(--agent-gui-text-primary)] group-focus-visible:bg-[var(--agent-gui-text-primary)] transition-colors"
                       style={{
                         WebkitMaskImage: `url("${atLinedIconUrl}")`,
                         WebkitMaskPosition: "center",

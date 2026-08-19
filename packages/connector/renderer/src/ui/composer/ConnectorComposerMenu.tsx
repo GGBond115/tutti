@@ -123,12 +123,13 @@ export function ConnectorComposerMenu({
       <DropdownMenuTrigger asChild>
         <Button
           aria-label={labels.connectors}
-          className="w-auto rounded-full px-1.5"
+          className="w-auto rounded-full px-1.5 text-[var(--agent-gui-text-secondary)] hover:text-[var(--agent-gui-text-primary)] hover:bg-transparent focus-visible:text-[var(--agent-gui-text-primary)] data-[state=open]:text-[var(--agent-gui-text-primary)]"
           data-testid="connector-market-composer-trigger"
           disabled={disabled}
           size="sm"
           type="button"
-          variant="outline"
+          variant="ghost"
+          
         >
           {previewItems.length > 0 ? (
             <>
