@@ -19,6 +19,8 @@ import {
 
 const updateIconUrl = new URL("../assets/update.png", import.meta.url).href;
 const tuttiIconUrl = new URL("../assets/tutti.png", import.meta.url).href;
+const releaseNotesActionEnabled =
+  import.meta.env.VITE_TUTTI_DESKTOP_RELEASE_NOTES_ENABLED !== "false";
 
 export function AppUpdateStatus({
   density = "default",
@@ -39,8 +41,8 @@ export function AppUpdateStatus({
         openReleaseNotes={() => service.openReleaseNotes()}
         runPrimaryAction={() => service.runPrimaryAction()}
         showReleaseNotes={shouldShowReleaseNotesAction(
-          state.updateState?.channel,
-          view.action
+          view.action,
+          releaseNotesActionEnabled
         )}
         view={view}
       />
@@ -54,8 +56,8 @@ export function AppUpdateStatus({
   const label = t(view.titleKey, view.titleParams);
   const compact = density === "compact";
   const showReleaseNotesAction = shouldShowReleaseNotesAction(
-    state.updateState?.channel,
-    view.action
+    view.action,
+    releaseNotesActionEnabled
   );
 
   return (

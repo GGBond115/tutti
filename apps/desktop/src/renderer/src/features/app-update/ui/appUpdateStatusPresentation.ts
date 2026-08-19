@@ -1,4 +1,3 @@
-import type { AppUpdateState } from "@shared/contracts/ipc";
 import type { AppUpdateViewState } from "../services/appUpdateTypes";
 
 export type StandaloneAppUpdateStatusPresentation =
@@ -38,10 +37,10 @@ export function resolveStandaloneAppUpdateStatusPresentation(
 }
 
 export function shouldShowReleaseNotesAction(
-  channel: AppUpdateState["channel"] | null | undefined,
-  action: AppUpdateViewState["action"]
+  action: AppUpdateViewState["action"],
+  releaseNotesActionEnabled: boolean
 ): boolean {
   return (
-    channel === "stable" && (action === "download" || action === "install")
+    releaseNotesActionEnabled && (action === "download" || action === "install")
   );
 }
