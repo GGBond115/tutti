@@ -80,10 +80,12 @@ shared manager owns the authenticated link and incoming stream lifecycle.
 
 The `relaytransport` package owns the reusable mechanics for Relay-backed byte
 streams. `Dial` turns binary WebSocket messages into a `net.Conn` for one
-caller stream. `OwnerHost` maintains one WebSocket/yamux owner tunnel while at
-least one product driver holds a reference, accepts remote streams only after
-the product readiness barrier succeeds, and reconnects with bounded full-jitter
-backoff plus `Retry-After`.
+caller stream and uses Ping/Pong liveness so an unresponsive peer closes the
+stream for the product's existing reconnect policy. `DialLivenessConfig` has
+20-second ping and 60-second pong defaults. `OwnerHost` maintains one
+WebSocket/yamux owner tunnel while at least one product driver holds a
+reference, accepts remote streams only after the product readiness barrier
+succeeds, and reconnects with bounded full-jitter backoff plus `Retry-After`.
 
 `OwnerLifecycle.Activate` returns an `OwnerActivation`: its `Readiness`
 context is a continuous product health condition for the complete connection
