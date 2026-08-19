@@ -33,10 +33,7 @@ SELECT store_contract FROM connector_market_metadata WHERE id = ?`, metadataID).
 	if err := discardIncompatibleStoreContractOn(ctx, tx); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return nil
+	return tx.Commit()
 }
 
 func (store *Store) ensureStoreContractTables(ctx context.Context) error {
