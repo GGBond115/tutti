@@ -117,7 +117,7 @@ type CodexAppServerAdapterOptions struct {
 	// approval policy, and approval reviewer remain owned by the selected
 	// permission mode. Network proxy configuration remains a separate concern.
 	CommandNetworkAccess bool
-	// StartupSpanObserver receives completed Codex app-server startup spans.
+	// StartupSpanObserver receives Codex app-server startup span boundaries.
 	// It is best-effort observability only and must not influence provider
 	// startup or command correctness.
 	StartupSpanObserver CodexAppServerSpanObserver
@@ -127,16 +127,18 @@ type CodexAppServerAdapterOptions struct {
 	StartupObserver CodexAppServerStartupObserver
 }
 
-// CodexAppServerSpanObservation is one completed, allowlisted startup span
-// emitted by the Codex app-server. It intentionally contains only bounded
-// timing and session-scope facts; raw prompts, commands, paths, and payloads
-// are not part of this contract.
+// CodexAppServerSpanObservation is one allowlisted startup span boundary
+// emitted by the Codex app-server. A new observation is emitted when the span
+// starts and a close observation uses the same SpanInstanceID. It intentionally
+// contains only bounded timing and session-scope facts; raw prompts, commands,
+// paths, and payloads are not part of this contract.
 type CodexAppServerSpanObservation struct {
 	Provider       string
 	RoomID         string
 	AgentSessionID string
 	SpanName       string
 	SpanPhase      string
+	SpanInstanceID string
 	SpanTarget     string
 	CodexTimestamp string
 	DurationMS     int64
@@ -144,7 +146,7 @@ type CodexAppServerSpanObservation struct {
 	SpanIdle       string
 }
 
-// CodexAppServerSpanObserver consumes completed startup span observations.
+// CodexAppServerSpanObserver consumes startup span boundary observations.
 // Implementations must be best-effort and must not affect provider behavior.
 type CodexAppServerSpanObserver func(CodexAppServerSpanObservation)
 
