@@ -7,10 +7,15 @@ import {
   DropdownMenuTrigger,
   RefreshIcon
 } from "@tutti-os/ui-system";
+import { ArrowRightIcon } from "@tutti-os/ui-system/icons";
 import { useAppUpdateService } from "@renderer/features/app-update";
 import { useTranslation } from "@renderer/i18n";
 import { useWorkspaceSettingsService } from "../../workspace-workbench/ui/useWorkspaceSettingsService";
-import { createSubmenuGraceCloseController } from "./desktopAgentConfigSystemActionsModel.ts";
+import {
+  createSubmenuGraceCloseController,
+  shouldKeepOpenSubmenuOnTriggerKeyDown,
+  shouldKeepOpenSubmenuOnTriggerPointerDown
+} from "./desktopAgentConfigSystemActionsModel.ts";
 
 const actionClassName =
   "nodrag flex h-7 w-full items-center gap-2 rounded-[6px] px-2 text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--transparency-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] disabled:text-[var(--text-tertiary)] [-webkit-app-region:no-drag]";
@@ -22,6 +27,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
   const { service: settingsService, state: settingsState } =
     useWorkspaceSettingsService();
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const exportMenuGraceCloseRef = useRef<
     ReturnType<typeof createSubmenuGraceCloseController> | undefined
   >(undefined);
@@ -66,15 +72,49 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
             className={actionClassName}
             data-testid="agent-gui-config-export-logs"
             disabled={settingsState.developerLogs.exporting}
-            type="button"
+            ref={exportMenuTriggerRef}
+            onClick={() => setExportMenuOpen(true)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight") {
+                event.preventDefault();
+                setExportMenuOpen(true);
+                return;
+              }
+              if (
+                event.key === "ArrowLeft" ||
+                shouldKeepOpenSubmenuOnTriggerKeyDown({
+                  key: event.key,
+                  open: exportMenuOpen
+                })
+              ) {
+                event.preventDefault();
+                if (event.key === "ArrowLeft") setExportMenuOpen(false);
+              }
+            }}
             onPointerEnter={() => {
               exportMenuGraceClose.cancel();
               setExportMenuOpen(true);
             }}
             onPointerLeave={() => exportMenuGraceClose.schedule()}
+            onPointerDown={(event) => {
+              if (
+                shouldKeepOpenSubmenuOnTriggerPointerDown({
+                  button: event.button,
+                  ctrlKey: event.ctrlKey,
+                  open: exportMenuOpen
+                })
+              ) {
+                event.preventDefault();
+              }
+            }}
+            type="button"
           >
             <DownloadIcon aria-hidden="true" className="size-4" />
             <span>{t("workspace.settings.developer.exportLogs")}</span>
+            <ArrowRightIcon
+              aria-hidden="true"
+              className="ml-auto size-4 text-[var(--text-tertiary)]"
+            />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -82,11 +122,14 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
           className="w-64"
           side="right"
           style={{ zIndex: "calc(var(--z-panel-popover) + 1)" }}
-          onPointerEnter={() => exportMenuGraceClose.cancel()}
-          onMouseLeave={() => {
-            exportMenuGraceClose.cancel();
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft") return;
+            event.preventDefault();
             setExportMenuOpen(false);
+            requestAnimationFrame(() => exportMenuTriggerRef.current?.focus());
           }}
+          onPointerEnter={() => exportMenuGraceClose.cancel()}
+          onPointerLeave={() => exportMenuGraceClose.schedule()}
         >
           <DropdownMenuItem
             disabled={settingsState.developerLogs.exporting}

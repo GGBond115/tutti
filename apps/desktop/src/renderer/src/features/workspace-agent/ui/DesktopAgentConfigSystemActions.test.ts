@@ -5,6 +5,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   createSubmenuGraceCloseController,
+  shouldKeepOpenSubmenuOnTriggerKeyDown,
+  shouldKeepOpenSubmenuOnTriggerPointerDown,
   shouldShowDesktopAgentConfigSystemActions
 } from "./desktopAgentConfigSystemActionsModel.ts";
 
@@ -35,6 +37,7 @@ test("Agent config system actions stay hidden in OS mode", () => {
 test("Agent config log export uses a hover submenu", () => {
   assert.match(source, /<DropdownMenu[\s\S]*open=\{exportMenuOpen\}/);
   assert.match(source, /createSubmenuGraceCloseController\(\{/);
+  assert.match(source, /onClick=\{\(\) => setExportMenuOpen\(true\)\}/);
   assert.match(
     source,
     /onPointerLeave=\{\(\) => exportMenuGraceClose\.schedule\(\)\}/
@@ -44,7 +47,51 @@ test("Agent config log export uses a hover submenu", () => {
     /onPointerEnter=\{\(\) => exportMenuGraceClose\.cancel\(\)\}/
   );
   assert.match(source, /modal=\{false\}/);
+  assert.match(source, /<ArrowRightIcon/);
+  assert.match(source, /event\.key === "ArrowRight"/);
+  assert.match(source, /event\.key === "ArrowLeft"/);
+  assert.match(source, /exportMenuTriggerRef\.current\?\.focus\(\)/);
+  assert.match(source, /shouldKeepOpenSubmenuOnTriggerPointerDown\(\{/);
   assert.doesNotMatch(source, /DropdownMenuSub/);
+});
+
+test("an already open export menu does not toggle closed on click or activation", () => {
+  assert.equal(
+    shouldKeepOpenSubmenuOnTriggerPointerDown({
+      button: 0,
+      ctrlKey: false,
+      open: true
+    }),
+    true
+  );
+  assert.equal(
+    shouldKeepOpenSubmenuOnTriggerPointerDown({
+      button: 0,
+      ctrlKey: false,
+      open: false
+    }),
+    false
+  );
+  assert.equal(
+    shouldKeepOpenSubmenuOnTriggerPointerDown({
+      button: 2,
+      ctrlKey: false,
+      open: true
+    }),
+    false
+  );
+  assert.equal(
+    shouldKeepOpenSubmenuOnTriggerKeyDown({ key: "Enter", open: true }),
+    true
+  );
+  assert.equal(
+    shouldKeepOpenSubmenuOnTriggerKeyDown({ key: " ", open: true }),
+    true
+  );
+  assert.equal(
+    shouldKeepOpenSubmenuOnTriggerKeyDown({ key: "Enter", open: false }),
+    false
+  );
 });
 
 test("Agent config log export grace close is canceled by submenu entry", () => {

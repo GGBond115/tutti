@@ -6,6 +6,21 @@ export function shouldShowDesktopAgentConfigSystemActions(
   return workspaceUiMode === "agent";
 }
 
+export function shouldKeepOpenSubmenuOnTriggerPointerDown(input: {
+  button: number;
+  ctrlKey: boolean;
+  open: boolean;
+}): boolean {
+  return input.open && input.button === 0 && !input.ctrlKey;
+}
+
+export function shouldKeepOpenSubmenuOnTriggerKeyDown(input: {
+  key: string;
+  open: boolean;
+}): boolean {
+  return input.open && (input.key === "Enter" || input.key === " ");
+}
+
 export interface SubmenuGraceCloseController {
   cancel(): void;
   schedule(): void;
