@@ -484,7 +484,9 @@ test("desktop release workflow passes tsh-aligned Feishu card context", async ()
   );
   assert.ok(
     workflow.indexOf("name: Resolve current stable GitHub draft URL") >
-      workflow.indexOf("name: Update release notes with summary and direct downloads"),
+      workflow.indexOf(
+        "name: Update release notes with summary and direct downloads"
+      ),
     "the candidate draft URL should be refreshed after release notes are updated"
   );
   assert.match(
@@ -855,6 +857,8 @@ test("stable candidates require environment approval and bind the reviewed notes
   const promoteWorkflow = await readFile(promoteWorkflowPath, "utf8");
 
   assert.match(workflow, /build-release-candidate-manifest\.mjs/);
+  assert.match(workflow, /upload-github-release-assets\.mjs/);
+  assert.doesNotMatch(workflow, /gh release upload/);
   assert.match(workflow, /release_candidate_tag="candidate-\$\{release_tag\}"/);
   assert.match(workflow, /releases\/assets\/\$\{asset_id\}/);
   assert.match(
