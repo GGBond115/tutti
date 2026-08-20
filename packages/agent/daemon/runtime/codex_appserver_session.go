@@ -18,7 +18,7 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	if err := a.admitCodexReplacementLocked(session.AgentSessionID); err != nil {
 		return nil, err
 	}
-	trace := newCodexAppServerStartupTrace(session, a.startupSpanObserver)
+	trace := newCodexAppServerStartupTrace(session, a.startupSpanObserver, a.startupObserver)
 	defer func() {
 		trace.Finish(err)
 	}()
@@ -199,7 +199,7 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	// Start, the old client is kept alive until the replacement has resumed
 	// successfully (storeSession closes it on replace): if the new spawn or
 	// thread/resume fails, the previous session must remain usable.
-	trace := newCodexAppServerStartupTrace(session, a.startupSpanObserver)
+	trace := newCodexAppServerStartupTrace(session, a.startupSpanObserver, a.startupObserver)
 	defer func() {
 		trace.Finish(err)
 	}()

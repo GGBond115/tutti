@@ -83,6 +83,63 @@ func TestCodexAppServerStartupTraceRecordsStructuredSpanClose(t *testing.T) {
 	}
 }
 
+func TestCodexAppServerStartupTraceReportsBoundedSummary(t *testing.T) {
+	var observations []CodexAppServerStartupObservation
+	trace := &codexAppServerStartupTrace{
+		startedAt: time.Now().Add(-125 * time.Millisecond),
+		session: Session{
+			Provider:       ProviderCodex,
+			RoomID:         "room-1",
+			AgentSessionID: "session-1",
+			MCPServers: []MCPServerBinding{
+				{Name: "one"},
+				{Name: "two"},
+			},
+		},
+		path: filepath.Join(t.TempDir(), "trace.jsonl"),
+		startupObserver: func(observation CodexAppServerStartupObservation) {
+			observations = append(observations, observation)
+		},
+		spanStartedAt: make(map[string][]time.Time),
+	}
+
+	trace.LogStderr([]byte(`{"timestamp":"2026-08-20T02:00:00.000Z","fields":{"message":"new"},"span":{"name":"session_init"}}
+{"timestamp":"2026-08-20T02:00:00.125Z","fields":{"message":"close"},"span":{"name":"session_init"}}
+`))
+	trace.Finish(nil)
+
+	if len(observations) != 1 {
+		t.Fatalf("startup observations = %d, want one", len(observations))
+	}
+	observation := observations[0]
+	if observation.Provider != ProviderCodex || observation.RoomID != "room-1" || observation.AgentSessionID != "session-1" {
+		t.Fatalf("observation scope = %#v, want Codex room/session scope", observation)
+	}
+	if observation.Outcome != "succeeded" {
+		t.Fatalf("outcome = %q, want succeeded", observation.Outcome)
+	}
+	if observation.MCPServerCount != 2 || observation.CompletedSpanCount != 1 {
+		t.Fatalf("resource summary = %#v, want two MCP servers and one span", observation)
+	}
+	if observation.DurationMS < 100 {
+		t.Fatalf("duration_ms = %d, want at least 100ms", observation.DurationMS)
+	}
+}
+
+func TestCodexAppServerStartupTraceStartupObserverPanicDoesNotEscape(t *testing.T) {
+	trace := &codexAppServerStartupTrace{
+		startedAt: time.Now(),
+		session:   Session{Provider: ProviderCodex, AgentSessionID: "session-1"},
+		path:      filepath.Join(t.TempDir(), "trace.jsonl"),
+		startupObserver: func(CodexAppServerStartupObservation) {
+			panic("analytics observer failure")
+		},
+		spanStartedAt: make(map[string][]time.Time),
+	}
+
+	trace.Finish(nil)
+}
+
 func TestCodexAppServerStartupTraceObserverPanicDoesNotEscape(t *testing.T) {
 	trace := &codexAppServerStartupTrace{
 		startedAt: time.Now(),

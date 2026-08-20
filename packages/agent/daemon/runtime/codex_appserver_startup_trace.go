@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,30 +41,30 @@ var codexAppServerStartupSpanNames = map[string]struct{}{
 const codexAppServerStderrLineLimit = 64 * 1024
 
 type codexAppServerStartupTrace struct {
-	startedAt     time.Time
-	session       Session
-	path          string
-	spanObserver  CodexAppServerSpanObserver
-	stderrMu      sync.Mutex
-	stderrLine    []byte
-	spanStartedAt map[string][]time.Time
+	startedAt          time.Time
+	session            Session
+	path               string
+	spanObserver       CodexAppServerSpanObserver
+	startupObserver    CodexAppServerStartupObserver
+	stderrMu           sync.Mutex
+	stderrLine         []byte
+	spanStartedAt      map[string][]time.Time
+	completedSpanCount atomic.Int64
 }
 
 func newCodexAppServerStartupTrace(
 	session Session,
-	spanObservers ...CodexAppServerSpanObserver,
+	spanObserver CodexAppServerSpanObserver,
+	startupObserver CodexAppServerStartupObserver,
 ) *codexAppServerStartupTrace {
 	settings := session.SettingsValue()
-	var spanObserver CodexAppServerSpanObserver
-	if len(spanObservers) > 0 {
-		spanObserver = spanObservers[0]
-	}
 	trace := &codexAppServerStartupTrace{
-		startedAt:     time.Now(),
-		session:       session,
-		path:          codexAppServerStartupTracePath(),
-		spanObserver:  spanObserver,
-		spanStartedAt: make(map[string][]time.Time),
+		startedAt:       time.Now(),
+		session:         session,
+		path:            codexAppServerStartupTracePath(),
+		spanObserver:    spanObserver,
+		startupObserver: startupObserver,
+		spanStartedAt:   make(map[string][]time.Time),
 	}
 	trace.Log("start.begin", map[string]any{
 		"permission_mode_id": session.PermissionModeID,
@@ -156,13 +157,28 @@ func appendCodexAppServerStartupTrace(path string, line []byte, maxBytes int64) 
 }
 
 func (t *codexAppServerStartupTrace) Finish(err error) {
-	fields := map[string]any{}
-	if err != nil {
-		fields["error"] = err.Error()
-		t.Log("start.failed", fields)
+	if t == nil {
 		return
 	}
-	t.Log("start.succeeded", fields)
+	outcome := "succeeded"
+	fields := map[string]any{}
+	if err != nil {
+		outcome = "failed"
+		fields["error"] = err.Error()
+		t.Log("start.failed", fields)
+	} else {
+		t.Log("start.succeeded", fields)
+	}
+	t.notifyStartupObserver(CodexAppServerStartupObservation{
+		Provider:           strings.TrimSpace(t.session.Provider),
+		RoomID:             strings.TrimSpace(t.session.RoomID),
+		AgentSessionID:     strings.TrimSpace(t.session.AgentSessionID),
+		StartedAt:          t.startedAt.UTC().Format(time.RFC3339Nano),
+		Outcome:            outcome,
+		DurationMS:         time.Since(t.startedAt).Milliseconds(),
+		MCPServerCount:     len(t.session.MCPServers),
+		CompletedSpanCount: int(t.completedSpanCount.Load()),
+	})
 }
 
 func (t *codexAppServerStartupTrace) LogMessage(method string, hasID bool, paramsSize int) {
@@ -268,6 +284,7 @@ func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) *CodexAp
 			t.spanStartedAt[spanName] = append(t.spanStartedAt[spanName], startedAt)
 		}
 	} else if starts := t.spanStartedAt[spanName]; len(starts) > 0 {
+		t.completedSpanCount.Add(1)
 		start := starts[len(starts)-1]
 		t.spanStartedAt[spanName] = starts[:len(starts)-1]
 		durationMS := int64(0)
@@ -315,6 +332,23 @@ func (t *codexAppServerStartupTrace) notifySpanObserver(observation CodexAppServ
 		}
 	}()
 	t.spanObserver(observation)
+}
+
+func (t *codexAppServerStartupTrace) notifyStartupObserver(observation CodexAppServerStartupObservation) {
+	if t.startupObserver == nil {
+		return
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.Warn("agent session Codex app-server startup observer panicked",
+				"provider", observation.Provider,
+				"agent_session_id", observation.AgentSessionID,
+				"outcome", observation.Outcome,
+				"panic", recovered,
+			)
+		}
+	}()
+	t.startupObserver(observation)
 }
 
 func codexJSONLogString(raw json.RawMessage) string {

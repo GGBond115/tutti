@@ -121,6 +121,10 @@ type CodexAppServerAdapterOptions struct {
 	// It is best-effort observability only and must not influence provider
 	// startup or command correctness.
 	StartupSpanObserver CodexAppServerSpanObserver
+	// StartupObserver receives one bounded summary when a Codex app-server
+	// session start or resume finishes. It is best-effort observability only
+	// and must not influence provider startup or command correctness.
+	StartupObserver CodexAppServerStartupObserver
 }
 
 // CodexAppServerSpanObservation is one completed, allowlisted startup span
@@ -143,6 +147,25 @@ type CodexAppServerSpanObservation struct {
 // CodexAppServerSpanObserver consumes completed startup span observations.
 // Implementations must be best-effort and must not affect provider behavior.
 type CodexAppServerSpanObserver func(CodexAppServerSpanObservation)
+
+// CodexAppServerStartupObservation is one bounded summary of a Codex
+// app-server session start or resume. Counts describe resources bound to the
+// Tutti session and completed allowlisted Codex spans; Codex-native plugin and
+// skill counts are intentionally absent until Codex emits those counts.
+type CodexAppServerStartupObservation struct {
+	Provider           string
+	RoomID             string
+	AgentSessionID     string
+	StartedAt          string
+	Outcome            string
+	DurationMS         int64
+	MCPServerCount     int
+	CompletedSpanCount int
+}
+
+// CodexAppServerStartupObserver consumes one completed startup summary.
+// Implementations must be best-effort and must not affect provider behavior.
+type CodexAppServerStartupObserver func(CodexAppServerStartupObservation)
 
 // defaultCodexAppServerCancelGraceWindow is how long Cancel waits for codex to
 // honor turn/interrupt gracefully before force-closing the app-server process.
@@ -178,6 +201,7 @@ type CodexAppServerAdapter struct {
 	host                       HostMetadata
 	config                     appServerAdapterConfig
 	startupSpanObserver        CodexAppServerSpanObserver
+	startupObserver            CodexAppServerStartupObserver
 	preparer                   ProviderLaunchPreparer
 	commandResolver            ProviderCommandResolver
 	mu                         sync.Mutex
@@ -450,6 +474,7 @@ func NewCodexAppServerAdapterWithHostMetadataAndOptions(
 	adapter := NewCodexAppServerAdapterWithHostMetadataAndCommandResolver(transport, host, nil)
 	adapter.config.commandNetworkAccess = options.CommandNetworkAccess
 	adapter.startupSpanObserver = options.StartupSpanObserver
+	adapter.startupObserver = options.StartupObserver
 	return adapter
 }
 
@@ -497,6 +522,7 @@ func NewTuttiAgentAppServerAdapterWithHostMetadataAndOptions(
 	adapter := newTuttiAgentAppServerAdapterWithHostMetadata(transport, host)
 	adapter.config.commandNetworkAccess = options.CommandNetworkAccess
 	adapter.startupSpanObserver = options.StartupSpanObserver
+	adapter.startupObserver = options.StartupObserver
 	return adapter
 }
 
