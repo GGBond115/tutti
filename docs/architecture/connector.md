@@ -657,9 +657,13 @@ open it.
 
 Connector details are represented by one modal state machine, never by a fixed
 right-hand pane. An uninstalled connector opens an installation confirmation.
-An unconnected installed connector opens the authorization dialog; an
-authorized connector opens the management dialog. Blocked releases open the
-blocked-state dialog. Only one dialog host is mounted at a time, so
+An unconnected installed connector opens the authorization dialog. The token
+form keeps typed secrets after submit so a failed or in-flight attempt does
+not force the user to re-enter them. Completing authorization in that dialog
+keeps the modal open and advances it to the management dialog, where
+disconnect and try remain available. An already authorized connector opens
+the management dialog directly. Blocked releases
+open the blocked-state dialog. Only one dialog host is mounted at a time, so
 the catalog keeps the full settings content width and never leaves an empty
 right column.
 
