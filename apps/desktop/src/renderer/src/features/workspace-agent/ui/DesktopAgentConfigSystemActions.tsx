@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import {
   DownloadIcon,
   DropdownMenu,
@@ -9,6 +10,7 @@ import {
 import { useAppUpdateService } from "@renderer/features/app-update";
 import { useTranslation } from "@renderer/i18n";
 import { useWorkspaceSettingsService } from "../../workspace-workbench/ui/useWorkspaceSettingsService";
+import { createSubmenuGraceCloseController } from "./desktopAgentConfigSystemActionsModel.ts";
 
 const actionClassName =
   "nodrag flex h-7 w-full items-center gap-2 rounded-[6px] px-2 text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--transparency-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] disabled:text-[var(--text-tertiary)] [-webkit-app-region:no-drag]";
@@ -19,6 +21,14 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
     useAppUpdateService();
   const { service: settingsService, state: settingsState } =
     useWorkspaceSettingsService();
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuGraceCloseRef = useRef<
+    ReturnType<typeof createSubmenuGraceCloseController> | undefined
+  >(undefined);
+  exportMenuGraceCloseRef.current ??= createSubmenuGraceCloseController({
+    close: () => setExportMenuOpen(false)
+  });
+  const exportMenuGraceClose = exportMenuGraceCloseRef.current;
 
   const exportLogs = (input: {
     includeAgentSessions: boolean;
@@ -43,13 +53,25 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
             : t("desktop.menu.checkForUpdates")}
         </span>
       </button>
-      <DropdownMenu>
+      <DropdownMenu
+        modal={false}
+        open={exportMenuOpen}
+        onOpenChange={(open) => {
+          exportMenuGraceClose.cancel();
+          setExportMenuOpen(open);
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <button
             className={actionClassName}
             data-testid="agent-gui-config-export-logs"
             disabled={settingsState.developerLogs.exporting}
             type="button"
+            onPointerEnter={() => {
+              exportMenuGraceClose.cancel();
+              setExportMenuOpen(true);
+            }}
+            onPointerLeave={() => exportMenuGraceClose.schedule()}
           >
             <DownloadIcon aria-hidden="true" className="size-4" />
             <span>{t("workspace.settings.developer.exportLogs")}</span>
@@ -60,8 +82,14 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
           className="w-64"
           side="right"
           style={{ zIndex: "calc(var(--z-panel-popover) + 1)" }}
+          onPointerEnter={() => exportMenuGraceClose.cancel()}
+          onMouseLeave={() => {
+            exportMenuGraceClose.cancel();
+            setExportMenuOpen(false);
+          }}
         >
           <DropdownMenuItem
+            disabled={settingsState.developerLogs.exporting}
             onSelect={() =>
               exportLogs({
                 includeAgentSessions: false,
@@ -72,6 +100,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
             {t("workspace.settings.developer.exportRecentTenMinutesLogsOnly")}
           </DropdownMenuItem>
           <DropdownMenuItem
+            disabled={settingsState.developerLogs.exporting}
             onSelect={() =>
               exportLogs({
                 includeAgentSessions: true,
@@ -84,6 +113,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
             )}
           </DropdownMenuItem>
           <DropdownMenuItem
+            disabled={settingsState.developerLogs.exporting}
             onSelect={() =>
               exportLogs({
                 includeAgentSessions: false,
@@ -94,6 +124,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
             {t("workspace.settings.developer.exportRecentThreeDaysLogsOnly")}
           </DropdownMenuItem>
           <DropdownMenuItem
+            disabled={settingsState.developerLogs.exporting}
             onSelect={() =>
               exportLogs({
                 includeAgentSessions: true,
