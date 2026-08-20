@@ -46,6 +46,10 @@ test("Agent config log export uses a hover submenu", () => {
     source,
     /onPointerEnter=\{\(\) => exportMenuGraceClose\.cancel\(\)\}/
   );
+  assert.match(
+    source,
+    /<DropdownMenuContent[\s\S]*data-agent-gui-config-owned-layer=""/
+  );
   assert.match(source, /modal=\{false\}/);
   assert.match(source, /<ArrowRightIcon/);
   assert.match(source, /event\.key === "ArrowRight"/);

@@ -1,5 +1,11 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentGUIViewLabels } from "../AgentGUINodeView";
 import {
@@ -27,6 +33,71 @@ const labels = {
 } as unknown as AgentGUIViewLabels;
 
 describe("AgentGUIConfigMenu", () => {
+  it("keeps marked portalled Host menus mounted through item selection", async () => {
+    const onSelect = vi.fn();
+    const exportItem = document.createElement("button");
+    exportItem.dataset.agentGuiConfigOwnedLayer = "";
+    exportItem.textContent = "Export recent logs";
+    exportItem.addEventListener("click", onSelect);
+    document.body.append(exportItem);
+    render(
+      <AgentGUIConfigMenu
+        environmentSetupVisible={false}
+        labels={labels}
+        providerScopedActionsVisible
+        slashStatusLimits={[]}
+        slashStatusLimitsLoading={false}
+        slashStatusLimitsResolvedEmpty={false}
+        slashStatusUsageCapturedAtUnixMs={null}
+        slashStatusUsageDidFail={false}
+        slashStatusUsageAttempted={false}
+        onOpenAgentEnvSetup={vi.fn()}
+        onOpenAgentSettings={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.pointerDown(exportItem);
+
+    expect(screen.getByTestId("agent-gui-config-menu")).toBeInTheDocument();
+    fireEvent.click(exportItem);
+    expect(onSelect).toHaveBeenCalledOnce();
+    exportItem.remove();
+  });
+
+  it("dismisses the config menu for unmarked portalled content", async () => {
+    const unownedAction = document.createElement("button");
+    unownedAction.textContent = "Unowned portalled action";
+    document.body.append(unownedAction);
+    render(
+      <AgentGUIConfigMenu
+        environmentSetupVisible={false}
+        labels={labels}
+        providerScopedActionsVisible
+        slashStatusLimits={[]}
+        slashStatusLimitsLoading={false}
+        slashStatusLimitsResolvedEmpty={false}
+        slashStatusUsageCapturedAtUnixMs={null}
+        slashStatusUsageDidFail={false}
+        slashStatusUsageAttempted={false}
+        onOpenAgentEnvSetup={vi.fn()}
+        onOpenAgentSettings={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.pointerDown(unownedAction);
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("agent-gui-config-menu")
+      ).not.toBeInTheDocument()
+    );
+    unownedAction.remove();
+  });
+
   it("keeps Host system actions interactive after Agent settings", () => {
     const onSystemAction = vi.fn();
     render(

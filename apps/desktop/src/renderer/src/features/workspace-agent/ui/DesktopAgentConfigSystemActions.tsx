@@ -120,6 +120,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
         <DropdownMenuContent
           align="start"
           className="w-64"
+          data-agent-gui-config-owned-layer=""
           side="right"
           style={{ zIndex: "calc(var(--z-panel-popover) + 1)" }}
           onKeyDown={(event) => {

@@ -117,6 +117,17 @@ export function AgentGUIConfigMenu({
         align="end"
         className="w-[300px] max-w-[calc(100vw-32px)] gap-3 p-1 text-xs"
         data-testid="agent-gui-config-menu"
+        onInteractOutside={(event) => {
+          const target = event.target;
+          if (
+            target instanceof Element &&
+            target.closest("[data-agent-gui-config-owned-layer]")
+          ) {
+            // Host-owned menus are portalled outside this Popover. Keep the
+            // parent mounted until the nested menu can dispatch its select.
+            event.preventDefault();
+          }
+        }}
         style={{ zIndex: "var(--z-panel-popover)" }}
       >
         <div className="flex min-w-0 flex-col gap-1">
