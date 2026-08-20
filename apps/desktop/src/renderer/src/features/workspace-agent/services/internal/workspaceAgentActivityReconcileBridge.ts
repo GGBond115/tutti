@@ -29,8 +29,6 @@ import type {
 import { WorkspaceAgentComposerOptionsInvalidationCoordinator } from "./workspaceAgentComposerOptionsInvalidationCoordinator.ts";
 import { editRetryAvailabilityFromTuttid } from "./workspaceAgentEditRetry.ts";
 
-const OPTIMISTIC_SESSION_EVENT_BATCH_DELAY_MS = 33;
-
 export abstract class WorkspaceAgentActivityReconcileBridge {
   private readonly reconcileDependencies: WorkspaceAgentActivityReconcileDependencies;
   private readonly entries = new Map<string, WorkspaceAgentSessionEngineHost>();
@@ -59,9 +57,6 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     string,
     Map<string, unknown>
   >();
-  private pendingOptimisticSessionEventTimer: ReturnType<
-    typeof globalThis.setTimeout
-  > | null = null;
   private readonly composerOptionsInvalidation =
     new WorkspaceAgentComposerOptionsInvalidationCoordinator(() =>
       this.entries.values()
@@ -247,10 +242,6 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     }
     this.sessionEventListenersByWorkspaceId.clear();
     this.prioritySessionRefCountsByWorkspaceId.clear();
-    if (this.pendingOptimisticSessionEventTimer !== null) {
-      globalThis.clearTimeout(this.pendingOptimisticSessionEventTimer);
-      this.pendingOptimisticSessionEventTimer = null;
-    }
     this.pendingOptimisticSessionEventsByWorkspaceId.clear();
     this.composerOptionsInvalidation.dispose();
     this.snapshotProjectors.clear();
@@ -535,26 +526,15 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
       `${message.agentSessionId}\u0000${message.messageId}`,
       hostMessageEventFromCore(message)
     );
-    if (this.pendingOptimisticSessionEventTimer !== null) return;
-    this.pendingOptimisticSessionEventTimer = globalThis.setTimeout(
-      () => this.flushPendingOptimisticSessionEvents(),
-      OPTIMISTIC_SESSION_EVENT_BATCH_DELAY_MS
-    );
   }
 
-  private flushPendingOptimisticSessionEvents(): void {
-    if (this.pendingOptimisticSessionEventTimer !== null) {
-      globalThis.clearTimeout(this.pendingOptimisticSessionEventTimer);
-      this.pendingOptimisticSessionEventTimer = null;
-    }
-    const pendingByWorkspace = [
-      ...this.pendingOptimisticSessionEventsByWorkspaceId
-    ];
-    this.pendingOptimisticSessionEventsByWorkspaceId.clear();
-    for (const [workspaceId, pending] of pendingByWorkspace) {
-      for (const event of pending.values()) {
-        this.emitSessionEvent(workspaceId, event);
-      }
+  private flushPendingOptimisticSessionEvents(workspaceId: string): void {
+    const pending =
+      this.pendingOptimisticSessionEventsByWorkspaceId.get(workspaceId);
+    if (!pending) return;
+    this.pendingOptimisticSessionEventsByWorkspaceId.delete(workspaceId);
+    for (const event of pending.values()) {
+      this.emitSessionEvent(workspaceId, event);
     }
   }
 
@@ -647,20 +627,20 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
       this.queueOptimisticSessionEvent(workspaceId, result.optimisticMessage);
     }
     if (result.inlineApplied) {
-      this.flushPendingOptimisticSessionEvents();
+      this.flushPendingOptimisticSessionEvents(workspaceId);
       for (const message of result.inlineMessages) {
         this.emitSessionEvent(workspaceId, hostMessageEventFromCore(message));
       }
     }
     if (input.eventType === "session_deleted" && result.accepted) {
-      this.flushPendingOptimisticSessionEvents();
+      this.flushPendingOptimisticSessionEvents(workspaceId);
       this.emitSessionEvent(workspaceId, {
         data: input.data,
         eventType: input.eventType
       });
     }
     if (input.eventType === "turn_update" && result.accepted) {
-      this.flushPendingOptimisticSessionEvents();
+      this.flushPendingOptimisticSessionEvents(workspaceId);
       this.emitSessionEvent(workspaceId, {
         data: input.data,
         eventType: input.eventType
@@ -682,12 +662,20 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
     const existing = this.eventCoordinators.get(normalizedWorkspaceId);
     if (existing) return existing;
+    const entry = this.entry(normalizedWorkspaceId);
     const coordinator = createAgentActivityWorkspaceEventCoordinator({
-      engine: this.entry(normalizedWorkspaceId).engine,
+      engine: entry.engine,
+      notificationScheduler: entry.scheduler,
       readCanonicalSnapshot: () =>
         this.canonicalActivitySnapshot(normalizedWorkspaceId),
       workspaceId: normalizedWorkspaceId
     });
+    // The coordinator already batches optimistic overlay notifications on its
+    // host-injected scheduler. Flush the matching host events from that same
+    // boundary instead of maintaining a second renderer timer.
+    coordinator.subscribe(() =>
+      this.flushPendingOptimisticSessionEvents(normalizedWorkspaceId)
+    );
     this.eventCoordinators.set(normalizedWorkspaceId, coordinator);
     if (this.eventStreamConnectionState) {
       this.entry(normalizedWorkspaceId).engine.dispatch({

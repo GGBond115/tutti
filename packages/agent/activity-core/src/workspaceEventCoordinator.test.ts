@@ -44,9 +44,19 @@ function createHarness(options?: {
   };
   const coordinator = createAgentActivityWorkspaceEventCoordinator({
     engine,
-    ...(options?.notificationScheduler
-      ? { notificationScheduler: options.notificationScheduler }
-      : {}),
+    notificationScheduler: options?.notificationScheduler ?? {
+      schedule(_delayMs, task) {
+        let canceled = false;
+        queueMicrotask(() => {
+          if (!canceled) task();
+        });
+        return {
+          cancel() {
+            canceled = true;
+          }
+        };
+      }
+    },
     readCanonicalSnapshot,
     workspaceId: "workspace-1"
   });
@@ -860,6 +870,32 @@ test("coalesces optimistic delta notifications without dropping ordered content"
     harness.coordinator.project(harness.readCanonicalSnapshot())
       .sessionMessagesById["session-streaming"]?.[0]?.payload.text,
     Array.from({ length: 100 }, (_, index) => String(index)).join("")
+  );
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-streaming",
+    eventType: "message_delta",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-streaming",
+      messageId: "message-streaming",
+      turnId: "turn-streaming",
+      role: "assistant",
+      kind: "text",
+      occurredAtUnixMs: 101,
+      content: { operation: "append_text", text: "100" }
+    }
+  });
+
+  assert.equal(notifications, 1);
+  assert.equal(scheduled.length, 2);
+  scheduled[1]?.task();
+  assert.equal(notifications, 2);
+  assert.equal(
+    harness.coordinator.project(harness.readCanonicalSnapshot())
+      .sessionMessagesById["session-streaming"]?.[0]?.payload.text,
+    Array.from({ length: 101 }, (_, index) => String(index)).join("")
   );
 
   harness.coordinator.dispose();

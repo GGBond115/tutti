@@ -20,17 +20,6 @@ import type {
 const EMPTY_MESSAGES: readonly AgentActivityMessage[] = [];
 export const AGENT_ACTIVITY_NOTIFICATION_BATCH_DELAY_MS = 33;
 
-const defaultNotificationScheduler: EngineScheduler = {
-  schedule(delayMs, task) {
-    const handle = globalThis.setTimeout(task, delayMs);
-    return {
-      cancel() {
-        globalThis.clearTimeout(handle);
-      }
-    };
-  }
-};
-
 export interface AgentActivityWorkspaceReconcileKey {
   agentSessionId?: string;
   workspaceId: string;
@@ -107,7 +96,7 @@ export interface AgentActivityWorkspaceEventIngestOptions {
 export interface CreateAgentActivityWorkspaceEventCoordinatorInput {
   engine: AgentSessionEngine;
   notificationBatchDelayMs?: number;
-  notificationScheduler?: EngineScheduler;
+  notificationScheduler: EngineScheduler;
   readCanonicalSnapshot: () => AgentActivitySnapshot;
   workspaceId: string;
 }
@@ -124,7 +113,7 @@ export interface CreateAgentActivityWorkspaceEventCoordinatorInput {
 export function createAgentActivityWorkspaceEventCoordinator({
   engine,
   notificationBatchDelayMs = AGENT_ACTIVITY_NOTIFICATION_BATCH_DELAY_MS,
-  notificationScheduler = defaultNotificationScheduler,
+  notificationScheduler,
   readCanonicalSnapshot,
   workspaceId
 }: CreateAgentActivityWorkspaceEventCoordinatorInput): AgentActivityWorkspaceEventCoordinator {
