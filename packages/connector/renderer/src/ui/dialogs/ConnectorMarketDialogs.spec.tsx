@@ -1,5 +1,11 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "valtio";
 
@@ -108,5 +114,85 @@ describe("ConnectorMarketDialogs", () => {
     fireEvent.click(screen.getByRole("button", { name: "actionTry" }));
     expect(closeDialog).toHaveBeenCalledTimes(1);
     expect(onTryConnector).toHaveBeenCalledWith("gmail");
+  });
+
+  it("keeps one authorization action until the user finishes or cancels", async () => {
+    const viewState = proxy(
+      emptyView({
+        ...authorizationDialog,
+        authorizing: true,
+        pending: true,
+        authorizationView: {
+          protocol: "tutti.connector.authorization.view.v1",
+          viewId: "gmail-oauth",
+          view: {
+            type: "external_link",
+            url: "https://accounts.google.com/o/oauth2/auth"
+          }
+        }
+      })
+    );
+    const closeDialog = vi.fn();
+    const beginAuthorization = vi.fn(async () => undefined);
+    const cancelAuthorization = vi.fn(async () => undefined);
+    const root = {
+      market: {
+        beginAuthorization,
+        cancelAuthorization,
+        dataStore: proxy({
+          pendingUninstallNotificationsByOperationId: {}
+        })
+      },
+      uiState: {
+        closeDialog,
+        dataStore: proxy({
+          dialog: { connectorKey: "gmail", kind: "connector" },
+          query: "",
+          scope: {},
+          started: true
+        })
+      },
+      view: { dataStore: viewState }
+    } as unknown as IConnectorMarketRoot;
+
+    const { rerender } = render(
+      <ConnectorMarketRootProvider i18n={i18n} root={root}>
+        <ConnectorMarketDialogs />
+      </ConnectorMarketRootProvider>
+    );
+
+    const waiting = screen.getByRole("button", {
+      name: "actionWaitingAuthorization"
+    });
+    expect(waiting).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "actionContinueAuthorization" })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(waiting);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(beginAuthorization).not.toHaveBeenCalled();
+    expect(closeDialog).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+    expect(cancelAuthorization).toHaveBeenCalledWith("gmail");
+    await waitFor(() => expect(closeDialog).toHaveBeenCalledTimes(1));
+
+    viewState.dialog = {
+      ...authorizationDialog,
+      authorizing: false,
+      pending: true
+    };
+    rerender(
+      <ConnectorMarketRootProvider i18n={i18n} root={root}>
+        <ConnectorMarketDialogs />
+      </ConnectorMarketRootProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "actionAuthorize" }));
+    expect(beginAuthorization).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "actionContinueAuthorization" })
+    ).not.toBeInTheDocument();
   });
 });

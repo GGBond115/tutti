@@ -172,7 +172,11 @@ export function ConnectorMarketDialogs() {
         <Dialog
           open
           onOpenChange={(open) => {
-            if (open || (dialog.kind === "installation" && dialog.installing)) {
+            if (
+              open ||
+              (dialog.kind === "installation" && dialog.installing) ||
+              (dialog.kind === "authorization" && dialog.authorizing)
+            ) {
               return;
             }
             uiState.closeDialog();
