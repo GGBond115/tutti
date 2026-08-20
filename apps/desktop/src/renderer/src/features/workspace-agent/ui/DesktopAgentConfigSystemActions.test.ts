@@ -50,6 +50,11 @@ test("Agent config log export uses a hover submenu", () => {
     source,
     /<DropdownMenuContent[\s\S]*data-agent-gui-config-owned-layer=""/
   );
+  assert.equal(
+    source.match(/<DropdownMenuItem[\s\S]*?onClick=/g)?.length,
+    4
+  );
+  assert.doesNotMatch(source, /<DropdownMenuItem[\s\S]*?onSelect=/);
   assert.match(source, /modal=\{false\}/);
   assert.match(source, /<ArrowRightIcon/);
   assert.match(source, /event\.key === "ArrowRight"/);

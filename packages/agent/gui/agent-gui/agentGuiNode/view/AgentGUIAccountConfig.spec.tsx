@@ -6,6 +6,12 @@ import {
   screen,
   waitFor
 } from "@testing-library/react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@tutti-os/ui-system";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentGUIViewLabels } from "../AgentGUINodeView";
 import {
@@ -33,6 +39,47 @@ const labels = {
 } as unknown as AgentGUIViewLabels;
 
 describe("AgentGUIConfigMenu", () => {
+  it("dispatches click from a ui-system dropdown portalled out of the config popover", async () => {
+    const onClick = vi.fn();
+    render(
+      <AgentGUIConfigMenu
+        environmentSetupVisible={false}
+        labels={labels}
+        providerScopedActionsVisible
+        slashStatusLimits={[]}
+        slashStatusLimitsLoading={false}
+        slashStatusLimitsResolvedEmpty={false}
+        slashStatusUsageCapturedAtUnixMs={null}
+        slashStatusUsageDidFail={false}
+        slashStatusUsageAttempted={false}
+        systemActionsContent={
+          <DropdownMenu>
+            <DropdownMenuTrigger>Export logs</DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={onClick}>
+                Recent logs
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+        onOpenAgentEnvSetup={vi.fn()}
+        onOpenAgentSettings={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const exportTrigger = screen.getByRole("button", { name: "Export logs" });
+    fireEvent.pointerDown(exportTrigger, { button: 0, ctrlKey: false });
+    fireEvent.click(exportTrigger);
+    const exportItem = await screen.findByRole("menuitem", {
+      name: "Recent logs"
+    });
+    fireEvent.pointerDown(exportItem, { button: 0, ctrlKey: false });
+    fireEvent.click(exportItem);
+
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
   it("keeps marked portalled Host menus mounted through item selection", async () => {
     const onSelect = vi.fn();
     const exportItem = document.createElement("button");

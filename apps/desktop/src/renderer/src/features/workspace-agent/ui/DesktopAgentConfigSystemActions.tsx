@@ -42,7 +42,6 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
   }): void => {
     void settingsService.exportDeveloperLogs(input);
   };
-
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <button
@@ -134,7 +133,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
         >
           <DropdownMenuItem
             disabled={settingsState.developerLogs.exporting}
-            onSelect={() =>
+            onClick={() =>
               exportLogs({
                 includeAgentSessions: false,
                 scope: "recent-10-minutes"
@@ -145,7 +144,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={settingsState.developerLogs.exporting}
-            onSelect={() =>
+            onClick={() =>
               exportLogs({
                 includeAgentSessions: true,
                 scope: "recent-10-minutes"
@@ -158,7 +157,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={settingsState.developerLogs.exporting}
-            onSelect={() =>
+            onClick={() =>
               exportLogs({
                 includeAgentSessions: false,
                 scope: "recent-3-days"
@@ -169,7 +168,7 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={settingsState.developerLogs.exporting}
-            onSelect={() =>
+            onClick={() =>
               exportLogs({
                 includeAgentSessions: true,
                 scope: "recent-3-days"
