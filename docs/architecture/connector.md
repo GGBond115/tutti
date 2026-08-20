@@ -69,7 +69,12 @@ filter so installed connectors remain in their server-owned sections.
 Installation is a device fact. Authorization is an account projection. A
 Connector may therefore be installed while inactive for the current account;
 authorization completion or expiry schedules a normal durable runtime
-reconcile without changing installed truth. Every durable lifecycle command
+reconcile without changing installed truth. Remote MCP HTTP 428 and JSON-RPC
+`-33001`/`-33002` during an enabled reconcile are authorization-required
+observations, not retryable install failures. Core persists an expired account
+projection, replans `RuntimeDesired` as disabled, and lets
+`awaitRuntimeDesired` converge that inactive generation so the install
+operation can complete. Every durable lifecycle command
 freezes its `accountId` in `OperationScope`, while short-lived artifact and
 credential grants are passed only through execution ports and are never
 serialized into SQLite.
@@ -340,6 +345,10 @@ accepted -> deactivating(Desired=disabled) -> Observed(disabled)
          -> removing -> absent -> completed
 ```
 
+An authorization-required observation still completes install after the
+disabled generation is Observed. Install completion does not require an
+enabled Agent route.
+
 These are short database transactions separated by idempotent external
 effects, not one long transaction. Every external effect is preceded by a
 durable phase/receipt. A retryable error leaves the Operation non-terminal and
@@ -430,7 +439,10 @@ For account-scoped runtimes, `AccountRuntimeBindingResolver` maps `none`
 authorization to an always-active device connection. OAuth/API-key connectors
 remain inactive until the current account projection is `connected`; only then
 does the resolver request a one-shot credential-broker grant. `expired`,
-`disconnected`, and missing projections reconcile inactive. Daemon or guest
+`disconnected`, and missing projections reconcile inactive. If an enabled
+reconcile observes authorization-required from the remote MCP before the
+projection has expired, Core writes `expired` and replans inactive instead of
+leaving the install or convergence row retrying 428. Daemon or guest
 restart uses `BootstrapForScope` to rebuild the same projection explicitly.
 
 An enabled Runtime Reconcile returns one identity-fenced receipt containing
@@ -485,6 +497,9 @@ authentication only through a host-supplied request authorizer. Neither an API
 key submitted by the user nor the product account session is copied into the
 runtime VM. Remote MCP execution follows the product host's authenticated
 relay, while the VM receives only the non-credential runtime route identity.
+Route activation may reuse a same-process `tools/list` for an unchanged
+authorization identity; Agent-visible lists stay live and are never persisted
+or TTL-cached.
 Remote authorization replacement propagates the explicit replacement policy to
 Start and uses the session-scoped control-plane Cancel endpoint when a receipt
 already exists. This covers both a returned session and an interrupted initial
@@ -611,7 +626,10 @@ has observed its latest desired generation as enabled and ready; `starting`,
 projection retain the legacy authorization-based presentation. AgentGUI maps
 its provider-neutral capability options into that projection and retains only
 placement plus its Tutti Mode fallback. Selecting one item emits a semantic
-connector-open intent. The host
+connector-open intent. Composer “install” waits on the durable install
+operation; authorization-required remote MCP must complete that operation
+with an inactive route so the trigger can move from install to authorize
+instead of spinning. The host
 executes `openConnectorMarketDialog(root, connectorKey)`, which waits for the
 authoritative market view, rejects invalid or unknown keys, and then advances
 the package-owned dialog state machine. Before applying the bounded quick-list

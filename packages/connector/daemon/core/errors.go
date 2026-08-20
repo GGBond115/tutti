@@ -77,3 +77,8 @@ func isRetryableError(err error) bool {
 	var domainError *DomainError
 	return errors.As(err, &domainError) && domainError.Retryable
 }
+
+func authorizationRequiredError(err error) bool {
+	var domainError *DomainError
+	return errors.As(err, &domainError) && domainError.Code == ErrorCodeAuthorizationFailed
+}

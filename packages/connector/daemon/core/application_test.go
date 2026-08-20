@@ -2357,6 +2357,27 @@ func testConnector(key string) Connector {
 	}
 }
 
+func testRemoteAuthorizedConnector(key string) Connector {
+	connector := testConnector(key)
+	connector.Release.Manifest.AuthorizationKind = "oauth2"
+	connector.Release.Manifest.RequiredCapabilities = []string{"tools"}
+	connector.Release.Manifest.Implementation = Implementation{
+		Kind: ImplementationKindRemoteStreamableHTTP,
+		RemoteStreamableHTTP: &RemoteStreamableHTTPImplementation{
+			ProtocolVersion:     "2026-07-28",
+			BindingRef:          key + ".primary",
+			ContractVersion:     1,
+			BindingContractHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+	}
+	connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
+	connector.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	return connector
+}
+
 func testManagedAuthorizedConnector(key string) Connector {
 	connector := testConnector(key)
 	connector.Release.Manifest.AuthorizationKind = "oauth2"
@@ -2481,6 +2502,7 @@ type memoryInstallRuntime struct {
 	installationCommitErr   error
 	installationErr         error
 	reconcileErrors         map[string]error
+	enabledReconcileErrors  map[string]error
 }
 
 func (host *memoryInstallRuntime) Reconcile(_ context.Context, request RuntimeReconcileRequest) (RuntimeReceipt, error) {
@@ -2488,6 +2510,11 @@ func (host *memoryInstallRuntime) Reconcile(_ context.Context, request RuntimeRe
 	host.reconcileRequests = append(host.reconcileRequests, request)
 	host.lastReconcile = request
 	host.lastCredentialGrant = string(request.CredentialBrokerGrant)
+	if request.Enabled {
+		if err := host.enabledReconcileErrors[request.Connector.Key]; err != nil {
+			return RuntimeReceipt{}, err
+		}
+	}
 	if err := host.reconcileErrors[request.Connector.Key]; err != nil {
 		return RuntimeReceipt{}, err
 	}

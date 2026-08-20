@@ -54,3 +54,20 @@ Inspect the server-owned authorization bridge URL before it leaves the renderer.
 **Rule**
 
 The initiating desktop build owns the callback environment. Do not infer a production or development desktop scheme from the authorization website hostname. Web code must accept only the exact supported `open` routes and keep the legacy client marker solely as compatibility for already released clients.
+
+### Composer install stays spinning on an OAuth remote connector
+
+**Symptoms**
+
+- composer connector menu “install” keeps a spinner for minutes
+- daemon logs repeat `list connector MCP tools: MCP Streamable HTTP request failed: status 428`
+- the install operation stays `running` with rising `attempt` and retryable `connector_install_failed`
+- after enough retries the connector may still become `installed` while the account projection is `expired` and runtime desired is disabled
+
+**Check**
+
+Separate device installation from account authorization. Confirm the connector is remote Streamable HTTP plus oauth2, and that enabled runtime reconcile called `tools/list` before any user authorization. The composer trigger waits for the durable install operation, not for an enabled Agent route. `awaitRuntimeDesired` must be able to converge a disabled generation after an authorization-required observation.
+
+**Rule**
+
+HTTP 428 and JSON-RPC `-33001`/`-33002` are authorization-required, not retryable install failure. Persist an expired account projection, replan `RuntimeDesired` enabled=false, and complete install once that inactive generation is Observed. Do not keep the install operation retrying 428, and do not require a connected route before installation may become a device fact.
