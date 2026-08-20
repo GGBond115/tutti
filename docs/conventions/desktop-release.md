@@ -419,6 +419,14 @@ https://<asset-base-url>/changelog.json
 
 `changelog.json` is updated only for stable releases. RC and beta builds can still generate per-run summaries for Feishu and GitHub Release notes, but they should not appear on the public changelog feed unless that policy is changed explicitly.
 
+If a published stable release is missing from the aggregate feed, use the
+manual `Repair Desktop Release Changelog` workflow with that exact stable tag.
+The repair reads the checksummed `release-summary.json` attached to the
+published GitHub Release, validates that its tag and target commit still match,
+and upserts only that entry under the same `desktop-release-promotion`
+concurrency lock used by normal promotion. It must not republish the GitHub
+Release, upload immutable installers, or move any stable/RC/beta pointer.
+
 ## Draft Promotion
 
 External publication is owned by `.github/workflows/desktop-release-promote.yml`. RC and beta builds may call it automatically. A stable candidate must be submitted manually from the Feishu link and then pass the `desktop-stable-release` GitHub Environment approval.
