@@ -96,7 +96,25 @@ func TestCodexAppServerStartupTraceObserverPanicDoesNotEscape(t *testing.T) {
 
 	trace.LogStderr([]byte(`{"timestamp":"2026-08-20T02:00:00.000Z","fields":{"message":"new"},"span":{"name":"session_init"}}
 {"timestamp":"2026-08-20T02:00:00.125Z","fields":{"message":"close"},"span":{"name":"session_init"}}
-`))
+	`))
+}
+
+func TestCodexAppServerStartupTraceBoundsTheSharedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trace.jsonl")
+	if err := appendCodexAppServerStartupTrace(path, []byte("first"), 10); err != nil {
+		t.Fatalf("write first trace record: %v", err)
+	}
+	if err := appendCodexAppServerStartupTrace(path, []byte("second"), 10); err != nil {
+		t.Fatalf("write second trace record: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bounded trace: %v", err)
+	}
+	if string(data) != "second\n" {
+		t.Fatalf("bounded trace = %q, want only the newest record", data)
+	}
 }
 
 func TestWithCodexAppServerLoggingReplacesInheritedLogSettings(t *testing.T) {

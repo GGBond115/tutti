@@ -13,6 +13,7 @@ import (
 )
 
 const codexAppServerStartupTraceFileName = "tutti-codex-appserver-startup.jsonl"
+const codexAppServerStartupTraceMaxBytes = 64 * 1024 * 1024
 
 var codexAppServerStartupTraceMu sync.Mutex
 
@@ -132,12 +133,26 @@ func (t *codexAppServerStartupTrace) Log(event string, fields map[string]any) {
 	if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
 		return
 	}
-	file, err := os.OpenFile(t.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
+	if err := appendCodexAppServerStartupTrace(t.path, line, codexAppServerStartupTraceMaxBytes); err != nil {
 		return
 	}
+}
+
+func appendCodexAppServerStartupTrace(path string, line []byte, maxBytes int64) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
 	defer func() { _ = file.Close() }()
-	_, _ = file.Write(append(line, '\n'))
+	if info, err := file.Stat(); err != nil {
+		return err
+	} else if maxBytes > 0 && info.Size()+int64(len(line)+1) > maxBytes {
+		if err := file.Truncate(0); err != nil {
+			return err
+		}
+	}
+	_, err = file.Write(append(line, '\n'))
+	return err
 }
 
 func (t *codexAppServerStartupTrace) Finish(err error) {
