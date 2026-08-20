@@ -117,7 +117,32 @@ type CodexAppServerAdapterOptions struct {
 	// approval policy, and approval reviewer remain owned by the selected
 	// permission mode. Network proxy configuration remains a separate concern.
 	CommandNetworkAccess bool
+	// StartupSpanObserver receives completed Codex app-server startup spans.
+	// It is best-effort observability only and must not influence provider
+	// startup or command correctness.
+	StartupSpanObserver CodexAppServerSpanObserver
 }
+
+// CodexAppServerSpanObservation is one completed, allowlisted startup span
+// emitted by the Codex app-server. It intentionally contains only bounded
+// timing and session-scope facts; raw prompts, commands, paths, and payloads
+// are not part of this contract.
+type CodexAppServerSpanObservation struct {
+	Provider       string
+	RoomID         string
+	AgentSessionID string
+	SpanName       string
+	SpanPhase      string
+	SpanTarget     string
+	CodexTimestamp string
+	DurationMS     int64
+	SpanBusy       string
+	SpanIdle       string
+}
+
+// CodexAppServerSpanObserver consumes completed startup span observations.
+// Implementations must be best-effort and must not affect provider behavior.
+type CodexAppServerSpanObserver func(CodexAppServerSpanObservation)
 
 // defaultCodexAppServerCancelGraceWindow is how long Cancel waits for codex to
 // honor turn/interrupt gracefully before force-closing the app-server process.
@@ -152,6 +177,7 @@ type CodexAppServerAdapter struct {
 	transport                  ProcessTransport
 	host                       HostMetadata
 	config                     appServerAdapterConfig
+	startupSpanObserver        CodexAppServerSpanObserver
 	preparer                   ProviderLaunchPreparer
 	commandResolver            ProviderCommandResolver
 	mu                         sync.Mutex
@@ -423,6 +449,7 @@ func NewCodexAppServerAdapterWithHostMetadataAndOptions(
 ) *CodexAppServerAdapter {
 	adapter := NewCodexAppServerAdapterWithHostMetadataAndCommandResolver(transport, host, nil)
 	adapter.config.commandNetworkAccess = options.CommandNetworkAccess
+	adapter.startupSpanObserver = options.StartupSpanObserver
 	return adapter
 }
 
@@ -469,6 +496,7 @@ func NewTuttiAgentAppServerAdapterWithHostMetadataAndOptions(
 ) *CodexAppServerAdapter {
 	adapter := newTuttiAgentAppServerAdapterWithHostMetadata(transport, host)
 	adapter.config.commandNetworkAccess = options.CommandNetworkAccess
+	adapter.startupSpanObserver = options.StartupSpanObserver
 	return adapter
 }
 

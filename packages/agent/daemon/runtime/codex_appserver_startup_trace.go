@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,17 +42,26 @@ type codexAppServerStartupTrace struct {
 	startedAt     time.Time
 	session       Session
 	path          string
+	spanObserver  CodexAppServerSpanObserver
 	stderrMu      sync.Mutex
 	stderrLine    []byte
 	spanStartedAt map[string][]time.Time
 }
 
-func newCodexAppServerStartupTrace(session Session) *codexAppServerStartupTrace {
+func newCodexAppServerStartupTrace(
+	session Session,
+	spanObservers ...CodexAppServerSpanObserver,
+) *codexAppServerStartupTrace {
 	settings := session.SettingsValue()
+	var spanObserver CodexAppServerSpanObserver
+	if len(spanObservers) > 0 {
+		spanObserver = spanObservers[0]
+	}
 	trace := &codexAppServerStartupTrace{
 		startedAt:     time.Now(),
 		session:       session,
 		path:          codexAppServerStartupTracePath(),
+		spanObserver:  spanObserver,
 		spanStartedAt: make(map[string][]time.Time),
 	}
 	trace.Log("start.begin", map[string]any{
@@ -159,7 +169,7 @@ func (t *codexAppServerStartupTrace) LogStderr(chunk []byte) {
 	})
 
 	t.stderrMu.Lock()
-	defer t.stderrMu.Unlock()
+	observations := make([]CodexAppServerSpanObservation, 0)
 	t.stderrLine = append(t.stderrLine, chunk...)
 	for {
 		line, rest, ok := bytes.Cut(t.stderrLine, []byte("\n"))
@@ -167,10 +177,16 @@ func (t *codexAppServerStartupTrace) LogStderr(chunk []byte) {
 			if len(t.stderrLine) > codexAppServerStderrLineLimit {
 				t.stderrLine = append([]byte(nil), t.stderrLine[len(t.stderrLine)-codexAppServerStderrLineLimit:]...)
 			}
-			return
+			break
 		}
 		t.stderrLine = rest
-		t.logCodexAppServerSpan(line)
+		if observation := t.logCodexAppServerSpan(line); observation != nil {
+			observations = append(observations, *observation)
+		}
+	}
+	t.stderrMu.Unlock()
+	for _, observation := range observations {
+		t.notifySpanObserver(observation)
 	}
 }
 
@@ -192,7 +208,7 @@ func withoutEnvironmentKeyFold(env []string, key string) []string {
 	return filtered
 }
 
-func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) {
+func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) *CodexAppServerSpanObservation {
 	var record struct {
 		Timestamp string                       `json:"timestamp"`
 		Target    string                       `json:"target"`
@@ -201,7 +217,7 @@ func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) {
 		Spans     []map[string]json.RawMessage `json:"spans"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(line), &record); err != nil {
-		return
+		return nil
 	}
 	spanName := codexJSONLogString(record.Span["name"])
 	if spanName == "" {
@@ -213,11 +229,11 @@ func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) {
 		}
 	}
 	if _, ok := codexAppServerStartupSpanNames[spanName]; !ok {
-		return
+		return nil
 	}
 	phase := codexJSONLogString(record.Fields["message"])
 	if phase != "new" && phase != "close" {
-		return
+		return nil
 	}
 	startedAt, parseErr := time.Parse(time.RFC3339Nano, record.Timestamp)
 	timestampOK := parseErr == nil
@@ -225,6 +241,7 @@ func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) {
 		"span_name":  spanName,
 		"span_phase": phase,
 	}
+	var observation *CodexAppServerSpanObservation
 	if record.Target != "" {
 		fields["span_target"] = record.Target
 	}
@@ -238,8 +255,10 @@ func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) {
 	} else if starts := t.spanStartedAt[spanName]; len(starts) > 0 {
 		start := starts[len(starts)-1]
 		t.spanStartedAt[spanName] = starts[:len(starts)-1]
+		durationMS := int64(0)
 		if timestampOK {
-			fields["duration_ms"] = startedAt.Sub(start).Milliseconds()
+			durationMS = startedAt.Sub(start).Milliseconds()
+			fields["duration_ms"] = durationMS
 		}
 		if busy := codexJSONLogString(record.Fields["time.busy"]); busy != "" {
 			fields["span_busy"] = busy
@@ -247,8 +266,40 @@ func (t *codexAppServerStartupTrace) logCodexAppServerSpan(line []byte) {
 		if idle := codexJSONLogString(record.Fields["time.idle"]); idle != "" {
 			fields["span_idle"] = idle
 		}
+		if timestampOK && t.spanObserver != nil {
+			observation = &CodexAppServerSpanObservation{
+				Provider:       strings.TrimSpace(t.session.Provider),
+				RoomID:         strings.TrimSpace(t.session.RoomID),
+				AgentSessionID: strings.TrimSpace(t.session.AgentSessionID),
+				SpanName:       spanName,
+				SpanPhase:      phase,
+				SpanTarget:     strings.TrimSpace(record.Target),
+				CodexTimestamp: strings.TrimSpace(record.Timestamp),
+				DurationMS:     durationMS,
+				SpanBusy:       codexJSONLogString(record.Fields["time.busy"]),
+				SpanIdle:       codexJSONLogString(record.Fields["time.idle"]),
+			}
+		}
 	}
 	t.Log("app_server.span", fields)
+	return observation
+}
+
+func (t *codexAppServerStartupTrace) notifySpanObserver(observation CodexAppServerSpanObservation) {
+	if t.spanObserver == nil {
+		return
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.Warn("agent session Codex app-server span observer panicked",
+				"provider", observation.Provider,
+				"agent_session_id", observation.AgentSessionID,
+				"span_name", observation.SpanName,
+				"panic", recovered,
+			)
+		}
+	}()
+	t.spanObserver(observation)
 }
 
 func codexJSONLogString(raw json.RawMessage) string {
