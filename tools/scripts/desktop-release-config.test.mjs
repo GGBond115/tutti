@@ -16,6 +16,10 @@ const promoteWorkflowPath = new URL(
   "../../.github/workflows/desktop-release-promote.yml",
   import.meta.url
 );
+const changelogRepairWorkflowPath = new URL(
+  "../../.github/workflows/desktop-release-changelog-repair.yml",
+  import.meta.url
+);
 const buildScriptPath = new URL(
   "../../tools/scripts/build-desktop-package.sh",
   import.meta.url
@@ -730,6 +734,40 @@ test("desktop release workflow generates summaries and stable changelog metadata
     releaseWorkflows,
     /RELEASE_SUMMARY_PATH:\s+release-summary\/release-summary\.json/
   );
+});
+
+test("desktop changelog repair restores one published stable summary without moving release pointers", async () => {
+  const repairWorkflow = await readFile(changelogRepairWorkflowPath, "utf8");
+
+  assert.match(repairWorkflow, /workflow_dispatch:/);
+  assert.match(repairWorkflow, /release_tag:/);
+  assert.match(
+    repairWorkflow,
+    /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/
+  );
+  assert.match(repairWorkflow, /group:\s*desktop-release-promotion/);
+  assert.match(
+    repairWorkflow,
+    /\^v\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\*\)\$/
+  );
+  assert.match(repairWorkflow, /isDraft/);
+  assert.match(repairWorkflow, /isPrerelease/);
+  assert.match(repairWorkflow, /--pattern release-summary\.json/);
+  assert.match(repairWorkflow, /--pattern SHA256SUMS\.txt/);
+  assert.match(repairWorkflow, /sha256sum --check --strict/);
+  assert.match(
+    repairWorkflow,
+    /apps\/desktop\/scripts\/validate-release-summary\.mjs/
+  );
+  assert.match(
+    repairWorkflow,
+    /apps\/desktop\/scripts\/upsert-release-changelog\.mjs/
+  );
+  assert.match(repairWorkflow, /Repair removed existing changelog entry/);
+  assert.match(repairWorkflow, /cmp changelog\.json published-changelog\.json/);
+  assert.doesNotMatch(repairWorkflow, /latest\.json/);
+  assert.doesNotMatch(repairWorkflow, /gh release edit/);
+  assert.doesNotMatch(repairWorkflow, /aws s3 sync/);
 });
 
 test("desktop promotion consumes the checksummed summary staged with the draft", async () => {
