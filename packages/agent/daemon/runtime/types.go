@@ -428,6 +428,10 @@ type Session struct {
 	// title so a restarted runtime never lets a provider title clobber a
 	// persisted user title.
 	UserTitleSet bool `json:"-"`
+	// AnnouncedConnectorKeys is the last connector enable set injected into
+	// provider prompt content. Process-memory only: a restart treats the next
+	// turn as a first announce.
+	AnnouncedConnectorKeys []string `json:"-"`
 }
 
 type MCPServerBinding struct {

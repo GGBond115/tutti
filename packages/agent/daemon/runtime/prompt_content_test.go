@@ -81,26 +81,84 @@ func TestProjectRuntimeConnectorPromptContentUsesNativeInterfaces(t *testing.T) 
 	content := normalizeRuntimePromptContent([]PromptContentBlock{
 		{Type: "text", Text: "list my calendar events"},
 		{Type: "connector", ConnectorKey: " lark-cli "},
+		{Type: "connector", ConnectorKey: "github"},
+		{Type: "connector", ConnectorKey: "lark-cli"},
 	})
-	projected := projectRuntimeConnectorPromptContent(content)
+	projected, next := projectRuntimeConnectorPromptContent(content, nil, false)
 	if len(projected) != 2 {
 		t.Fatalf("projected content = %#v, want instruction and user text", projected)
 	}
-	if projected[0].Type != "text" || !strings.Contains(projected[0].Text, "lark-cli") ||
-		!strings.Contains(projected[0].Text, "connector-owned Skills") ||
-		!strings.Contains(projected[0].Text, "provider's native Skill system") ||
-		!strings.Contains(projected[0].Text, "injected `connector` MCP server") ||
-		!strings.Contains(projected[0].Text, "normal shell") ||
-		!strings.Contains(projected[0].Text, "Never use a similarly named user-global") {
+	if projected[0].Type != "text" || projected[0].Text != "Connector(s) enabled: github, lark-cli." {
 		t.Fatalf("connector instruction = %#v", projected[0])
 	}
 	if projected[1].Text != "list my calendar events" {
 		t.Fatalf("user prompt = %#v, want preserved text", projected[1])
 	}
+	if len(next) != 2 || next[0] != "lark-cli" || next[1] != "github" {
+		t.Fatalf("next announced = %#v, want first-seen unique keys", next)
+	}
 	for _, block := range projected {
 		if block.Type == "connector" {
 			t.Fatalf("provider content leaked connector block: %#v", projected)
 		}
+	}
+
+	unchanged, same := projectRuntimeConnectorPromptContent(content, next, false)
+	if len(unchanged) != 1 || unchanged[0].Text != "list my calendar events" {
+		t.Fatalf("unchanged projection = %#v, want user text only", unchanged)
+	}
+	if len(same) != 2 || same[0] != "lark-cli" || same[1] != "github" {
+		t.Fatalf("unchanged next = %#v", same)
+	}
+
+	disabled, afterDisable := projectRuntimeConnectorPromptContent(
+		normalizeRuntimePromptContent([]PromptContentBlock{
+			{Type: "text", Text: "list my calendar events"},
+			{Type: "connector", ConnectorKey: "github"},
+		}),
+		next,
+		false,
+	)
+	if len(disabled) != 2 || disabled[0].Text != "Connector(s) disabled: lark-cli." {
+		t.Fatalf("disable projection = %#v", disabled)
+	}
+	if len(afterDisable) != 1 || afterDisable[0] != "github" {
+		t.Fatalf("after disable next = %#v", afterDisable)
+	}
+
+	both, afterBoth := projectRuntimeConnectorPromptContent(
+		normalizeRuntimePromptContent([]PromptContentBlock{
+			{Type: "text", Text: "list my calendar events"},
+			{Type: "connector", ConnectorKey: "slack"},
+		}),
+		next,
+		false,
+	)
+	if len(both) != 2 || both[0].Text != "Connector(s) enabled: slack. Connector(s) disabled: github, lark-cli." {
+		t.Fatalf("enable and disable projection = %#v", both)
+	}
+	if len(afterBoth) != 1 || afterBoth[0] != "slack" {
+		t.Fatalf("after both next = %#v", afterBoth)
+	}
+
+	empty, afterEmpty := projectRuntimeConnectorPromptContent(
+		normalizeRuntimePromptContent([]PromptContentBlock{{Type: "text", Text: "hello"}}),
+		nil,
+		false,
+	)
+	if len(empty) != 1 || empty[0].Text != "hello" {
+		t.Fatalf("empty first announce = %#v, want no instruction", empty)
+	}
+	if len(afterEmpty) != 0 {
+		t.Fatalf("empty first announce next = %#v", afterEmpty)
+	}
+
+	guidance, guidanceNext := projectRuntimeConnectorPromptContent(content, next, true)
+	if len(guidance) != 1 || guidance[0].Text != "list my calendar events" {
+		t.Fatalf("guidance projection = %#v, want stripped blocks and no delta", guidance)
+	}
+	if len(guidanceNext) != 2 || guidanceNext[0] != "lark-cli" || guidanceNext[1] != "github" {
+		t.Fatalf("guidance next = %#v, want announced unchanged", guidanceNext)
 	}
 }
 
@@ -138,12 +196,13 @@ func TestConnectorRoutingUpdatePrecedesSelectedConnectorInstruction(t *testing.T
 		{Type: "connector", ConnectorKey: "lark-cli"},
 	})
 	index := "lark-cli=Lark CLI|飞书"
-	projected := prependConnectorRoutingUpdate(projectRuntimeConnectorPromptContent(content), &index)
+	projectedContent, _ := projectRuntimeConnectorPromptContent(content, nil, false)
+	projected := prependConnectorRoutingUpdate(projectedContent, &index)
 	if len(projected) != 3 {
 		t.Fatalf("projected content = %#v, want update, selection, and user text", projected)
 	}
 	if !strings.Contains(projected[0].Text, "Connector routing update") ||
-		!strings.Contains(projected[1].Text, "Selected local connector(s): lark-cli") ||
+		projected[1].Text != "Connector(s) enabled: lark-cli." ||
 		projected[2].Text != "list my calendar events" {
 		t.Fatalf("projected order = %#v", projected)
 	}

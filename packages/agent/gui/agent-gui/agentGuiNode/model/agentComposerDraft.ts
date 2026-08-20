@@ -159,6 +159,15 @@ export function emptyAgentComposerDraft(): AgentComposerDraft {
   return [{ type: "text", text: "" }];
 }
 
+export function agentComposerDraftPreservingConnectors(
+  previous: AgentComposerDraft | undefined
+): AgentComposerDraft {
+  return buildAgentComposerDraft({
+    prompt: "",
+    connectors: previous ? agentComposerDraftConnectors(previous) : []
+  });
+}
+
 export function snapshotAgentComposerDraft(
   draft: AgentComposerDraft
 ): AgentComposerDraft {
