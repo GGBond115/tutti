@@ -1,8 +1,12 @@
 package agentstatus
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
+	claudecodeservice "github.com/tutti-os/tutti/services/tuttid/service/claudecode"
 )
 
 func TestCodexAccountUsageQuotaMapsProviderWindow(t *testing.T) {
@@ -57,5 +61,95 @@ func TestClaudeUnavailableAccountUsageDistinguishesAPIFromSubscription(t *testin
 	billingMode, quotaState = claudeUnavailableAccountUsage("pro")
 	if billingMode != "provider_account" || quotaState != "unavailable" {
 		t.Fatalf("subscription usage = (%q, %q)", billingMode, quotaState)
+	}
+}
+
+func TestClaudeAccountUsageWaitsForSharedCredentialGate(t *testing.T) {
+	gate := claudecodeservice.NewStartupGate()
+	if err := gate.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	called := make(chan struct{})
+	service := Service{
+		ClaudeStartupGate: gate,
+		ClaudeAccountUsageProbe: func(context.Context, agentruntime.ClaudeSDKAccountUsageProbeInput) agentruntime.ClaudeSDKAccountUsageProbeResult {
+			close(called)
+			return agentruntime.ClaudeSDKAccountUsageProbeResult{Usage: completeClaudeUsageFixture()}
+		},
+	}
+	resultCh := make(chan ProviderAccountUsageResult, 1)
+	go func() {
+		resultCh <- service.probeClaudeAccountUsage(
+			context.Background(), "claude-code",
+			ProviderCommandResolution{Command: []string{"node", "sidecar.ts"}},
+			"/workspace", ProviderAccountUsageResult{CapturedAtUnixMS: 1},
+		)
+	}()
+	select {
+	case <-called:
+		t.Fatal("Claude usage started while the shared credential gate was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+	gate.Release()
+	select {
+	case result := <-resultCh:
+		if result.Outcome != "available" || result.QuotaState != "complete" {
+			t.Fatalf("result = %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Claude usage did not start after the shared credential gate was released")
+	}
+}
+
+func TestClaudeAccountUsageGateWaitHonorsCancellation(t *testing.T) {
+	gate := claudecodeservice.NewStartupGate()
+	if err := gate.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer gate.Release()
+	called := false
+	service := Service{
+		ClaudeStartupGate: gate,
+		ClaudeAccountUsageProbe: func(context.Context, agentruntime.ClaudeSDKAccountUsageProbeInput) agentruntime.ClaudeSDKAccountUsageProbeResult {
+			called = true
+			return agentruntime.ClaudeSDKAccountUsageProbeResult{}
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := service.probeClaudeAccountUsage(
+		ctx, "claude-code", ProviderCommandResolution{Command: []string{"node"}},
+		"/workspace", ProviderAccountUsageResult{CapturedAtUnixMS: 1},
+	)
+	if called || result.Outcome != "error" {
+		t.Fatalf("called = %v, result = %#v", called, result)
+	}
+}
+
+func TestClaudeAccountUsageRejectsPartialRequiredWindows(t *testing.T) {
+	service := Service{
+		ClaudeStartupGate: claudecodeservice.NewStartupGate(),
+		ClaudeAccountUsageProbe: func(context.Context, agentruntime.ClaudeSDKAccountUsageProbeInput) agentruntime.ClaudeSDKAccountUsageProbeResult {
+			usage := completeClaudeUsageFixture()
+			delete(usage["rateLimits"].(map[string]any), "seven_day")
+			return agentruntime.ClaudeSDKAccountUsageProbeResult{Usage: usage}
+		},
+	}
+	result := service.probeClaudeAccountUsage(
+		context.Background(), "claude-code", ProviderCommandResolution{Command: []string{"node"}},
+		"/workspace", ProviderAccountUsageResult{CapturedAtUnixMS: 1},
+	)
+	if result.Outcome != "error" || result.ErrorCode != "parse_failed" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func completeClaudeUsageFixture() map[string]any {
+	return map[string]any{
+		"subscriptionType": "pro", "rateLimitsAvailable": true,
+		"rateLimits": map[string]any{
+			"five_hour": map[string]any{"utilization": float64(25)},
+			"seven_day": map[string]any{"utilization": float64(40)},
+		},
 	}
 }

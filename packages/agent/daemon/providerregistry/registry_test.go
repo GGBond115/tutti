@@ -463,9 +463,12 @@ func TestMigratedClaudeCodeDescriptorIsComplete(t *testing.T) {
 		descriptor.Status.AuthStatusCommandTimeoutSeconds != 600 {
 		t.Fatalf("target/status = %#v / %#v", descriptor.Target, descriptor.Status)
 	}
-	if descriptor.Status.RemoteAuthProbe.Kind != RemoteAuthProbeKindProviderUsage ||
+	if descriptor.Status.RemoteAuthProbe.Kind != "" ||
 		descriptor.Status.RemoteAuthProbe.CredentialKind != "" ||
-		descriptor.Status.RemoteAuthProbe.Endpoint != "" {
+		descriptor.Status.RemoteAuthProbe.Endpoint != "" ||
+		descriptor.Status.RemoteAuthProbe.Method != "" ||
+		len(descriptor.Status.RemoteAuthProbe.Headers) != 0 ||
+		descriptor.Status.RemoteAuthProbe.TimeoutSeconds != 0 {
 		t.Fatalf("remote auth probe = %#v", descriptor.Status.RemoteAuthProbe)
 	}
 	if !descriptor.ComposerProfile.Behavior.ModelOptionsAuthoritative ||

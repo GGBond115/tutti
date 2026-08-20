@@ -64,7 +64,7 @@ func (service AccountUsageService) Probe(ctx context.Context, rawTargetID string
 		return AccountUsageResult{}, errors.New("account usage service is not configured")
 	}
 	load := func() (AccountUsageResult, error) {
-		probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountUsageProbeTimeout)
+		probeCtx, cancel := context.WithTimeout(ctx, accountUsageProbeTimeout)
 		defer cancel()
 		return service.probe(probeCtx, targetID)
 	}
@@ -109,7 +109,15 @@ func (service AccountUsageService) probe(ctx context.Context, targetID string) (
 		if local.CapturedAtUnixMS <= 0 {
 			local.CapturedAtUnixMS = capturedAtUnixMS
 		}
-		return local, nil
+		validated, err := validateNativeAccountUsageResult(local)
+		if err != nil {
+			base.Outcome = "error"
+			base.ErrorCode = "parse_failed"
+			return base, nil
+		}
+		validated.AgentTargetID = target.ID
+		validated.Provider = target.Provider
+		return validated, nil
 	}
 	if launchRef["kind"] != agenttargetbiz.LaunchRefTypeAgentExtension || service.Manager == nil {
 		base.Outcome = "unsupported"
@@ -205,6 +213,40 @@ func (service AccountUsageService) now() time.Time {
 		return service.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func validateNativeAccountUsageResult(input AccountUsageResult) (AccountUsageResult, error) {
+	quotas := make([]accountUsageQuotaPayload, 0, len(input.Quotas))
+	for _, quota := range input.Quotas {
+		percent := quota.PercentRemaining
+		quotas = append(quotas, accountUsageQuotaPayload{
+			QuotaType: quota.QuotaType, PercentRemaining: &percent,
+			AmountRemaining: quota.AmountRemaining, AmountLimit: quota.AmountLimit,
+			AmountUnit: quota.AmountUnit, ResetsAtUnixMS: quota.ResetsAtUnixMS,
+			ModelName: quota.ModelName,
+		})
+	}
+	wire := map[string]any{
+		"schemaVersion": AccountUsageSchemaVersion,
+		"outcome":       input.Outcome, "capturedAtUnixMs": input.CapturedAtUnixMS,
+	}
+	if input.BillingMode != "" {
+		wire["billingMode"] = input.BillingMode
+	}
+	if input.QuotaState != "" {
+		wire["quotaState"] = input.QuotaState
+	}
+	if input.Outcome == "available" || len(input.Quotas) > 0 {
+		wire["quotas"] = quotas
+	}
+	if input.ErrorCode != "" {
+		wire["errorCode"] = input.ErrorCode
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		return AccountUsageResult{}, err
+	}
+	return decodeAccountUsagePayload(encoded)
 }
 
 type accountUsagePayload struct {

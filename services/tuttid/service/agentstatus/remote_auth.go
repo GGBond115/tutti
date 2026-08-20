@@ -65,17 +65,6 @@ func (s Service) resolveProviderUsageRemoteAuthEvidence(
 	binaryPath string,
 	env []string,
 ) (providerstatus.AuthEvidence, bool) {
-	if isClaudeStatusSpec(spec) {
-		usage := s.ProbeProviderAccountUsage(ctx, spec.Provider)
-		if usage.Outcome == "available" && usage.QuotaState == "complete" {
-			return providerstatus.AuthEvidence{Kind: providerstatus.AuthEvidenceRemoteSuccess}, true
-		}
-		// A successful SDK control exchange with unavailable rate limits, or a
-		// failed usage-only probe, says nothing definitive about whether a model
-		// request can refresh and authenticate. Do not contribute auth evidence,
-		// so the already collected local/runtime state remains authoritative.
-		return providerstatus.AuthEvidence{}, false
-	}
 	if authCommandRunnerKind(spec) != providerregistry.AuthCommandRunnerKindCodexAppServerAccount ||
 		strings.TrimSpace(binaryPath) == "" {
 		return providerstatus.AuthEvidence{}, false

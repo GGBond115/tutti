@@ -9,6 +9,7 @@ import (
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
+	claudecodeservice "github.com/tutti-os/tutti/services/tuttid/service/claudecode"
 )
 
 type ProviderAccountUsageResult struct {
@@ -43,12 +44,18 @@ func (s Service) ProbeProviderAccountUsage(ctx context.Context, provider string)
 		result.ErrorCode = "runtime_unavailable"
 		return result
 	}
-	cwd, _ := s.homeDir()
+	cwd, err := s.homeDir()
+	if err != nil || strings.TrimSpace(cwd) == "" {
+		result.Outcome = "error"
+		result.ErrorCode = "runtime_unavailable"
+		return result
+	}
 	switch descriptor.Desktop.UsageProbeKind {
 	case providerregistry.DesktopUsageProbeCodex:
 		return probeCodexAccountUsage(ctx, resolution, cwd, result)
 	case providerregistry.DesktopUsageProbeClaudeCode:
-		return probeClaudeAccountUsage(ctx, provider, resolution, cwd, result)
+		resolution.Env = s.claudeAccountUsageEnv(resolution.Env)
+		return s.probeClaudeAccountUsage(ctx, provider, resolution, cwd, result)
 	default:
 		result.Outcome = "unsupported"
 		return result
@@ -81,22 +88,38 @@ func probeCodexAccountUsage(ctx context.Context, resolution ProviderCommandResol
 	if rateLimits == nil {
 		return accountUsageParseError(result)
 	}
-	for _, key := range []string{"primary", "secondary"} {
-		if quota, ok := codexAccountUsageQuota(accountUsageMap(rateLimits[key])); ok {
-			result.Quotas = append(result.Quotas, quota)
+	primary, ok := codexAccountUsageQuota(accountUsageMap(rateLimits["primary"]))
+	if !ok {
+		return accountUsageParseError(result)
+	}
+	result.Quotas = append(result.Quotas, primary)
+	if rawSecondary, present := rateLimits["secondary"]; present && rawSecondary != nil {
+		secondary, valid := codexAccountUsageQuota(accountUsageMap(rawSecondary))
+		if !valid {
+			return accountUsageParseError(result)
 		}
+		result.Quotas = append(result.Quotas, secondary)
 	}
 	result.Outcome = "available"
 	result.BillingMode = "subscription"
-	result.QuotaState = "unavailable"
-	if len(result.Quotas) > 0 {
-		result.QuotaState = "complete"
-	}
+	result.QuotaState = "complete"
 	return result
 }
 
-func probeClaudeAccountUsage(ctx context.Context, provider string, resolution ProviderCommandResolution, cwd string, result ProviderAccountUsageResult) ProviderAccountUsageResult {
-	probe := agentruntime.ProbeClaudeSDKAccountUsage(ctx, agentruntime.ClaudeSDKAccountUsageProbeInput{
+func (s Service) probeClaudeAccountUsage(ctx context.Context, provider string, resolution ProviderCommandResolution, cwd string, result ProviderAccountUsageResult) ProviderAccountUsageResult {
+	gate := s.ClaudeStartupGate
+	if gate == nil {
+		gate = claudecodeservice.DefaultStartupGate
+	}
+	if err := gate.Acquire(ctx); err != nil {
+		return accountUsageProbeError(ctx, result, errors.Is(err, context.DeadlineExceeded))
+	}
+	defer gate.Release()
+	probeUsage := s.ClaudeAccountUsageProbe
+	if probeUsage == nil {
+		probeUsage = agentruntime.ProbeClaudeSDKAccountUsage
+	}
+	probe := probeUsage(ctx, agentruntime.ClaudeSDKAccountUsageProbeInput{
 		Provider: provider, Command: resolution.Command, Env: resolution.Env, CWD: cwd, Timeout: 30 * time.Second,
 	})
 	if probe.Error != nil {
@@ -115,41 +138,73 @@ func probeClaudeAccountUsage(ctx context.Context, provider string, resolution Pr
 	}
 	rateLimits := accountUsageMap(probe.Usage["rateLimits"])
 	if rateLimits == nil {
-		return result
+		return accountUsageParseError(result)
 	}
-	for _, candidate := range []struct {
+	candidates := []struct {
 		key       string
 		quotaType string
 		modelName string
+		required  bool
 	}{
-		{key: "five_hour", quotaType: "session"},
-		{key: "seven_day", quotaType: "weekly"},
+		{key: "five_hour", quotaType: "session", required: true},
+		{key: "seven_day", quotaType: "weekly", required: true},
 		{key: "seven_day_oauth_apps", quotaType: "model", modelName: "OAuth apps"},
 		{key: "seven_day_opus", quotaType: "model", modelName: "Opus"},
 		{key: "seven_day_sonnet", quotaType: "model", modelName: "Sonnet"},
-	} {
-		if quota, ok := claudeAccountUsageQuota(accountUsageMap(rateLimits[candidate.key]), candidate.quotaType, candidate.modelName); ok {
-			result.Quotas = append(result.Quotas, quota)
+	}
+	for _, candidate := range candidates {
+		raw, present := rateLimits[candidate.key]
+		if !present || raw == nil {
+			if candidate.required {
+				return accountUsageParseError(result)
+			}
+			continue
 		}
+		quota, valid := claudeAccountUsageQuota(accountUsageMap(raw), candidate.quotaType, candidate.modelName)
+		if !valid {
+			return accountUsageParseError(result)
+		}
+		result.Quotas = append(result.Quotas, quota)
 	}
 	if models, ok := rateLimits["model_scoped"].([]any); ok {
 		for _, raw := range models {
 			model := accountUsageMap(raw)
 			if quota, valid := claudeAccountUsageQuota(model, "model", accountUsageString(model["display_name"])); valid {
 				result.Quotas = append(result.Quotas, quota)
+			} else {
+				return accountUsageParseError(result)
 			}
 		}
+	} else if raw, present := rateLimits["model_scoped"]; present && raw != nil {
+		return accountUsageParseError(result)
 	}
 	if extra := accountUsageMap(rateLimits["extra_usage"]); extra != nil {
 		if enabled, _ := extra["is_enabled"].(bool); enabled {
 			if quota, valid := claudeAccountUsageQuota(extra, "cost", ""); valid {
 				result.Quotas = append(result.Quotas, quota)
+			} else {
+				return accountUsageParseError(result)
 			}
 		}
+	} else if raw, present := rateLimits["extra_usage"]; present && raw != nil {
+		return accountUsageParseError(result)
 	}
-	if len(result.Quotas) > 0 {
-		result.BillingMode = "subscription"
-		result.QuotaState = "complete"
+	result.BillingMode = "subscription"
+	result.QuotaState = "complete"
+	return result
+}
+
+func (s Service) claudeAccountUsageEnv(env []string) []string {
+	const fallbackExecutableEnv = "TUTTI_CLAUDE_CODE_FALLBACK_EXECUTABLE"
+	for _, value := range env {
+		if strings.HasPrefix(value, "CLAUDE_CODE_EXECUTABLE=") ||
+			strings.HasPrefix(value, fallbackExecutableEnv+"=") {
+			return append([]string(nil), env...)
+		}
+	}
+	result := append([]string(nil), env...)
+	if executable := strings.TrimSpace(s.managedClaudeCodeExecutable()); executable != "" {
+		result = append(result, fallbackExecutableEnv+"="+executable)
 	}
 	return result
 }

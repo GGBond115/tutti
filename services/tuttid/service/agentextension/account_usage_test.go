@@ -59,6 +59,36 @@ func TestAccountUsageServiceUsesDaemonNativeProbeForBuiltinTarget(t *testing.T) 
 	}
 }
 
+func TestAccountUsageServiceRejectsInvalidDaemonNativeResult(t *testing.T) {
+	const provider = "claude-code"
+	launchRef, err := agenttargetbiz.CanonicalLaunchRefJSON(
+		provider,
+		agenttargetbiz.LaunchRef{Type: agenttargetbiz.LaunchRefTypeBuiltinLocal, Provider: provider},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const targetID = "local:claude-code"
+	service := AccountUsageService{
+		Targets: &targetStoreStub{targets: map[string]agenttargetbiz.Target{
+			targetID: {ID: targetID, Provider: provider, LaunchRefJSON: launchRef, Name: "Claude Code", Enabled: true, Source: agenttargetbiz.SourceSystem},
+		}},
+		ProbeLocal: func(context.Context, string) AccountUsageResult {
+			return AccountUsageResult{
+				Outcome: "available", CapturedAtUnixMS: 1, BillingMode: "subscription",
+				QuotaState: "complete", Quotas: []AccountUsageQuota{{QuotaType: "weekly", PercentRemaining: 101}},
+			}
+		},
+	}
+	result, err := service.Probe(context.Background(), targetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != "error" || result.ErrorCode != "parse_failed" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestAccountUsageServiceUsesExplicitLocalCompanionForLocalExtension(t *testing.T) {
 	manifest := testManifest()
 	manifest.Profiles.AccountUsage = "profiles/account-usage.json"
