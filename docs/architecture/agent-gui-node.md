@@ -2032,6 +2032,11 @@ stored as semantic draft blocks, rendered as removable chips, and submitted as
 structured prompt content without synthesizing slash text. The compact Composer
 trigger previews installed and authorized connectors independently from draft
 selection, while preserving selected connectors first in that bounded preview.
+A matching send on a session-scoped draft keeps those connector blocks and
+clears the rest of the draft; home and other non-session scopes clear the
+full draft. `/clear` keeps the session enable set. A new conversation starts
+empty. The GUI submits the full enable set every turn; the daemon remembers
+the last announced set and injects only the delta into the provider turn.
 
 The device-global `lab.connectors` UI-preference flag controls whether that
 projection is returned. The daemon fails closed when the preference is absent
