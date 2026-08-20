@@ -64,7 +64,9 @@ func (service AccountUsageService) Probe(ctx context.Context, rawTargetID string
 		return AccountUsageResult{}, errors.New("account usage service is not configured")
 	}
 	load := func() (AccountUsageResult, error) {
-		probeCtx, cancel := context.WithTimeout(ctx, accountUsageProbeTimeout)
+		// The loader is shared by singleflight. Give it its own bounded lifetime so
+		// cancellation of the first waiter does not abort every joined waiter.
+		probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountUsageProbeTimeout)
 		defer cancel()
 		return service.probe(probeCtx, targetID)
 	}

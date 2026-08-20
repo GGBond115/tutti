@@ -144,10 +144,9 @@ func (s Service) probeClaudeAccountUsage(ctx context.Context, provider string, r
 		key       string
 		quotaType string
 		modelName string
-		required  bool
 	}{
-		{key: "five_hour", quotaType: "session", required: true},
-		{key: "seven_day", quotaType: "weekly", required: true},
+		{key: "five_hour", quotaType: "session"},
+		{key: "seven_day", quotaType: "weekly"},
 		{key: "seven_day_oauth_apps", quotaType: "model", modelName: "OAuth apps"},
 		{key: "seven_day_opus", quotaType: "model", modelName: "Opus"},
 		{key: "seven_day_sonnet", quotaType: "model", modelName: "Sonnet"},
@@ -155,12 +154,16 @@ func (s Service) probeClaudeAccountUsage(ctx context.Context, provider string, r
 	for _, candidate := range candidates {
 		raw, present := rateLimits[candidate.key]
 		if !present || raw == nil {
-			if candidate.required {
-				return accountUsageParseError(result)
-			}
 			continue
 		}
-		quota, valid := claudeAccountUsageQuota(accountUsageMap(raw), candidate.quotaType, candidate.modelName)
+		window := accountUsageMap(raw)
+		if window == nil {
+			return accountUsageParseError(result)
+		}
+		if window["utilization"] == nil {
+			continue
+		}
+		quota, valid := claudeAccountUsageQuota(window, candidate.quotaType, candidate.modelName)
 		if !valid {
 			return accountUsageParseError(result)
 		}
@@ -169,6 +172,9 @@ func (s Service) probeClaudeAccountUsage(ctx context.Context, provider string, r
 	if models, ok := rateLimits["model_scoped"].([]any); ok {
 		for _, raw := range models {
 			model := accountUsageMap(raw)
+			if model != nil && model["utilization"] == nil {
+				continue
+			}
 			if quota, valid := claudeAccountUsageQuota(model, "model", accountUsageString(model["display_name"])); valid {
 				result.Quotas = append(result.Quotas, quota)
 			} else {
@@ -180,17 +186,22 @@ func (s Service) probeClaudeAccountUsage(ctx context.Context, provider string, r
 	}
 	if extra := accountUsageMap(rateLimits["extra_usage"]); extra != nil {
 		if enabled, _ := extra["is_enabled"].(bool); enabled {
-			if quota, valid := claudeAccountUsageQuota(extra, "cost", ""); valid {
-				result.Quotas = append(result.Quotas, quota)
-			} else {
-				return accountUsageParseError(result)
+			if extra["utilization"] != nil {
+				if quota, valid := claudeAccountUsageQuota(extra, "cost", ""); valid {
+					result.Quotas = append(result.Quotas, quota)
+				} else {
+					return accountUsageParseError(result)
+				}
 			}
 		}
 	} else if raw, present := rateLimits["extra_usage"]; present && raw != nil {
 		return accountUsageParseError(result)
 	}
 	result.BillingMode = "subscription"
-	result.QuotaState = "complete"
+	result.QuotaState = "unavailable"
+	if len(result.Quotas) > 0 {
+		result.QuotaState = "complete"
+	}
 	return result
 }
 
@@ -254,9 +265,20 @@ func claudeAccountUsageQuota(window map[string]any, quotaType string, modelName 
 	if !ok || used < 0 || used > 100 {
 		return ProviderAccountUsageQuota{}, false
 	}
+	var resetsAt *int64
+	if rawReset, present := window["resets_at"]; present && rawReset != nil {
+		resetText, ok := rawReset.(string)
+		if !ok || strings.TrimSpace(resetText) == "" {
+			return ProviderAccountUsageQuota{}, false
+		}
+		resetsAt = accountUsageResetUnixMS(resetText, false)
+		if resetsAt == nil {
+			return ProviderAccountUsageQuota{}, false
+		}
+	}
 	return ProviderAccountUsageQuota{
 		QuotaType: quotaType, PercentRemaining: 100 - used,
-		ResetsAtUnixMS: accountUsageResetUnixMS(window["resets_at"], false),
+		ResetsAtUnixMS: resetsAt,
 		ModelName:      strings.TrimSpace(modelName),
 	}, true
 }

@@ -126,7 +126,7 @@ func TestClaudeAccountUsageGateWaitHonorsCancellation(t *testing.T) {
 	}
 }
 
-func TestClaudeAccountUsageRejectsPartialRequiredWindows(t *testing.T) {
+func TestClaudeAccountUsageAcceptsPartialOptionalWindows(t *testing.T) {
 	service := Service{
 		ClaudeStartupGate: claudecodeservice.NewStartupGate(),
 		ClaudeAccountUsageProbe: func(context.Context, agentruntime.ClaudeSDKAccountUsageProbeInput) agentruntime.ClaudeSDKAccountUsageProbeResult {
@@ -139,7 +139,26 @@ func TestClaudeAccountUsageRejectsPartialRequiredWindows(t *testing.T) {
 		context.Background(), "claude-code", ProviderCommandResolution{Command: []string{"node"}},
 		"/workspace", ProviderAccountUsageResult{CapturedAtUnixMS: 1},
 	)
-	if result.Outcome != "error" || result.ErrorCode != "parse_failed" {
+	if result.Outcome != "available" || result.QuotaState != "complete" || len(result.Quotas) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClaudeAccountUsageTreatsNullOptionalWindowsAsUnavailable(t *testing.T) {
+	service := Service{
+		ClaudeStartupGate: claudecodeservice.NewStartupGate(),
+		ClaudeAccountUsageProbe: func(context.Context, agentruntime.ClaudeSDKAccountUsageProbeInput) agentruntime.ClaudeSDKAccountUsageProbeResult {
+			return agentruntime.ClaudeSDKAccountUsageProbeResult{Usage: map[string]any{
+				"subscriptionType": "team", "rateLimitsAvailable": true,
+				"rateLimits": map[string]any{"five_hour": nil, "seven_day": nil},
+			}}
+		},
+	}
+	result := service.probeClaudeAccountUsage(
+		context.Background(), "claude-code", ProviderCommandResolution{Command: []string{"node"}},
+		"/workspace", ProviderAccountUsageResult{CapturedAtUnixMS: 1},
+	)
+	if result.Outcome != "available" || result.QuotaState != "unavailable" || len(result.Quotas) != 0 {
 		t.Fatalf("result = %#v", result)
 	}
 }
