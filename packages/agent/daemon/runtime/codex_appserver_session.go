@@ -647,6 +647,7 @@ func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
 		spec.Env = withoutEnvironmentKey(spec.Env, tuttiAgentExtraSkillRootsEnv)
 		spec.Env = withoutEnvironmentKey(spec.Env, tuttiAgentStableSystemSkillsEnv)
 	}
+	spec.Env = withCodexAppServerLogging(spec.Env)
 	return spec, cleanup, nil
 }
 

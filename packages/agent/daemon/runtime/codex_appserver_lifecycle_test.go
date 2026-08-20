@@ -143,7 +143,12 @@ func TestCodexAppServerAdapterProviderLaunchPrepareMutatesSpecAndCleansUpOnClose
 	if spec.CWD != "/prepared/workspace" {
 		t.Fatalf("CWD = %q", spec.CWD)
 	}
-	if !reflect.DeepEqual(spec.Env[len(spec.Env)-2:], []string{"SESSION_ENV=1", "HOOK_ENV=1"}) {
+	if !reflect.DeepEqual(spec.Env[len(spec.Env)-4:], []string{
+		"SESSION_ENV=1",
+		"HOOK_ENV=1",
+		codexAppServerLogFormatEnv,
+		codexAppServerRustLogEnv,
+	}) {
 		t.Fatalf("Env tail = %#v", spec.Env)
 	}
 
