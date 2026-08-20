@@ -65,21 +65,28 @@ func (s Service) resolveProviderUsageRemoteAuthEvidence(
 	binaryPath string,
 	env []string,
 ) (providerstatus.AuthEvidence, bool) {
+	if isClaudeStatusSpec(spec) {
+		usage := s.ProbeProviderAccountUsage(ctx, spec.Provider)
+		if usage.Outcome == "available" && usage.QuotaState == "complete" {
+			return providerstatus.AuthEvidence{Kind: providerstatus.AuthEvidenceRemoteSuccess}, true
+		}
+		// A successful SDK control exchange with unavailable rate limits, or a
+		// failed usage-only probe, says nothing definitive about whether a model
+		// request can refresh and authenticate. Do not contribute auth evidence,
+		// so the already collected local/runtime state remains authoritative.
+		return providerstatus.AuthEvidence{}, false
+	}
 	if authCommandRunnerKind(spec) != providerregistry.AuthCommandRunnerKindCodexAppServerAccount ||
 		strings.TrimSpace(binaryPath) == "" {
-		return providerstatus.AuthEvidence{
-			Kind: providerstatus.AuthEvidenceProbeFailure, Reason: providerstatus.AuthReasonProbeFailed,
-		}, true
+		return providerstatus.AuthEvidence{}, false
 	}
 	command := append([]string{binaryPath}, spec.AuthStatusCommand...)
 	if s.CodexRemoteAuthProbe != nil {
-		return s.CodexRemoteAuthProbe(ctx, command, append([]string(nil), env...)), true
+		return providerUsageAuthEvidence(s.CodexRemoteAuthProbe(ctx, command, append([]string(nil), env...)))
 	}
 	release, acquired := s.DetectionCommands.acquire(ctx)
 	if !acquired {
-		return providerstatus.AuthEvidence{
-			Kind: providerstatus.AuthEvidenceProbeFailure, Reason: providerstatus.AuthReasonProbeFailed,
-		}, true
+		return providerstatus.AuthEvidence{}, false
 	}
 	defer release()
 	timeout := time.Duration(spec.RemoteAuthProbe.TimeoutSeconds) * time.Second
@@ -105,6 +112,16 @@ func (s Service) resolveProviderUsageRemoteAuthEvidence(
 		"evidence", evidence.Kind,
 		"success", evidence.Kind == providerstatus.AuthEvidenceRemoteSuccess,
 	)
+	return providerUsageAuthEvidence(evidence)
+}
+
+func providerUsageAuthEvidence(evidence providerstatus.AuthEvidence) (providerstatus.AuthEvidence, bool) {
+	// Account usage proves that the provider accepted the account only on
+	// success. Every failure belongs to the optional quota surface and must not
+	// override the dedicated local/runtime authentication evidence.
+	if evidence.Kind != providerstatus.AuthEvidenceRemoteSuccess {
+		return providerstatus.AuthEvidence{}, false
+	}
 	return evidence, true
 }
 

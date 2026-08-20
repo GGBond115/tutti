@@ -308,6 +308,9 @@ type Service struct {
 	// CodexRemoteAuthProbe is the narrow test seam for the provider-usage
 	// strategy. Nil uses Codex app-server account/rateLimits/read.
 	CodexRemoteAuthProbe func(context.Context, []string, []string) providerstatus.AuthEvidence
+	// ProviderAccountUsageProbe is the provider-neutral test seam for native
+	// account usage. Nil resolves and invokes the production provider runtime.
+	ProviderAccountUsageProbe func(context.Context, string) ProviderAccountUsageResult
 	// CodexRuntimeSelectionStore persists only an explicit Codex launcher
 	// choice. A missing selection permits only one uniquely ready candidate;
 	// multiple ready candidates require the user to choose one.

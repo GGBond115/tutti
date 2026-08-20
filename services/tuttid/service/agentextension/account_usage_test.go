@@ -18,6 +18,47 @@ import (
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
 
+func TestAccountUsageServiceUsesDaemonNativeProbeForBuiltinTarget(t *testing.T) {
+	const provider = "claude-code"
+	launchRef, err := agenttargetbiz.CanonicalLaunchRefJSON(
+		provider,
+		agenttargetbiz.LaunchRef{Type: agenttargetbiz.LaunchRefTypeBuiltinLocal, Provider: provider},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const targetID = "local:claude-code"
+	store := &targetStoreStub{targets: map[string]agenttargetbiz.Target{
+		targetID: {
+			ID: targetID, Provider: provider,
+			LaunchRefJSON: launchRef, Name: "Claude Code", Enabled: true,
+			Source: agenttargetbiz.SourceSystem,
+		},
+	}}
+	service := AccountUsageService{
+		Targets: store,
+		ProbeLocal: func(_ context.Context, provider string) AccountUsageResult {
+			if provider != "claude-code" {
+				t.Fatalf("provider = %q", provider)
+			}
+			return AccountUsageResult{
+				SchemaVersion: "ignored", AgentTargetID: "ignored", Provider: "ignored",
+				Outcome: "available", CapturedAtUnixMS: 123,
+				BillingMode: "provider_account", QuotaState: "unavailable",
+			}
+		},
+	}
+	result, err := service.Probe(context.Background(), targetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SchemaVersion != AccountUsageSchemaVersion || result.AgentTargetID != targetID ||
+		result.Provider != provider || result.Outcome != "available" ||
+		result.QuotaState != "unavailable" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestAccountUsageServiceUsesExplicitLocalCompanionForLocalExtension(t *testing.T) {
 	manifest := testManifest()
 	manifest.Profiles.AccountUsage = "profiles/account-usage.json"

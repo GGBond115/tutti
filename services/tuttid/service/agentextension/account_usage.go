@@ -48,10 +48,11 @@ type AccountUsageQuota struct {
 }
 
 type AccountUsageService struct {
-	Manager *Manager
-	Targets AgentTargetLookup
-	Now     func() time.Time
-	run     func(context.Context, string, string, []string, *agentruntime.ExecutableIdentity, *agentruntime.ExecutableIdentity, int) ([]byte, error)
+	Manager    *Manager
+	Targets    AgentTargetLookup
+	Now        func() time.Time
+	ProbeLocal func(context.Context, string) AccountUsageResult
+	run        func(context.Context, string, string, []string, *agentruntime.ExecutableIdentity, *agentruntime.ExecutableIdentity, int) ([]byte, error)
 }
 
 func (service AccountUsageService) Probe(ctx context.Context, rawTargetID string) (AccountUsageResult, error) {
@@ -59,14 +60,18 @@ func (service AccountUsageService) Probe(ctx context.Context, rawTargetID string
 	if targetID == "" {
 		return AccountUsageResult{}, ErrInvalidAccountUsageTarget
 	}
-	if service.Manager == nil || service.Targets == nil {
+	if service.Targets == nil {
 		return AccountUsageResult{}, errors.New("account usage service is not configured")
 	}
-	return service.Manager.accountUsageProbeResults().load(ctx, targetID, func() (AccountUsageResult, error) {
+	load := func() (AccountUsageResult, error) {
 		probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountUsageProbeTimeout)
 		defer cancel()
 		return service.probe(probeCtx, targetID)
-	})
+	}
+	if service.Manager == nil {
+		return load()
+	}
+	return service.Manager.accountUsageProbeResults().load(ctx, targetID, load)
 }
 
 func (service AccountUsageService) probe(ctx context.Context, targetID string) (AccountUsageResult, error) {
@@ -88,7 +93,25 @@ func (service AccountUsageService) probe(ctx context.Context, targetID string) (
 		return base, nil
 	}
 	launchRef, err := agenttargetbiz.RuntimeProviderTargetRef(target)
-	if err != nil || launchRef["kind"] != agenttargetbiz.LaunchRefTypeAgentExtension {
+	if err != nil {
+		base.Outcome = "unsupported"
+		return base, nil
+	}
+	if launchRef["kind"] == agenttargetbiz.LaunchRefTypeBuiltinLocal {
+		if service.ProbeLocal == nil {
+			base.Outcome = "unsupported"
+			return base, nil
+		}
+		local := service.ProbeLocal(ctx, target.Provider)
+		local.SchemaVersion = AccountUsageSchemaVersion
+		local.AgentTargetID = target.ID
+		local.Provider = target.Provider
+		if local.CapturedAtUnixMS <= 0 {
+			local.CapturedAtUnixMS = capturedAtUnixMS
+		}
+		return local, nil
+	}
+	if launchRef["kind"] != agenttargetbiz.LaunchRefTypeAgentExtension || service.Manager == nil {
 		base.Outcome = "unsupported"
 		return base, nil
 	}
