@@ -780,9 +780,18 @@ test("desktop changelog repair restores one published stable summary without mov
     repairWorkflow,
     /apps\/desktop\/scripts\/validate-release-summary\.mjs/
   );
+  assert.match(repairWorkflow, /gh release view .* --json body --jq \.body/);
+  assert.match(
+    repairWorkflow,
+    /apps\/desktop\/scripts\/extract-approved-release-summary\.mjs/
+  );
   assert.match(
     repairWorkflow,
     /apps\/desktop\/scripts\/upsert-release-changelog\.mjs/
+  );
+  assert.match(
+    repairWorkflow,
+    /existing-changelog\.json[\s\\]*approved-release-summary\.json[\s\\]*changelog\.json/
   );
   assert.match(repairWorkflow, /Repair removed existing changelog entry/);
   assert.match(repairWorkflow, /cmp changelog\.json published-changelog\.json/);
