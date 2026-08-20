@@ -1,4 +1,5 @@
 import {
+  type AgentActivityMessage,
   type AgentActivitySession,
   type AgentActivitySnapshot,
   type AgentActivitySessionDetailSnapshot,
@@ -28,6 +29,8 @@ import type {
 import { WorkspaceAgentComposerOptionsInvalidationCoordinator } from "./workspaceAgentComposerOptionsInvalidationCoordinator.ts";
 import { editRetryAvailabilityFromTuttid } from "./workspaceAgentEditRetry.ts";
 
+const OPTIMISTIC_SESSION_EVENT_BATCH_DELAY_MS = 33;
+
 export abstract class WorkspaceAgentActivityReconcileBridge {
   private readonly reconcileDependencies: WorkspaceAgentActivityReconcileDependencies;
   private readonly entries = new Map<string, WorkspaceAgentSessionEngineHost>();
@@ -48,6 +51,17 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     string,
     Set<(event: unknown) => void>
   >();
+  private readonly prioritySessionRefCountsByWorkspaceId = new Map<
+    string,
+    Map<string, number>
+  >();
+  private readonly pendingOptimisticSessionEventsByWorkspaceId = new Map<
+    string,
+    Map<string, unknown>
+  >();
+  private pendingOptimisticSessionEventTimer: ReturnType<
+    typeof globalThis.setTimeout
+  > | null = null;
   private readonly composerOptionsInvalidation =
     new WorkspaceAgentComposerOptionsInvalidationCoordinator(() =>
       this.entries.values()
@@ -141,6 +155,13 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
     const agentSessionId = input.agentSessionId.trim();
     if (agentSessionId) {
+      let refCounts =
+        this.prioritySessionRefCountsByWorkspaceId.get(workspaceId);
+      if (!refCounts) {
+        refCounts = new Map();
+        this.prioritySessionRefCountsByWorkspaceId.set(workspaceId, refCounts);
+      }
+      refCounts.set(agentSessionId, (refCounts.get(agentSessionId) ?? 0) + 1);
       this.entry(workspaceId).engine.dispatch({
         agentSessionId,
         needsMessages: true,
@@ -149,7 +170,22 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
         workspaceId
       });
     }
-    return () => {};
+    let released = false;
+    return () => {
+      if (released || !agentSessionId) return;
+      released = true;
+      const refCounts =
+        this.prioritySessionRefCountsByWorkspaceId.get(workspaceId);
+      const nextCount = (refCounts?.get(agentSessionId) ?? 0) - 1;
+      if (nextCount > 0) {
+        refCounts?.set(agentSessionId, nextCount);
+        return;
+      }
+      refCounts?.delete(agentSessionId);
+      if (refCounts?.size === 0) {
+        this.prioritySessionRefCountsByWorkspaceId.delete(workspaceId);
+      }
+    };
   }
 
   onSessionEvent(
@@ -210,6 +246,12 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
       dispose();
     }
     this.sessionEventListenersByWorkspaceId.clear();
+    this.prioritySessionRefCountsByWorkspaceId.clear();
+    if (this.pendingOptimisticSessionEventTimer !== null) {
+      globalThis.clearTimeout(this.pendingOptimisticSessionEventTimer);
+      this.pendingOptimisticSessionEventTimer = null;
+    }
+    this.pendingOptimisticSessionEventsByWorkspaceId.clear();
     this.composerOptionsInvalidation.dispose();
     this.snapshotProjectors.clear();
     for (const coordinator of this.eventCoordinators.values()) {
@@ -468,6 +510,54 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     for (const listener of listeners) listener(event);
   }
 
+  private prioritySessionIds(workspaceId: string): string[] {
+    return [
+      ...(this.prioritySessionRefCountsByWorkspaceId.get(workspaceId)?.keys() ??
+        [])
+    ];
+  }
+
+  private queueOptimisticSessionEvent(
+    workspaceId: string,
+    message: AgentActivityMessage
+  ): void {
+    if (!this.sessionEventListenersByWorkspaceId.has(workspaceId)) return;
+    let pending =
+      this.pendingOptimisticSessionEventsByWorkspaceId.get(workspaceId);
+    if (!pending) {
+      pending = new Map();
+      this.pendingOptimisticSessionEventsByWorkspaceId.set(
+        workspaceId,
+        pending
+      );
+    }
+    pending.set(
+      `${message.agentSessionId}\u0000${message.messageId}`,
+      hostMessageEventFromCore(message)
+    );
+    if (this.pendingOptimisticSessionEventTimer !== null) return;
+    this.pendingOptimisticSessionEventTimer = globalThis.setTimeout(
+      () => this.flushPendingOptimisticSessionEvents(),
+      OPTIMISTIC_SESSION_EVENT_BATCH_DELAY_MS
+    );
+  }
+
+  private flushPendingOptimisticSessionEvents(): void {
+    if (this.pendingOptimisticSessionEventTimer !== null) {
+      globalThis.clearTimeout(this.pendingOptimisticSessionEventTimer);
+      this.pendingOptimisticSessionEventTimer = null;
+    }
+    const pendingByWorkspace = [
+      ...this.pendingOptimisticSessionEventsByWorkspaceId
+    ];
+    this.pendingOptimisticSessionEventsByWorkspaceId.clear();
+    for (const [workspaceId, pending] of pendingByWorkspace) {
+      for (const event of pending.values()) {
+        this.emitSessionEvent(workspaceId, event);
+      }
+    }
+  }
+
   private subscribeWorkspaceEventStream(workspaceId: string): void {
     const eventStreamClient = this.reconcileDependencies.eventStreamClient;
     if (!eventStreamClient) return;
@@ -517,6 +607,7 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
             workspaceId
           });
           this.eventCoordinator(workspaceId).eventStreamConnectionChanged({
+            prioritySessionIds: this.prioritySessionIds(workspaceId),
             status: state
           });
         }
@@ -553,23 +644,23 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
       });
     }
     if (result.optimisticMessage) {
-      this.emitSessionEvent(
-        workspaceId,
-        hostMessageEventFromCore(result.optimisticMessage)
-      );
+      this.queueOptimisticSessionEvent(workspaceId, result.optimisticMessage);
     }
     if (result.inlineApplied) {
+      this.flushPendingOptimisticSessionEvents();
       for (const message of result.inlineMessages) {
         this.emitSessionEvent(workspaceId, hostMessageEventFromCore(message));
       }
     }
     if (input.eventType === "session_deleted" && result.accepted) {
+      this.flushPendingOptimisticSessionEvents();
       this.emitSessionEvent(workspaceId, {
         data: input.data,
         eventType: input.eventType
       });
     }
     if (input.eventType === "turn_update" && result.accepted) {
+      this.flushPendingOptimisticSessionEvents();
       this.emitSessionEvent(workspaceId, {
         data: input.data,
         eventType: input.eventType
@@ -605,6 +696,7 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
         workspaceId: normalizedWorkspaceId
       });
       coordinator.eventStreamConnectionChanged({
+        prioritySessionIds: this.prioritySessionIds(normalizedWorkspaceId),
         status: this.eventStreamConnectionState
       });
     }
