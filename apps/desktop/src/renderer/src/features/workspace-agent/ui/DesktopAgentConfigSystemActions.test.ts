@@ -32,7 +32,15 @@ test("Agent config system actions stay hidden in OS mode", () => {
 test("Agent config log export uses the ui-system native submenu", () => {
   assert.match(source, /<DropdownMenuSub>/);
   assert.match(source, /<DropdownMenuSubTrigger[\s\S]*exportLogs/);
-  assert.match(source, /<DropdownMenuSubContent className="w-64">/);
+  assert.match(
+    source,
+    /<DropdownMenuSubContent[\s\S]*zIndex: "calc\(var\(--z-panel-popover\) \+ 1\)"/
+  );
+  assert.match(
+    source,
+    /className="nodrag w-64 \[-webkit-app-region:no-drag\]"/
+  );
+  assert.match(source, /sideOffset=\{4\}/);
   assert.equal(source.match(/<DropdownMenuItem/g)?.length, 5);
   assert.equal(source.match(/onSelect=/g)?.length, 5);
   assert.doesNotMatch(source, /onClick=/);

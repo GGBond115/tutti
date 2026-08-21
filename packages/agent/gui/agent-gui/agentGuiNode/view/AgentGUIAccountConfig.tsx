@@ -124,7 +124,7 @@ export function AgentGUIConfigMenu({
       <DropdownMenuContent
         side="right"
         align="end"
-        className="w-[300px] max-w-[calc(100vw-32px)] p-1 text-xs"
+        className="nodrag w-[300px] max-w-[calc(100vw-32px)] p-1 text-xs [-webkit-app-region:no-drag]"
         data-testid="agent-gui-config-menu"
         style={{ zIndex: "var(--z-panel-popover)" }}
       >
