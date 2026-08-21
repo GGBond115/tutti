@@ -171,12 +171,16 @@ export class WorkspaceFileManagerService implements IWorkspaceFileManagerService
     }
 
     try {
+      const directoryPath = dirnameForWorkspaceFilePath(targetPath);
       const listing =
         await this.dependencies.tuttidClient.listWorkspaceFileDirectory(
           input.workspaceID,
           {
             includeHidden: true,
-            path: dirnameForWorkspaceFilePath(targetPath)
+            path: toWorkspaceFileDirectoryRequestPath(
+              directoryPath,
+              this.dependencies.platformApi.os
+            )
           }
         );
       if (
@@ -473,6 +477,16 @@ function dirnameForWorkspaceFilePath(path: string): string {
   }
   const directory = path.slice(0, index);
   return /^\/[A-Za-z]:$/.test(directory) ? `${directory}/` : directory;
+}
+
+function toWorkspaceFileDirectoryRequestPath(
+  path: string,
+  hostOs: NodeJS.Platform
+): string {
+  if (hostOs === "win32" && /^\/[A-Za-z]:(?:\/|$)/.test(path)) {
+    return path.slice(1);
+  }
+  return path;
 }
 
 function normalizeComparableWorkspaceFilePath(

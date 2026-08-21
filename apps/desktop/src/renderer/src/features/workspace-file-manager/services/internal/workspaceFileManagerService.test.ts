@@ -222,14 +222,21 @@ test("workspace file manager service treats missing or unreadable entries as abs
 
 test("workspace file manager service compares native Windows paths with daemon logical paths", async () => {
   const dependencies = createDependenciesStub();
+  dependencies.platformApi = {
+    homeDirectory: "C:\\Users\\demo",
+    os: "win32"
+  };
   let requestedPath: string | undefined;
   dependencies.tuttidClient.listWorkspaceFileDirectory = async (
     workspaceId,
     input
   ) => {
     requestedPath = input?.path;
+    if (/^\/[A-Za-z]:/.test(requestedPath ?? "")) {
+      throw new Error("daemon rejects logical Windows paths as request input");
+    }
     return {
-      directoryPath: "/C:/",
+      directoryPath: "/C:/Work/project",
       entries: [
         {
           createdTimeMs: null,
@@ -238,7 +245,7 @@ test("workspace file manager service compares native Windows paths with daemon l
           lastOpenedMs: null,
           mtimeMs: null,
           name: "README.md",
-          path: "/C:/README.md",
+          path: "/C:/Work/project/README.md",
           sizeBytes: 12
         }
       ],
@@ -250,12 +257,12 @@ test("workspace file manager service compares native Windows paths with daemon l
 
   assert.equal(
     await service.entryExists({
-      path: "c:\\README.md",
+      path: "c:\\Work\\project\\README.md",
       workspaceID: "workspace-1"
     }),
     true
   );
-  assert.equal(requestedPath, "/C:/");
+  assert.equal(requestedPath, "C:/Work/project");
 });
 
 test("workspace file manager service maps Git Bash Windows paths to daemon logical paths", async () => {
@@ -270,6 +277,9 @@ test("workspace file manager service maps Git Bash Windows paths to daemon logic
     input
   ) => {
     requestedPath = input?.path;
+    if (/^\/[A-Za-z]:/.test(requestedPath ?? "")) {
+      throw new Error("daemon rejects logical Windows paths as request input");
+    }
     return {
       directoryPath: "/C:/",
       entries: [
@@ -297,7 +307,7 @@ test("workspace file manager service maps Git Bash Windows paths to daemon logic
     }),
     true
   );
-  assert.equal(requestedPath, "/C:/");
+  assert.equal(requestedPath, "C:/");
 });
 
 test("workspace file manager service restores snapshot state without localStorage", () => {
