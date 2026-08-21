@@ -614,6 +614,12 @@ command, marker, token, or API key proves only `configured`. A provider-backed
 account probe or successful agent request proves `authenticated`. An explicit
 remote authentication failure proves `required` and outranks stale local
 credentials until credentials change or a later provider request succeeds.
+Conversation failures may update this provider-global state only for a
+provider-native runtime and only from the typed completed root-provider Turn:
+`auth_required` records required, while a completed outcome records success.
+Model Plan and Agent Extension failures are connection-scoped and never mutate
+the provider-global login state. Shared layers do not infer authentication from
+provider prose, HTTP 403, gateway timeouts, billing, quota, or model errors.
 `packages/agent/daemon/providerstatus` owns evidence reduction; `tuttid` owns
 the live outcome store, cache invalidation, and public status projection. Tutti
 Desktop management surfaces and AgentGUI consume that same status. They may
@@ -628,6 +634,11 @@ Desktop windows reconcile stale providers on focus/visibility activation and
 on the 15-minute poll. API-key configuration skips subscription OAuth checks.
 Explicit authentication rejection is authoritative; rate limits, server
 errors, and network failures leave the weaker `configured` state intact.
+Conversation error adapters preserve typed provider code, HTTP status,
+retryability, origin, and sanitized upstream detail. AgentGUI shows sanitized
+provider-origin detail directly; Tutti-owned transport and lifecycle failures
+continue to use localized product copy. Secrets are redacted before logging,
+persistence, or presentation.
 These checks validate current access but do not rotate refresh tokens; refresh
 ownership requires a separate serialized credential lifecycle that can gate on
 live provider processes.
