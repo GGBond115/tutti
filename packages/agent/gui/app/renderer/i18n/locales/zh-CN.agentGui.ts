@@ -53,7 +53,7 @@ export const zhCNAgentGui = {
   providerGatePendingRefresh: "正在检测…",
   targetSetupTitle: "设置 {{provider}}",
   targetSetupDescription:
-    "优先使用兼容的本地运行时，也可由 Tutti 安装并验证固定版本",
+    "已经安装了 {{provider}}？Tutti 可以直接使用，也可以为你安装",
   targetSetupAuthRequired: "运行时已安装并通过 ACP 检测，但仍需完成登录",
   targetSetupReady: "已检测到运行时，可重新检测或重新登录",
   targetSetupOpen: "打开设置",

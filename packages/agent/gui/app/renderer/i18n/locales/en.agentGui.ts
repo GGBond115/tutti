@@ -53,7 +53,7 @@ export const enAgentGui = {
   providerGatePendingRefresh: "Checking…",
   targetSetupTitle: "Set up {{provider}}",
   targetSetupDescription:
-    "Use a compatible local runtime, or let Tutti install and verify the pinned runtime.",
+    "Already have {{provider}} installed? Tutti can use it — or set it up for you.",
   targetSetupAuthRequired:
     "Runtime is installed and responds over ACP, but authentication is required.",
   targetSetupReady:
