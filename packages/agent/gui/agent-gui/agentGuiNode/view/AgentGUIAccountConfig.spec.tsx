@@ -77,6 +77,10 @@ describe("AgentGUIConfigMenu", () => {
     );
 
     openConfigMenu();
+    expect(screen.getByTestId("agent-gui-config-menu")).toHaveClass(
+      "nodrag",
+      "[-webkit-app-region:no-drag]"
+    );
     const exportTrigger = screen.getByRole("menuitem", {
       name: "Export logs"
     });

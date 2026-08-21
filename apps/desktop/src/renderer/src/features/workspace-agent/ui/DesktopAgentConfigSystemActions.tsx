@@ -47,7 +47,11 @@ export function DesktopAgentConfigSystemActions(): React.JSX.Element {
           <DownloadIcon aria-hidden="true" className="size-4" />
           <span>{t("workspace.settings.developer.exportLogs")}</span>
         </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-64">
+        <DropdownMenuSubContent
+          className="nodrag w-64 [-webkit-app-region:no-drag]"
+          sideOffset={4}
+          style={{ zIndex: "calc(var(--z-panel-popover) + 1)" }}
+        >
           <DropdownMenuItem
             disabled={settingsState.developerLogs.exporting}
             onSelect={() =>
