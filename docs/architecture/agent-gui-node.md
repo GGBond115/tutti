@@ -1766,6 +1766,16 @@ do not alter cursors, `hasMore`, or server totals. Unchanged summaries preserve
 structural sharing so unrelated engine updates do not rebuild the whole Rail
 snapshot.
 
+A locally initiated Session creation projects its exact target identity as
+pending-creation reconciliation evidence until the canonical Session arrives.
+This covers both new-conversation activation and Session fork, and the marker
+is independent from any optimistic or runtime-overlay render source. When that
+identity becomes canonical, the Rail controller refreshes the exact persisted
+`railSectionKey` even if the new Session is currently selected. The selected
+historical-Session fast path remains valid only when no pending-creation
+evidence exists. An active or running overlay must never mask a missing
+authoritative section membership that would disappear after the Turn settles.
+
 Scroll, section collapse, visible limits, and search query belong to mounted view scope. Non-search state is isolated by `workspaceId + agentTargetId/all`; search creates a temporary navigation scope. `activeConversationId` expresses selection only. Scrolling requires an explicit reveal intent.
 
 On the Home composer, a single-Agent Rail filter follows the effective composer
