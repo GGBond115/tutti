@@ -938,6 +938,48 @@ cannot find the path specified`, while the same repository is searchable
   [acp_provider_cursor.go](../../../packages/agent/daemon/runtime/acp_provider_cursor.go)
   [standard_acp_adapter_test.go](../../../packages/agent/daemon/runtime/standard_acp_adapter_test.go)
 
+### Cursor CLI can ask questions but Cursor ACP cannot
+
+- Symptom:
+  `cursor-agent` in its interactive CLI can pause and ask the user a structured
+  question, while the same prompt through `cursor-agent acp` either continues
+  without asking or reports that no question tool is available.
+- Quick checks:
+  Probe the raw ACP `initialize` and `session/new` exchange before changing
+  Tutti's interaction projection. Changing ACP `clientInfo`, advertising extra
+  client capabilities, or passing a root `-H x-cursor-client-type: cli` header
+  does not add the tool. If an injected HTTP MCP exposes `AskUserQuestion`,
+  confirm Cursor emits `session/request_permission` with kind `other`, then a
+  Tutti question interaction whose metadata reports
+  `providerMethod=mcp/tools/call`.
+- Root cause:
+  Cursor's ACP transport identifies itself internally as client type `acp` and
+  currently omits the interactive CLI's built-in question tool. The ACP bridge
+  contains a native `cursor/ask_question` request path, but changing initialize
+  metadata does not enable it; the transport middleware also overwrites a
+  caller-supplied client-type header.
+- Fix:
+  Preserve the native `cursor/ask_question` handler for Cursor versions that
+  expose it. For affected versions, bind Tutti's `AskUserQuestion` through the
+  session-scoped HTTP MCP capability advertised by ACP. Keep the bridge on a
+  loopback listener with a per-session bearer token, activate it only for the
+  exact running turn, and route the blocking call through the existing Tutti
+  interactive state machine. Auto-approve only Cursor's exact non-mutating
+  permission titles for this Tutti-owned tool; all other tool permissions must
+  continue through the configured permission tier.
+- Validation:
+  First assert `session/new` contains the HTTP MCP binding and that a real HTTP
+  `tools/call` blocks until `SubmitInteractive` supplies structured answers.
+  Keep native question and normal permission-tier regression coverage. Finally,
+  run a real Cursor ACP turn: require the model to call `AskUserQuestion`,
+  answer the emitted Tutti interaction, and verify the provider turn completes.
+  On Windows, this also verifies the loopback listener and local process
+  transport; retain POSIX coverage for the same platform-neutral socket path.
+- References:
+  [cursor_acp_question_mcp.go](../../../packages/agent/daemon/runtime/cursor_acp_question_mcp.go)
+  [cursor_acp_interactive.go](../../../packages/agent/daemon/runtime/cursor_acp_interactive.go)
+  [standard_acp_session.go](../../../packages/agent/daemon/runtime/standard_acp_session.go)
+
 ### Codex provider appears logged in with an empty auth.json
 
 - Symptom:

@@ -160,6 +160,8 @@ func newCursorAdapterFromProviderDescriptor(
 	adapter.config.commandWithSettings = cursorACPCommandWithPluginDir
 	adapter.config.initialPromptContext = cursorACPInitialPromptContext
 	adapter.config.automaticPermissionDecision = cursorAutoApprovePermissionDecision
+	adapter.config.providerPermissionRequestDecision = cursorACPQuestionMCPPermissionDecision
+	adapter.config.localToolBridge = newCursorACPQuestionMCPBridge(adapter)
 	adapter.config.autoContinueRetriableTurnError = true
 	adapter.config.retrySessionNewError = cursorACPShouldRetrySessionNew
 	adapter.config.sessionNewRetryLimit = cursorACPSessionNewRetryLimit
