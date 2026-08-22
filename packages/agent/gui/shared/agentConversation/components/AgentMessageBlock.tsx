@@ -57,8 +57,7 @@ interface AgentMessageBlockProps {
   thinkingLabel: string;
   toolCallsLabel?: (count: number) => string;
   onAuthLogin?: (provider?: string | null) => void;
-  // The conversation's provider, so a failed message recovered as an env error
-  // routes its wizard CTA to the right provider.
+  // Routes a recovered environment-error CTA to the conversation provider.
   provider?: string | null;
   availableSkills?: readonly AgentGUIProviderSkillOption[];
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
@@ -116,8 +115,7 @@ export function AgentMessageBlock({
         onLinkAction?.(action);
         return;
       }
-      // Sent transcript can still carry draft-only composer-file hrefs when
-      // displayPrompt was not materialized. Never fail silently.
+      // Sent transcripts can retain draft-only file hrefs; never fail silently.
       const mention = parseMentionItemFromHref({ name: "", href });
       if (
         mention?.kind === "file" &&
@@ -227,9 +225,7 @@ export function AgentMessageBlock({
           label={rawTimelineJsonLabel}
         />
       ) : null;
-    // Recover a structured error card from a terminal message that the
-    // provider reported as plain text, including Claude SDK's completed
-    // standalone login notice.
+    // Recover structured errors, including Claude SDK's standalone login notice.
     const recoveredError =
       !isUser && !message.visibleError
         ? recoverVisibleErrorFromMessage(message, provider)
