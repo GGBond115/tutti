@@ -559,7 +559,7 @@ func (a *standardACPAdapter) getPendingApproval(agentSessionID string, turnID st
 	return pending
 }
 
-func (*standardACPAdapter) respondACPPermissionRequest(
+func (a *standardACPAdapter) respondACPPermissionRequest(
 	ctx context.Context,
 	client *acpClient,
 	session Session,
@@ -575,7 +575,10 @@ func (*standardACPAdapter) respondACPPermissionRequest(
 	if err != nil {
 		pending.finish(pendingInteractiveRequestStateInterrupted)
 		resolved := normalizedPermissionResolvedEvents(session, turnID, pending, pendingInteractiveResponse{}, err)
-		if pending.kind == "ask-user" && !pending.interactionRequested {
+		a.mu.Lock()
+		interactionRequested := pending.interactionRequested
+		a.mu.Unlock()
+		if !interactionRequested {
 			resolved = slices.DeleteFunc(resolved, func(event activityshared.Event) bool {
 				return event.Type == activityshared.EventInteractionSuperseded
 			})
