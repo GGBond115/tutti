@@ -44,10 +44,13 @@ import (
 	managedruntimeservice "github.com/tutti-os/tutti/services/tuttid/service/managedruntime"
 	mobileremoteservice "github.com/tutti-os/tutti/services/tuttid/service/mobileremote"
 	modelgatewayservice "github.com/tutti-os/tutti/services/tuttid/service/modelgateway"
+	modelplanservice "github.com/tutti-os/tutti/services/tuttid/service/modelplan"
 	preferencesservice "github.com/tutti-os/tutti/services/tuttid/service/preferences"
 	reporterservice "github.com/tutti-os/tutti/services/tuttid/service/reporter"
+	tuttimodeactivationservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeactivation"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
+	workspaceagentservice "github.com/tutti-os/tutti/services/tuttid/service/workspaceagent"
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
 
@@ -681,6 +684,15 @@ func attachAnalyticsReporter(api *tuttiapi.DaemonAPI, analyticsReporter reporter
 		service.SetAnalyticsReporter(analyticsReporter)
 	}
 	if service, ok := api.PreferencesService.(*preferencesservice.Service); ok {
+		service.AnalyticsReporter = analyticsReporter
+	}
+	if service, ok := api.WorkspaceAgentService.(*workspaceagentservice.Service); ok {
+		service.AnalyticsReporter = analyticsReporter
+	}
+	if service, ok := api.ModelPlanService.(*modelplanservice.Service); ok {
+		service.AnalyticsReporter = analyticsReporter
+	}
+	if service, ok := api.TuttiModeActivationService.(*tuttimodeactivationservice.Service); ok {
 		service.AnalyticsReporter = analyticsReporter
 	}
 }
