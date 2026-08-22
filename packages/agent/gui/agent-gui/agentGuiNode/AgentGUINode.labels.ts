@@ -165,6 +165,9 @@ export function useAgentGUIViewLabels(input: {
         { provider: displayProviderLabel }
       ),
       providerGateLoginAction: t("agentHost.agentGui.providerGateLoginAction"),
+      providerGateModelPlanAction: t(
+        "agentHost.agentGui.providerGateModelPlanAction"
+      ),
       providerGateComingSoonTitle: t(
         "agentHost.agentGui.providerGateComingSoonTitle",
         { provider: displayProviderLabel }

@@ -644,6 +644,8 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   onAgentConfigMenuOpen?: () => void;
   /** Forces a fresh usage probe from the config menu's refresh control. */
   onAgentUsageRefresh?: () => void;
+  /** Places the usage refresh control in the limits header when explicitly enabled. */
+  accountUsageRefreshInline?: boolean;
   onSlashStatusOpen?: AgentComposerProps["onSlashStatusOpen"];
   onSlashStatusClose?: AgentComposerProps["onSlashStatusClose"];
   onSlashStatusRefresh?: AgentComposerProps["onSlashStatusRefresh"];

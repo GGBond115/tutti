@@ -577,6 +577,21 @@ quotas and `limitsState: unavailable`; it must not become a refresh failure.
 Only real authentication, transport, parsing, timeout, or execution failures
 project `limitsState: error`.
 
+A Custom Agent bound to a Model Plan does not use the Agent Runtime provider's
+native account for model access, so provider-native account usage is not
+applicable to that exact target. Desktop projects
+`providerAccountUsageApplicable: false` from the Workspace Agent binding;
+AgentGUI preserves the optional capability through its target projection. The
+Desktop status source then completes the bounded read with unavailable limits
+without calling the provider usage probe, and AgentGUI disables manual usage
+refresh for that target. An absent capability keeps the existing provider
+account behavior for other hosts and ordinary Runtime targets.
+
+Account-config refresh placement is also host-scoped presentation. Tutti
+Desktop opts into `accountUsageRefreshInline` so the refresh control shares the
+limits header row. The capability defaults to false; TSH/VN and other hosts that
+omit it retain the established standalone menu row.
+
 Closing `/status`, Agent Info, or Agent Config cancels only the request owned
 by that surface. Replaced requests remain fenced. A stream that completes
 without a frame is a failed refresh: a retained value may remain visible, but
@@ -2210,6 +2225,18 @@ pinned to the verified active installation.
 
 Target-managed setup uses exact `agentTargetId`; daemon persists its state and actions. Setup gates only the empty new-conversation surface. Active/history conversations follow host-projected Session runtime availability for exact-target capability and transport reachability. A blocked Session runtime disables both composer editing and submit until the host reports the Session available again.
 
+For a built-in Runtime that is not installed or still requires authentication,
+the Desktop readiness projection may additionally declare the host-owned
+`onModelPlanSetup` action. AgentGUI then keeps the ordinary install/login
+action and offers a secondary route to the host's Model Plan settings. Desktop
+derives the capability from the provider descriptor's Model Plan protocol and
+injects its managed-model settings route; shared AgentGUI does not name or open
+that product destination. Unknown or unsupported providers omit it and keep the
+single setup action. The capability is fail-closed: non-Tutti hosts, including
+TSH/VN, omit it and never render the Model Plan route when they consume the
+shared AgentGUI package. This route is navigation only: it does not rewrite
+readiness, create a Session, or bypass activation-time Model Plan validation.
+
 Provider-declared terminal authentication remains a Host capability, not React
 or Session lifecycle. AgentGUI's target-setup controller owns the local
 `idle`/`waiting`/`error` projection and terminal handle, while the Desktop host
@@ -3360,6 +3387,14 @@ Runtime destination also bumps `agentFocus` to scroll and briefly highlight the 
 a link to a hidden preview agent surfaces an "enable Preview Agents" hint rather
 than failing silently. This is a settings surface, not a second Agent Target
 state store.
+
+New Custom Agent drafts derive an untouched display name from the selected
+Model Plan and Agent Runtime, joined as `Model Plan - Runtime` when both are
+present. Runtime or plan changes may refresh that suggestion only until the
+user edits the name; after the first edit, the draft preserves the user's value
+across later selection changes. Description, instructions, and call conditions
+remain draft fields but are grouped under a collapsed-by-default Advanced
+options disclosure.
 
 ### 8.2 Deleted-conversation settings surface
 
