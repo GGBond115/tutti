@@ -1171,6 +1171,7 @@ func TestDefaultPreparerCodexReconcilesNativeSkillsAcrossRepeatedPrepare(t *test
 }
 
 func TestDefaultPreparerCodexSkipsSkillsForModelProbe(t *testing.T) {
+	setTestHome(t, t.TempDir())
 	preparer := newTestPreparer(t.TempDir())
 	prepared, err := preparer.Prepare(t.Context(), PrepareInput{
 		WorkspaceID:    "workspace-1",
@@ -1530,6 +1531,7 @@ func TestCodexConfigWithSupportedServiceTierSanitizesLegacyValues(t *testing.T) 
 }
 
 func TestDefaultPreparerUsesStateRootCLIShimName(t *testing.T) {
+	setTestHome(t, t.TempDir())
 	t.Setenv("PATH", "/usr/bin:/bin")
 	stateDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(stateDir, "bin"), 0o755); err != nil {
@@ -1574,6 +1576,7 @@ func TestDefaultPreparerUsesStateRootCLIShimName(t *testing.T) {
 }
 
 func TestDefaultPreparerCleanupRemovesManagedBlocksAndRuntimeRoot(t *testing.T) {
+	setTestHome(t, t.TempDir())
 	stateDir := t.TempDir()
 	cwd := t.TempDir()
 	agentsPath := filepath.Join(cwd, "AGENTS.md")
@@ -1614,6 +1617,7 @@ func TestDefaultPreparerCleanupRemovesManagedBlocksAndRuntimeRoot(t *testing.T) 
 }
 
 func TestDefaultPreparerCleanupCanPreserveRecoverableRuntimeRoot(t *testing.T) {
+	setTestHome(t, t.TempDir())
 	stateDir := t.TempDir()
 	cwd := t.TempDir()
 	preparer := newTestPreparer(stateDir)
@@ -1658,6 +1662,7 @@ func TestDefaultPreparerCleanupCanPreserveRecoverableRuntimeRoot(t *testing.T) {
 }
 
 func TestDefaultPreparerCodexUsesSessionScopedInstructionFile(t *testing.T) {
+	setTestHome(t, t.TempDir())
 	stateDir := t.TempDir()
 	cwd := t.TempDir()
 	preparer := newTestPreparer(stateDir)
@@ -1689,7 +1694,167 @@ func TestDefaultPreparerCodexUsesSessionScopedInstructionFile(t *testing.T) {
 	}
 }
 
+func TestDefaultPreparerCodexProjectsUserAgentsIntoSessionHome(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	userCodexHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	userAgentsPath := filepath.Join(userCodexHome, "AGENTS.md")
+	userAgents := "global Codex guidance\n"
+	if err := os.WriteFile(userAgentsPath, []byte(userAgents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := t.TempDir()
+	cwd := t.TempDir()
+	preparer := newTestPreparer(stateDir)
+	prepared, err := preparer.Prepare(t.Context(), PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		Provider:       "codex",
+		Cwd:            cwd,
+	})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	codexHome := envValue(prepared.Env, "CODEX_HOME")
+	codexAgentsPath := filepath.Join(codexHome, "AGENTS.md")
+	codexAgents, err := os.ReadFile(codexAgentsPath)
+	if err != nil {
+		t.Fatalf("read session AGENTS.md: %v", err)
+	}
+	if !strings.Contains(string(codexAgents), userAgents) {
+		t.Fatalf("session AGENTS.md = %q, want user guidance", string(codexAgents))
+	}
+	if !strings.Contains(string(codexAgents), managedBlockBegin) {
+		t.Fatalf("session AGENTS.md = %q, want Tutti managed block", string(codexAgents))
+	}
+	info, err := os.Lstat(codexAgentsPath)
+	if err != nil {
+		t.Fatalf("stat session AGENTS.md: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("session AGENTS.md is a symlink, want an isolated copy")
+	}
+	userAgentsAfter, err := os.ReadFile(userAgentsPath)
+	if err != nil {
+		t.Fatalf("read user AGENTS.md after prepare: %v", err)
+	}
+	if string(userAgentsAfter) != userAgents {
+		t.Fatalf("user AGENTS.md changed to %q", string(userAgentsAfter))
+	}
+
+	if err := preparer.Cleanup(t.Context(), CleanupInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+	}); err != nil {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+}
+
+func TestDefaultPreparerCodexReplacesPreexistingAgentsLinks(t *testing.T) {
+	for _, kind := range []string{"hardlink", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			setTestHome(t, home)
+			userCodexHome := filepath.Join(home, ".codex")
+			if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			userAgentsPath := filepath.Join(userCodexHome, "AGENTS.md")
+			userAgents := "global Codex guidance\n"
+			if err := os.WriteFile(userAgentsPath, []byte(userAgents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			stateDir := t.TempDir()
+			runtimeRoot, err := LocalStore{StateDir: stateDir}.RuntimeRoot("workspace-1", "session-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			codexHome := filepath.Join(runtimeRoot, "codex-home")
+			if err := os.MkdirAll(codexHome, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(codexHome, "AGENTS.md")
+			switch kind {
+			case "hardlink":
+				if err := os.Link(userAgentsPath, target); err != nil {
+					t.Fatal(err)
+				}
+			case "symlink":
+				if err := os.Symlink(userAgentsPath, target); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			}
+
+			preparer := newTestPreparer(stateDir)
+			prepared, err := preparer.Prepare(t.Context(), PrepareInput{
+				WorkspaceID:    "workspace-1",
+				AgentSessionID: "session-1",
+				Provider:       "codex",
+				Cwd:            t.TempDir(),
+			})
+			if err != nil {
+				t.Fatalf("Prepare() error = %v", err)
+			}
+
+			gotUserAgents, err := os.ReadFile(userAgentsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(gotUserAgents) != userAgents {
+				t.Fatalf("user AGENTS.md changed to %q", gotUserAgents)
+			}
+			gotTargetInfo, err := os.Lstat(envValue(prepared.Env, "CODEX_HOME") + string(os.PathSeparator) + "AGENTS.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotTargetInfo.Mode()&os.ModeSymlink != 0 {
+				t.Fatal("session AGENTS.md is still a symlink")
+			}
+			gotTarget, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(gotTarget), managedBlockBegin) {
+				t.Fatalf("session AGENTS.md = %q, want managed block", gotTarget)
+			}
+		})
+	}
+}
+
+func TestDefaultPreparerCodexIgnoresNonRegularUserAgents(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	if err := os.MkdirAll(filepath.Join(home, ".codex", "AGENTS.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := t.TempDir()
+	prepared, err := newTestPreparer(stateDir).Prepare(t.Context(), PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		Provider:       "codex",
+		Cwd:            t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(envValue(prepared.Env, "CODEX_HOME"), "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), managedBlockBegin) {
+		t.Fatalf("session AGENTS.md = %q, want managed block", content)
+	}
+}
+
 func TestDefaultPreparerRejectsMissingCwd(t *testing.T) {
+	setTestHome(t, t.TempDir())
 	stateDir := t.TempDir()
 	missingCwd := filepath.Join(t.TempDir(), "deleted-project")
 

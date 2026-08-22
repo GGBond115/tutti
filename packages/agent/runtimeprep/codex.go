@@ -282,6 +282,9 @@ func exposeUserCodexFiles(codexHome string) error {
 	if err := exposeUserCodexConfig(codexHome, userCodexHome); err != nil {
 		return err
 	}
+	if err := exposeUserCodexAgentsFile(codexHome, userCodexHome); err != nil {
+		return err
+	}
 	if err := exposeUserCodexModelCatalog(codexHome, userCodexHome); err != nil {
 		return err
 	}
