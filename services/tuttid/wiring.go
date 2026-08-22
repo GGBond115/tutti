@@ -40,6 +40,7 @@ import (
 	connectormarketservice "github.com/tutti-os/tutti/services/tuttid/service/connector/market"
 	connectormcpservice "github.com/tutti-os/tutti/services/tuttid/service/connector/mcp"
 	desktopupdateadmissionservice "github.com/tutti-os/tutti/services/tuttid/service/desktopupdateadmission"
+	devicepresenceservice "github.com/tutti-os/tutti/services/tuttid/service/devicepresence"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
 	managedruntimeservice "github.com/tutti-os/tutti/services/tuttid/service/managedruntime"
 	mobileremoteservice "github.com/tutti-os/tutti/services/tuttid/service/mobileremote"
@@ -67,6 +68,7 @@ type tuttiWiring struct {
 	browserService               *browsersvc.Service
 	computerService              *computersvc.Service
 	desktopUpdateAdmission       *desktopupdateadmissionservice.Service
+	devicePresence               *devicepresenceservice.Service
 	agentTargetSetup             *agentextensionservice.SetupService
 	agentRuntime                 *agentdaemon.Runtime
 	providerAuthWatcher          *agentservice.ProviderAuthWatcher
@@ -253,6 +255,42 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		w.modelGateway = nil
 		return err
 	}
+	accountService, ok := api.AccountService.(*accountservice.Service)
+	if !ok || accountService == nil {
+		agentRuntime.Close()
+		providerAuthWatcher.Close()
+		return errors.New("device presence account session adapter is unavailable")
+	}
+	devicePresence, err := buildDevicePresenceService(tuttitypes.DefaultStateDir(), accountService)
+	if err != nil {
+		agentRuntime.Close()
+		providerAuthWatcher.Close()
+		return fmt.Errorf("configure device presence: %w", err)
+	}
+	w.devicePresence = devicePresence
+	existingAccountLoginCompleted := accountService.OnLoginCompleted
+	accountService.OnLoginCompleted = func(loginContext context.Context) {
+		if existingAccountLoginCompleted != nil {
+			existingAccountLoginCompleted(loginContext)
+		}
+		devicePresence.Start()
+	}
+	existingAccountLogoutStarting := accountService.OnLogoutStarting
+	accountService.OnLogoutStarting = func(logoutContext context.Context) {
+		if existingAccountLogoutStarting != nil {
+			existingAccountLogoutStarting(logoutContext)
+		}
+		stopContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		devicePresence.Stop(stopContext)
+		cancel()
+	}
+	startExistingListenerWork := api.OnListenerReady
+	api.OnListenerReady = func() {
+		if startExistingListenerWork != nil {
+			startExistingListenerWork()
+		}
+		devicePresence.Start()
+	}
 	if connectorsEnabled {
 		connectorMarketStore, err := connectormarketdata.Open(ctx, workspacedata.DefaultDBPath())
 		if err != nil {
@@ -267,10 +305,6 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		connectorMarketType := strings.ToLower(strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_TYPE")))
 		if connectorMarketType == "" {
 			connectorMarketType = "overseas"
-		}
-		accountService, ok := api.AccountService.(*accountservice.Service)
-		if !ok || accountService == nil {
-			return errors.New("connector market account session adapter is unavailable")
 		}
 		marketAuthorizer, err := connectormarketservice.NewAccountSessionAuthorizer(
 			accountService.AuthJSONPath,
@@ -721,6 +755,11 @@ func (w *tuttiWiring) Close() error {
 	w.stopTuttiModeWatchdogWorker()
 	if w.desktopUpdateAdmission != nil {
 		w.desktopUpdateAdmission.Close()
+	}
+	if w.devicePresence != nil {
+		stopContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		w.devicePresence.Stop(stopContext)
+		cancel()
 	}
 
 	var closeErr error
