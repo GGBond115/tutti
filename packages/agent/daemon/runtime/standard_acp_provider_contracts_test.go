@@ -23,6 +23,9 @@ func TestCursorAdapterInjectsPreparedContextIntoFirstProviderPromptOnly(t *testi
 	}
 	transport := newStandardACPTransport("Cursor Agent", "cursor-session-context")
 	adapter := newCursorAdapterWithHostMetadata(transport, LegacyHostMetadata(), nil)
+	if got := adapter.startupCallTimeout(); got != cursorACPStartupTimeout {
+		t.Fatalf("Cursor startup timeout = %s, want %s", got, cursorACPStartupTimeout)
+	}
 	session := standardTestSession(ProviderCursor)
 	session.Env = []string{cursorPromptContextFileEnv + "=" + contextPath}
 	if _, err := adapter.Start(context.Background(), session); err != nil {

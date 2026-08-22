@@ -2767,24 +2767,30 @@ invalid_grant`. Search `tuttid.log` for
 
 - Symptom:
   Cursor ACP sometimes reports `Cursor failed to start` even though
-  `initialize` succeeded. A file-read tool can also appear completed while its
-  result is `Error: Aborted` and the raw diagnostic reports a disconnected TLS
-  socket.
+  `initialize` succeeded. Newer Cursor releases can instead reach the generic
+  30-second `session/new` deadline while attaching a session-scoped HTTP MCP
+  server. A file-read tool can also appear completed while its result is
+  `Error: Aborted` and the raw diagnostic reports a disconnected TLS socket.
 - Quick checks:
   Correlate the same `agent_session` in the daemon log. The startup signature is
   `session/new` returning JSON-RPC `-32603` with
   `Failed to initialize session services`. For the read signature, inspect the
   ACP tool update's `result` and `rawErrorMessages`; do not rely only on
-  `isError`/`is_error`.
+  `isError`/`is_error`. A timeout exactly 30 seconds after `session/new` with no
+  provider response is the slower MCP-client initialization signature.
 - Root cause:
   Cursor can transiently fail its session services after the ACP initialize
   handshake. Standard ACP startup previously returned that first failure
-  immediately. Cursor can also return a successful-looking tool envelope with
-  the failure text in provider-specific fields, which the status and error
-  projection did not inspect or preserve.
+  immediately. Cursor 2026.08 can also take longer than the generic ACP startup
+  budget while it establishes the supplied HTTP MCP transport. Cursor can
+  return a successful-looking tool envelope with the failure text in
+  provider-specific fields, which the status and error projection did not
+  inspect or preserve.
 - Fix:
   Retry only the matching Cursor `session/new` error once on the same
   initialized connection, before a provider session id or user Turn exists.
+  Give Cursor a provider-scoped 75-second initialize/session-new window; do not
+  increase the shared ACP timeout for every provider.
   Normalize known aborted/socket-disconnect markers in output/error envelopes
   as `call.failed`, and promote both the result and raw transport diagnostics
   into the failed payload. Do not automatically replay an arbitrary file tool
@@ -2792,7 +2798,8 @@ invalid_grant`. Search `tuttid.log` for
 - Validation:
   Cover a transient Cursor session-service error followed by success, assert
   one process and two `session/new` calls, and reject retries for authentication,
-  unrelated internal errors, and other methods. Cover aborted/TLS tool output,
+  unrelated internal errors, and other methods. Assert the Cursor-only startup
+  bound without changing the generic ACP bound. Cover aborted/TLS tool output,
   preserve its diagnostic text, and keep normal output and input-side error
   strings from changing the status. Run the native Windows runtime lane for
   process/ACP behavior.
