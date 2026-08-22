@@ -16,6 +16,7 @@ import {
   LAB_AUTOMATION_RULES_FLAG,
   LAB_CONNECTORS_FLAG,
   LAB_CONVERSATION_ACTIVITY_VIEW_FLAG,
+  LAB_TUTTI_MODE_FLAG,
   MOBILE_REMOTE_ACCESS_SETTINGS_FLAG,
   isStableAgentExtensionTarget,
   resolveDesktopWorkspaceUiMode,
@@ -91,7 +92,8 @@ test("experimental Agent features require independent Lab opt-ins", () => {
   const flags = [
     LAB_AUTOMATION_RULES_FLAG,
     LAB_CONNECTORS_FLAG,
-    LAB_CONVERSATION_ACTIVITY_VIEW_FLAG
+    LAB_CONVERSATION_ACTIVITY_VIEW_FLAG,
+    LAB_TUTTI_MODE_FLAG
   ];
 
   for (const flag of flags) {
@@ -104,7 +106,6 @@ test("graduated Agent features are not registered as Lab flags", () => {
   const definitions = labFeatureDefinitions();
   for (const retiredKey of [
     "lab.agentInputHistory",
-    "lab.tuttiMode",
     "lab.modelPlans",
     "lab.workspaceAgents"
   ]) {
