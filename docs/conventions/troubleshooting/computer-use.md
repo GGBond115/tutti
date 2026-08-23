@@ -104,10 +104,11 @@ the installed driver can perform the core Win32 actions.
 
 The Windows doctor probes both the optional UIA adapter and the native Win32
 path. A broken accessibility provider can make the optional probe slow or
-degraded even when native input remains usable. The desktop bounds the doctor
-process at 10 seconds, classifies the explicit UIA-to-Win32 fallback as a
-degraded-but-usable result, and preserves its diagnostic message with reason
-`driver-doctor-failed`. A real timeout, malformed response, or missing driver
+degraded even when native input remains usable. The desktop and daemon bound
+the doctor process at 10 seconds and classify the explicit UIA-to-Win32
+fallback as a degraded-but-usable result. The desktop preserves its diagnostic
+message with reason `driver-doctor-failed`, while the daemon keeps host-managed
+computer tools available. A real timeout, malformed response, or missing driver
 remains an unknown/not-ready result; do not silently treat those as healthy.
 
 ### Validation

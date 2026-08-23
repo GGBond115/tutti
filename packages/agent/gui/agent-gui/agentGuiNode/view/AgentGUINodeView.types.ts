@@ -298,6 +298,8 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   submitAnswers: string;
   answerPlaceholder: string;
   waitingForAnswer: string;
+  returnToConversation?: string;
+  continueAnswering?: string;
   thinkingLabel: string;
   toolCallsLabel: (count: number) => string;
   openConversationWindow: string;
@@ -479,6 +481,10 @@ export type InteractivePromptLabels = {
   submitAnswers: string;
   answerPlaceholder: string;
   waitingForAnswer: string;
+  conversationReturn?: {
+    continueAnswering: string;
+    returnToConversation: string;
+  };
   planImplementationLead: string;
   planImplementationConfirm: string;
   planImplementationFeedbackPlaceholder: string;
@@ -595,7 +601,9 @@ export interface AgentGUINodeViewProps extends AgentGUIComposerExternalPromptPro
   renderReferencePickerSidebarActions?: (
     context: Parameters<
       NonNullable<ReferenceSourcePickerProps["renderSidebarActions"]>
-    >[0] & { purpose: "directory" | "reference" }
+    >[0] & {
+      purpose: "directory" | "reference";
+    }
   ) => ReactNode;
   renderSidebarFooter?: AgentGUISidebarFooterRenderer;
   /** Renders the provider rail empty state in "exact" mode. See the type doc. */
