@@ -1,5 +1,36 @@
 # Connector Market Troubleshooting
 
+### Disconnect fails immediately after authorization succeeds
+
+**Symptoms**
+
+- the Connector card changes to connected and exposes Disconnect while the
+  authorization success transition is still settling
+- clicking Disconnect shows a generic failure, but no
+  `disconnect_authorization` operation appears in SQLite and the credential
+  broker never receives a logout command
+- the connector projection and authorization operation are healthy, and the
+  renderer has no backend request failure
+
+**Check**
+
+Inspect the renderer Market store at the first bad frame. If the daemon
+projection is `connected` while the same Connector still has the local
+`authorizing` mutation phase, the failure is renderer command admission rather
+than GitHub CLI, the credential broker, or the daemon. Confirm that the rejected
+call is `ConnectorMarketBusyError` before backend dispatch.
+
+**Rule**
+
+Daemon projection and renderer command admission are separate inputs to one
+view state. Keep the per-Connector mutation phase reactive and derive every
+card and dialog action from it; do not expose Disconnect until the authorization
+phase is released. Keep the renderer token and daemon operation lane as the
+serialization fences. A Disconnect submitted while authorization is settling
+must wait for that action, reread authorization state, and execute at most once
+if the Connector is still connected. Do not solve this with a blind timeout or
+UI-only retry.
+
 ### Device code is missed when authorization moves focus to the browser
 
 **Symptoms**
