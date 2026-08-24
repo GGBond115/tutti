@@ -116,7 +116,12 @@ describe("ConnectorMarketDialogs", () => {
     expect(onTryConnector).toHaveBeenCalledWith("gmail");
   });
 
-  it("shows a device code while authorization remains pending", () => {
+  it("copies a pending device code and shows the success state", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
     const viewState = proxy(
       emptyView({
         ...authorizationDialog,
@@ -157,11 +162,73 @@ describe("ConnectorMarketDialogs", () => {
     );
 
     expect(screen.getByText("ABCD-EFGH")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "copyDeviceCode" }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("ABCD-EFGH");
+      expect(
+        screen.getByRole("button", { name: "deviceCodeCopied" })
+      ).toBeInTheDocument();
+    });
     expect(
       screen.getByRole("button", { name: "actionContinueAuthorization" })
     ).toBeEnabled();
     expect(
       screen.queryByRole("button", { name: "actionWaitingAuthorization" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the copy affordance when clipboard access fails", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("blocked"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    const viewState = proxy(
+      emptyView({
+        ...authorizationDialog,
+        authorizing: true,
+        pending: true,
+        authorizationView: {
+          protocol: "tutti.connector.authorization.view.v1",
+          viewId: "github-device-code-1",
+          view: {
+            type: "device_code",
+            verificationUrl: "https://github.com/login/device",
+            userCode: "ABCD-EFGH"
+          }
+        }
+      })
+    );
+    const root = {
+      market: {
+        dataStore: proxy({
+          pendingUninstallNotificationsByOperationId: {}
+        })
+      },
+      uiState: {
+        dataStore: proxy({
+          dialog: { connectorKey: "github-cli", kind: "connector" },
+          query: "",
+          scope: {},
+          started: true
+        })
+      },
+      view: { dataStore: viewState }
+    } as unknown as IConnectorMarketRoot;
+
+    render(
+      <ConnectorMarketRootProvider i18n={i18n} root={root}>
+        <ConnectorMarketDialogs />
+      </ConnectorMarketRootProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "copyDeviceCode" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("ABCD-EFGH"));
+    expect(
+      screen.getByRole("button", { name: "copyDeviceCode" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "deviceCodeCopied" })
     ).not.toBeInTheDocument();
   });
 

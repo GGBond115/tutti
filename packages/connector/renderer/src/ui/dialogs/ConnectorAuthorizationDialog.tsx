@@ -151,6 +151,8 @@ export function ConnectorAuthorizationDialog({
           labels={{
             activate: i18n.t("actionContinueAuthorization"),
             cancel: i18n.t("cancel"),
+            copyDeviceCode: i18n.t("copyDeviceCode"),
+            deviceCodeCopied: i18n.t("deviceCodeCopied"),
             refresh: i18n.t("actionRefresh"),
             qrCodeAlt: i18n.t("authorizationQrCodeAlt"),
             retry: i18n.t("actionRetry"),

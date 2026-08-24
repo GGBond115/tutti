@@ -208,6 +208,82 @@ func TestManagedCredentialAuthorizationContinuesConnectorOwnedBroker(t *testing.
 	}
 }
 
+func TestManagedCredentialAuthorizationObservesActiveBrokerWithoutConcurrentInspection(t *testing.T) {
+	connection := newCredentialBrokerConnection()
+	route := &connectorRoute{
+		id: "account-1\x00lark-cli", connectorKey: "lark-cli", connectionID: "account-1",
+		releaseDigest: strings.Repeat("a", 64), credentialBrokerLaunch: &managedCredentialBrokerLaunch{
+			timeout: 5 * time.Minute, allowedHosts: map[string]struct{}{"accounts.feishu.cn": {}},
+		},
+	}
+	host := &credentialAuthorizationHostStub{
+		route: route, connections: []agentruntime.ProcessConnection{connection},
+	}
+	provider := newManagedCredentialAuthorizationProvider(host)
+	connector := market.Connector{Key: "lark-cli", Release: market.Release{ReleaseDigest: route.releaseDigest}}
+	request := market.AuthorizationStartRequest{
+		OperationID: "authorize-lark", Scope: market.OperationScope{AccountID: "user-1"}, Connector: connector,
+	}
+
+	beginResult := make(chan market.AuthorizationSession, 1)
+	beginError := make(chan error, 1)
+	go func() {
+		session, err := provider.Begin(context.Background(), request)
+		beginResult <- session
+		beginError <- err
+	}()
+	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"authorization_url","url":"https://accounts.feishu.cn/device"}` + "\n")}
+	if err := <-beginError; err != nil {
+		t.Fatal(err)
+	}
+	session := <-beginResult
+
+	observation, err := provider.Observe(context.Background(), market.AuthorizationObserveRequest{
+		Scope: request.Scope, Connector: connector, Release: connector.Release, Session: session,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State != market.AuthorizationObservationPending || observation.ConnectionID != route.connectionID ||
+		observation.AuthorizationSessionID != session.SessionID {
+		t.Fatalf("active authorization observation = %#v", observation)
+	}
+	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: market.CredentialBrokerProtocolV1, Operation: "begin"}}) {
+		t.Fatalf("broker requests = %#v, want no concurrent inspection", host.requests)
+	}
+	if err := provider.Cancel(context.Background(), market.AuthorizationCancelRequest{OperationID: request.OperationID}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagedCredentialAuthorizationObservesPersistedSessionWithInspection(t *testing.T) {
+	exitCode := 0
+	connection := newCredentialBrokerConnection()
+	connection.frames <- agentruntime.ProcessFrame{Stdout: []byte(`{"type":"disconnected"}` + "\n"), ExitCode: &exitCode}
+	route := &connectorRoute{
+		id: "account-1\x00lark-cli", connectorKey: "lark-cli", connectionID: "account-1",
+		releaseDigest: strings.Repeat("a", 64), credentialBrokerLaunch: &managedCredentialBrokerLaunch{timeout: 5 * time.Minute},
+	}
+	host := &credentialAuthorizationHostStub{
+		route: route, connections: []agentruntime.ProcessConnection{connection},
+	}
+	provider := newManagedCredentialAuthorizationProvider(host)
+	release := market.Release{ReleaseDigest: route.releaseDigest}
+	observation, err := provider.Observe(context.Background(), market.AuthorizationObserveRequest{
+		Scope: market.OperationScope{AccountID: "user-1"}, Connector: market.Connector{Key: "lark-cli"}, Release: release,
+		Session: market.AuthorizationSession{OperationID: "persisted", SessionID: "persisted/credential-broker"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State != market.AuthorizationObservationPending {
+		t.Fatalf("persisted authorization observation = %#v", observation)
+	}
+	if !reflect.DeepEqual(host.requests, []credentialBrokerRequest{{Protocol: market.CredentialBrokerProtocolV1, Operation: "inspect"}}) {
+		t.Fatalf("broker requests = %#v, want durable inspection", host.requests)
+	}
+}
+
 func TestManagedCredentialAuthorizationReturnsDeviceCodeFromBroker(t *testing.T) {
 	connection := newCredentialBrokerConnection()
 	host := &credentialAuthorizationHostStub{
