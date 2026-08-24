@@ -631,9 +631,11 @@ test("clears an explicit catalog refresh when the accepted operation is already 
 test("rejects overlapping mutations for one connector", async () => {
   const install =
     deferred<Awaited<ReturnType<ConnectorMarketBackend["installConnector"]>>>();
+  const diagnostics: unknown[] = [];
   const service = new ConnectorMarketService({
     backend: backendWith({ installConnector: async () => install.promise }),
-    createRequestId: () => "request-1"
+    createRequestId: () => "request-1",
+    reportDiagnostic: (error) => diagnostics.push(error)
   });
   const first = service.install("github");
   assert.equal(
@@ -641,6 +643,8 @@ test("rejects overlapping mutations for one connector", async () => {
     true
   );
   await assert.rejects(service.install("github"), ConnectorMarketBusyError);
+  assert.equal(diagnostics.length, 1);
+  assert.ok(diagnostics[0] instanceof ConnectorMarketBusyError);
   install.resolve({
     connector: connector("github", 1),
     operation: {
@@ -1357,6 +1361,86 @@ test("a second authorization command joins the in-flight attempt", async () => {
     ]
   );
   assert.deepEqual(service.dataStore.authorizingConnectorKeys, {});
+  service.dispose();
+});
+
+test("queues disconnect behind an authorization mutation after connected is projected", async () => {
+  const authorizationOperation = deferred<ConnectorOperation>();
+  const initial = connector("github", 1);
+  initial.installation = {
+    installedReleaseDigest: initial.release.releaseDigest,
+    state: "installed"
+  };
+  initial.authorization = { state: "disconnected" };
+  const connected = connector("github", 2);
+  connected.installation = initial.installation;
+  connected.authorization = { state: "connected" };
+  const disconnected = connector("github", 3);
+  disconnected.installation = initial.installation;
+  disconnected.authorization = { state: "disconnected" };
+  let disconnectCalls = 0;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => snapshot(1, [initial]),
+      getConnector: async () => connected,
+      getOperation: async () => authorizationOperation.promise,
+      beginAuthorization: async () => ({
+        connector: connected,
+        operation: {
+          ...operation("start_authorization", 2),
+          stage: "authorizing",
+          state: "running"
+        },
+        revision: 2
+      }),
+      disconnectAuthorization: async () => {
+        disconnectCalls += 1;
+        return {
+          connector: disconnected,
+          operation: {
+            attempt: 1,
+            clientRequestId: "disconnect-1",
+            connectorKey: "github",
+            createdAt: "2026-08-03T00:00:02Z",
+            kind: "disconnect_authorization",
+            operationId: "disconnect-operation-1",
+            stage: "completed",
+            state: "completed",
+            updatedAt: "2026-08-03T00:00:03Z"
+          },
+          revision: 3
+        };
+      }
+    }),
+    createRequestId: () => "request-1"
+  });
+  await service.ensureLoaded();
+
+  const authorization = service.beginAuthorization("github");
+  await waitFor(
+    () =>
+      service.dataStore.connectorsByKey.github?.authorization.state ===
+        "connected" &&
+      service.dataStore.mutationPhasesByConnectorKey.github === "authorizing"
+  );
+  const disconnect = service.disconnectAuthorization("github");
+  await Promise.resolve();
+
+  assert.equal(disconnectCalls, 0);
+  authorizationOperation.resolve({
+    ...operation("start_authorization", 2),
+    stage: "completed",
+    state: "completed"
+  });
+  await authorization;
+  await disconnect;
+
+  assert.equal(disconnectCalls, 1);
+  assert.equal(
+    service.dataStore.connectorsByKey.github?.authorization.state,
+    "disconnected"
+  );
+  assert.deepEqual(service.dataStore.mutationPhasesByConnectorKey, {});
   service.dispose();
 });
 

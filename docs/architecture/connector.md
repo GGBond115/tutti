@@ -621,6 +621,13 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
   `replacementPolicy=replace_active`. Continuation polling within one action
   reuses the same identity. A canceled renderer Promise cannot retain the
   Connector mutation token
+- command admission and presentation share one renderer-local per-Connector
+  mutation phase (`installing`, `updating`, `uninstalling`, `authorizing`,
+  `disconnecting`, or `updating_runtime`) in the reactive Market store. Cards
+  and dialogs remain busy until that phase is released, even when a newer
+  daemon projection has already reached `connected`. A disconnect submitted
+  through stale UI or another caller while authorization is settling waits for
+  that authorization action, rereads the projected state, and runs at most once
 - event refreshes are coalesced, daemon reconnect performs a full reload, and
   accepted commands are followed through the operation endpoint or events
 - the settings catalog toolbar Refresh control indicates an explicit
