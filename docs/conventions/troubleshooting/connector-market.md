@@ -1,5 +1,35 @@
 # Connector Market Troubleshooting
 
+### Authorization reports failure after the provider connected
+
+**Symptoms**
+
+- the provider login or CLI device flow completes successfully
+- the Connector projection and matching `start_authorization` operation are
+  already `connected` and `completed`
+- the renderer still shows an authorization-start failure because a later
+  continuation request returned a retryable error
+
+**Check**
+
+Separate the durable authorization receipt from runtime convergence. Match the
+snapshot operation by `clientRequestId`, Connector key, and operation kind. If
+that operation completed and the same snapshot projects the Connector as
+connected, the first bad state is the rejected continuation response, not the
+provider login. Inspect whether runtime convergence returned a revision or
+transport error after authorization state was committed.
+
+**Rule**
+
+Provider authorization completion persists its projection and durable runtime
+Desired, then returns without waiting for the runtime Observed receipt. The
+background convergence worker owns runtime retries. A renderer that loses a
+continuation response reconciles the authoritative snapshot and accepts success
+only when the matching authorization receipt and connected projection agree;
+it must not treat an unrelated connected operation as success. Keep the same
+`clientRequestId` for every continuation and retain the overall authorization
+deadline.
+
 ### Disconnect fails immediately after authorization succeeds
 
 **Symptoms**

@@ -1547,9 +1547,20 @@ test("converges a busy authorization continuation from a connected snapshot", as
     backend: backendWith({
       getSnapshot: async () => {
         snapshotReads += 1;
-        return snapshotReads === 1
-          ? snapshot(1, [disconnected])
-          : snapshot(4, [connected]);
+        if (snapshotReads === 1) {
+          return snapshot(1, [disconnected]);
+        }
+        return {
+          ...snapshot(4, [connected]),
+          operations: [
+            {
+              ...operation("start_authorization", 4),
+              clientRequestId: "one-notion-authorization",
+              connectorKey: "notion",
+              state: "completed" as const
+            }
+          ]
+        };
       },
       beginAuthorization: async (request) => {
         requests.push(request);
@@ -1606,6 +1617,155 @@ test("converges a busy authorization continuation from a connected snapshot", as
     "connected"
   );
   assert.equal(service.dataStore.lastError, null);
+  service.dispose();
+});
+
+test("converges a retryable authorization continuation failure from its durable receipt", async () => {
+  const requests: ConnectorAuthorizationInput[] = [];
+  const diagnostics: unknown[] = [];
+  let snapshotReads = 0;
+  const disconnected = connector("github-cli", 1);
+  disconnected.authorization = { state: "disconnected" };
+  const connected = connector("github-cli", 4);
+  connected.authorization = { state: "connected" };
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        snapshotReads += 1;
+        if (snapshotReads === 1) {
+          return snapshot(1, [disconnected]);
+        }
+        return {
+          ...snapshot(4, [connected]),
+          operations: [
+            {
+              ...operation("start_authorization", 4),
+              clientRequestId: "one-github-cli-authorization",
+              connectorKey: "github-cli",
+              operationId: "github-cli-authorization",
+              state: "completed" as const
+            }
+          ]
+        };
+      },
+      beginAuthorization: async (request) => {
+        requests.push(request);
+        if (requests.length > 1) {
+          throw Object.assign(new Error("authorization response was lost"), {
+            code: "connector_market_unavailable",
+            retryable: true
+          });
+        }
+        const pending = connector("github-cli", 2);
+        pending.authorization = { state: "pending" };
+        return {
+          connector: pending,
+          operation: {
+            ...operation("start_authorization", 2),
+            clientRequestId: "one-github-cli-authorization",
+            connectorKey: "github-cli",
+            operationId: "github-cli-authorization",
+            state: "completed" as const
+          },
+          authorizationView: {
+            protocol: "tutti.connector.authorization.view.v1",
+            viewId: "github-cli-device-code",
+            view: {
+              type: "device_code",
+              verificationUrl: "https://github.com/login/device",
+              userCode: "ABCD-EFGH"
+            }
+          },
+          revision: 2
+        };
+      }
+    }),
+    createRequestId: () => "one-github-cli-authorization",
+    reportDiagnostic: (error) => diagnostics.push(error),
+    waitForAuthorizationContinuation: async () => undefined
+  });
+  await service.ensureLoaded();
+
+  await service.beginAuthorization("github-cli");
+
+  assert.equal(snapshotReads, 2);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(
+    requests.map(({ clientRequestId }) => clientRequestId),
+    ["one-github-cli-authorization", "one-github-cli-authorization"]
+  );
+  assert.equal(
+    service.dataStore.connectorsByKey["github-cli"]?.authorization.state,
+    "connected"
+  );
+  assert.equal(service.dataStore.lastError, null);
+  assert.equal(diagnostics.length, 1);
+  service.dispose();
+});
+
+test("does not accept an unrelated connected receipt after a continuation failure", async () => {
+  const disconnected = connector("github-cli", 1);
+  disconnected.authorization = { state: "disconnected" };
+  const connected = connector("github-cli", 4);
+  connected.authorization = { state: "connected" };
+  const responseLoss = Object.assign(
+    new Error("authorization response was lost"),
+    {
+      code: "connector_market_unavailable",
+      retryable: true
+    }
+  );
+  let snapshotReads = 0;
+  let authorizationCalls = 0;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        snapshotReads += 1;
+        if (snapshotReads === 1) {
+          return snapshot(1, [disconnected]);
+        }
+        return {
+          ...snapshot(4, [connected]),
+          operations: [
+            {
+              ...operation("start_authorization", 4),
+              clientRequestId: "another-authorization",
+              connectorKey: "github-cli",
+              state: "completed" as const
+            }
+          ]
+        };
+      },
+      beginAuthorization: async () => {
+        authorizationCalls += 1;
+        if (authorizationCalls > 1) {
+          throw responseLoss;
+        }
+        const pending = connector("github-cli", 2);
+        pending.authorization = { state: "pending" };
+        return {
+          connector: pending,
+          operation: {
+            ...operation("start_authorization", 2),
+            clientRequestId: "one-github-cli-authorization",
+            connectorKey: "github-cli",
+            state: "completed" as const
+          },
+          authorizationUrl: "https://github.com/login/device",
+          revision: 2
+        };
+      }
+    }),
+    createRequestId: () => "one-github-cli-authorization",
+    openAuthorizationUrl: async () => undefined,
+    waitForAuthorizationContinuation: async () => undefined
+  });
+  await service.ensureLoaded();
+
+  await assert.rejects(service.beginAuthorization("github-cli"), responseLoss);
+
+  assert.equal(snapshotReads, 2);
+  assert.equal(authorizationCalls, 2);
   service.dispose();
 });
 

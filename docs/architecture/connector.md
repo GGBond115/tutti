@@ -69,7 +69,11 @@ filter so installed connectors remain in their server-owned sections.
 Installation is a device fact. Authorization is an account projection. A
 Connector may therefore be installed while inactive for the current account;
 authorization completion or expiry schedules a normal durable runtime
-reconcile without changing installed truth. Remote MCP HTTP 428 and JSON-RPC
+reconcile without changing installed truth. Provider authorization completion
+returns after that runtime Desired is durable; it does not wait for the runtime
+Observed receipt. The background convergence worker owns retries, so a runtime
+revision race cannot turn an already-committed authorization into a failed
+authorization response. Remote MCP HTTP 428 and JSON-RPC
 `-33001`/`-33002` during an enabled reconcile are authorization-required
 observations, not retryable install failures. Core persists an expired account
 projection, replans `RuntimeDesired` as disabled, and lets

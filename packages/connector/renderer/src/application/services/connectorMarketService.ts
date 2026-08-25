@@ -550,19 +550,22 @@ export class ConnectorMarketService implements IConnectorMarketService {
             ...this.connectorRevisionFence(connectorKey)
           });
         } catch (error) {
-          const code = normalizeConnectorMarketError(error).code;
+          const normalizedError = normalizeConnectorMarketError(error);
+          const code = normalizedError.code;
           const canRecoverRevision: boolean =
             !recoveredRevisionConflict &&
             code === "connector_market_revision_conflict";
-          const canRecoverBusyContinuation: boolean =
+          const canRecoverContinuation: boolean =
             seenAuthorizationViewIds.size > 0 &&
-            code === "connector_operation_in_progress";
+            (normalizedError.retryable ||
+              code === "connector_operation_in_progress");
           if (
-            (!canRecoverRevision && !canRecoverBusyContinuation) ||
+            (!canRecoverRevision && !canRecoverContinuation) ||
             !this.isCurrentMutation(connectorKey, token, generation)
           ) {
             throw error;
           }
+          this.reportDiagnostic(error);
           recoveredRevisionConflict =
             recoveredRevisionConflict || canRecoverRevision;
           const next = await this.dependencies.backend.getSnapshot();
@@ -575,11 +578,50 @@ export class ConnectorMarketService implements IConnectorMarketService {
           applyConnectorMarketSnapshot(this.dataStore, next);
           this.reconcileUninstallNotificationStates(next.operations);
           expectedRevision = this.dataStore.revision;
-          if (this.authorizationState(connectorKey) === "connected") {
-            await this.waitForAuthorizationOperation(connectorKey);
+          const operation = next.operations.find(
+            (candidate) =>
+              candidate.clientRequestId === attempt.requestId &&
+              candidate.connectorKey === connectorKey &&
+              candidate.kind === "start_authorization"
+          );
+          if (
+            operation?.state === "completed" &&
+            this.authorizationState(connectorKey) === "connected"
+          ) {
             return;
           }
-          if (canRecoverBusyContinuation) {
+          if (operation?.state === "failed") {
+            throw new ConnectorAuthorizationTerminalError(
+              connectorKey,
+              operation.failureCode
+            );
+          }
+          const authorizationState = this.authorizationState(connectorKey);
+          if (
+            operation &&
+            (authorizationState === "failed" ||
+              authorizationState === "expired")
+          ) {
+            throw new ConnectorAuthorizationTerminalError(
+              connectorKey,
+              this.dataStore.connectorsByKey[connectorKey]?.authorization
+                .failureCode
+            );
+          }
+          if (canRecoverContinuation && !operation) {
+            throw error;
+          }
+          if (Date.now() >= attempt.expiresAtMs) {
+            attempt.canceled = true;
+            await this.dependencies.backend.cancelAuthorization({
+              connectorKey
+            });
+            throw new ConnectorAuthorizationTerminalError(
+              connectorKey,
+              "connector_authorization_timeout"
+            );
+          }
+          if (canRecoverContinuation) {
             await this.waitForAuthorizationContinuation();
           }
           continue;

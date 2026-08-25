@@ -423,7 +423,7 @@ func (application *Application) beginAuthorizationSession(
 		return AuthorizationSession{}, err
 	}
 	if session.State == AuthorizationStateConnected || (!remote && accountScoped) {
-		if err := application.projectAuthorizationAndScheduleRuntime(ctx, operation.Scope, operation.ConnectorKey, session.ConnectionID, session.State, ""); err != nil {
+		if err := application.projectAuthorizationAndPlanRuntime(ctx, operation.Scope, operation.ConnectorKey, session.ConnectionID, session.State, ""); err != nil {
 			return AuthorizationSession{}, err
 		}
 	}

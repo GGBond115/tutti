@@ -1497,6 +1497,46 @@ func TestApplicationManagedAuthorizationContinuationReplaysBeforeProjectionTrans
 	}
 }
 
+func TestApplicationConnectedAuthorizationPlansRuntimeWithoutWaitingForHostConvergence(t *testing.T) {
+	connector := testManagedAuthorizedConnector("github-cli")
+	connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
+	repository := newMemoryRepository(connector)
+	projections := &recordingAuthorizationProjectionStore{}
+	runtime := &memoryInstallRuntime{reconcileErrors: map[string]error{
+		connector.Key: NewDomainError(ErrorCodeRevisionConflict, "runtime changed during convergence", true, nil),
+	}}
+	application := newTestApplication(t, repository, &memoryScheduler{}, runtime, CatalogSnapshot{})
+	application.config.Authorization = connectedAuthorizationProviderStub{}
+	application.config.AuthorizationProjections = projections
+	application.config.RuntimeBindings = AccountRuntimeBindingResolver{Projections: projections}
+
+	result, err := application.BeginAuthorization(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "connected-authorization"},
+		ConnectorKey: connector.Key,
+		AccountID:    "account-1",
+	}, nil)
+	if err != nil {
+		t.Fatalf("BeginAuthorization returned a post-commit runtime error: %v", err)
+	}
+	convergence, err := repository.RuntimeConvergence(
+		context.Background(), OperationScope{AccountID: "account-1"}, connector.Key,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Connector.Authorization.State != AuthorizationStateConnected ||
+		result.Operation.State != OperationStateCompleted ||
+		projections.projection.State != AuthorizationStateConnected {
+		t.Fatalf("authorization did not commit: result=%#v projection=%#v", result, projections.projection)
+	}
+	if convergence.Desired.AuthorizationState != AuthorizationStateConnected || !convergence.Desired.Enabled {
+		t.Fatalf("runtime desired = %#v", convergence.Desired)
+	}
+	if runtime.reconciles != 0 {
+		t.Fatalf("authorization waited for runtime host convergence %d times", runtime.reconciles)
+	}
+}
+
 func TestApplicationResolvedAuthorizationReplayDoesNotRestartProvider(t *testing.T) {
 	connector := testManagedAuthorizedConnector("lark-cli")
 	connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
