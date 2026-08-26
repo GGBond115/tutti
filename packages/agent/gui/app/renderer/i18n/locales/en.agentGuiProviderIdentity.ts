@@ -7,6 +7,8 @@ export const enAgentGuiProviderIdentity = {
   conversationFilterNexight: "Nexight",
   conversationFilterHermes: "Hermes Agent",
   conversationFilterOpenClaw: "OpenClaw",
+  conversationFilterDoubao: "Doubao",
+  conversationFilterCodeBuddy: "WorkBuddy",
   manageAgents: "Agent Sidebar Display Settings",
   manageAgentsTitle: "Agent Sidebar Display Settings",
   manageAgentsDescription:

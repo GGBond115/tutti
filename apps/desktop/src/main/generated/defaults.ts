@@ -53,7 +53,7 @@ export const generatedDefaults = {
         signingKeyId: "tutti-codebuddy-release-v1",
         signingPublicKey:
           "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAfzdtf41+SN0hrZqK0JX2pdDluCwpUbn1HPDoz4D7OxA=\n-----END PUBLIC KEY-----\n",
-        enabled: false
+        enabled: true
       },
       {
         key: "copilot",

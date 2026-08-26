@@ -247,7 +247,15 @@ export const preferencesDesktopPreferencesSchema = {
     },
     defaultAgentProvider: {
       type: "string",
-      enum: ["tutti-agent", "claude-code", "codex", "cursor", "opencode"]
+      enum: [
+        "tutti-agent",
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode",
+        "doubao",
+        "codebuddy"
+      ]
     },
     dockIconStyle: {
       type: "string",
@@ -2703,7 +2711,15 @@ export const preferencesDesktopUpdateRequestedPayloadSchema = {
         },
         defaultAgentProvider: {
           type: "string",
-          enum: ["tutti-agent", "claude-code", "codex", "cursor", "opencode"]
+          enum: [
+            "tutti-agent",
+            "claude-code",
+            "codex",
+            "cursor",
+            "opencode",
+            "doubao",
+            "codebuddy"
+          ]
         },
         dockIconStyle: {
           type: "string",
@@ -3071,7 +3087,15 @@ export const preferencesDesktopUpdatedPayloadSchema = {
         },
         defaultAgentProvider: {
           type: "string",
-          enum: ["tutti-agent", "claude-code", "codex", "cursor", "opencode"]
+          enum: [
+            "tutti-agent",
+            "claude-code",
+            "codex",
+            "cursor",
+            "opencode",
+            "doubao",
+            "codebuddy"
+          ]
         },
         dockIconStyle: {
           type: "string",

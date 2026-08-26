@@ -8,20 +8,26 @@ import {
   codexRoundedUrl,
   cursorColorfulUrl,
   cursorRoundedUrl,
+  doubaoRoundedUrl,
   manageAgentClaudeCodeUrl,
   manageAgentCodexUrl,
   manageAgentCursorUrl,
+  manageAgentDoubaoUrl,
   manageAgentOpenCodeUrl,
   manageAgentOpenclawUrl,
   manageAgentTuttiUrl,
+  manageAgentWorkbuddyUrl,
   opencodeRoundedUrl,
   openclawRoundedUrl,
   providerRailClaudeCodeColorfulUrl,
   providerRailCodexColorfulUrl,
+  providerRailDoubaoColorfulUrl,
   providerRailOpenCodeColorfulUrl,
   providerRailTuttiUrl,
+  providerRailWorkbuddyColorfulUrl,
   tuttiAgentRoundedUrl,
-  tuttiDocRoundedUrl
+  tuttiDocRoundedUrl,
+  workbuddyRoundedUrl
 } from "./managedAgentIconAssets.ts";
 import type { ProviderIconAssetVariant } from "./providerIconTypes.ts";
 
@@ -85,6 +91,22 @@ export const PROVIDER_ICON_ASSETS_BY_ICON_KEY: Readonly<
     sessionColorful: manageAgentTuttiUrl,
     sessionFlat: tuttiFlatFilledIconUrl,
     dock: tuttiAgentRoundedUrl
+  },
+  doubao: {
+    manage: manageAgentDoubaoUrl,
+    providerRail: providerRailDoubaoColorfulUrl,
+    rounded: doubaoRoundedUrl,
+    sessionColorful: doubaoRoundedUrl,
+    sessionFlat: doubaoRoundedUrl,
+    dock: doubaoRoundedUrl
+  },
+  workbuddy: {
+    manage: manageAgentWorkbuddyUrl,
+    providerRail: providerRailWorkbuddyColorfulUrl,
+    rounded: workbuddyRoundedUrl,
+    sessionColorful: workbuddyRoundedUrl,
+    sessionFlat: workbuddyRoundedUrl,
+    dock: workbuddyRoundedUrl
   }
 };
 

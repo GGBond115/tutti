@@ -2134,8 +2134,10 @@ func (e DesktopBrowserUseConnectionMode) Valid() bool {
 // Defines values for DesktopDefaultAgentProvider.
 const (
 	DesktopDefaultAgentProviderClaudeCode DesktopDefaultAgentProvider = "claude-code"
+	DesktopDefaultAgentProviderCodebuddy  DesktopDefaultAgentProvider = "codebuddy"
 	DesktopDefaultAgentProviderCodex      DesktopDefaultAgentProvider = "codex"
 	DesktopDefaultAgentProviderCursor     DesktopDefaultAgentProvider = "cursor"
+	DesktopDefaultAgentProviderDoubao     DesktopDefaultAgentProvider = "doubao"
 	DesktopDefaultAgentProviderOpencode   DesktopDefaultAgentProvider = "opencode"
 	DesktopDefaultAgentProviderTuttiAgent DesktopDefaultAgentProvider = "tutti-agent"
 )
@@ -2145,9 +2147,13 @@ func (e DesktopDefaultAgentProvider) Valid() bool {
 	switch e {
 	case DesktopDefaultAgentProviderClaudeCode:
 		return true
+	case DesktopDefaultAgentProviderCodebuddy:
+		return true
 	case DesktopDefaultAgentProviderCodex:
 		return true
 	case DesktopDefaultAgentProviderCursor:
+		return true
+	case DesktopDefaultAgentProviderDoubao:
 		return true
 	case DesktopDefaultAgentProviderOpencode:
 		return true
@@ -7240,8 +7246,10 @@ type DesktopAgentComposerDefaultsByAgentTarget map[string]DesktopAgentComposerDe
 // DesktopAgentComposerDefaultsByProvider defines model for DesktopAgentComposerDefaultsByProvider.
 type DesktopAgentComposerDefaultsByProvider struct {
 	ClaudeCode *DesktopAgentComposerDefaults `json:"claude-code,omitempty"`
+	Codebuddy  *DesktopAgentComposerDefaults `json:"codebuddy,omitempty"`
 	Codex      *DesktopAgentComposerDefaults `json:"codex,omitempty"`
 	Cursor     *DesktopAgentComposerDefaults `json:"cursor,omitempty"`
+	Doubao     *DesktopAgentComposerDefaults `json:"doubao,omitempty"`
 	Nexight    *DesktopAgentComposerDefaults `json:"nexight,omitempty"`
 	Openclaw   *DesktopAgentComposerDefaults `json:"openclaw,omitempty"`
 	Opencode   *DesktopAgentComposerDefaults `json:"opencode,omitempty"`
@@ -7257,8 +7265,10 @@ type DesktopAgentDockLayout string
 // DesktopAgentGuiConversationRailCollapsedByProvider defines model for DesktopAgentGuiConversationRailCollapsedByProvider.
 type DesktopAgentGuiConversationRailCollapsedByProvider struct {
 	ClaudeCode *bool `json:"claude-code,omitempty"`
+	Codebuddy  *bool `json:"codebuddy,omitempty"`
 	Codex      *bool `json:"codex,omitempty"`
 	Cursor     *bool `json:"cursor,omitempty"`
+	Doubao     *bool `json:"doubao,omitempty"`
 	Nexight    *bool `json:"nexight,omitempty"`
 	Openclaw   *bool `json:"openclaw,omitempty"`
 	Opencode   *bool `json:"opencode,omitempty"`

@@ -203,5 +203,63 @@ export const generatedProviderIdentityCatalog = [
       defaultProviderEligible: false,
       defaultProviderPriority: 0
     }
+  },
+  {
+    providerId: "doubao",
+    displayName: "豆包",
+    iconKey: "doubao",
+    localeKey: "agentHost.agentGui.conversationFilterDoubao",
+    aliases: ["doubao-work", "doubao work", "豆包办公"],
+    modelPlanProtocol: "",
+    statusKind: "generic_cli",
+    target: {
+      id: "local:doubao",
+      launchRefType: "local_cli",
+      enabled: true,
+      sortOrder: 90
+    },
+    desktop: {
+      managed: true,
+      managedOrder: 8,
+      statusProbePriority: 8,
+      usageProbeKind: "",
+      visibilityGate: "",
+      runtimeProbeFallback: "",
+      installBootstrap: false,
+      refreshOnAccountChange: false,
+      unavailableDockOrderOffset: 220,
+      developerLogs: false,
+      defaultProviderEligible: true,
+      defaultProviderPriority: 9
+    }
+  },
+  {
+    providerId: "codebuddy",
+    displayName: "WorkBuddy",
+    iconKey: "workbuddy",
+    localeKey: "agentHost.agentGui.conversationFilterCodeBuddy",
+    aliases: ["workbuddy", "work-buddy", "work buddy", "code buddy"],
+    modelPlanProtocol: "",
+    statusKind: "generic_cli",
+    target: {
+      id: "local:codebuddy",
+      launchRefType: "local_cli",
+      enabled: true,
+      sortOrder: 95
+    },
+    desktop: {
+      managed: true,
+      managedOrder: 9,
+      statusProbePriority: 9,
+      usageProbeKind: "codebuddy",
+      visibilityGate: "",
+      runtimeProbeFallback: "",
+      installBootstrap: false,
+      refreshOnAccountChange: false,
+      unavailableDockOrderOffset: 230,
+      developerLogs: false,
+      defaultProviderEligible: true,
+      defaultProviderPriority: 10
+    }
   }
 ] as const;

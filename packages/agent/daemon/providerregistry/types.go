@@ -620,6 +620,7 @@ type DesktopUsageProbeKind string
 const (
 	DesktopUsageProbeCodex      DesktopUsageProbeKind = "codex"
 	DesktopUsageProbeClaudeCode DesktopUsageProbeKind = "claude_code"
+	DesktopUsageProbeCodeBuddy  DesktopUsageProbeKind = "codebuddy"
 )
 
 type DesktopVisibilityGate string

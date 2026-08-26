@@ -303,7 +303,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   const updateService = createAppUpdateService(undefined, {
     currentVersion: desktopUpdateAdmission.runtime.currentVersion,
     developmentScenario: desktopUpdateAdmission.scenario,
-    supportsUpdates: desktopDistribution === "store" ? false : undefined,
+    supportsUpdates: false,
     unsupportedMessage:
       desktopDistribution === "store"
         ? translator.t("updates.storeManaged")

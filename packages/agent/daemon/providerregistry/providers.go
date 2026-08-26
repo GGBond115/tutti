@@ -16,6 +16,10 @@ const (
 	NexightTargetID                     = "local:nexight"
 	OpenClawProviderID                  = canonical.OpenClawProviderID
 	OpenClawTargetID                    = "local:openclaw"
+	DoubaoProviderID                    = canonical.DoubaoProviderID
+	DoubaoTargetID                      = "local:doubao"
+	CodeBuddyProviderID                 = canonical.CodeBuddyProviderID
+	CodeBuddyTargetID                   = "local:codebuddy"
 )
 
 const temporarilyUnsupportedReason = "provider_temporarily_unsupported"
@@ -157,6 +161,108 @@ func openClawDescriptor() ProviderDescriptor {
 	descriptor.Desktop.StatusProbePriority = 7
 	descriptor.Desktop.UnavailableDockOrderOffset = 200
 	return descriptor
+}
+
+func doubaoDescriptor() ProviderDescriptor {
+	return ProviderDescriptor{
+		Identity: canonicalProviderIdentity(DoubaoProviderID),
+		Runtime: RuntimeDescriptor{
+			Kind:                RuntimeKindStandardACP,
+			Name:                "doubao-bridge",
+			Command:             []string{"tutti-doubao-bridge"},
+			AuthRequiredMessage: "豆包桥接器未安装。运行仓库内 tools/agent-bridges/install.sh 完成安装后重试。",
+			StandardACP: StandardACPRuntimeDescriptor{
+				AdapterStrategy:            StandardACPAdapterStrategyGeneric,
+				PlanModeRuntimeID:          "",
+				PlanModeDisabledRuntimeID:  "",
+				DeriveImageInputFromPrompt: true,
+			},
+		},
+		Status: StatusDescriptor{
+			Kind:                   StatusKindGenericCLI,
+			BinaryNames:            []string{"tutti-doubao-bridge"},
+			AuthMarkerPaths:        []string{"~/.local/bin/tutti-doubao-bridge"},
+			AuthMarkerParserKind:   AuthMarkerParserKindFileExists,
+			AuthOutputParserKind:   AuthOutputParserKindOpenCode,
+			AuthStatusCommand:      []string{"--check"},
+			LoginArgs:              []string{"--login"},
+			AuthCommandRunnerKind:  AuthCommandRunnerKindGeneric,
+			StaticSpecResolverKind: StaticSpecResolverKindGeneric,
+			Install: InstallerDescriptor{
+				Kind:           InstallerKindShellCommand,
+				DisplayCommand: "安装豆包桥接器 (tutti-doubao-bridge)",
+				ShellCommand:   "mkdir -p ~/.local/bin && cp '/Users/ai/tutti/tools/agent-bridges/doubao-bridge.mjs' ~/.local/bin/tutti-doubao-bridge && chmod +x ~/.local/bin/tutti-doubao-bridge",
+			},
+			Update: UpdateDescriptor{Capability: UpdateCapabilityUnsupported, UnsupportedReason: UpdateUnsupportedReasonProvider},
+		},
+		ComposerProfile: ComposerProfileDescriptor{
+			Capabilities: []string{CapabilityInterrupt},
+		},
+		Target:  TargetDescriptor{ID: DoubaoTargetID, LaunchRefType: TargetLaunchRefTypeLocalCLI, Enabled: true, SortOrder: 90},
+		Events:  EventsDescriptor{Enabled: true, TurnLifecycleProjection: TurnLifecycleProjectionExplicit},
+		Sidecar: SidecarDescriptor{ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC},
+		Desktop: DesktopIntegrationDescriptor{
+			Managed:                    true,
+			ManagedOrder:               8,
+			StatusProbePriority:        8,
+			UnavailableDockOrderOffset: 220,
+			DefaultProviderEligible:    true,
+			DefaultProviderPriority:    9,
+		},
+	}
+}
+
+func codeBuddyDescriptor() ProviderDescriptor {
+	return ProviderDescriptor{
+		Identity: canonicalProviderIdentity(CodeBuddyProviderID),
+		Runtime: RuntimeDescriptor{
+			Kind:                RuntimeKindStandardACP,
+			Name:                "workbuddy-bridge",
+			Command:             []string{"tutti-workbuddy-bridge"},
+			AuthRequiredMessage: "WorkBuddy 需要登录：打开 WorkBuddy App 登录后，回到 Tutti 点击刷新即可。",
+			StandardACP: StandardACPRuntimeDescriptor{
+				AdapterStrategy:            StandardACPAdapterStrategyGeneric,
+				PlanModeRuntimeID:          "",
+				PlanModeDisabledRuntimeID:  "",
+				DeriveImageInputFromPrompt: true,
+			},
+		},
+		Status: StatusDescriptor{
+			Kind:                   StatusKindGenericCLI,
+			BinaryNames:            []string{"tutti-workbuddy-bridge"},
+			AuthMarkerPaths:        []string{"~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info"},
+			AuthMarkerParserKind:   AuthMarkerParserKindFileExists,
+			AuthOutputParserKind:   AuthOutputParserKindOpenCode,
+			AuthStatusCommand:      []string{"--check"},
+			AuthCommandRunnerKind:  AuthCommandRunnerKindGeneric,
+			StaticSpecResolverKind: StaticSpecResolverKindGeneric,
+			LoginArgs:              []string{"--login"},
+			Install: InstallerDescriptor{
+				Kind:           InstallerKindShellCommand,
+				DisplayCommand: "安装 WorkBuddy 桥接器 (tutti-workbuddy-bridge)",
+				ShellCommand:   "bash '/Users/ai/tutti/tools/agent-bridges/workbuddy-install.sh'",
+			},
+			Update: UpdateDescriptor{Capability: UpdateCapabilityUnsupported, UnsupportedReason: UpdateUnsupportedReasonProvider},
+		},
+		ComposerProfile: ComposerProfileDescriptor{
+			ModelSelection:     true,
+			LiveModelDiscovery: LiveModelDiscoveryDescriptor{Kind: LiveModelDiscoveryKindRuntimeSession, HiddenProbe: true, AccountScoped: true},
+			ConfigOptionIDs:    ComposerConfigOptionIDs{Model: "model"},
+			Capabilities:       []string{CapabilityInterrupt, CapabilityModelSwitch},
+		},
+		Target:  TargetDescriptor{ID: CodeBuddyTargetID, LaunchRefType: TargetLaunchRefTypeLocalCLI, Enabled: true, SortOrder: 95},
+		Events:  EventsDescriptor{Enabled: true, TurnLifecycleProjection: TurnLifecycleProjectionExplicit},
+		Sidecar: SidecarDescriptor{ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC},
+		Desktop: DesktopIntegrationDescriptor{
+			Managed:                    true,
+			ManagedOrder:               9,
+			StatusProbePriority:        9,
+			UnavailableDockOrderOffset: 230,
+			DefaultProviderEligible:    true,
+			DefaultProviderPriority:    10,
+			UsageProbeKind:             DesktopUsageProbeCodeBuddy,
+		},
+	}
 }
 
 func unsupportedACPDescriptor(providerID string, targetID string, runtime RuntimeDescriptor, status StatusDescriptor, composer ComposerProfileDescriptor, sortOrder int) ProviderDescriptor {

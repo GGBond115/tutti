@@ -362,6 +362,7 @@ export function mapAgentTargetPresentationsToAgents(
     .filter(
       (target) =>
         target.enabled &&
+        target.availability.status === "ready" &&
         (options.earlyAccessEnabled === true ||
           ((target.launchRefType !== "agent_extension" ||
             isStableAgentExtensionTarget(target.agentTargetId)) &&

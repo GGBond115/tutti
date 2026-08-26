@@ -6,6 +6,12 @@ import agentColorfulAssetUrl from "./app/renderer/assets/icons/agents/agent-colo
 import manageAgentTuttiAssetUrl from "./app/renderer/assets/icons/agents/manage-agent-tutti.png";
 import opencodeRoundedAssetUrl from "./app/renderer/assets/icons/agents/opencode-rounded.png";
 import openclawRoundedAssetUrl from "./app/renderer/assets/icons/agents/openclaw-rounded.png";
+import doubaoRoundedAssetUrl from "./app/renderer/assets/icons/agents/doubao-rounded.png";
+import manageAgentDoubaoAssetUrl from "./app/renderer/assets/icons/agents/manage-agent-doubao.png";
+import providerRailDoubaoColorfulAssetUrl from "./app/renderer/assets/icons/agents/provider-rail-doubao-colorful.png";
+import workbuddyRoundedAssetUrl from "./app/renderer/assets/icons/agents/workbuddy-rounded.png";
+import manageAgentWorkbuddyAssetUrl from "./app/renderer/assets/icons/agents/manage-agent-workbuddy.png";
+import providerRailWorkbuddyColorfulAssetUrl from "./app/renderer/assets/icons/agents/provider-rail-workbuddy-colorful.png";
 import providerRailClaudeCodeColorfulAssetUrl from "./app/renderer/assets/icons/agents/provider-rail-claude-code-colorful.png";
 import providerRailCodexColorfulAssetUrl from "./app/renderer/assets/icons/agents/provider-rail-codex-colorful.png";
 import providerRailOpenCodeColorfulAssetUrl from "./app/renderer/assets/icons/agents/provider-rail-opencode-colorful.png";
@@ -33,3 +39,10 @@ export const providerRailCodexColorfulUrl = providerRailCodexColorfulAssetUrl;
 export const providerRailOpenCodeColorfulUrl =
   providerRailOpenCodeColorfulAssetUrl;
 export const providerRailTuttiUrl = providerRailTuttiAssetUrl;
+export const doubaoRoundedUrl = doubaoRoundedAssetUrl;
+export const manageAgentDoubaoUrl = manageAgentDoubaoAssetUrl;
+export const providerRailDoubaoColorfulUrl = providerRailDoubaoColorfulAssetUrl;
+export const workbuddyRoundedUrl = workbuddyRoundedAssetUrl;
+export const manageAgentWorkbuddyUrl = manageAgentWorkbuddyAssetUrl;
+export const providerRailWorkbuddyColorfulUrl =
+  providerRailWorkbuddyColorfulAssetUrl;

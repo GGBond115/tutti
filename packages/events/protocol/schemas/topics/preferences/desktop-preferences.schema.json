@@ -35,38 +35,72 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "claude-code": { "$ref": "#/$defs/agentComposerDefaults" },
-        "codex": { "$ref": "#/$defs/agentComposerDefaults" },
-        "tutti-agent": { "$ref": "#/$defs/agentComposerDefaults" },
-        "cursor": { "$ref": "#/$defs/agentComposerDefaults" },
-        "nexight": { "$ref": "#/$defs/agentComposerDefaults" },
-        "openclaw": { "$ref": "#/$defs/agentComposerDefaults" },
-        "opencode": { "$ref": "#/$defs/agentComposerDefaults" }
+        "claude-code": {
+          "$ref": "#/$defs/agentComposerDefaults"
+        },
+        "codex": {
+          "$ref": "#/$defs/agentComposerDefaults"
+        },
+        "tutti-agent": {
+          "$ref": "#/$defs/agentComposerDefaults"
+        },
+        "cursor": {
+          "$ref": "#/$defs/agentComposerDefaults"
+        },
+        "nexight": {
+          "$ref": "#/$defs/agentComposerDefaults"
+        },
+        "openclaw": {
+          "$ref": "#/$defs/agentComposerDefaults"
+        },
+        "opencode": {
+          "$ref": "#/$defs/agentComposerDefaults"
+        }
       }
     },
     "agentComposerDefaultsByAgentTarget": {
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/agentComposerDefaults" }
+      "additionalProperties": {
+        "$ref": "#/$defs/agentComposerDefaults"
+      }
     },
     "agentGuiConversationRailCollapsedByProvider": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "claude-code": { "type": "boolean" },
-        "codex": { "type": "boolean" },
-        "tutti-agent": { "type": "boolean" },
-        "cursor": { "type": "boolean" },
-        "nexight": { "type": "boolean" },
-        "openclaw": { "type": "boolean" },
-        "opencode": { "type": "boolean" }
+        "claude-code": {
+          "type": "boolean"
+        },
+        "codex": {
+          "type": "boolean"
+        },
+        "tutti-agent": {
+          "type": "boolean"
+        },
+        "cursor": {
+          "type": "boolean"
+        },
+        "nexight": {
+          "type": "boolean"
+        },
+        "openclaw": {
+          "type": "boolean"
+        },
+        "opencode": {
+          "type": "boolean"
+        }
       }
     },
     "agentSessionLaunchModesByWorkspace": {
       "type": "object",
-      "propertyNames": { "minLength": 1 },
+      "propertyNames": {
+        "minLength": 1
+      },
       "additionalProperties": {
         "type": "object",
-        "propertyNames": { "minLength": 1 },
+        "propertyNames": {
+          "minLength": 1
+        },
         "additionalProperties": {
           "type": "string",
           "enum": ["local", "worktree"]
@@ -91,7 +125,15 @@
     },
     "defaultAgentProvider": {
       "type": "string",
-      "enum": ["tutti-agent", "claude-code", "codex", "cursor", "opencode"]
+      "enum": [
+        "tutti-agent",
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode",
+        "doubao",
+        "codebuddy"
+      ]
     },
     "dockIconStyle": {
       "type": "string",
@@ -114,7 +156,9 @@
     },
     "featureFlags": {
       "type": "object",
-      "additionalProperties": { "type": "boolean" },
+      "additionalProperties": {
+        "type": "boolean"
+      },
       "maxProperties": 64
     },
     "workbenchShortcuts": {
@@ -168,7 +212,9 @@
       "additionalProperties": false,
       "required": ["enabled", "shortcutPreset"],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "shortcutPreset": {
           "type": "string",
           "enum": ["commandArrows", "commandShiftArrows"]
@@ -181,10 +227,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "model": { "type": "string" },
-        "permissionModeId": { "type": "string" },
-        "reasoningEffort": { "type": "string" },
-        "speed": { "type": "string" }
+        "model": {
+          "type": "string"
+        },
+        "permissionModeId": {
+          "type": "string"
+        },
+        "reasoningEffort": {
+          "type": "string"
+        },
+        "speed": {
+          "type": "string"
+        }
       }
     }
   }

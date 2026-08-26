@@ -129,7 +129,9 @@ export interface PreferencesDesktopPreferencesV1 {
     | "claude-code"
     | "codex"
     | "cursor"
-    | "opencode";
+    | "opencode"
+    | "doubao"
+    | "codebuddy";
   dockIconStyle: "default" | "flat";
   dockPlacement: "bottom" | "left";
   deletedAgentConversationRetentionDays: 15 | 30;

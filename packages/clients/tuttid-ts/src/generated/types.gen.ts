@@ -559,7 +559,9 @@ export type DesktopDefaultAgentProvider =
   | "claude-code"
   | "codex"
   | "cursor"
-  | "opencode";
+  | "opencode"
+  | "doubao"
+  | "codebuddy";
 
 export type DesktopAgentDockLayout = "legacySplit" | "unified";
 
@@ -571,6 +573,8 @@ export type DesktopAgentComposerDefaultsByProvider = {
   nexight?: DesktopAgentComposerDefaults;
   openclaw?: DesktopAgentComposerDefaults;
   opencode?: DesktopAgentComposerDefaults;
+  doubao?: DesktopAgentComposerDefaults;
+  codebuddy?: DesktopAgentComposerDefaults;
 };
 
 export type DesktopAgentComposerDefaultsByAgentTarget = {
@@ -585,6 +589,8 @@ export type DesktopAgentGuiConversationRailCollapsedByProvider = {
   nexight?: boolean;
   openclaw?: boolean;
   opencode?: boolean;
+  doubao?: boolean;
+  codebuddy?: boolean;
 };
 
 export type DesktopAgentSessionLaunchMode = "local" | "worktree";

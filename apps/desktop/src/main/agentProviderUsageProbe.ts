@@ -16,6 +16,7 @@ import {
 import { getDesktopLogger } from "./logging.ts";
 import { outboundFetch } from "./net/outboundFetch.ts";
 import { probeClaudeCodeProvider } from "./claudeProviderUsageProbe.ts";
+import { probeCodeBuddyProvider } from "./codebuddyProviderUsageProbe.ts";
 import {
   failedDesktopAgentProbe,
   mapProviderOwnedAccountUsageResult,
@@ -286,7 +287,8 @@ const desktopAgentUsageProbeHandlers = new Map<
   DesktopAgentUsageProbeHandler
 >([
   ["codex", probeCodexProvider],
-  ["claude_code", probeClaudeCodeProvider]
+  ["claude_code", probeClaudeCodeProvider],
+  ["codebuddy", probeCodeBuddyProvider]
 ]);
 
 // The usage probe runs in the Electron main process and hits the vendor account

@@ -8559,12 +8559,16 @@ components:
         - codex
         - cursor
         - opencode
+        - doubao
+        - codebuddy
       x-enum-varnames:
         - DesktopDefaultAgentProviderTuttiAgent
         - DesktopDefaultAgentProviderClaudeCode
         - DesktopDefaultAgentProviderCodex
         - DesktopDefaultAgentProviderCursor
         - DesktopDefaultAgentProviderOpencode
+        - DesktopDefaultAgentProviderDoubao
+        - DesktopDefaultAgentProviderCodebuddy
     DesktopAgentDockLayout:
       type: string
       enum:
@@ -8588,6 +8592,10 @@ components:
           $ref: "#/components/schemas/DesktopAgentComposerDefaults"
         opencode:
           $ref: "#/components/schemas/DesktopAgentComposerDefaults"
+        doubao:
+          $ref: "#/components/schemas/DesktopAgentComposerDefaults"
+        codebuddy:
+          $ref: "#/components/schemas/DesktopAgentComposerDefaults"
     DesktopAgentComposerDefaultsByAgentTarget:
       type: object
       additionalProperties:
@@ -8609,6 +8617,10 @@ components:
         openclaw:
           type: boolean
         opencode:
+          type: boolean
+        doubao:
+          type: boolean
+        codebuddy:
           type: boolean
     DesktopAgentSessionLaunchMode:
       type: string

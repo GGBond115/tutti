@@ -11,6 +11,8 @@ const (
 	NexightProviderID    = "nexight"
 	HermesProviderID     = "hermes"
 	OpenClawProviderID   = "openclaw"
+	DoubaoProviderID     = "doubao"
+	CodeBuddyProviderID  = "codebuddy"
 )
 
 // ProviderIdentity is the provider-neutral identity projection shared by the
@@ -45,6 +47,8 @@ var providerContracts = []providerContract{
 	{identity: ProviderIdentity{ID: NexightProviderID, DisplayName: "Nexight", IconKey: "tutti", LocaleKey: "agentHost.agentGui.conversationFilterNexight", Aliases: []string{"tutti"}}},
 	{identity: ProviderIdentity{ID: HermesProviderID, DisplayName: "Hermes Agent", IconKey: "hermes", LocaleKey: "agentHost.agentGui.conversationFilterHermes", Aliases: []string{"hermes-agent", "hermes agent"}}},
 	{identity: ProviderIdentity{ID: OpenClawProviderID, DisplayName: "OpenClaw", IconKey: "openclaw", LocaleKey: "agentHost.agentGui.conversationFilterOpenClaw", Aliases: []string{"open-claw"}}},
+	{identity: ProviderIdentity{ID: DoubaoProviderID, DisplayName: "豆包", IconKey: "doubao", LocaleKey: "agentHost.agentGui.conversationFilterDoubao", Aliases: []string{"doubao-work", "doubao work", "豆包办公"}}},
+	{identity: ProviderIdentity{ID: CodeBuddyProviderID, DisplayName: "WorkBuddy", IconKey: "workbuddy", LocaleKey: "agentHost.agentGui.conversationFilterCodeBuddy", Aliases: []string{"workbuddy", "work-buddy", "work buddy", "code buddy"}}},
 }
 
 // FindProviderIdentity resolves canonical IDs and aliases without importing

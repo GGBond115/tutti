@@ -16,6 +16,8 @@ var migratedDescriptors = []ProviderDescriptor{
 	openCodeDescriptor(),
 	nexightDescriptor(),
 	openClawDescriptor(),
+	doubaoDescriptor(),
+	codeBuddyDescriptor(),
 }
 
 var providerDescriptorIndex = buildProviderDescriptorIndex(migratedDescriptors)
@@ -123,7 +125,7 @@ func Validate(descriptor ProviderDescriptor) error {
 		}
 	}
 	switch descriptor.Desktop.UsageProbeKind {
-	case "", DesktopUsageProbeCodex, DesktopUsageProbeClaudeCode:
+	case "", DesktopUsageProbeCodex, DesktopUsageProbeClaudeCode, DesktopUsageProbeCodeBuddy:
 	default:
 		return fmt.Errorf("provider %q desktop usage probe kind %q is unsupported", providerID, descriptor.Desktop.UsageProbeKind)
 	}

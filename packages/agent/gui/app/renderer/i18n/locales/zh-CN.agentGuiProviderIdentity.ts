@@ -7,6 +7,8 @@ export const zhCNAgentGuiProviderIdentity = {
   conversationFilterNexight: "Nexight",
   conversationFilterHermes: "Hermes Agent",
   conversationFilterOpenClaw: "OpenClaw",
+  conversationFilterDoubao: "豆包",
+  conversationFilterCodeBuddy: "WorkBuddy",
   manageAgents: "Agent 栏展示设置",
   manageAgentsTitle: "Agent 栏展示设置",
   manageAgentsDescription:

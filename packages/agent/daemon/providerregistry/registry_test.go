@@ -302,6 +302,8 @@ func TestMigratedProviderSetIsComplete(t *testing.T) {
 		OpenClawProviderID:   true,
 		OpenCodeProviderID:   true,
 		TuttiAgentProviderID: true,
+		DoubaoProviderID:     true,
+		CodeBuddyProviderID:  true,
 	}
 	for _, descriptor := range Migrated() {
 		if !want[descriptor.Identity.ID] {
@@ -355,6 +357,8 @@ func TestMigratedProviderSidecarPoliciesAreDescriptorOwned(t *testing.T) {
 		OpenCodeProviderID:   {ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC},
 		NexightProviderID:    {ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC, SkillRoot: ".nexight/skills"},
 		OpenClawProviderID:   {ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC, SkillRoot: ".openclaw/skills"},
+		DoubaoProviderID:     {ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC},
+		CodeBuddyProviderID:  {ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC},
 	}
 	for _, descriptor := range Migrated() {
 		if descriptor.Sidecar != want[descriptor.Identity.ID] {
@@ -376,6 +380,8 @@ func TestMigratedProviderDesktopIntegrationIsDescriptorOwned(t *testing.T) {
 		OpenCodeProviderID:   {Managed: true, ManagedOrder: 5, StatusProbePriority: 5, DefaultProviderEligible: true, DefaultProviderPriority: 5},
 		NexightProviderID:    {},
 		OpenClawProviderID:   {Managed: true, ManagedOrder: 7, StatusProbePriority: 7, UnavailableDockOrderOffset: 200},
+		DoubaoProviderID:     {Managed: true, ManagedOrder: 8, StatusProbePriority: 8, UnavailableDockOrderOffset: 220, DefaultProviderEligible: true, DefaultProviderPriority: 9},
+		CodeBuddyProviderID:  {Managed: true, ManagedOrder: 9, StatusProbePriority: 9, UsageProbeKind: DesktopUsageProbeCodeBuddy, UnavailableDockOrderOffset: 230, DefaultProviderEligible: true, DefaultProviderPriority: 10},
 	}
 	for _, descriptor := range Migrated() {
 		if descriptor.Desktop != want[descriptor.Identity.ID] {
