@@ -46,8 +46,12 @@ WorkBuddy 桌面 App（腾讯 CodeBuddy 引擎）通过**headless CLI 桥接**�
   - `DesktopUsageProbeKindCodeBuddy`（"codebuddy"）+ 桌面端 handler
     `apps/desktop/src/main/codebuddyProviderUsageProbe.ts`
   - 数据源 `POST https://copilot.tencent.com/billing/meter/get-user-resource`（Bearer token 取自上述凭据文件）
-  - 聚合 `Accounts[]` 的 `CapacityRemain/CapacitySize`（CapacityUnit=credits），
-    输出 quotaType=credits + percentRemaining + amountRemaining/amountLimit + resetsAtUnixMs（CycleEndTime，UTC+8 解析）
+  - 请求体携带 App 同款过滤参数：ProductCode="p_tcaca"、Status=[0,3]、分页、时间范围
+  - 用 `CycleCapacityRemainPrecise`/`CycleCapacitySizePrecise`（精确小数）聚合所有有效套餐
+  - activePlan 优先级：旗舰 > 高级 > 青年 > Pro年付/月付 > 试用/体验
+  - PackageCode → 中文套餐名映射（免费版/Pro月付版/成长计划积分/青年版/高级版/旗舰版等）
+  - 输出 quotaType=credits + percentRemaining + amountRemaining/amountLimit + resetsAtUnixMs（activePlan.CycleEndTime，UTC+8 解析）
+  - 已验证：Tutti 显示 7,611.72 credits 与 WorkBuddy App 完全一致
 - `~/.local/bin/codebuddy` 是个薄包装器（`login`/`--login` 引导进交互式 REPL 输入 `/login`，其余透传）
 
 改动文件：
