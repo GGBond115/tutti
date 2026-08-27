@@ -28,13 +28,14 @@ interface WorkBuddyAuthSession {
 }
 
 interface WorkBuddyBillingAccount {
-  PackageName?: unknown;
   PackageCode?: unknown;
-  CapacityUnit?: unknown;
-  CapacityRemain?: unknown;
-  CapacitySize?: unknown;
-  CapacityUsed?: unknown;
+  PackageName?: unknown;
+  Status?: unknown;
+  CycleCapacityRemainPrecise?: unknown;
+  CycleCapacitySizePrecise?: unknown;
   CycleEndTime?: unknown;
+  DeductionEndTime?: unknown;
+  ExpiredTime?: unknown;
 }
 
 interface WorkBuddyBillingResponse {
@@ -47,6 +48,42 @@ interface WorkBuddyBillingResponse {
     } | null;
   } | null;
 }
+
+const WORKBUDDY_PACKAGE_NAMES: Record<string, string> = {
+  TCACA_code_001_PqouKr6QWV: "免费版",
+  TCACA_code_002_AkiJS3ZHF5: "Pro 月付版",
+  TCACA_code_005_maRGyrHhw1: "Pro 月付版",
+  TCACA_code_006_DbXS0lrypC: "Pro 试用版",
+  TCACA_code_007_nzdH5h4Nl0: "成长计划积分",
+  TCACA_code_003_FAnt7lcmRT: "Pro 年付版",
+  TCACA_code_008_cfWoLwvjU4: "体验版（每日积分）",
+  TCACA_code_009_0XmEQc2xOf: "积分加油包",
+  TCACA_code_023_4xbGhMrE6q: "青年版",
+  TCACA_code_026_BaESVICNoi: "高级版",
+  TCACA_code_027_0FCGVA6vSa: "旗舰版",
+  TCACA_code_028_NtpWi0jzXs: "奖励积分包",
+  TCACA_code_029_6wCGEWquYy: "奖励积分包",
+  TCACA_code_030_BjSt89qTvr: "奖励积分包",
+  TCACA_code_035_ArVxJcGDsm: "体验版（每日积分）",
+  TCACA_code_036_lupO5WgNdG: "积分加油包",
+  TCACA_code_037_WxOD3MpI2o: "奖励积分包",
+  TCACA_code_038_OhvqZtiPKr: "积分加油包",
+  TCACA_code_039_KRcQj7wUat: "Pro 试用包",
+  TCACA_code_040_mi9rCYg46x: "Pro 试用包"
+};
+
+const ACTIVE_PLAN_PRIORITY: string[] = [
+  "TCACA_code_027_0FCGVA6vSa",
+  "TCACA_code_026_BaESVICNoi",
+  "TCACA_code_023_4xbGhMrE6q",
+  "TCACA_code_003_FAnt7lcmRT",
+  "TCACA_code_002_AkiJS3ZHF5",
+  "TCACA_code_005_maRGyrHhw1",
+  "TCACA_code_006_DbXS0lrypC",
+  "TCACA_code_008_cfWoLwvjU4",
+  "TCACA_code_039_KRcQj7wUat",
+  "TCACA_code_040_mi9rCYg46x"
+];
 
 export async function probeCodeBuddyProvider(
   input: AgentProviderProbeListInput,
@@ -170,6 +207,12 @@ async function loadWorkBuddyAuthSession(): Promise<WorkBuddyAuthSession> {
 async function fetchWorkBuddyBilling(
   accessToken: string
 ): Promise<WorkBuddyBillingResponse> {
+  const now = new Date();
+  const pad = (n: number): string => n.toString().padStart(2, "0");
+  const formatDate = (d: Date): string =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+      d.getHours()
+    )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const response = await outboundFetch(WORKBUDDY_BILLING_URL, {
     method: "POST",
     headers: {
@@ -178,7 +221,14 @@ async function fetchWorkBuddyBilling(
       "Content-Type": "application/json",
       "User-Agent": "Tutti"
     },
-    body: JSON.stringify({})
+    body: JSON.stringify({
+      PageNumber: 1,
+      PageSize: 100,
+      ProductCode: "p_tcaca",
+      Status: [0, 3],
+      PackageStartTimeRangeBegin: "2024-12-01 21:25:00",
+      PackageStartTimeRangeEnd: formatDate(now)
+    })
   });
   const text = await response.text();
   if (response.status === 401 || response.status === 403) {
@@ -209,44 +259,56 @@ function workBuddyUsageFromBilling(
   }
   let amountRemaining = 0;
   let amountLimit = 0;
-  let packageName = "";
-  let resetsAtUnixMs: number | undefined;
-  let sawCredits = false;
+  let activePlan: WorkBuddyBillingAccount | null = null;
+  let activePlanPriority = Number.POSITIVE_INFINITY;
+  let nearestResetUnixMs: number | undefined;
   for (const account of accounts) {
-    const unit = stringValue(account.CapacityUnit).toLowerCase();
-    const remain = numberValue(account.CapacityRemain);
-    const size = numberValue(account.CapacitySize);
-    if (unit && unit !== "credits") continue;
+    const remain = preciseNumberValue(account.CycleCapacityRemainPrecise);
+    const size = preciseNumberValue(account.CycleCapacitySizePrecise);
     if (remain === undefined || size === undefined) continue;
-    sawCredits = true;
     amountRemaining += remain;
     amountLimit += size;
-    packageName = packageName || stringValue(account.PackageName) || "";
+    const packageCode = stringValue(account.PackageCode);
+    const priority = ACTIVE_PLAN_PRIORITY.indexOf(packageCode);
+    if (priority >= 0 && priority < activePlanPriority) {
+      activePlanPriority = priority;
+      activePlan = account;
+    }
     const cycleEnd = cycleEndTimeToUnixMs(account.CycleEndTime);
     if (
+      remain > 0 &&
       cycleEnd &&
-      (resetsAtUnixMs === undefined || cycleEnd > resetsAtUnixMs)
+      (nearestResetUnixMs === undefined || cycleEnd < nearestResetUnixMs)
     ) {
-      resetsAtUnixMs = cycleEnd;
+      nearestResetUnixMs = cycleEnd;
     }
   }
-  if (!sawCredits || amountLimit <= 0) {
+  if (amountLimit <= 0) {
     return null;
   }
   const percentRemaining = Math.max(
     0,
     Math.min(100, (amountRemaining / amountLimit) * 100)
   );
+  const tierName = activePlan
+    ? WORKBUDDY_PACKAGE_NAMES[stringValue(activePlan.PackageCode)] ||
+      stringValue(activePlan.PackageName) ||
+      "WorkBuddy"
+    : "WorkBuddy";
+  const resetFromActivePlan = activePlan
+    ? cycleEndTimeToUnixMs(activePlan.CycleEndTime)
+    : undefined;
+  const resetsAtUnixMs = resetFromActivePlan ?? nearestResetUnixMs;
   const quota: AgentUsageQuota = {
     quotaType: "credits",
     percentRemaining,
-    amountRemaining,
-    amountLimit,
+    amountRemaining: Math.round(amountRemaining * 100) / 100,
+    amountLimit: Math.round(amountLimit * 100) / 100,
     amountUnit: "credits",
     ...(resetsAtUnixMs ? { resetsAtUnixMs } : {})
   };
   return {
-    accountTier: packageName || undefined,
+    accountTier: tierName,
     billingMode: "provider_account" as const,
     quotaState: "complete" as const,
     capturedAtUnixMs,
@@ -269,7 +331,7 @@ function workBuddyProbeErrorCode(error: unknown): string {
   return "execution_failed";
 }
 
-function numberValue(value: unknown): number | undefined {
+function preciseNumberValue(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
     const parsed = Number(value);
